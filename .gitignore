@@ -1,0 +1,17 @@
+node_modules/
+dist/
+src-tauri/target/
+.env
+.env.*
+!.env.example
+!.env.production
+.cursor/
+**/.replay-buffer/
+*.log
+npm-debug.log*
+Thumbs.db
+Desktop.ini
+.DS_Store
+.idea/
+coverage/
+web/public/releases/*.exe

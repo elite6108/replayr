@@ -1,0 +1,122 @@
+#[cfg(windows)]
+mod audio;
+#[cfg(windows)]
+mod encode;
+#[cfg(windows)]
+mod export;
+#[cfg(windows)]
+mod thumb;
+mod auth;
+mod branding;
+mod buffer;
+mod capture;
+mod commands;
+mod database;
+mod detection;
+mod disk;
+mod error;
+mod games;
+mod hotkeys;
+mod library;
+mod process;
+mod settings;
+mod still;
+mod system;
+mod upload;
+
+use database::AppState;
+use std::sync::Mutex;
+use tauri::Manager;
+use tracing_subscriber::EnvFilter;
+
+fn init_logging() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .compact()
+        .init();
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    init_logging();
+    tracing::info!("{} ({}) starting", branding::APP_NAME, branding::APP_IDENTIFIER);
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    crate::hotkeys::handle(app, shortcut, event);
+                })
+                .build(),
+        )
+        .setup(|app| {
+            let conn = database::open_for_app(app.handle()).map_err(|err| err.to_string())?;
+            app.manage(AppState { db: Mutex::new(conn) });
+            app.manage(detection::DetectionState::default());
+            app.manage(capture::RecordingState::default());
+            app.manage(hotkeys::HotkeyMap::default());
+            system::setup_tray(app.handle()).map_err(|err| err.to_string())?;
+            detection::start(app.handle().clone());
+            hotkeys::sync(app.handle()).map_err(|err| err.to_string())?;
+            {
+                let rec = app.state::<capture::RecordingState>();
+                if let Err(err) = capture::sync_replay(app.handle(), &rec, None, None, None) {
+                    tracing::warn!("instant replay did not start: {err}");
+                }
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let close_to_tray = {
+                    let state = window.state::<AppState>();
+                    let close = match state.db.lock() {
+                        Ok(conn) => crate::settings::load(&conn)
+                            .map(|settings| settings.close_to_tray)
+                            .unwrap_or(true),
+                        Err(_) => true,
+                    };
+                    close
+                };
+                if close_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_all_settings,
+            commands::set_setting,
+            commands::set_settings,
+            commands::list_local_clips,
+            commands::rename_local_clip,
+            commands::set_local_clip_favorite,
+            commands::delete_local_clip,
+            commands::reveal_local_clip,
+            commands::export_local_clip,
+            commands::download_url_to_file,
+            commands::get_default_save_location,
+            commands::auth_get_item,
+            commands::auth_set_item,
+            commands::auth_remove_item,
+            commands::list_games,
+            commands::sync_games,
+            commands::get_detected_game,
+            commands::start_recording,
+            commands::stop_recording,
+            commands::get_recording_status,
+            commands::get_replay_status,
+            commands::save_clip,
+            commands::save_screenshot,
+            commands::upload_local_clip,
+            commands::delete_cloud_clip
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running Project Replay");
+}

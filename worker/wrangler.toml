@@ -1,0 +1,31 @@
+name = "replay-api"
+main = "src/index.ts"
+compatibility_date = "2025-10-01"
+workers_dev = false
+
+[[routes]]
+pattern = "replayr.tv/*"
+zone_name = "replayr.tv"
+
+[[routes]]
+pattern = "www.replayr.tv/*"
+zone_name = "replayr.tv"
+
+[vars]
+PUBLIC_APP_URL = "http://127.0.0.1:8787"
+
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/v1/*"]
+
+# Local secrets live in .dev.vars (gitignored). Sync from the repo env files:
+#   node worker/scripts/sync-dev-vars.mjs
+#
+# SUPABASE_URL
+# SUPABASE_ANON_KEY
+# R2_ACCOUNT_ID
+# R2_ACCESS_KEY_ID
+# R2_SECRET_ACCESS_KEY
+# R2_BUCKET_NAME

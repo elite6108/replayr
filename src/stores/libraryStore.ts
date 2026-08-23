@@ -27,6 +27,7 @@ interface LibraryState {
   favoritesOnly: boolean;
   selectedIds: string[];
   loaded: boolean;
+  error: string | null;
   initialize: () => Promise<void>;
   refresh: () => Promise<void>;
   play: (localId: string) => void;
@@ -82,6 +83,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   favoritesOnly: false,
   selectedIds: [],
   loaded: false,
+  error: null,
   initialize: async () => {
     await get().refresh();
     if (!listening) {
@@ -106,9 +108,12 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   refresh: async () => {
     try {
       const clips = await listLocalClips(80);
-      set({ clips, loaded: true });
-    } catch {
-      set({ clips: [], loaded: true });
+      set({ clips, loaded: true, error: null });
+    } catch (caught) {
+      const message = invokeErrorMessage(caught, "Could not load clips from this PC");
+      console.warn("listLocalClips failed", caught);
+      useToastStore.getState().show(message);
+      set({ clips: [], loaded: true, error: message });
     }
   },
   play: (localId) => set({ playingId: localId }),

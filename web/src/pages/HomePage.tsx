@@ -3,11 +3,13 @@ import { Link } from "react-router-dom";
 import { ClipThumb } from "../components/ClipThumb";
 import { GameCover } from "../components/GameCover";
 import { Seo } from "../components/Seo";
+import { useAuth } from "../lib/auth";
 import { WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
-import { formatDurationMs } from "../lib/format";
+import { formatCount, formatDurationMs, formatHandle } from "../lib/format";
 import { fetchGames, fetchPublicClips, type CatalogGame, type PublicClipCard } from "../lib/games";
 
 export function HomePage() {
+  const { session } = useAuth();
   const [games, setGames] = useState<CatalogGame[]>([]);
   const [clips, setClips] = useState<PublicClipCard[]>([]);
 
@@ -15,10 +17,10 @@ export function HomePage() {
     void fetchGames()
       .then((next) => setGames(next.filter((game) => game.coverUrl).slice(0, 8)))
       .catch(() => undefined);
-    void fetchPublicClips()
+    void fetchPublicClips(session?.access_token)
       .then(setClips)
       .catch(() => undefined);
-  }, []);
+  }, [session?.access_token]);
 
   return (
     <main className="landing">
@@ -36,9 +38,9 @@ export function HomePage() {
               link, no name attached.
             </p>
             <a className="btn glow" href={WINDOWS_DOWNLOAD_PATH}>
-              Download Replayr for free
+              Download and open Replayr
             </a>
-            <p className="hero-note">Available on Windows</p>
+            <p className="hero-note">Windows — download and open, no setup wizard</p>
           </div>
           <DesktopPreview />
         </div>
@@ -117,9 +119,9 @@ export function HomePage() {
       <section className="landing-section">
         <div className="landing-wrap">
           <div className="landing-row">
-            <h2 className="landing-heading flush">Public clips</h2>
-            <Link className="btn" to="/games">
-              Browse games
+            <h2 className="landing-heading flush">For You</h2>
+            <Link className="btn" to="/explore">
+              See all
             </Link>
           </div>
           {clips.length === 0 ? (
@@ -137,7 +139,10 @@ export function HomePage() {
                       {clip.durationMs ? <span className="clip-duration">{formatDurationMs(clip.durationMs)}</span> : null}
                     </div>
                     <strong>{clip.title || "Untitled clip"}</strong>
-                    <span className="muted">{clip.game?.name || "Public"}</span>
+                    <span className="muted">{formatHandle(clip.author)}</span>
+                    <span className="muted">
+                      {formatCount(clip.likeCount)} likes · {formatCount(clip.commentCount)} comments
+                    </span>
                   </Link>
                 </li>
               ))}
@@ -167,7 +172,7 @@ export function HomePage() {
         <div className="landing-wrap">
           <h2>Clip on the PC. Share a link when you want.</h2>
           <a className="btn glow" href={WINDOWS_DOWNLOAD_PATH}>
-            Download Replayr for free
+            Download and open Replayr
           </a>
         </div>
       </section>

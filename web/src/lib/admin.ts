@@ -34,6 +34,22 @@ export interface AdminOverview {
   clipsToday: number;
   storageUsedBytes: number;
   pendingCreatorApps: number;
+  openErrors: number;
+  errors24h: number;
+}
+
+export interface AdminErrorRow {
+  fingerprint: string;
+  surface: "desktop" | "web" | "mobile" | "worker";
+  level: "error" | "crash";
+  message: string;
+  stack: string | null;
+  release: string | null;
+  path: string | null;
+  count: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  resolvedAt: string | null;
 }
 
 export interface AdminPlan {
@@ -181,6 +197,31 @@ export function fetchAdminStorage(token: string) {
 export function fetchAdminCreators(token: string, status = "pending") {
   const suffix = status ? `?status=${encodeURIComponent(status)}` : "";
   return adminFetch<{ applications: AdminCreatorRow[] }>(`/v1/admin/creators${suffix}`, token);
+}
+
+export async function fetchAdminErrors(
+  token: string,
+  params: { q?: string; surface?: string; level?: string; resolved?: "open" | "all"; page?: number } = {},
+): Promise<AdminList<AdminErrorRow>> {
+  const query = new URLSearchParams();
+  if (params.q) query.set("q", params.q);
+  if (params.surface) query.set("surface", params.surface);
+  if (params.level) query.set("level", params.level);
+  if (params.resolved === "all") query.set("resolved", "all");
+  if (params.page) query.set("page", String(params.page));
+  const suffix = query.toString() ? `?${query}` : "";
+  const body = await adminFetch<{ errors: AdminErrorRow[]; total: number; page: number; limit: number }>(
+    `/v1/admin/errors${suffix}`,
+    token,
+  );
+  return { items: body.errors, total: body.total, page: body.page, limit: body.limit };
+}
+
+export function resolveAdminError(token: string, fingerprint: string, resolved = true) {
+  return adminFetch<{ ok: boolean }>(`/v1/admin/errors/${fingerprint}`, token, {
+    method: "PATCH",
+    body: JSON.stringify({ resolved }),
+  });
 }
 
 export function reviewCreatorApplication(token: string, id: string, status: "approved" | "rejected", note?: string) {

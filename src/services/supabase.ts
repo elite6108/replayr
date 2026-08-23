@@ -25,8 +25,6 @@ export function getSupabase(): SupabaseClient {
       flowType: "pkce",
       storage: credentialStorage,
       storageKey: "tv.elite.replay.auth",
-      // WebView2's navigator.locks can stall supabase-js after a successful login.
-      lock: async (_name, _timeout, fn) => fn(),
     },
   });
   return client;

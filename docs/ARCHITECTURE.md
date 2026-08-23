@@ -86,7 +86,7 @@ Never ship:
 4. **Supabase Auth** issues JWTs. The session blob is persisted as a DPAPI-protected file under app data (Windows Credential Manager cannot hold a JWT session — the cap is 2560 bytes). `supabase-js` still performs sign-in, refresh, and sign-out; only the storage backend is native.
 5. **Cloudflare Worker** (Phase 6) verifies the Supabase JWT, then uses the service role only on the server for privileged rows (create clip, quota, unlisted slug lookup, delete).
 6. **R2** stores bytes. Postgres stores object keys such as `clips/{user_id}/{clip_id}/original.mp4`.
-7. **Public web** (Phase 7+) is a separate Vite app for marketing, cloud clip management, and playback. Clip URLs do not depend on usernames.
+7. **Public web** (Phase 7+) is a separate Vite app for marketing, cloud clip management, and playback. Clip URLs do not depend on usernames. The Expo app in `mobile/` is the same cloud product on iOS/Android. Capture does not happen there.
 
 ## Recording architecture (Phase 3+, not Phase 1)
 
@@ -105,7 +105,7 @@ DXGI Desktop Duplication is the fallback where exclusive fullscreen bypasses DWM
 Traits to implement later:
 
 - `CaptureEngine` — start/stop, target window or monitor, frames on a non-UI thread
-- `AudioCapture` — device selection, per-source gain, optional separate tracks
+- `AudioCapture` — device selection, per-source gain, optional separate tracks. Advanced routing (process loopback, mixer, multi-track MP4): [AUDIO_ROUTING.md](./AUDIO_ROUTING.md).
 - `VideoEncoder` — GPU textures in; `EncoderCapabilities { vendor, codec, avc, hevc, av1, max_resolution, hardware }`
 - `ReplayBuffer` — ~2s independently decodable segments, ring by duration. Scratch files live in app cache, not the clip save folder, and are deleted unless Save Clip remuxes them into a library file.
 - `RecordingSession` — manual start/stop to a single file

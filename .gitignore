@@ -15,3 +15,6 @@ Desktop.ini
 .idea/
 coverage/
 web/public/releases/*.exe
+web/public/releases/*.sig
+web/public/releases/latest.json
+.tauri/

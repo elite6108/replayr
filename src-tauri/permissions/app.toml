@@ -1,0 +1,27 @@
+[[permission]]
+identifier = "allow-app-commands"
+description = "Replayr desktop commands for settings, library, catalog, and recording"
+commands.allow = [
+  "get_all_settings",
+  "set_setting",
+  "set_settings",
+  "list_local_clips",
+  "rename_local_clip",
+  "set_local_clip_favorite",
+  "delete_local_clip",
+  "reveal_local_clip",
+  "export_local_clip",
+  "download_url_to_file",
+  "get_default_save_location",
+  "list_games",
+  "sync_games",
+  "get_detected_game",
+  "start_recording",
+  "stop_recording",
+  "get_recording_status",
+  "get_replay_status",
+  "save_clip",
+  "save_screenshot",
+  "upload_local_clip",
+  "delete_cloud_clip"
+]

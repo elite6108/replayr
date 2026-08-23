@@ -1,13 +1,15 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ClipCard } from "../components/common/ClipCard";
 import { ClipGrid } from "../components/common/ClipGrid";
 import { ClipRail } from "../components/common/ClipRail";
 import { DetectedGamePanel } from "../components/common/DetectedGamePanel";
+import { fetchPublicFeed, type PublicFeedClip } from "../services/social";
 import { useAuthStore } from "../stores/authStore";
 import { useDetectionStore } from "../stores/detectionStore";
 import { useLibraryStore } from "../stores/libraryStore";
 import { useRecordingStore } from "../stores/recordingStore";
-import { formatBytes, formatDuration } from "../utils/format";
+import { formatBytes, formatCount, formatDuration, formatHandle } from "../utils/format";
 
 export function HomePage() {
   const user = useAuthStore((state) => state.user);
@@ -33,6 +35,14 @@ export function HomePage() {
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
   const name = profile?.display_name || profile?.username || user?.email?.split("@")[0];
   const running = snapshot.running.filter((game) => game.slug !== snapshot.slug);
+  const token = useAuthStore((state) => state.session?.access_token);
+  const [feed, setFeed] = useState<PublicFeedClip[]>([]);
+
+  useEffect(() => {
+    void fetchPublicFeed(token)
+      .then(setFeed)
+      .catch(() => undefined);
+  }, [token]);
 
   return (
     <div className="home-layout">
@@ -85,6 +95,27 @@ export function HomePage() {
             ))}
           </ClipRail>
         )}
+
+        {feed.length > 0 ? (
+          <ClipRail
+            title="For You"
+            action={
+              <Link className="btn ghost" to="/explore">
+                See all
+              </Link>
+            }
+          >
+            {feed.slice(0, 8).map((clip) => (
+              <Link key={clip.id} className="feed-home-card" to="/explore">
+                {clip.thumbnailUrl ? <img src={clip.thumbnailUrl} alt="" /> : <div className="feed-thumb-empty" />}
+                <strong>{clip.title || "Untitled clip"}</strong>
+                <span className="muted">
+                  {formatHandle(clip.author)} · {formatCount(clip.likeCount)} likes
+                </span>
+              </Link>
+            ))}
+          </ClipRail>
+        ) : null}
       </div>
 
       <aside className="home-aside">

@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { APP_NAME } from "../branding";
 import { AuthCard } from "../components/common/AuthCard";
@@ -6,6 +6,7 @@ import { useAuthStore } from "../stores/authStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { validateUsername } from "../utils/username";
 import type { AppSettings } from "../types/settings";
+import { MicrophoneControls } from "../components/settings/MicrophoneControls";
 
 const STEPS = ["Welcome", "Account", "Quality", "Length", "Microphone", "Save folder", "Hotkey", "Startup", "Done"] as const;
 
@@ -17,13 +18,45 @@ export function OnboardingPage() {
   const user = useAuthStore((state) => state.user);
   const profile = useAuthStore((state) => state.profile);
   const saveProfile = useAuthStore((state) => state.saveProfile);
+  const refreshProfile = useAuthStore((state) => state.refreshProfile);
 
   const [username, setUsername] = useState(profile?.username ?? "");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [accountChecked, setAccountChecked] = useState(false);
 
   async function finish() {
-    await patch({ onboardingCompleted: true });
+    const current = useSettingsStore.getState().settings;
+    useSettingsStore.setState({
+      settings: { ...current, onboardingCompleted: true, desktopShortcutPrompted: true },
+    });
+    void patch({ onboardingCompleted: true, desktopShortcutPrompted: true }).catch(() => undefined);
   }
+
+  useEffect(() => {
+    if (profile?.username) setUsername(profile.username);
+  }, [profile?.username]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setAccountChecked(false);
+      return;
+    }
+    let cancelled = false;
+    setAccountChecked(false);
+    void refreshProfile()
+      .catch(() => undefined)
+      .finally(() => {
+        if (cancelled) return;
+        if (useAuthStore.getState().profile?.username) {
+          void finish();
+          return;
+        }
+        setAccountChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, refreshProfile]);
 
   async function chooseFolder() {
     const selected = await open({ directory: true, multiple: false, title: "Choose clip save location" });
@@ -74,9 +107,11 @@ export function OnboardingPage() {
             <h1>Account</h1>
             {!configured ? (
               <p className="muted">Supabase is not configured yet. You can skip and use the app locally.</p>
+            ) : user && !accountChecked ? (
+              <p className="muted">Loading your account…</p>
             ) : user ? (
               profile?.username ? (
-                <p>Signed in as {profile.username}.</p>
+                <p>Signed in as {profile.username}. Opening {APP_NAME}…</p>
               ) : (
                 <form className="stack" onSubmit={(event) => void saveUsername(event)}>
                   <p>Choose a unique username. Clip links will not include this name.</p>
@@ -97,11 +132,9 @@ export function OnboardingPage() {
               <button className="btn" type="button" onClick={() => setStep(2)}>
                 Skip account
               </button>
-              {user && profile?.username ? (
-                <button className="btn primary" type="button" onClick={() => setStep(2)}>
-                  Next
-                </button>
-              ) : null}
+              <button className="btn" type="button" onClick={() => void finish()}>
+                Open {APP_NAME}
+              </button>
             </div>
           </>
         ) : null}
@@ -167,16 +200,35 @@ export function OnboardingPage() {
 
         {step === 4 ? (
           <>
-            <h1>Microphone</h1>
-            <label className="row">
-              <input
-                type="checkbox"
-                checked={settings.micEnabled}
-                onChange={(event) => void patch({ micEnabled: event.target.checked })}
+            <h1>Include your microphone in clips?</h1>
+            <p className="muted">Replayr will not record your mic until you opt in. You can change this later in Settings.</p>
+            <div className="row">
+              <button
+                className={settings.micEnabled ? "btn primary" : "btn"}
+                type="button"
+                onClick={() => void patch({ micEnabled: true })}
+              >
+                Yes, include my microphone
+              </button>
+              <button
+                className={!settings.micEnabled ? "btn primary" : "btn"}
+                type="button"
+                onClick={() => void patch({ micEnabled: false })}
+              >
+                No, not now
+              </button>
+            </div>
+            {settings.micEnabled ? (
+              <MicrophoneControls
+                enabled
+                compact
+                deviceId={settings.microphoneId}
+                gain={settings.micGain}
+                onEnabled={(enabled) => void patch({ micEnabled: enabled })}
+                onDeviceId={(deviceId) => void patch({ microphoneId: deviceId })}
+                onGain={(gain) => void patch({ micGain: gain })}
               />
-              Record microphone when capture exists
-            </label>
-            <p className="muted">Device selection arrives with the recording engine.</p>
+            ) : null}
             <button className="btn primary" type="button" onClick={() => setStep(5)}>
               Next
             </button>
@@ -221,9 +273,29 @@ export function OnboardingPage() {
               />
               Launch {APP_NAME} when Windows starts
             </label>
-            <button className="btn primary" type="button" onClick={() => setStep(8)}>
-              Next
-            </button>
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={settings.desktopShortcut}
+                onChange={(event) => void patch({ desktopShortcut: event.target.checked })}
+              />
+              Add {APP_NAME} to the desktop
+            </label>
+            <div className="row">
+              <button
+                className="btn primary"
+                type="button"
+                onClick={() => {
+                  void patch({ desktopShortcutPrompted: true }).catch(() => undefined);
+                  setStep(8);
+                }}
+              >
+                Next
+              </button>
+              <button className="btn" type="button" onClick={() => void finish()}>
+                Open {APP_NAME}
+              </button>
+            </div>
           </>
         ) : null}
 

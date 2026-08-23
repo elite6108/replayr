@@ -30,6 +30,7 @@ pub struct GameInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessRef {
     pub pid: u32,
+    pub parent_pid: u32,
     pub name: String,
 }
 
@@ -280,6 +281,7 @@ mod tests {
     fn matches_process_name_case_insensitively() {
         let processes = vec![ProcessRef {
             pid: 20,
+            parent_pid: 0,
             name: r"C:\Riot Games\VALORANT\live\VALORANT-Win64-Shipping.exe".into(),
         }];
         let snapshot = detect_games(&processes, Some(20), &catalog());
@@ -293,10 +295,12 @@ mod tests {
         let processes = vec![
             ProcessRef {
                 pid: 8,
+                parent_pid: 0,
                 name: "explorer.exe".into(),
             },
             ProcessRef {
                 pid: 40,
+                parent_pid: 0,
                 name: "cs2.exe".into(),
             },
         ];
@@ -310,10 +314,12 @@ mod tests {
         let processes = vec![
             ProcessRef {
                 pid: 11,
+                parent_pid: 0,
                 name: "cs2.exe".into(),
             },
             ProcessRef {
                 pid: 22,
+                parent_pid: 0,
                 name: "VALORANT-Win64-Shipping.exe".into(),
             },
         ];
@@ -327,6 +333,7 @@ mod tests {
     fn ignores_unknown_processes() {
         let processes = vec![ProcessRef {
             pid: 1,
+            parent_pid: 0,
             name: "notepad.exe".into(),
         }];
         let snapshot = detect_games(&processes, Some(1), &catalog());
@@ -417,6 +424,7 @@ mod tests {
         let snapshot = detect_games(
             &[ProcessRef {
                 pid: 6920,
+                parent_pid: 0,
                 name: "FiveM_b3258_GTAProcess.exe".into(),
             }],
             Some(1),

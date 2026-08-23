@@ -1,5 +1,6 @@
 #[cfg(windows)]
 mod audio;
+mod audio_resolve;
 #[cfg(windows)]
 mod encode;
 #[cfg(windows)]
@@ -19,7 +20,10 @@ mod games;
 mod hotkeys;
 mod library;
 mod process;
+#[cfg(windows)]
+mod process_loopback;
 mod settings;
+mod shortcut;
 mod still;
 mod system;
 mod upload;
@@ -64,6 +68,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -77,14 +83,41 @@ pub fn run() {
             app.manage(detection::DetectionState::default());
             app.manage(capture::RecordingState::default());
             app.manage(hotkeys::HotkeyMap::default());
+            #[cfg(windows)]
+            {
+                app.manage(crate::audio::AudioRuntime::new());
+                let runtime = app.state::<crate::audio::AudioRuntime>();
+                runtime.bind(app.handle().clone());
+                let handle = app.handle().clone();
+                std::thread::Builder::new()
+                    .name("audio-apply".into())
+                    .spawn(move || {
+                        let loaded = {
+                            let db = handle.state::<AppState>();
+                            db.db
+                                .lock()
+                                .ok()
+                                .and_then(|conn| crate::settings::load(&conn).ok())
+                        };
+                        if let Some(settings) = loaded {
+                            handle.state::<crate::audio::AudioRuntime>().apply(&settings);
+                        }
+                    })
+                    .ok();
+            }
             system::setup_tray(app.handle()).map_err(|err| err.to_string())?;
             detection::start(app.handle().clone());
             hotkeys::sync(app.handle()).map_err(|err| err.to_string())?;
             {
-                let rec = app.state::<capture::RecordingState>();
-                if let Err(err) = capture::sync_replay(app.handle(), &rec, None, None, None) {
-                    tracing::warn!("instant replay did not start: {err}");
-                }
+                let handle = app.handle().clone();
+                let _ = std::thread::Builder::new()
+                    .name("sync-replay".into())
+                    .spawn(move || {
+                        let rec = handle.state::<capture::RecordingState>();
+                        if let Err(err) = capture::sync_replay(&handle, &rec, None, None, None) {
+                            tracing::warn!("instant replay did not start: {err}");
+                        }
+                    });
             }
             if let Err(err) = app.deep_link().register("replayr") {
                 tracing::warn!("could not register replayr:// handler: {err}");
@@ -113,6 +146,13 @@ pub fn run() {
             commands::get_all_settings,
             commands::set_setting,
             commands::set_settings,
+            commands::list_audio_devices,
+            commands::list_audio_sessions,
+            commands::get_audio_status,
+            commands::add_extra_audio_app,
+            commands::get_mic_level,
+            commands::stop_mic_monitor,
+            commands::resolve_mic_disconnect,
             commands::list_local_clips,
             commands::rename_local_clip,
             commands::set_local_clip_favorite,
@@ -134,7 +174,10 @@ pub fn run() {
             commands::save_clip,
             commands::save_screenshot,
             commands::upload_local_clip,
-            commands::delete_cloud_clip
+            commands::delete_cloud_clip,
+            commands::create_desktop_shortcut,
+            commands::remove_desktop_shortcut,
+            commands::desktop_shortcut_exists
         ])
         .run(tauri::generate_context!())
         .expect("error while running Project Replay");

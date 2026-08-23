@@ -46,6 +46,7 @@ mod windows_impl {
             if !name.is_empty() {
                 processes.push(ProcessRef {
                     pid: entry.th32ProcessID,
+                    parent_pid: entry.th32ParentProcessID,
                     name,
                 });
             }

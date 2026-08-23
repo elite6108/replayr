@@ -1,5 +1,9 @@
-/releases/Replayr-Setup.exe
+/releases/Replayr.exe
   Content-Type: application/octet-stream
-  Content-Disposition: attachment; filename="Replayr-Setup.exe"
+  Content-Disposition: attachment; filename="Replayr.exe"
   X-Content-Type-Options: nosniff
   Cache-Control: public, max-age=3600
+
+/releases/latest.json
+  Content-Type: application/json
+  Cache-Control: no-cache, must-revalidate

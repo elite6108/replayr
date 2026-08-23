@@ -6,7 +6,16 @@ export function ToastRegion() {
     <div className="toast-region" aria-live="polite">
       {toasts.map((toast) => (
         <div key={toast.id} className="toast">
-          {toast.message}
+          <div>{toast.message}</div>
+          {toast.actions?.length ? (
+            <div className="toast-actions">
+              {toast.actions.map((action) => (
+                <button key={action.label} type="button" className="btn" onClick={action.onClick}>
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       ))}
     </div>

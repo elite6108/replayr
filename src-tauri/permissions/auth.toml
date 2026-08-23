@@ -1,0 +1,14 @@
+[[permission]]
+identifier = "allow-auth-get-item"
+description = "Read a DPAPI-protected auth session value"
+commands.allow = ["auth_get_item"]
+
+[[permission]]
+identifier = "allow-auth-set-item"
+description = "Write a DPAPI-protected auth session value"
+commands.allow = ["auth_set_item"]
+
+[[permission]]
+identifier = "allow-auth-remove-item"
+description = "Delete a DPAPI-protected auth session value"
+commands.allow = ["auth_remove_item"]

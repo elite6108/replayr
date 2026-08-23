@@ -2,7 +2,29 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
+
+pub const MAX_EXTRA_ISOLATED_APPS: usize = 4;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtraAudioApp {
+    pub id: String,
+    pub exe: String,
+    pub display_name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_mic_gain")]
+    pub gain: f32,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_game_audio_enabled() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -37,7 +59,21 @@ pub struct AppSettings {
     pub codec: String,
     pub microphone_id: String,
     pub audio_output_id: String,
+    #[serde(default)]
     pub mic_enabled: bool,
+    /// Linear microphone gain. 0.0 is mute, 1.0 is 100%, 2.0 is 200%.
+    #[serde(default = "default_mic_gain")]
+    pub mic_gain: f32,
+    #[serde(default = "default_game_audio_enabled")]
+    pub game_audio_enabled: bool,
+    #[serde(default = "default_mic_gain")]
+    pub game_audio_gain: f32,
+    #[serde(default)]
+    pub discord_audio_enabled: bool,
+    #[serde(default = "default_mic_gain")]
+    pub discord_audio_gain: f32,
+    #[serde(default)]
+    pub extra_apps: Vec<ExtraAudioApp>,
     pub system_audio_enabled: bool,
     pub save_location: String,
     pub hotkeys: Hotkeys,
@@ -48,6 +84,10 @@ pub struct AppSettings {
     pub min_free_disk_bytes: u64,
     pub theme: String,
     pub onboarding_completed: bool,
+    #[serde(default)]
+    pub desktop_shortcut: bool,
+    #[serde(default)]
+    pub desktop_shortcut_prompted: bool,
 }
 
 impl Default for AppSettings {
@@ -65,8 +105,14 @@ impl Default for AppSettings {
             codec: "h264".into(),
             microphone_id: "default".into(),
             audio_output_id: "default".into(),
-            mic_enabled: true,
-            system_audio_enabled: true,
+            mic_enabled: false,
+            mic_gain: default_mic_gain(),
+            game_audio_enabled: true,
+            game_audio_gain: default_mic_gain(),
+            discord_audio_enabled: false,
+            discord_audio_gain: default_mic_gain(),
+            extra_apps: Vec::new(),
+            system_audio_enabled: false,
             save_location: String::new(),
             hotkeys: Hotkeys::default(),
             auto_upload: "all".into(),
@@ -76,8 +122,14 @@ impl Default for AppSettings {
             min_free_disk_bytes: 10 * 1024 * 1024 * 1024,
             theme: "dark".into(),
             onboarding_completed: false,
+            desktop_shortcut: false,
+            desktop_shortcut_prompted: false,
         }
     }
+}
+
+fn default_mic_gain() -> f32 {
+    1.0
 }
 
 const SETTINGS_KEY: &str = "document";
@@ -91,12 +143,44 @@ pub fn load(conn: &Connection) -> AppResult<AppSettings> {
         )
         .optional_row()?;
     match stored {
-        Some(json) => Ok(serde_json::from_str(&json)?),
+        Some(json) => Ok(parse_settings_json(&json)),
         None => {
             let defaults = AppSettings::default();
             save(conn, &defaults)?;
             Ok(defaults)
         }
+    }
+}
+
+fn parse_settings_json(json: &str) -> AppSettings {
+    if let Ok(settings) = serde_json::from_str::<AppSettings>(json) {
+        return settings;
+    }
+    let mut value = match serde_json::to_value(AppSettings::default()) {
+        Ok(value) => value,
+        Err(_) => return AppSettings::default(),
+    };
+    if let Ok(mut stored) = serde_json::from_str::<Value>(json) {
+        strip_nulls(&mut stored);
+        merge_json(&mut value, stored);
+    }
+    serde_json::from_value(value).unwrap_or_default()
+}
+
+fn strip_nulls(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            map.retain(|_, child| !child.is_null());
+            for child in map.values_mut() {
+                strip_nulls(child);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                strip_nulls(item);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -113,9 +197,39 @@ pub fn save(conn: &Connection, settings: &AppSettings) -> AppResult<()> {
 pub fn set_document(conn: &Connection, patch: Value) -> AppResult<AppSettings> {
     let mut current = serde_json::to_value(load(conn)?)?;
     merge_json(&mut current, patch);
-    let settings: AppSettings = serde_json::from_value(current)?;
+    let mut settings: AppSettings = serde_json::from_value(current)?;
+    settings.mic_gain = settings.mic_gain.clamp(0.0, 2.0);
+    settings.game_audio_gain = settings.game_audio_gain.clamp(0.0, 2.0);
+    settings.discord_audio_gain = settings.discord_audio_gain.clamp(0.0, 2.0);
+    for app in &mut settings.extra_apps {
+        app.gain = app.gain.clamp(0.0, 2.0);
+        if app.id.trim().is_empty() {
+            app.id = crate::games::normalize_process_name(&app.exe);
+        }
+        if app.exe.trim().is_empty() {
+            return Err(AppError::Message("That app is missing an executable name.".into()));
+        }
+    }
+    let extras = settings.extra_apps.len();
+    if extras + usize::from(settings.discord_audio_enabled) > MAX_EXTRA_ISOLATED_APPS {
+        return Err(AppError::Message(format!(
+            "You can isolate up to {MAX_EXTRA_ISOLATED_APPS} apps besides the game. Discord counts as one."
+        )));
+    }
     save(conn, &settings)?;
     Ok(settings)
+}
+
+impl AppSettings {
+    pub fn wants_isolated_audio(&self) -> bool {
+        self.game_audio_enabled
+            || self.discord_audio_enabled
+            || self.extra_apps.iter().any(|app| app.enabled)
+    }
+
+    pub fn wants_audio_track(&self) -> bool {
+        self.system_audio_enabled || self.mic_enabled || self.wants_isolated_audio()
+    }
 }
 
 fn merge_json(target: &mut Value, patch: Value) {
@@ -179,6 +293,84 @@ mod tests {
         assert!(updated.onboarding_completed);
         assert_eq!(updated.fps, 120);
         assert_eq!(load(&conn).unwrap(), updated);
+    }
+
+    #[test]
+    fn desktop_shortcut_fields_default_when_missing() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("desktopShortcut");
+        object.remove("desktopShortcutPrompted");
+        let loaded: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(!loaded.desktop_shortcut);
+        assert!(!loaded.desktop_shortcut_prompted);
+    }
+
+    #[test]
+    fn mic_fields_default_when_missing() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("micGain");
+        object.remove("micEnabled");
+        let loaded: AppSettings = serde_json::from_value(value).unwrap();
+        assert!((loaded.mic_gain - 1.0).abs() < f32::EPSILON);
+        assert!(!loaded.mic_enabled);
+    }
+
+    #[test]
+    fn isolated_audio_fields_default_when_missing() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("gameAudioEnabled");
+        object.remove("discordAudioEnabled");
+        object.remove("extraApps");
+        let loaded: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(loaded.game_audio_enabled);
+        assert!(!loaded.discord_audio_enabled);
+        assert!(loaded.extra_apps.is_empty());
+        assert!(!loaded.system_audio_enabled);
+    }
+
+    #[test]
+    fn extra_app_cap_refuses_fifth_isolated_source() {
+        let dir = tempdir().unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+        let extras: Vec<ExtraAudioApp> = (0..4)
+            .map(|index| ExtraAudioApp {
+                id: format!("app-{index}"),
+                exe: format!("app{index}.exe"),
+                display_name: format!("App {index}"),
+                enabled: true,
+                gain: 1.0,
+            })
+            .collect();
+        let updated = set_document(
+            &conn,
+            serde_json::json!({ "extraApps": extras, "discordAudioEnabled": false }),
+        )
+        .unwrap();
+        assert_eq!(updated.extra_apps.len(), 4);
+        let err = set_document(&conn, serde_json::json!({ "discordAudioEnabled": true })).unwrap_err();
+        assert!(err.to_string().contains("up to 4"));
+    }
+
+    #[test]
+    fn settings_load_recovers_from_null_mic_fields() {
+        let dir = tempdir().unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        value["micGain"] = Value::Null;
+        value["micEnabled"] = Value::Null;
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)",
+            rusqlite::params![SETTINGS_KEY, value.to_string()],
+        )
+        .unwrap();
+        let loaded = load(&conn).unwrap();
+        assert!((loaded.mic_gain - 1.0).abs() < f32::EPSILON);
+        assert!(!loaded.mic_enabled);
     }
 
     #[test]

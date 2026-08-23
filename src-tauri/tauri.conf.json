@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Replayr",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "identifier": "tv.elite.replay",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost https://*.supabase.co wss://*.supabase.co http://127.0.0.1:* http://localhost:* ws://localhost:*; img-src 'self' data: https: blob: asset: http://asset.localhost; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost https: wss://*.supabase.co http://127.0.0.1:* http://localhost:* ws://localhost:*; img-src 'self' data: https: blob: asset: http://asset.localhost; media-src 'self' asset: http://asset.localhost blob: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
       "assetProtocol": {
         "enable": true,
         "scope": ["$HOME/**", "$VIDEO/**", "$DOCUMENT/**", "$APPDATA/**"]
@@ -35,17 +35,31 @@
       "desktop": {
         "schemes": ["replayr"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJEMUFCQjBBRENDOUZCNjcKUldSbis4bmNDcnNhTFJQcERSU09CM2RwKzM2cE9TRVBHQVVyNjgyZ2pLSDZiRmIwaDc4NzAwM1AK",
+      "endpoints": ["https://www.replayr.tv/releases/latest.json"],
+      "windows": {
+        "installMode": "quiet"
+      }
     }
   },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "windows/nsis-hooks.nsh"
+      }
+    }
   }
 }

@@ -1,3 +1,5 @@
+import { invokeErrorMessage } from "./format";
+
 export function normalizeAuthEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -14,12 +16,7 @@ export function validateAuthCredentials(email: string, password: string): string
 }
 
 export function authErrorMessage(caught: unknown, fallback: string): string {
-  const message =
-    caught && typeof caught === "object" && "message" in caught && typeof caught.message === "string"
-      ? caught.message
-      : caught instanceof Error
-        ? caught.message
-        : fallback;
+  const message = invokeErrorMessage(caught, fallback);
   if (/anonymous/i.test(message)) {
     return "Enter an email and password. Anonymous accounts are turned off.";
   }

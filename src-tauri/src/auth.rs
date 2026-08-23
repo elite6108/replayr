@@ -1,4 +1,6 @@
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use keyring::Entry;
 use tauri::{AppHandle, Manager};
@@ -6,27 +8,33 @@ use tauri::{AppHandle, Manager};
 use crate::branding::KEYRING_SERVICE;
 use crate::error::{AppError, AppResult};
 
-/// Windows Credential Manager rejects blobs over 2560 bytes. A Supabase session
-/// JSON is larger than that, so the session lives in an DPAPI-protected file
-/// under app data. The old keyring entries are still read once and migrated.
+const KEYRING_READ_TIMEOUT: Duration = Duration::from_millis(1500);
+
+/// Windows Credential Manager rejects blobs over 2560 bytes and can hang or
+/// error on leftover oversized entries. The session lives in a DPAPI-protected
+/// file; keyring is migration-only and must never fail a sign-in.
 pub fn get_item(app: &AppHandle, key: &str) -> AppResult<Option<String>> {
     let path = store_path(app, key)?;
     if path.exists() {
-        let bytes = std::fs::read(&path)?;
-        return Ok(Some(unprotect_string(&bytes)?));
-    }
-    match keyring_get(key) {
-        Ok(Some(value)) => {
-            if let Err(err) = set_item(app, key, &value) {
-                tracing::warn!("could not migrate auth item off the keyring: {err}");
-                return Ok(Some(value));
+        match std::fs::read(&path)
+            .map_err(AppError::from)
+            .and_then(|bytes| unprotect_string(&bytes))
+        {
+            Ok(value) => return Ok(Some(value)),
+            Err(err) => {
+                tracing::warn!("auth session file was unreadable and will be reset: {err}");
+                let _ = std::fs::remove_file(&path);
             }
-            let _ = keyring_remove(key);
-            Ok(Some(value))
         }
-        Ok(None) => Ok(None),
-        Err(err) => Err(err),
     }
+    if let Some(value) = keyring_get_timed(key) {
+        if let Err(err) = set_item(app, key, &value) {
+            tracing::warn!("could not migrate auth item off the keyring: {err}");
+            return Ok(Some(value));
+        }
+        return Ok(Some(value));
+    }
+    Ok(None)
 }
 
 pub fn set_item(app: &AppHandle, key: &str, value: &str) -> AppResult<()> {
@@ -36,7 +44,7 @@ pub fn set_item(app: &AppHandle, key: &str, value: &str) -> AppResult<()> {
     }
     let protected = protect_string(value)?;
     std::fs::write(&path, protected)?;
-    let _ = keyring_remove(key);
+    keyring_remove_bg(key);
     Ok(())
 }
 
@@ -45,7 +53,8 @@ pub fn remove_item(app: &AppHandle, key: &str) -> AppResult<()> {
     if path.exists() {
         std::fs::remove_file(path)?;
     }
-    keyring_remove(key)
+    keyring_remove_bg(key);
+    Ok(())
 }
 
 fn store_path(app: &AppHandle, key: &str) -> AppResult<PathBuf> {
@@ -78,6 +87,31 @@ fn keyring_get(key: &str) -> AppResult<Option<String>> {
     }
 }
 
+fn keyring_get_timed(key: &str) -> Option<String> {
+    let key = key.to_string();
+    let (tx, rx) = mpsc::channel();
+    let spawned = std::thread::Builder::new()
+        .name("auth-keyring-read".into())
+        .spawn(move || {
+            let _ = tx.send(keyring_get(&key));
+        });
+    if let Err(err) = spawned {
+        tracing::warn!("could not start legacy keyring read: {err}");
+        return None;
+    }
+    match rx.recv_timeout(KEYRING_READ_TIMEOUT) {
+        Ok(Ok(value)) => value,
+        Ok(Err(err)) => {
+            tracing::warn!("legacy keyring auth item could not be read: {err}");
+            None
+        }
+        Err(_) => {
+            tracing::warn!("legacy keyring auth item timed out; using the DPAPI store");
+            None
+        }
+    }
+}
+
 fn keyring_remove(key: &str) -> AppResult<()> {
     let entry = Entry::new(KEYRING_SERVICE, key)?;
     match entry.delete_credential() {
@@ -85,6 +119,17 @@ fn keyring_remove(key: &str) -> AppResult<()> {
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(err) => Err(err.into()),
     }
+}
+
+fn keyring_remove_bg(key: &str) {
+    let key = key.to_string();
+    let _ = std::thread::Builder::new()
+        .name("auth-keyring-cleanup".into())
+        .spawn(move || {
+            if let Err(err) = keyring_remove(&key) {
+                tracing::warn!("could not remove legacy keyring auth item: {err}");
+            }
+        });
 }
 
 fn protect_string(value: &str) -> AppResult<Vec<u8>> {
@@ -200,6 +245,15 @@ mod tests {
             safe_key("tv.elite.replay.auth-code-verifier").unwrap(),
             "tv.elite.replay.auth-code-verifier"
         );
+        assert_eq!(
+            safe_key("tv.elite.replay.auth-flows-code-verifier").unwrap(),
+            "tv.elite.replay.auth-flows-code-verifier"
+        );
+        let flow = format!(
+            "tv.elite.replay.auth-flow-{}-code-verifier",
+            "a".repeat(32)
+        );
+        assert_eq!(safe_key(&flow).unwrap(), flow);
     }
 
     #[test]

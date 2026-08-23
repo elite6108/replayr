@@ -25,6 +25,22 @@
     "global-shortcut:allow-is-registered",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
-    "global-shortcut:allow-unregister-all"
+    "global-shortcut:allow-unregister-all",
+    "allow-app-commands",
+    "allow-create-desktop-shortcut",
+    "allow-remove-desktop-shortcut",
+    "allow-desktop-shortcut-exists",
+    "allow-list-audio-devices",
+    "allow-list-audio-sessions",
+    "allow-get-audio-status",
+    "allow-add-extra-audio-app",
+    "allow-get-mic-level",
+    "allow-resolve-mic-disconnect",
+    "allow-stop-mic-monitor",
+    "allow-auth-get-item",
+    "allow-auth-set-item",
+    "allow-auth-remove-item",
+    "updater:default",
+    "process:default"
   ]
 }

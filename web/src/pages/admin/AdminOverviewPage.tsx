@@ -11,6 +11,8 @@ const cards: { key: keyof AdminOverview; label: string; to: string; format?: (va
   { key: "clipsToday", label: "Clips today", to: "/admin/clips" },
   { key: "storageUsedBytes", label: "Cloud storage used", to: "/admin/storage", format: formatBytes },
   { key: "pendingCreatorApps", label: "Pending creators", to: "/admin/creators" },
+  { key: "openErrors", label: "Open errors", to: "/admin/errors" },
+  { key: "errors24h", label: "Error groups / 24h", to: "/admin/errors" },
 ];
 
 export function AdminOverviewPage() {
@@ -48,7 +50,13 @@ export function AdminOverviewPage() {
         {cards.map((card) => (
           <Link key={card.key} className="admin-stat" to={card.to}>
             <span>{card.label}</span>
-            <strong>{data ? (card.format ? card.format(data[card.key]) : data[card.key].toLocaleString()) : "—"}</strong>
+            <strong>
+              {data
+                ? card.format
+                  ? card.format(data[card.key])
+                  : Number(data[card.key] ?? 0).toLocaleString()
+                : "—"}
+            </strong>
           </Link>
         ))}
       </div>

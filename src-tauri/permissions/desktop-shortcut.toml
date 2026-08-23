@@ -1,0 +1,14 @@
+[[permission]]
+identifier = "allow-create-desktop-shortcut"
+description = "Create the Replayr desktop shortcut"
+commands.allow = ["create_desktop_shortcut"]
+
+[[permission]]
+identifier = "allow-remove-desktop-shortcut"
+description = "Remove the Replayr desktop shortcut"
+commands.allow = ["remove_desktop_shortcut"]
+
+[[permission]]
+identifier = "allow-desktop-shortcut-exists"
+description = "Check whether the Replayr desktop shortcut exists"
+commands.allow = ["desktop_shortcut_exists"]

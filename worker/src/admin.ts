@@ -1,4 +1,5 @@
 import { AwsClient } from "aws4fetch";
+import { listAdminErrors, openErrorCount, resolveAdminError } from "./errors";
 import { ownedObjectKey, type Env } from "./index";
 import { HttpError, json } from "./http";
 
@@ -105,6 +106,14 @@ export async function handleAdmin(request: Request, env: Env, url: URL): Promise
   if (request.method === "GET" && path === "/v1/admin/storage") {
     return listStorage(env, actor);
   }
+  if (request.method === "GET" && path === "/v1/admin/errors") {
+    return listAdminErrors(env, actor.serviceKey, url);
+  }
+  const errorItem = path.match(/^\/v1\/admin\/errors\/([^/]+)$/);
+  if (request.method === "PATCH" && errorItem?.[1]) {
+    const payload = (await request.json().catch(() => ({}))) as { resolved?: unknown };
+    return resolveAdminError(env, actor.serviceKey, errorItem[1], payload.resolved !== false);
+  }
   if (request.method === "GET" && path === "/v1/admin/creators") {
     return listCreators(env, actor, url);
   }
@@ -150,7 +159,7 @@ async function overview(env: Env, actor: AdminActor): Promise<Response> {
   const startOfToday = new Date();
   startOfToday.setUTCHours(0, 0, 0, 0);
 
-  const [statsRows, readyClips, clipsToday, pendingApps] = await Promise.all([
+  const [statsRows, readyClips, clipsToday, pendingApps, errors] = await Promise.all([
     serviceRest<AdminAuthStats[]>(env, actor, "POST", "/rpc/admin_auth_stats", {}),
     restCount(env, actor, "/clips?status=eq.ready&select=id"),
     restCount(
@@ -159,6 +168,7 @@ async function overview(env: Env, actor: AdminActor): Promise<Response> {
       `/clips?status=neq.deleted&created_at=gte.${startOfToday.toISOString()}&select=id`,
     ),
     restCount(env, actor, "/creator_applications?status=eq.pending&select=id"),
+    openErrorCount(env, actor.serviceKey),
   ]);
   const stats = statsRows[0];
 
@@ -171,6 +181,8 @@ async function overview(env: Env, actor: AdminActor): Promise<Response> {
     clipsToday,
     storageUsedBytes: Number(stats?.storage_used_bytes ?? 0),
     pendingCreatorApps: pendingApps,
+    openErrors: errors.open,
+    errors24h: errors.last24h,
   });
 }
 

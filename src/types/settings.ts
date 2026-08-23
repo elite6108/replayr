@@ -10,6 +10,14 @@ export type AutoUploadMode = "off" | "favorites" | "all";
 export type BandwidthLimit = "unlimited" | "50" | "25" | "10" | "5" | "1" | "custom";
 export type ThemePreference = "dark";
 
+export interface ExtraAudioApp {
+  id: string;
+  exe: string;
+  displayName: string;
+  enabled: boolean;
+  gain: number;
+}
+
 export interface AppSettings {
   closeToTray: boolean;
   launchAtStartup: boolean;
@@ -24,6 +32,13 @@ export interface AppSettings {
   microphoneId: string;
   audioOutputId: string;
   micEnabled: boolean;
+  /** Linear gain: 0 = mute, 1 = 100%, 2 = 200%. */
+  micGain: number;
+  gameAudioEnabled: boolean;
+  gameAudioGain: number;
+  discordAudioEnabled: boolean;
+  discordAudioGain: number;
+  extraApps: ExtraAudioApp[];
   systemAudioEnabled: boolean;
   saveLocation: string;
   hotkeys: Record<HotkeyAction, string>;
@@ -34,6 +49,8 @@ export interface AppSettings {
   minFreeDiskBytes: number;
   theme: ThemePreference;
   onboardingCompleted: boolean;
+  desktopShortcut: boolean;
+  desktopShortcutPrompted: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -49,8 +66,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   codec: "h264",
   microphoneId: "default",
   audioOutputId: "default",
-  micEnabled: true,
-  systemAudioEnabled: true,
+  micEnabled: false,
+  micGain: 1,
+  gameAudioEnabled: true,
+  gameAudioGain: 1,
+  discordAudioEnabled: false,
+  discordAudioGain: 1,
+  extraApps: [],
+  systemAudioEnabled: false,
   saveLocation: "",
   hotkeys: { ...DEFAULT_HOTKEYS },
   autoUpload: "all",
@@ -60,4 +83,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   minFreeDiskBytes: 10 * 1024 * 1024 * 1024,
   theme: "dark",
   onboardingCompleted: false,
+  desktopShortcut: false,
+  desktopShortcutPrompted: false,
 };

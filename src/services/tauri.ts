@@ -1,11 +1,29 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { AppSettings } from "../types/settings";
+import type { AudioDevice, AudioEngineStatus, AudioSession } from "../types/audio";
 import type { LocalClip } from "../types/clip";
 import type { DetectedGameSnapshot, GameCatalogEntry } from "../types/game";
 import type { RecordingStatus, ReplayStatus } from "../types/recording";
+import { invokeErrorMessage } from "../utils/format";
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 export async function getAllSettings(): Promise<AppSettings> {
-  return invoke("get_all_settings");
+  return withTimeout(invoke("get_all_settings"), 5000, "get_all_settings");
 }
 
 export async function setSetting(key: string, value: unknown): Promise<AppSettings> {
@@ -14,6 +32,48 @@ export async function setSetting(key: string, value: unknown): Promise<AppSettin
 
 export async function setSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
   return invoke("set_settings", { patch });
+}
+
+export async function listAudioDevices(): Promise<AudioDevice[]> {
+  try {
+    const devices = await withTimeout(invoke<AudioDevice[]>("list_audio_devices"), 5000, "list_audio_devices");
+    return Array.isArray(devices) ? devices : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getMicLevel(): Promise<number> {
+  return invoke("get_mic_level");
+}
+
+export async function stopMicMonitor(): Promise<void> {
+  await invoke("stop_mic_monitor");
+}
+
+export async function resolveMicDisconnect(action: "default" | "off"): Promise<AppSettings> {
+  return invoke("resolve_mic_disconnect", { action });
+}
+
+export async function listAudioSessions(): Promise<AudioSession[]> {
+  try {
+    const sessions = await withTimeout(invoke<AudioSession[]>("list_audio_sessions"), 5000, "list_audio_sessions");
+    return Array.isArray(sessions) ? sessions : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getAudioStatus(): Promise<AudioEngineStatus | null> {
+  try {
+    return await withTimeout(invoke<AudioEngineStatus>("get_audio_status"), 4000, "get_audio_status");
+  } catch {
+    return null;
+  }
+}
+
+export async function addExtraAudioApp(exe: string, displayName: string): Promise<AppSettings> {
+  return invoke("add_extra_audio_app", { exe, displayName });
 }
 
 export async function listLocalClips(limit = 80): Promise<LocalClip[]> {
@@ -56,6 +116,18 @@ export async function getDefaultSaveLocation(): Promise<string> {
   return invoke("get_default_save_location");
 }
 
+export async function createDesktopShortcut(): Promise<void> {
+  await invoke("create_desktop_shortcut");
+}
+
+export async function removeDesktopShortcut(): Promise<void> {
+  await invoke("remove_desktop_shortcut");
+}
+
+export async function desktopShortcutExists(): Promise<boolean> {
+  return invoke("desktop_shortcut_exists");
+}
+
 export async function listGames(): Promise<GameCatalogEntry[]> {
   return invoke("list_games");
 }
@@ -94,12 +166,25 @@ export async function saveScreenshot(): Promise<string> {
 
 export const credentialStorage = {
   async getItem(key: string): Promise<string | null> {
-    return invoke("auth_get_item", { key });
+    try {
+      return await withTimeout(invoke<string | null>("auth_get_item", { key }), 2500, "auth storage");
+    } catch (caught) {
+      console.warn("auth storage read failed", caught);
+      return null;
+    }
   },
   async setItem(key: string, value: string): Promise<void> {
-    await invoke("auth_set_item", { key, value });
+    try {
+      await invoke("auth_set_item", { key, value });
+    } catch (caught) {
+      throw new Error(invokeErrorMessage(caught, "Could not save the sign-in session on this PC."));
+    }
   },
   async removeItem(key: string): Promise<void> {
-    await invoke("auth_remove_item", { key });
+    try {
+      await invoke("auth_remove_item", { key });
+    } catch (caught) {
+      throw new Error(invokeErrorMessage(caught, "Could not clear the saved sign-in session."));
+    }
   },
 };

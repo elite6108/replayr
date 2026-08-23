@@ -1,14 +1,19 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
-import { publicAppUrl } from "../branding";
+import { publicAppUrl, APP_NAME } from "../branding";
 import { PageHeader } from "../components/common/PageHeader";
 import { DEFAULT_HOTKEYS, findHotkeyConflicts, HOTKEY_ACTIONS, HOTKEY_LABELS } from "../utils/hotkeys";
 import { displayHotkey } from "../utils/format";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useDetectionStore } from "../stores/detectionStore";
 import { useToastStore } from "../stores/toastStore";
-import type { AppSettings } from "../types/settings";
+import { AudioSourceRow } from "../components/settings/AudioSourceRow";
+import { MicrophoneControls } from "../components/settings/MicrophoneControls";
+import { addExtraAudioApp, getAudioStatus, listAudioSessions } from "../services/tauri";
+import type { AudioEngineStatus, AudioSession } from "../types/audio";
+import type { AppSettings, ExtraAudioApp } from "../types/settings";
+import { useUpdateStore } from "../stores/updateStore";
 
 export function SettingsPage() {
   const settings = useSettingsStore((state) => state.settings);
@@ -19,10 +24,24 @@ export function SettingsPage() {
   const showToast = useToastStore((state) => state.show);
   const conflicts = findHotkeyConflicts(settings.hotkeys);
   const [catalogBusy, setCatalogBusy] = useState(false);
+  const appVersion = useUpdateStore((state) => state.version);
+  const updateStatus = useUpdateStore((state) => state.status);
+  const availableVersion = useUpdateStore((state) => state.availableVersion);
+  const updateNotes = useUpdateStore((state) => state.notes);
+  const downloadPercent = useUpdateStore((state) => state.downloadPercent);
+  const updateError = useUpdateStore((state) => state.error);
+  const checkForUpdates = useUpdateStore((state) => state.check);
+  const installAndRelaunch = useUpdateStore((state) => state.installAndRelaunch);
+  const checkingUpdates = updateStatus === "checking";
+  const downloadingUpdate = updateStatus === "downloading";
 
   async function onChange<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
-    await update(key, value);
-    showToast("Settings saved");
+    try {
+      await update(key, value);
+      showToast("Settings saved");
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not save that setting.");
+    }
   }
 
   async function chooseSaveLocation() {
@@ -56,6 +75,51 @@ export function SettingsPage() {
               onChange={(event) => void onChange("launchAtStartup", event.target.checked)}
             />
           </label>
+          <label className="setting-row">
+            <span>Show {APP_NAME} on the desktop</span>
+            <input
+              className="switch"
+              type="checkbox"
+              checked={settings.desktopShortcut}
+              onChange={(event) => void onChange("desktopShortcut", event.target.checked)}
+            />
+          </label>
+        </section>
+
+        <section className="panel stack">
+          <h2>Updates</h2>
+          <div className="setting-row">
+            <span className="setting-copy">
+              Installed version
+              <small>{appVersion || "Unknown"}</small>
+            </span>
+          </div>
+          <p className="muted">{updateStatusLabel(updateStatus, availableVersion, downloadPercent, updateError)}</p>
+          {updateNotes && updateStatus === "ready" ? <p className="muted">{updateNotes}</p> : null}
+          <div className="row">
+            <button
+              type="button"
+              className="btn"
+              disabled={checkingUpdates || downloadingUpdate}
+              onClick={() => void checkForUpdates()}
+            >
+              {checkingUpdates ? "Checking…" : "Check for updates"}
+            </button>
+            {updateStatus === "ready" || downloadingUpdate ? (
+              <button
+                type="button"
+                className="btn primary"
+                disabled={downloadingUpdate}
+                onClick={() => void installAndRelaunch()}
+              >
+                {downloadingUpdate
+                  ? downloadPercent != null
+                    ? `Downloading ${downloadPercent}%`
+                    : "Downloading…"
+                  : "Restart to update"}
+              </button>
+            ) : null}
+          </div>
         </section>
 
         <section className="panel stack">
@@ -179,28 +243,7 @@ export function SettingsPage() {
           </div>
         </section>
 
-        <section className="panel stack">
-          <h2>Audio</h2>
-          <label className="setting-row">
-            <span>System audio</span>
-            <input
-              className="switch"
-              type="checkbox"
-              checked={settings.systemAudioEnabled}
-              onChange={(event) => void onChange("systemAudioEnabled", event.target.checked)}
-            />
-          </label>
-          <label className="setting-row">
-            <span>Microphone</span>
-            <input
-              className="switch"
-              type="checkbox"
-              checked={settings.micEnabled}
-              onChange={(event) => void onChange("micEnabled", event.target.checked)}
-            />
-          </label>
-          <div className="muted">Device lists fill in when capture is implemented.</div>
-        </section>
+        <AudioPanel settings={settings} update={update} showToast={showToast} />
 
         <section className="panel stack">
           <h2>Storage and uploads</h2>
@@ -293,4 +336,213 @@ export function SettingsPage() {
       </div>
     </>
   );
+}
+
+function AudioPanel({
+  settings,
+  update,
+  showToast,
+}: {
+  settings: AppSettings;
+  update: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
+  showToast: (message: string) => void;
+}) {
+  const [status, setStatus] = useState<AudioEngineStatus | null>(null);
+  const [sessions, setSessions] = useState<AudioSession[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void getAudioStatus().then((next) => {
+        if (!cancelled && next) setStatus(next);
+      });
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [settings.gameAudioEnabled, settings.discordAudioEnabled, settings.systemAudioEnabled, settings.extraApps]);
+
+  async function toggleSource(key: "gameAudioEnabled" | "discordAudioEnabled" | "systemAudioEnabled", enabled: boolean, label: string) {
+    try {
+      await update(key, enabled);
+      showToast(enabled ? `${label} on` : `${label} off`);
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not save that setting.");
+    }
+  }
+
+  async function saveExtras(extras: ExtraAudioApp[], toast?: string) {
+    try {
+      await update("extraApps", extras);
+      if (toast) showToast(toast);
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not save that setting.");
+    }
+  }
+
+  async function addDetected(exe: string, displayName: string) {
+    try {
+      const next = await addExtraAudioApp(exe, displayName);
+      useSettingsStore.setState({ settings: next });
+      showToast(`${displayName} on`);
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not add that app.");
+    }
+  }
+
+  async function openPicker() {
+    setPickerOpen(true);
+    setSessions(await listAudioSessions());
+  }
+
+  const isolatedOff = !status?.processLoopbackSupported;
+  const extraRows = settings.extraApps;
+
+  return (
+    <section className="panel stack">
+      <h2>Audio</h2>
+      {isolatedOff ? (
+        <p className="banner warning">
+          Per-app capture needs Windows 10 version 2004 or later. Desktop and microphone still work. Replayr will not change your saved mix.
+        </p>
+      ) : null}
+      <AudioSourceRow
+        title="Game Audio"
+        copy="Only the detected game. Silent when no game is running."
+        enabled={settings.gameAudioEnabled}
+        gain={settings.gameAudioGain}
+        status={status?.game}
+        disabled={isolatedOff}
+        onEnabled={(enabled) => void toggleSource("gameAudioEnabled", enabled, "Game audio")}
+        onGain={(gain) => void update("gameAudioGain", gain).catch((caught) => showToast(caught instanceof Error ? caught.message : "Could not save that setting."))}
+        onUseDesktop={() => void toggleSource("systemAudioEnabled", true, "Desktop audio")}
+      />
+      <AudioSourceRow
+        title="Desktop / System"
+        copy="Full speaker mix. Includes Chrome, Discord, and everything else. Turn this off to use selected apps only."
+        enabled={settings.systemAudioEnabled}
+        status={status?.desktop}
+        onEnabled={(enabled) => void toggleSource("systemAudioEnabled", enabled, "Desktop audio")}
+      />
+      <AudioSourceRow
+        title="Discord"
+        copy="Voice chat only when Discord is running."
+        enabled={settings.discordAudioEnabled}
+        gain={settings.discordAudioGain}
+        status={status?.discord}
+        disabled={isolatedOff}
+        onEnabled={(enabled) => void toggleSource("discordAudioEnabled", enabled, "Discord")}
+        onGain={(gain) => void update("discordAudioGain", gain).catch((caught) => showToast(caught instanceof Error ? caught.message : "Could not save that setting."))}
+        onUseDesktop={() => void toggleSource("systemAudioEnabled", true, "Desktop audio")}
+      />
+      {status?.detectedExtras
+        .filter((item) => !extraRows.some((app) => app.id === item.id || app.exe.toLowerCase() === item.exe.toLowerCase()))
+        .map((item) => (
+          <AudioSourceRow
+            key={item.id}
+            title={item.displayName}
+            copy={item.running ? "Running. Turn on to add it to the mix." : "Previously added."}
+            enabled={false}
+            disabled={isolatedOff}
+            onEnabled={(enabled) => {
+              if (enabled) void addDetected(item.exe, item.displayName);
+            }}
+          />
+        ))}
+      {extraRows.map((app) => {
+        const row = status?.extras.find((item) => item.id === app.id);
+        return (
+          <AudioSourceRow
+            key={app.id}
+            title={app.displayName || app.exe}
+            copy={row?.status || app.exe}
+            enabled={app.enabled}
+            gain={app.gain}
+            status={row}
+            disabled={isolatedOff}
+            onEnabled={(enabled) => {
+              void saveExtras(
+                extraRows.map((item) => (item.id === app.id ? { ...item, enabled } : item)),
+                enabled ? `${app.displayName} on` : `${app.displayName} off`,
+              );
+            }}
+            onGain={(gain) => {
+              void saveExtras(extraRows.map((item) => (item.id === app.id ? { ...item, gain } : item)));
+            }}
+            onUseDesktop={() => void toggleSource("systemAudioEnabled", true, "Desktop audio")}
+          />
+        );
+      })}
+      <div className="row">
+        <button type="button" className="btn" disabled={isolatedOff} onClick={() => void openPicker()}>
+          Add App
+        </button>
+        {pickerOpen ? (
+          <button type="button" className="btn ghost" onClick={() => setPickerOpen(false)}>
+            Close
+          </button>
+        ) : null}
+      </div>
+      {pickerOpen ? (
+        <div className="stack">
+          <p className="muted">Pick a playing session. Replayr keeps Game and mic, and refuses a fifth extra app.</p>
+          {sessions.length === 0 ? <p className="muted">No app sessions found.</p> : null}
+          {sessions.map((session) => (
+            <button
+              key={`${session.pid}-${session.exe}`}
+              type="button"
+              className="btn"
+              onClick={() => {
+                void addDetected(session.exe || session.displayName, session.displayName || session.exe).then(() => setPickerOpen(false));
+              }}
+            >
+              {session.displayName || session.exe}
+              <small className="muted"> {session.exe}</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <MicrophoneControls
+        enabled={settings.micEnabled}
+        deviceId={settings.microphoneId}
+        gain={settings.micGain}
+        onEnabled={(enabled) => {
+          void update("micEnabled", enabled)
+            .then(() => showToast(enabled ? "Microphone on" : "Microphone off"))
+            .catch((caught) => showToast(caught instanceof Error ? caught.message : "Could not save that setting."));
+        }}
+        onDeviceId={(deviceId) => {
+          void update("microphoneId", deviceId).catch((caught) =>
+            showToast(caught instanceof Error ? caught.message : "Could not save that setting."),
+          );
+        }}
+        onGain={(gain) => {
+          void update("micGain", gain).catch((caught) =>
+            showToast(caught instanceof Error ? caught.message : "Could not save that setting."),
+          );
+        }}
+      />
+      <p className="muted">
+        Clips write one mixed AAC track. Turn Desktop off and leave Game, Discord, and Mic on to record those sources without Chrome or Spotify.
+      </p>
+    </section>
+  );
+}
+
+function updateStatusLabel(
+  status: "idle" | "checking" | "up-to-date" | "ready" | "downloading" | "error",
+  availableVersion: string | null,
+  downloadPercent: number | null,
+  error: string | null,
+) {
+  if (status === "checking") return "Checking…";
+  if (status === "up-to-date") return "Up to date";
+  if (status === "ready") return availableVersion ? `Update ${availableVersion} ready` : "Update ready";
+  if (status === "downloading") {
+    return downloadPercent != null ? `Downloading ${downloadPercent}%` : "Downloading…";
+  }
+  if (status === "error") return error || "Could not check for updates.";
+  return "Not checked yet";
 }

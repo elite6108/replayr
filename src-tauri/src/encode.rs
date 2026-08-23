@@ -321,6 +321,10 @@ impl MfWriter {
         Ok(())
     }
 
+    pub fn has_audio(&self) -> bool {
+        self.audio_stream.is_some()
+    }
+
     pub fn timestamp(&self) -> i64 {
         self.video_time
     }

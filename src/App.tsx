@@ -12,12 +12,15 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { AdminPage } from "./pages/AdminPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
+import { MicDisconnectToasts } from "./components/layout/MicDisconnectToasts";
+import { ToastRegion } from "./components/common/ToastRegion";
 import { useAuthStore } from "./stores/authStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useDetectionStore } from "./stores/detectionStore";
 import { useRecordingStore } from "./stores/recordingStore";
 import { useLibraryStore } from "./stores/libraryStore";
 import { useCloudStore } from "./stores/cloudStore";
+import { useUpdateStore } from "./stores/updateStore";
 import { APP_NAME } from "./branding";
 
 export default function App() {
@@ -30,6 +33,7 @@ export default function App() {
   const initializeRecording = useRecordingStore((state) => state.initialize);
   const initializeLibrary = useLibraryStore((state) => state.initialize);
   const initializeCloud = useCloudStore((state) => state.initialize);
+  const initializeUpdates = useUpdateStore((state) => state.initialize);
   const userId = useAuthStore((state) => state.user?.id);
   const refreshCloud = useCloudStore((state) => state.refresh);
 
@@ -40,7 +44,17 @@ export default function App() {
     void initializeRecording();
     void initializeLibrary();
     void initializeCloud();
-  }, [loadSettings, initializeAuth, initializeDetection, initializeRecording, initializeLibrary, initializeCloud]);
+    void initializeUpdates();
+    const splash = window.setTimeout(() => {
+      if (!useSettingsStore.getState().loaded) {
+        useSettingsStore.setState({ loaded: true });
+      }
+      if (!useAuthStore.getState().ready) {
+        useAuthStore.setState({ ready: true });
+      }
+    }, 2500);
+    return () => window.clearTimeout(splash);
+  }, [loadSettings, initializeAuth, initializeDetection, initializeRecording, initializeLibrary, initializeCloud, initializeUpdates]);
 
   useEffect(() => {
     void refreshCloud();
@@ -63,7 +77,13 @@ export default function App() {
   }
 
   if (!onboardingCompleted) {
-    return <OnboardingPage />;
+    return (
+      <>
+        <MicDisconnectToasts />
+        <OnboardingPage />
+        <ToastRegion />
+      </>
+    );
   }
 
   return (

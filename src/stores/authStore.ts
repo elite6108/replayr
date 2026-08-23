@@ -32,6 +32,7 @@ interface AuthState {
 }
 
 let deepLinkListening = false;
+let authListenerAttached = false;
 
 async function loadUserData(userId: string) {
   const [profile, storage] = await Promise.all([
@@ -39,6 +40,47 @@ async function loadUserData(userId: string) {
     fetchOwnStorage(userId),
   ]);
   return { profile, storage };
+}
+
+function attachAuthListeners(
+  get: () => AuthState,
+  set: (
+    partial:
+      | Partial<AuthState>
+      | ((state: AuthState) => Partial<AuthState>),
+  ) => void,
+  supabase: ReturnType<typeof getSupabase>,
+) {
+  if (!authListenerAttached) {
+    authListenerAttached = true;
+    supabase.auth.onAuthStateChange((_event, nextSession) => {
+      void (async () => {
+        try {
+          const nextExtra = nextSession?.user
+            ? await loadUserData(nextSession.user.id)
+            : { profile: null, storage: null };
+          set({
+            session: nextSession,
+            user: nextSession?.user ?? null,
+            error: null,
+            ...nextExtra,
+          });
+        } catch (caught) {
+          set({
+            session: nextSession,
+            user: nextSession?.user ?? null,
+            error: authErrorMessage(caught, "Signed in, but the profile could not load."),
+          });
+        }
+      })();
+    });
+  }
+  if (!deepLinkListening) {
+    deepLinkListening = true;
+    void listenForOAuthReturn((url) => {
+      void get().completeOAuthFromUrl(url);
+    });
+  }
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -54,51 +96,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ ready: true, configured: false });
       return;
     }
-    try {
     const supabase = getSupabase();
-    const session = await hydrateSession();
-    const extra = session?.user ? await loadUserData(session.user.id) : { profile: null, storage: null };
-    set({
-      configured: true,
-      ready: true,
-      session,
-      user: session?.user ?? null,
-      error: null,
-      ...extra,
-    });
-    if (!deepLinkListening) {
-      deepLinkListening = true;
-      void listenForOAuthReturn((url) => {
-        void get().completeOAuthFromUrl(url);
-      });
-    }
-    supabase.auth.onAuthStateChange((_event, nextSession) => {
-      void (async () => {
-        try {
-          const session = nextSession ? await mergeRemoteUser(nextSession) : null;
-          const nextExtra = session?.user
-            ? await loadUserData(session.user.id)
-            : { profile: null, storage: null };
-          set({
-            session,
-            user: session?.user ?? null,
-            error: null,
-            ...nextExtra,
-          });
-        } catch (caught) {
-          set({
-            session: nextSession,
-            user: nextSession?.user ?? null,
-            error: caught instanceof Error ? caught.message : "Signed in, but the profile could not load.",
-          });
-        }
-      })();
-    });
+    attachAuthListeners(get, set, supabase);
+    try {
+      const session = await withTimeout(hydrateSession(), 8000, "Auth session");
+      const extra = session?.user
+        ? await withTimeout(loadUserData(session.user.id), 8000, "Auth profile").catch((caught) => {
+            console.warn("auth profile restore", caught);
+            return { profile: null, storage: null };
+          })
+        : { profile: null, storage: null };
+      set((state) => ({
+        configured: true,
+        ready: true,
+        error: null,
+        ...(state.session && !session
+          ? {}
+          : {
+              session,
+              user: session?.user ?? null,
+              ...extra,
+            }),
+      }));
     } catch (caught) {
+      console.warn("auth initialize", caught);
       set({
         ready: true,
         configured: true,
-        error: caught instanceof Error ? caught.message : "Could not initialize auth",
       });
     }
   },
@@ -229,30 +253,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const extra = await loadUserData(user.id);
       set({ user, error: null, ...extra });
     } catch (caught) {
-      set({ error: caught instanceof Error ? caught.message : "Could not load profile" });
+      set({ error: authErrorMessage(caught, "Could not load profile") });
     }
   },
 }));
 
-async function hydrateSession() {
-  const supabase = getSupabase();
-  const { data } = await supabase.auth.getSession();
-  if (!data.session) return null;
-  try {
-    const refreshed = await supabase.auth.refreshSession();
-    return mergeRemoteUser(refreshed.data.session ?? data.session);
-  } catch {
-    return mergeRemoteUser(data.session);
-  }
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
-async function mergeRemoteUser(session: Session) {
-  try {
-    const { data } = await getSupabase().auth.getUser();
-    return data.user ? { ...session, user: data.user } : session;
-  } catch {
-    return session;
-  }
+async function hydrateSession() {
+  const { data, error } = await getSupabase().auth.getSession();
+  if (error) throw error;
+  return data.session ?? null;
 }
 
 async function listenForOAuthReturn(onUrl: (url: string) => void) {

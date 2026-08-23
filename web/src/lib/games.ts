@@ -8,6 +8,12 @@ export interface CatalogGame {
   coverUrl: string | null;
 }
 
+export interface ClipAuthor {
+  username: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
 export interface PublicGameClip {
   id: string;
   title: string | null;
@@ -15,6 +21,10 @@ export interface PublicGameClip {
   durationMs: number | null;
   thumbnailUrl: string | null;
   playbackUrl: string | null;
+  author?: ClipAuthor;
+  likeCount?: number;
+  commentCount?: number;
+  liked?: boolean;
 }
 
 export async function fetchGames(): Promise<CatalogGame[]> {
@@ -39,22 +49,45 @@ export interface PublicClipCard {
   durationMs: number | null;
   thumbnailUrl: string | null;
   game: { name: string; slug: string; coverUrl: string | null } | null;
+  author: ClipAuthor;
+  likeCount: number;
+  commentCount: number;
+  liked: boolean;
 }
 
-export async function fetchPublicClips(): Promise<PublicClipCard[]> {
-  const response = await fetch(apiUrl("/v1/clips/public"), {
-    headers: { accept: "application/json" },
+function authHeaders(accessToken?: string | null): HeadersInit {
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (accessToken) headers.authorization = `Bearer ${accessToken}`;
+  return headers;
+}
+
+function normalizePublicClip(clip: PublicClipCard): PublicClipCard {
+  return {
+    ...clip,
+    author: clip.author ?? { username: null, displayName: "Player", avatarUrl: null },
+    likeCount: clip.likeCount ?? 0,
+    commentCount: clip.commentCount ?? 0,
+    liked: Boolean(clip.liked),
+  };
+}
+
+export async function fetchPublicClips(accessToken?: string | null): Promise<PublicClipCard[]> {
+  const response = await fetch(apiUrl("/v1/clips/public?limit=24"), {
+    headers: authHeaders(accessToken),
   });
   const body = (await response.json()) as { clips?: PublicClipCard[]; error?: string };
   if (!response.ok) {
     throw new Error(body.error || "Could not load public clips.");
   }
-  return body.clips ?? [];
+  return (body.clips ?? []).map(normalizePublicClip);
 }
 
-export async function fetchGameClips(slug: string): Promise<{ game: CatalogGame; clips: PublicGameClip[] }> {
+export async function fetchGameClips(
+  slug: string,
+  accessToken?: string | null,
+): Promise<{ game: CatalogGame; clips: PublicGameClip[] }> {
   const response = await fetch(apiUrl(`/v1/games/${encodeURIComponent(slug)}/clips`), {
-    headers: { accept: "application/json" },
+    headers: authHeaders(accessToken),
   });
   const body = (await response.json()) as {
     game?: { id: string; slug: string; name: string; publisher: string | null; cover_url: string | null };

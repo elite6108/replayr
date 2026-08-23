@@ -5,15 +5,17 @@ import { useAuthStore } from "../../stores/authStore";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { useRecordingStore } from "../../stores/recordingStore";
-import { IconAdmin, IconFriends, IconGames, IconHome, IconLibrary, IconLogo, IconProfile, IconRecord, IconSettings } from "../icons";
+import { IconAdmin, IconExplore, IconFriends, IconGames, IconHome, IconLibrary, IconLogo, IconProfile, IconRecord, IconSettings } from "../icons";
 import { isAdminUser } from "../../utils/admin";
 import { formatBytes } from "../../utils/format";
+import { useUpdateStore } from "../../stores/updateStore";
 
 type Glyph = ComponentType<SVGProps<SVGSVGElement> & { size?: number }>;
 
 const items: { to: string; label: string; icon: Glyph; end?: boolean; live?: boolean }[] = [
   { to: "/", label: "Home", icon: IconHome, end: true },
   { to: "/library", label: "Library", icon: IconLibrary },
+  { to: "/explore", label: "Explore", icon: IconExplore },
   { to: "/games", label: "Games", icon: IconGames },
   { to: "/record", label: "Record", icon: IconRecord, live: true },
   { to: "/friends", label: "Friends", icon: IconFriends },
@@ -27,6 +29,7 @@ export function NavRail() {
   const admin = isAdminUser(useAuthStore((state) => state.user), useAuthStore((state) => state.session?.access_token));
   const used = storage?.storage_used_bytes ?? 0;
   const limit = storage?.storage_limit_bytes ?? 0;
+  const updateReady = useUpdateStore((state) => state.status === "ready");
 
   return (
     <nav className="nav-rail" aria-label="Primary">
@@ -63,6 +66,7 @@ export function NavRail() {
       <NavLink to="/settings" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
         <span className="nav-icon">
           <IconSettings size={18} />
+          {updateReady ? <span className="nav-update" title="Update ready" /> : null}
         </span>
         <span>Settings</span>
       </NavLink>

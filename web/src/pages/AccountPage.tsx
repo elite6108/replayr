@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Seo } from "../components/Seo";
+import { deleteAccount } from "../lib/api";
 import { isAdminSession } from "../lib/admin";
 import { useAuth } from "../lib/auth";
 import { formatBytes } from "../lib/format";
@@ -22,6 +23,7 @@ export function AccountPage() {
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -78,6 +80,34 @@ export function AccountPage() {
         ) : null}
         <button className="btn" type="button" onClick={() => void signOut()}>
           Sign out
+        </button>
+        <button
+          className="btn danger"
+          type="button"
+          disabled={busy || !session?.access_token}
+          onClick={() => {
+            if (
+              !session?.access_token ||
+              !window.confirm("Delete this Replayr account and all cloud clips? This cannot be undone.")
+            ) {
+              return;
+            }
+            if (!window.confirm("Delete the account forever?")) return;
+            void (async () => {
+              setBusy(true);
+              setError(null);
+              try {
+                await deleteAccount(session.access_token);
+                await signOut();
+              } catch (caught) {
+                setError(caught instanceof Error ? caught.message : "Could not delete this account.");
+              } finally {
+                setBusy(false);
+              }
+            })();
+          }}
+        >
+          {busy ? "Deleting…" : "Delete account"}
         </button>
       </div>
     </main>

@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { AuthCard } from "../components/common/AuthCard";
 import { ClipCard } from "../components/common/ClipCard";
 import { ClipGrid } from "../components/common/ClipGrid";
@@ -13,6 +13,8 @@ import { formatBytes } from "../utils/format";
 
 export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const clips = useLibraryStore((state) => state.clips);
+  const localError = useLibraryStore((state) => state.error);
+  const refreshLocal = useLibraryStore((state) => state.refresh);
   const favoritesOnly = useLibraryStore((state) => state.favoritesOnly);
   const setFavoritesOnly = useLibraryStore((state) => state.setFavoritesOnly);
   const play = useLibraryStore((state) => state.play);
@@ -36,6 +38,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const cloudClips = useCloudStore((state) => state.clips);
   const cloudError = useCloudStore((state) => state.error);
   const cloudLoading = useCloudStore((state) => state.loading);
+  const refreshCloud = useCloudStore((state) => state.refresh);
   const removeCloud = useCloudStore((state) => state.remove);
   const removeCloudMany = useCloudStore((state) => state.removeMany);
   const renameCloud = useCloudStore((state) => state.rename);
@@ -55,6 +58,12 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
   const selectedLocalClips = visible.filter((clip) => selectedLocal.includes(clip.localId));
   const selectedCloudLinked = selectedLocalClips.filter((clip) => clip.cloudClipId).length;
+  const userId = user?.id;
+
+  useEffect(() => {
+    void refreshLocal();
+    if (userId) void refreshCloud();
+  }, [refreshCloud, refreshLocal, userId]);
 
   return (
     <>
@@ -82,13 +91,15 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
       </PageHeader>
 
       {view === "local" ? (
-        visible.length === 0 ? (
+        <>
+          {localError ? <div className="error-text">{localError}</div> : null}
+          {visible.length === 0 ? (
           <ClipGrid
             title={favoritesOnly ? "No favorites yet" : "Nothing saved yet"}
             body={
               favoritesOnly
                 ? "Star a clip from the library or player to keep it here."
-                : "Save an Instant Replay or stop a recording. Finished files appear here."
+                : "Save an Instant Replay or stop a recording. Cloud copies from other PCs are under Cloud."
             }
           />
         ) : (
@@ -167,7 +178,8 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
               </button>
             </SelectionBar>
           </section>
-        )
+          )}
+        </>
       ) : !configured ? (
         <section className="panel">
           <p>

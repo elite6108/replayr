@@ -73,13 +73,20 @@ fn poll_once(app: &AppHandle) {
         observed
     };
 
-    if *current == next {
-        return;
+    let changed = *current != next;
+    if changed {
+        *current = next.clone();
     }
-
-    *current = next.clone();
+    let snapshot = current.clone();
     drop(current);
     drop(empty_polls);
+
+    #[cfg(windows)]
+    refresh_audio(app, &catalog, &snapshot);
+
+    if !changed {
+        return;
+    }
 
     if let Some(name) = next.name.as_deref() {
         tracing::info!("detected game: {name}");
@@ -92,6 +99,21 @@ fn poll_once(app: &AppHandle) {
     let rec = app.state::<crate::capture::RecordingState>();
     if let Err(err) = crate::capture::sync_replay(app, &rec, next.pid, next.name.clone(), next.slug.clone()) {
         tracing::warn!("replay retarget: {err}");
+    }
+}
+
+#[cfg(windows)]
+fn refresh_audio(app: &AppHandle, catalog: &[crate::games::GameRecord], snapshot: &crate::games::DetectedGameSnapshot) {
+    let settings = {
+        let db = app.state::<AppState>();
+        db.db
+            .lock()
+            .ok()
+            .and_then(|conn| crate::settings::load(&conn).ok())
+    };
+    if let Some(settings) = settings {
+        app.state::<crate::audio::AudioRuntime>()
+            .apply_with_context(&settings, snapshot, catalog);
     }
 }
 

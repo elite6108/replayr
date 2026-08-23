@@ -57,6 +57,7 @@ export function SiteHeader() {
         <div className="site-header-menu" id={menuId}>
           <nav className="site-nav" aria-label="Primary">
             <NavLink to="/features">Features</NavLink>
+            <NavLink to="/explore">Explore</NavLink>
             <NavLink to="/games">Games</NavLink>
             <NavLink to="/pricing">Pricing</NavLink>
             <NavLink to="/creators">Creators</NavLink>
@@ -73,7 +74,7 @@ export function SiteHeader() {
           </nav>
           <div className="header-actions">
             <a className="btn outline" href={WINDOWS_DOWNLOAD_PATH}>
-              Download
+              Download and open
             </a>
           </div>
         </div>

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import { ClipSocial } from "../components/ClipSocial";
 import { Seo } from "../components/Seo";
 import { downloadCloudClip, fetchPlayback, type PlaybackClip } from "../lib/api";
+import { formatHandle } from "../lib/format";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
 
 export function ClipPage() {
@@ -50,7 +52,7 @@ export function ClipPage() {
         <>
           <h1>{clip.title || "Untitled clip"}</h1>
           <p className="muted">
-            {clip.visibility}
+            {clip.visibility === "public" ? formatHandle(clip.author) : clip.visibility}
             {clip.width && clip.height ? ` · ${clip.width}×${clip.height}` : ""}
           </p>
           <div className="row" style={{ marginBottom: 16 }}>
@@ -81,6 +83,13 @@ export function ClipPage() {
           <div className="player-stage">
             <video className="player" src={clip.playbackUrl} controls playsInline autoPlay />
           </div>
+          <ClipSocial
+            slug={clip.slug}
+            publicClip={clip.visibility === "public" || clip.visibility === "unlisted"}
+            liked={clip.liked}
+            likeCount={clip.likeCount}
+            commentCount={clip.commentCount}
+          />
         </>
       )}
     </main>

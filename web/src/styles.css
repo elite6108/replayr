@@ -1247,8 +1247,93 @@ code {
 }
 
 .trend-card .muted {
-  padding-bottom: 12px;
+  padding-bottom: 8px;
   font-size: 13px;
+}
+
+.clip-social {
+  margin-top: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.clip-social-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn.liked {
+  border-color: #ff4d6d;
+  color: #ff4d6d;
+}
+
+.comment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.comment-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--raised);
+}
+
+.comment-list strong {
+  font-size: 13px;
+}
+
+.comment-form {
+  display: flex;
+  gap: 8px;
+}
+
+.comment-form input {
+  flex: 1;
+  background: var(--bg-input, #10141a);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: inherit;
+  padding: 10px 12px;
+}
+
+.feed-grid {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.feed-card {
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  overflow: hidden;
+  padding-bottom: 12px;
+}
+
+.feed-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 12px 8px;
+}
+
+.feed-card h2 {
+  margin: 10px 12px 0;
+  font-size: 16px;
+}
+
+.feed-card .muted {
+  padding: 6px 12px 0;
 }
 
 .title-strip {
@@ -1555,6 +1640,19 @@ code {
 
 .admin-empty {
   padding: 16px 18px;
+}
+
+.admin-stack {
+  margin: 8px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px;
+  background: #0b0c0f;
+  color: #d7d9e0;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .admin-callout {

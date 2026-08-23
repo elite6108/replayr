@@ -1,20 +1,233 @@
-import { EmptyState } from "../components/common/EmptyState";
+import { FormEvent, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { PageHeader } from "../components/common/PageHeader";
-import { IconExplore } from "../components/icons";
+import { clipShareUrl } from "../branding";
+import {
+  deleteClipComment,
+  fetchClipComments,
+  fetchPublicFeed,
+  postClipComment,
+  setClipLiked,
+  type ClipComment,
+  type PublicFeedClip,
+} from "../services/social";
+import { useAuthStore } from "../stores/authStore";
+import { useToastStore } from "../stores/toastStore";
+import { formatCount, formatDuration, formatHandle } from "../utils/format";
 
 export function ExplorePage() {
+  const token = useAuthStore((state) => state.session?.access_token);
+  const signedIn = Boolean(useAuthStore((state) => state.user));
+  const showToast = useToastStore((state) => state.show);
+  const [clips, setClips] = useState<PublicFeedClip[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [openSlug, setOpenSlug] = useState<string | null>(null);
+  const open = clips.find((clip) => clip.slug === openSlug) ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchPublicFeed(token)
+      .then((next) => {
+        if (!cancelled) setClips(next);
+      })
+      .catch((caught) => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not load public clips.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  async function toggleLike(clip: PublicFeedClip) {
+    if (!token) {
+      showToast("Sign in to like public clips");
+      return;
+    }
+    const next = !clip.liked;
+    setClips((current) =>
+      current.map((item) =>
+        item.id === clip.id
+          ? { ...item, liked: next, likeCount: Math.max(0, item.likeCount + (next ? 1 : -1)) }
+          : item,
+      ),
+    );
+    try {
+      const result = await setClipLiked(clip.slug, next, token);
+      setClips((current) =>
+        current.map((item) =>
+          item.id === clip.id ? { ...item, liked: result.liked, likeCount: result.likeCount } : item,
+        ),
+      );
+    } catch (caught) {
+      setClips((current) => current.map((item) => (item.id === clip.id ? clip : item)));
+      showToast(caught instanceof Error ? caught.message : "Could not update that like.");
+    }
+  }
+
+  function onComments(slug: string, count: number) {
+    setClips((current) => current.map((item) => (item.slug === slug ? { ...item, commentCount: count } : item)));
+  }
+
   return (
     <>
       <PageHeader title="Explore" subtitle="Public clips only. Unlisted links never show up here." />
-      <section className="panel">
-        <EmptyState
-          icon={<IconExplore size={26} />}
-          title="Public feed is not in this build"
-          body="Explore, search, and game feeds are scheduled for Phase 8. Unlisted clips stay off this page by design."
-        >
-          <span className="badge">Phase 8</span>
-        </EmptyState>
-      </section>
+      {error ? <p className="error-text">{error}</p> : null}
+      {clips.length === 0 && !error ? (
+        <section className="panel">
+          <p className="muted">When someone makes a clip public, it lands here. Share URLs stay /c/…</p>
+        </section>
+      ) : (
+        <div className="explore-grid">
+          {clips.map((clip) => (
+            <article key={clip.id} className="feed-card">
+              <div className="feed-card-head">
+                <strong>{formatHandle(clip.author)}</strong>
+                <span className="muted">{clip.game?.name || "Public"}</span>
+              </div>
+              <button className="clip-open" type="button" onClick={() => setOpenSlug(clip.slug)}>
+                {clip.thumbnailUrl ? <img src={clip.thumbnailUrl} alt="" /> : <div className="feed-thumb-empty" />}
+                {clip.durationMs ? <span className="clip-duration">{formatDuration(clip.durationMs)}</span> : null}
+              </button>
+              <h2>{clip.title || "Untitled clip"}</h2>
+              <div className="row">
+                <button className={`btn ${clip.liked ? "liked" : ""}`} type="button" onClick={() => void toggleLike(clip)}>
+                  {clip.liked ? "Liked" : "Like"} · {formatCount(clip.likeCount)}
+                </button>
+                <button className="btn" type="button" onClick={() => setOpenSlug(clip.slug)}>
+                  Comments · {formatCount(clip.commentCount)}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+      {open ? (
+        <PublicClipPanel
+          clip={open}
+          token={token}
+          signedIn={signedIn}
+          onClose={() => setOpenSlug(null)}
+          onLike={() => void toggleLike(open)}
+          onComments={onComments}
+        />
+      ) : null}
     </>
+  );
+}
+
+function PublicClipPanel({
+  clip,
+  token,
+  signedIn,
+  onClose,
+  onLike,
+  onComments,
+}: {
+  clip: PublicFeedClip;
+  token?: string;
+  signedIn: boolean;
+  onClose: () => void;
+  onLike: () => void;
+  onComments: (slug: string, count: number) => void;
+}) {
+  const [comments, setComments] = useState<ClipComment[]>([]);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchClipComments(clip.slug, token)
+      .then((next) => {
+        if (!cancelled) setComments(next);
+      })
+      .catch((caught) => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not load comments.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clip.slug, token]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!token) return;
+    const body = draft.trim();
+    if (!body) return;
+    try {
+      const next = await postClipComment(clip.slug, body, token);
+      setComments(next.comments);
+      setDraft("");
+      onComments(clip.slug, next.commentCount);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not post that comment.");
+    }
+  }
+
+  return (
+    <div className="player-overlay" role="dialog" aria-modal="true" aria-label={clip.title || "Public clip"}>
+      <button type="button" className="player-backdrop" aria-label="Close" onClick={onClose} />
+      <section className="player-card">
+        <div className="player-stage">
+          {clip.playbackUrl ? (
+            <video src={clip.playbackUrl} controls autoPlay />
+          ) : (
+            <p className="muted">Playback is unavailable.</p>
+          )}
+        </div>
+        <div className="player-side">
+          <h2>{clip.title || "Untitled clip"}</h2>
+          <p className="muted">{formatHandle(clip.author)}</p>
+          <div className="row">
+            <button className={`btn ${clip.liked ? "liked" : ""}`} type="button" onClick={onLike}>
+              {clip.liked ? "Liked" : "Like"} · {formatCount(clip.likeCount)}
+            </button>
+            <a className="btn" href={clipShareUrl(clip.slug)} target="_blank" rel="noreferrer">
+              Open link
+            </a>
+          </div>
+          {error ? <p className="error-text">{error}</p> : null}
+          <ul className="comment-list">
+            {comments.map((comment) => (
+              <li key={comment.id}>
+                <strong>{formatHandle(comment.author)}</strong>
+                <span>{comment.body}</span>
+                {comment.canDelete && token ? (
+                  <button
+                    className="btn ghost"
+                    type="button"
+                    onClick={() => {
+                      void deleteClipComment(clip.slug, comment.id, token).then((next) => {
+                        setComments((current) => current.filter((item) => item.id !== comment.id));
+                        onComments(clip.slug, next.commentCount);
+                      });
+                    }}
+                  >
+                    Delete
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {signedIn ? (
+            <form className="comment-form" onSubmit={(event) => void submit(event)}>
+              <input
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                maxLength={500}
+                placeholder="Add a comment"
+                aria-label="Add a comment"
+              />
+              <button className="btn primary" type="submit">
+                Comment
+              </button>
+            </form>
+          ) : (
+            <p className="muted">
+              <Link to="/profile">Sign in</Link> to like or comment.
+            </p>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }

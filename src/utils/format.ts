@@ -49,6 +49,22 @@ export function invokeErrorMessage(caught: unknown, fallback: string): string {
   return fallback;
 }
 
+export function formatCount(value: number | null | undefined): string {
+  const n = Math.max(0, Number(value) || 0);
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) {
+    const thousands = n / 1000;
+    return `${thousands >= 10 ? Math.round(thousands) : thousands.toFixed(1).replace(/\.0$/, "")}k`;
+  }
+  const millions = n / 1_000_000;
+  return `${millions >= 10 ? Math.round(millions) : millions.toFixed(1).replace(/\.0$/, "")}M`;
+}
+
+export function formatHandle(author?: { username?: string | null; displayName?: string | null } | null): string {
+  if (author?.username) return `@${author.username}`;
+  return author?.displayName || "Player";
+}
+
 export function formatDuration(ms: number | null | undefined): string {
   const total = Math.max(0, Math.floor((ms ?? 0) / 1000));
   const minutes = Math.floor(total / 60);

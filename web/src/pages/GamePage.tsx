@@ -5,10 +5,12 @@ import { ClipThumb } from "../components/ClipThumb";
 import { GameCover } from "../components/GameCover";
 import { downloadCloudClip } from "../lib/api";
 import { fetchGameClips, type CatalogGame, type PublicGameClip } from "../lib/games";
-import { formatDurationMs } from "../lib/format";
+import { useAuth } from "../lib/auth";
+import { formatCount, formatDurationMs, formatHandle } from "../lib/format";
 
 export function GamePage() {
   const { slug = "" } = useParams();
+  const { session } = useAuth();
   const [game, setGame] = useState<CatalogGame | null>(null);
   const [clips, setClips] = useState<PublicGameClip[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +20,7 @@ export function GamePage() {
     setGame(null);
     setClips([]);
     setError(null);
-    void fetchGameClips(slug)
+    void fetchGameClips(slug, session?.access_token)
       .then((next) => {
         if (cancelled) return;
         setGame(next.game);
@@ -30,7 +32,7 @@ export function GamePage() {
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, session?.access_token]);
 
   return (
     <main className="page games-page">
@@ -80,7 +82,10 @@ export function GamePage() {
                   </div>
                   <div className="clip-meta">
                     <div className="clip-title">{clip.title || "Untitled clip"}</div>
-                    <div className="muted">Public</div>
+                    <div className="muted">
+                      {formatHandle(clip.author)} · {formatCount(clip.likeCount)} likes · {formatCount(clip.commentCount)}{" "}
+                      comments
+                    </div>
                   </div>
                 </Link>
                 <div className="clip-card-actions">

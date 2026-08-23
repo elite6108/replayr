@@ -7,6 +7,7 @@ import { AuthProvider } from "./lib/auth";
 import { AccountPage } from "./pages/AccountPage";
 import { ClipPage } from "./pages/ClipPage";
 import { CreatorsPage } from "./pages/CreatorsPage";
+import { ExplorePage } from "./pages/ExplorePage";
 import { FeaturesPage } from "./pages/FeaturesPage";
 import { FriendsPage } from "./pages/FriendsPage";
 import { GamePage } from "./pages/GamePage";
@@ -24,6 +25,7 @@ import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { AdminClipsPage } from "./pages/admin/AdminClipsPage";
 import { AdminStoragePage } from "./pages/admin/AdminStoragePage";
 import { AdminCreatorsPage } from "./pages/admin/AdminCreatorsPage";
+import { AdminErrorsPage } from "./pages/admin/AdminErrorsPage";
 
 export function App() {
   return (
@@ -44,6 +46,7 @@ function AppShell() {
           <Route path="/features" element={<FeaturesPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/creators" element={<CreatorsPage />} />
+          <Route path="/explore" element={<ExplorePage />} />
           <Route path="/games" element={<GamesPage />} />
           <Route path="/games/:slug" element={<GamePage />} />
           <Route path="/signin" element={<SignInPage />} />
@@ -89,6 +92,7 @@ function AppShell() {
             <Route path="clips" element={<AdminClipsPage />} />
             <Route path="storage" element={<AdminStoragePage />} />
             <Route path="creators" element={<AdminCreatorsPage />} />
+            <Route path="errors" element={<AdminErrorsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

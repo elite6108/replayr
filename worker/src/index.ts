@@ -1,5 +1,6 @@
 import { AwsClient } from "aws4fetch";
 import { handleAdmin } from "./admin";
+import { ingestClientError, recordWorkerError } from "./errors";
 import { cors, HttpError, json } from "./http";
 
 export interface Env {
@@ -36,7 +37,7 @@ interface CompleteBody {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: { waitUntil(task: Promise<unknown>): void }): Promise<Response> {
     const url = new URL(request.url);
     if (shouldUpgradeToHttps(url)) {
       url.protocol = "https:";
@@ -52,7 +53,8 @@ export default {
         return cors(json({ error: caught.message }, caught.status), request);
       }
       const message = caught instanceof Error ? caught.message : "Worker failed.";
-      return cors(json({ error: message }, 500), request);
+      ctx.waitUntil(recordWorkerError(env, message, url.pathname));
+      return cors(json({ error: "Something went wrong." }, 500), request);
     }
   },
 };
@@ -68,11 +70,11 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
     return listLibrary(request, env);
   }
   if (request.method === "GET" && url.pathname === "/v1/clips/public") {
-    return listPublicClips(env);
+    return listPublicClips(request, env, url);
   }
   const gameClips = url.pathname.match(/^\/v1\/games\/([^/]+)\/clips$/);
   if (request.method === "GET" && gameClips?.[1]) {
-    return listGameClips(env, gameClips[1]);
+    return listGameClips(request, env, gameClips[1]);
   }
   if (request.method === "POST" && url.pathname === "/v1/clips/uploads") {
     return createUpload(request, env);
@@ -85,12 +87,36 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   if (request.method === "GET" && download?.[1]) {
     return downloadClip(request, env, download[1]);
   }
+  const commentItem = url.pathname.match(/^\/v1\/clips\/([^/]+)\/comments\/([^/]+)$/);
+  if (request.method === "DELETE" && commentItem?.[1] && commentItem[2]) {
+    return deleteClipComment(request, env, commentItem[1], commentItem[2]);
+  }
+  const comments = url.pathname.match(/^\/v1\/clips\/([^/]+)\/comments$/);
+  if (comments?.[1] && request.method === "GET") {
+    return listClipComments(request, env, comments[1]);
+  }
+  if (comments?.[1] && request.method === "POST") {
+    return addClipComment(request, env, comments[1]);
+  }
+  const like = url.pathname.match(/^\/v1\/clips\/([^/]+)\/like$/);
+  if (like?.[1] && request.method === "POST") {
+    return likeClip(request, env, like[1]);
+  }
+  if (like?.[1] && request.method === "DELETE") {
+    return unlikeClip(request, env, like[1]);
+  }
   const clipItem = url.pathname.match(/^\/v1\/clips\/([^/]+)$/);
   if (request.method === "DELETE" && clipItem?.[1]) {
     return deleteClip(request, env, clipItem[1]);
   }
   if (request.method === "GET" && clipItem?.[1]) {
     return getPlayback(request, env, clipItem[1]);
+  }
+  if (request.method === "POST" && url.pathname === "/v1/account/delete") {
+    return deleteAccount(request, env);
+  }
+  if (request.method === "POST" && url.pathname === "/v1/errors") {
+    return ingestClientError(request, env);
   }
   if (url.pathname.startsWith("/v1/admin")) {
     return handleAdmin(request, env, url);
@@ -99,6 +125,9 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   if (request.method === "GET" && share?.[1]) {
     return clipPlayerPage(request, env, share[1]);
   }
+  if (request.method === "GET" && url.pathname === "/releases/latest.json") {
+    return serveUpdaterManifest(request, env);
+  }
   if (request.method === "GET" && url.pathname === "/") {
     if (env.ASSETS) return env.ASSETS.fetch(request);
     return siteLanding(env);
@@ -106,6 +135,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   if (
     request.method === "GET" &&
     (url.pathname === "/library" ||
+      url.pathname === "/explore" ||
       url.pathname === "/signin" ||
       url.pathname === "/auth/callback" ||
       url.pathname === "/auth/desktop" ||
@@ -369,6 +399,55 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
   return json({ clipId, status: "deleted" });
 }
 
+async function deleteAccount(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const serviceKey = requireServiceRole(env);
+  requireR2(env);
+
+  let offset = 0;
+  for (;;) {
+    const clips = await serviceRest<ClipRow[]>(
+      env,
+      "GET",
+      `/clips?user_id=eq.${user.id}&status=neq.deleted&select=id,user_id,storage_key,thumbnail_key,status,file_size_bytes&limit=100&offset=${offset}`,
+    );
+    if (clips.length === 0) break;
+    const uploadingIds = clips.filter((clip) => clip.status === "uploading").map((clip) => clip.id);
+    const reserved = new Map<string, number>();
+    if (uploadingIds.length > 0) {
+      const sessions = await serviceRest<{ clip_id: string; expected_size_bytes: number }[]>(
+        env,
+        "GET",
+        `/upload_sessions?user_id=eq.${user.id}&clip_id=in.(${uploadingIds.join(",")})&select=clip_id,expected_size_bytes`,
+      );
+      for (const session of sessions) reserved.set(session.clip_id, session.expected_size_bytes);
+    }
+    for (const clip of clips) {
+      await deleteOwnedObject(env, user.id, clip.storage_key);
+      await deleteOwnedObject(env, user.id, clip.thumbnail_key);
+      if (clip.status === "ready" && clip.file_size_bytes && clip.file_size_bytes > 0) {
+        await releaseReservedBytes(env, user.id, clip.file_size_bytes);
+      } else if (clip.status === "uploading") {
+        await releaseReservedBytes(env, user.id, Number(reserved.get(clip.id) ?? NaN));
+      }
+    }
+    if (clips.length < 100) break;
+    offset += clips.length;
+  }
+
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${user.id}`, {
+    method: "DELETE",
+    headers: {
+      apikey: serviceKey,
+      authorization: `Bearer ${serviceKey}`,
+    },
+  });
+  if (!response.ok) {
+    throw new HttpError(502, restError(await response.text()) || "Could not delete this account.");
+  }
+  return json({ status: "deleted" });
+}
+
 async function listLibrary(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const url = new URL(request.url);
@@ -410,7 +489,7 @@ async function listLibrary(request: Request, env: Env): Promise<Response> {
   return json({ clips, total, page, limit });
 }
 
-async function listGameClips(env: Env, slug: string): Promise<Response> {
+async function listGameClips(request: Request, env: Env, slug: string): Promise<Response> {
   if (!/^[a-z0-9-]+$/i.test(slug)) {
     return json({ error: "That game was not found." }, 404);
   }
@@ -427,13 +506,14 @@ async function listGameClips(env: Env, slug: string): Promise<Response> {
   const rows = await serviceRest<LibraryRow[]>(
     env,
     "GET",
-    `/clips?game_id=eq.${game.id}&visibility=eq.public&status=eq.ready&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key&order=created_at.desc&limit=48`,
+    `/clips?game_id=eq.${game.id}&visibility=eq.public&status=eq.ready&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key,like_count,comment_count&order=created_at.desc&limit=48`,
   );
   requireR2(env);
+  const viewer = await optionalUser(request, env);
+  const social = await loadSocial(env, rows, viewer?.id ?? null);
   const clips = [];
   for (const row of rows) {
-    const thumbnailUrl = await signedOwnedUrl(env, row.user_id, row.thumbnail_key, "GET");
-    const playbackUrl = await signedOwnedUrl(env, row.user_id, row.storage_key, "GET");
+    const extra = social.get(row.id);
     clips.push({
       id: row.id,
       title: row.title,
@@ -445,23 +525,32 @@ async function listGameClips(env: Env, slug: string): Promise<Response> {
       height: row.height,
       fileSizeBytes: row.file_size_bytes,
       createdAt: row.created_at,
-      thumbnailUrl,
-      playbackUrl,
+      thumbnailUrl: await signedOwnedUrl(env, row.user_id, row.thumbnail_key, "GET"),
+      playbackUrl: await signedOwnedUrl(env, row.user_id, row.storage_key, "GET"),
+      author: extra?.author ?? anonymousAuthor(),
+      likeCount: extra?.likeCount ?? row.like_count ?? 0,
+      commentCount: extra?.commentCount ?? row.comment_count ?? 0,
+      liked: extra?.liked ?? false,
     });
   }
   return json({ game, clips });
 }
 
-async function listPublicClips(env: Env): Promise<Response> {
+async function listPublicClips(request: Request, env: Env, url: URL): Promise<Response> {
+  const rawLimit = Number(url.searchParams.get("limit"));
+  const limit = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(48, Math.floor(rawLimit)) : 24;
   const rows = await serviceRest<PublicClipRow[]>(
     env,
     "GET",
-    "/clips?visibility=eq.public&status=eq.ready&select=id,user_id,title,slug,duration_ms,created_at,storage_key,thumbnail_key,games(name,slug,cover_url)&order=created_at.desc&limit=12",
+    `/clips?visibility=eq.public&status=eq.ready&select=id,user_id,title,slug,duration_ms,created_at,storage_key,thumbnail_key,like_count,comment_count,games(name,slug,cover_url)&order=created_at.desc&limit=${limit}`,
   );
   requireR2(env);
+  const viewer = await optionalUser(request, env);
+  const social = await loadSocial(env, rows, viewer?.id ?? null);
   const clips = [];
   for (const row of rows) {
     const game = Array.isArray(row.games) ? row.games[0] : row.games;
+    const extra = social.get(row.id);
     clips.push({
       id: row.id,
       title: row.title,
@@ -470,9 +559,11 @@ async function listPublicClips(env: Env): Promise<Response> {
       createdAt: row.created_at,
       thumbnailUrl: await signedOwnedUrl(env, row.user_id, row.thumbnail_key, "GET"),
       playbackUrl: await signedOwnedUrl(env, row.user_id, row.storage_key, "GET"),
-      game: game
-        ? { name: game.name, slug: game.slug, coverUrl: game.cover_url }
-        : null,
+      game: game ? { name: game.name, slug: game.slug, coverUrl: game.cover_url } : null,
+      author: extra?.author ?? anonymousAuthor(),
+      likeCount: extra?.likeCount ?? row.like_count ?? 0,
+      commentCount: extra?.commentCount ?? row.comment_count ?? 0,
+      liked: extra?.liked ?? false,
     });
   }
   return json({ clips });
@@ -520,7 +611,13 @@ async function getPlayback(request: Request, env: Env, slug: string): Promise<Re
     method: "GET",
     aws: { signQuery: true },
   });
+  const viewer = await optionalUser(request, env);
+  const social = clipAllowsSocial(clip)
+    ? await loadSocial(env, [clip], viewer?.id ?? null)
+    : null;
+  const extra = social?.get(clip.id);
   return json({
+    id: clip.id,
     slug: clip.slug,
     title: clip.title,
     durationMs: clip.duration_ms,
@@ -530,18 +627,191 @@ async function getPlayback(request: Request, env: Env, slug: string): Promise<Re
     status: clip.status,
     playbackUrl: signed.url,
     thumbnailUrl: await signedOwnedUrl(env, clip.user_id, clip.thumbnail_key, "GET"),
+    author: extra?.author ?? anonymousAuthor(),
+    likeCount: extra?.likeCount ?? clip.like_count ?? 0,
+    commentCount: extra?.commentCount ?? clip.comment_count ?? 0,
+    liked: extra?.liked ?? false,
   });
 }
 
-async function lookupPlayback(request: Request, env: Env, slug: string): Promise<PlaybackRow | null> {
+async function likeClip(request: Request, env: Env, slug: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  const clip = await requireShareableClip(env, slug);
+  try {
+    await serviceRest(env, "POST", "/clip_likes", { clip_id: clip.id, user_id: user.id });
+  } catch (caught) {
+    if (!(caught instanceof HttpError) || caught.status !== 409) throw caught;
+  }
+  return json(await socialState(env, clip.id, user.id, true));
+}
+
+async function unlikeClip(request: Request, env: Env, slug: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  const clip = await requireShareableClip(env, slug);
+  await serviceRest(env, "DELETE", `/clip_likes?clip_id=eq.${clip.id}&user_id=eq.${user.id}`);
+  return json(await socialState(env, clip.id, user.id, false));
+}
+
+async function listClipComments(request: Request, env: Env, slug: string): Promise<Response> {
+  const clip = await requireShareableClip(env, slug);
+  const rows = await serviceRest<CommentRow[]>(
+    env,
+    "GET",
+    `/clip_comments?clip_id=eq.${clip.id}&select=id,user_id,body,created_at&order=created_at.asc&limit=80`,
+  );
+  const viewer = await optionalUser(request, env);
+  const authors = await loadAuthors(
+    env,
+    rows.map((row) => row.user_id),
+  );
+  return json({
+    comments: rows.map((row) => ({
+      id: row.id,
+      body: row.body,
+      createdAt: row.created_at,
+      mine: viewer?.id === row.user_id,
+      canDelete: viewer?.id === row.user_id || viewer?.id === clip.user_id,
+      author: authors.get(row.user_id) ?? anonymousAuthor(),
+    })),
+  });
+}
+
+async function addClipComment(request: Request, env: Env, slug: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  const clip = await requireShareableClip(env, slug);
+  const payload = (await request.json().catch(() => ({}))) as { body?: unknown };
+  const body = typeof payload.body === "string" ? payload.body.trim() : "";
+  if (body.length < 1 || body.length > 500) {
+    throw new HttpError(400, "Comments must be 1–500 characters.");
+  }
+  await serviceRest(env, "POST", "/clip_comments", { clip_id: clip.id, user_id: user.id, body });
+  const listed = await listClipComments(request, env, slug);
+  const data = (await listed.json()) as { comments: unknown[] };
+  const counts = await clipCounts(env, clip.id);
+  return json({ comments: data.comments, commentCount: counts.commentCount });
+}
+
+async function deleteClipComment(request: Request, env: Env, slug: string, commentId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  const clip = await requireShareableClip(env, slug);
+  if (!/^[0-9a-f-]{36}$/i.test(commentId)) {
+    throw new HttpError(404, "That comment was not found.");
+  }
+  const rows = await serviceRest<CommentRow[]>(
+    env,
+    "GET",
+    `/clip_comments?id=eq.${commentId}&clip_id=eq.${clip.id}&select=id,user_id,body,created_at`,
+  );
+  const comment = rows[0];
+  if (!comment) throw new HttpError(404, "That comment was not found.");
+  if (comment.user_id !== user.id && clip.user_id !== user.id) {
+    throw new HttpError(403, "You can only delete your own comment.");
+  }
+  await serviceRest(env, "DELETE", `/clip_comments?id=eq.${commentId}&clip_id=eq.${clip.id}`);
+  const counts = await clipCounts(env, clip.id);
+  return json({ deleted: true, commentCount: counts.commentCount });
+}
+
+function clipAllowsSocial(clip: { visibility: string }) {
+  return clip.visibility === "public" || clip.visibility === "unlisted";
+}
+
+async function requireShareableClip(env: Env, slug: string): Promise<PlaybackRow> {
+  const clip = await lookupPlaybackRaw(env, slug);
+  if (!clip || !clipAllowsSocial(clip)) {
+    throw new HttpError(404, "That clip is not available.");
+  }
+  return clip;
+}
+
+async function lookupPlaybackRaw(env: Env, slug: string): Promise<PlaybackRow | null> {
   if (!/^[a-z0-9]{6,16}$/.test(slug)) return null;
   const rows = await serviceRest<PlaybackRow[]>(
     env,
     "GET",
-    `/clips?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,visibility,status,storage_key,thumbnail_key`,
+    `/clips?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,visibility,status,storage_key,thumbnail_key,like_count,comment_count`,
   );
   const clip = rows[0];
   if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) return null;
+  return clip;
+}
+
+async function loadSocial(
+  env: Env,
+  rows: { id: string; user_id: string; like_count?: number; comment_count?: number }[],
+  viewerId: string | null,
+): Promise<Map<string, { author: ClipAuthor; likeCount: number; commentCount: number; liked: boolean }>> {
+  const result = new Map<string, { author: ClipAuthor; likeCount: number; commentCount: number; liked: boolean }>();
+  if (rows.length === 0) return result;
+  const authors = await loadAuthors(
+    env,
+    rows.map((row) => row.user_id),
+  );
+  const liked = viewerId ? await likedClipIds(env, viewerId, rows.map((row) => row.id)) : new Set<string>();
+  for (const row of rows) {
+    result.set(row.id, {
+      author: authors.get(row.user_id) ?? anonymousAuthor(),
+      likeCount: row.like_count ?? 0,
+      commentCount: row.comment_count ?? 0,
+      liked: liked.has(row.id),
+    });
+  }
+  return result;
+}
+
+async function loadAuthors(env: Env, userIds: string[]): Promise<Map<string, ClipAuthor>> {
+  const unique = [...new Set(userIds.filter(Boolean))];
+  const authors = new Map<string, ClipAuthor>();
+  if (unique.length === 0) return authors;
+  const rows = await serviceRest<ProfileRow[]>(
+    env,
+    "GET",
+    `/profiles?id=in.(${unique.join(",")})&select=id,username,display_name,avatar_url`,
+  );
+  for (const row of rows) {
+    authors.set(row.id, {
+      username: row.username,
+      displayName: row.display_name || row.username,
+      avatarUrl: row.avatar_url,
+    });
+  }
+  return authors;
+}
+
+async function likedClipIds(env: Env, userId: string, clipIds: string[]): Promise<Set<string>> {
+  if (clipIds.length === 0) return new Set();
+  const rows = await serviceRest<{ clip_id: string }[]>(
+    env,
+    "GET",
+    `/clip_likes?user_id=eq.${userId}&clip_id=in.(${clipIds.join(",")})&select=clip_id`,
+  );
+  return new Set(rows.map((row) => row.clip_id));
+}
+
+async function socialState(env: Env, clipId: string, userId: string, liked: boolean) {
+  const counts = await clipCounts(env, clipId);
+  return { liked, likeCount: counts.likeCount, commentCount: counts.commentCount };
+}
+
+async function clipCounts(env: Env, clipId: string) {
+  const rows = await serviceRest<{ like_count: number; comment_count: number }[]>(
+    env,
+    "GET",
+    `/clips?id=eq.${clipId}&select=like_count,comment_count`,
+  );
+  return {
+    likeCount: rows[0]?.like_count ?? 0,
+    commentCount: rows[0]?.comment_count ?? 0,
+  };
+}
+
+function anonymousAuthor(): ClipAuthor {
+  return { username: null, displayName: "Player", avatarUrl: null };
+}
+
+async function lookupPlayback(request: Request, env: Env, slug: string): Promise<PlaybackRow | null> {
+  const clip = await lookupPlaybackRaw(env, slug);
+  if (!clip) return null;
   if (clip.visibility === "public" || clip.visibility === "unlisted") return clip;
   if (clip.visibility === "private") {
     const user = await optionalUser(request, env);
@@ -564,6 +834,31 @@ function bearerToken(request: Request): string | null {
   if (!header.toLowerCase().startsWith("bearer ")) return null;
   const token = header.slice(7).trim();
   return token || null;
+}
+
+async function serveUpdaterManifest(request: Request, env: Env): Promise<Response> {
+  if (!env.ASSETS) {
+    return json({ error: "Updater manifest is not published." }, 404);
+  }
+  const asset = await env.ASSETS.fetch(request);
+  const text = await asset.text();
+  const trimmed = text.trimStart();
+  if (!asset.ok || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+    return json({ error: "Updater manifest is not published." }, 404);
+  }
+  try {
+    JSON.parse(text);
+  } catch {
+    return json({ error: "Updater manifest is not published." }, 404);
+  }
+  return new Response(text, {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-cache, must-revalidate",
+      "cdn-cache-control": "no-store",
+    },
+  });
 }
 
 async function clipPlayerPage(request: Request, env: Env, slug: string): Promise<Response> {
@@ -941,6 +1236,8 @@ interface LibraryRow {
   created_at: string;
   storage_key: string | null;
   thumbnail_key: string | null;
+  like_count?: number;
+  comment_count?: number;
 }
 
 interface GameRow {
@@ -960,6 +1257,8 @@ interface PublicClipRow {
   created_at: string;
   storage_key: string | null;
   thumbnail_key: string | null;
+  like_count?: number;
+  comment_count?: number;
   games: { name: string; slug: string; cover_url: string | null } | { name: string; slug: string; cover_url: string | null }[] | null;
 }
 
@@ -975,4 +1274,26 @@ interface PlaybackRow {
   status: string;
   storage_key: string | null;
   thumbnail_key?: string | null;
+  like_count?: number;
+  comment_count?: number;
+}
+
+interface ProfileRow {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+}
+
+interface CommentRow {
+  id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+}
+
+interface ClipAuthor {
+  username: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
 }

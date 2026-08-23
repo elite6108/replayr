@@ -7,6 +7,7 @@ const links = [
   { to: "/admin/clips", label: "Clips" },
   { to: "/admin/storage", label: "Storage" },
   { to: "/admin/creators", label: "Creators" },
+  { to: "/admin/errors", label: "Errors" },
 ];
 
 export function AdminLayout() {

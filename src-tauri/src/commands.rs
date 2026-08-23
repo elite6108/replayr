@@ -8,7 +8,29 @@ use crate::error::{AppError, AppResult};
 use crate::games::{DetectedGameSnapshot, GameInput, GameRecord};
 use crate::library::LocalClipDto;
 use crate::settings::AppSettings;
-use crate::{auth, capture, detection, games, hotkeys, library, settings};
+use crate::{auth, capture, detection, games, hotkeys, library, settings, shortcut};
+
+const LIVE_AUDIO_KEYS: &[&str] = &[
+    "micEnabled",
+    "microphoneId",
+    "micGain",
+    "gameAudioEnabled",
+    "gameAudioGain",
+    "discordAudioEnabled",
+    "discordAudioGain",
+    "systemAudioEnabled",
+    "extraApps",
+];
+const CAPTURE_KEYS: &[&str] = &[
+    "instantReplayEnabled",
+    "replayDurationSeconds",
+    "resolution",
+    "fps",
+    "bitrate",
+    "customBitrateKbps",
+    "codec",
+    "saveLocation",
+];
 
 #[tauri::command]
 pub fn get_all_settings(state: State<AppState>) -> AppResult<AppSettings> {
@@ -20,20 +42,28 @@ pub fn get_all_settings(state: State<AppState>) -> AppResult<AppSettings> {
 pub fn set_setting(app: AppHandle, state: State<AppState>, rec: State<RecordingState>, detection: State<DetectionState>, key: String, value: Value) -> AppResult<AppSettings> {
     let settings = {
         let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
-        settings::set_document(&conn, json!({ key: value }))?
+        settings::set_document(&conn, json!({ key.clone(): value }))?
     };
-    after_settings(&app, &rec, &detection, &settings)?;
+    after_settings(&app, &rec, &detection, &settings, &[key])?;
     Ok(settings)
 }
 
 #[tauri::command]
 pub fn set_settings(app: AppHandle, state: State<AppState>, rec: State<RecordingState>, detection: State<DetectionState>, patch: Value) -> AppResult<AppSettings> {
+    let keys = patch_keys(&patch);
     let settings = {
         let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
         settings::set_document(&conn, patch)?
     };
-    after_settings(&app, &rec, &detection, &settings)?;
+    after_settings(&app, &rec, &detection, &settings, &keys)?;
     Ok(settings)
+}
+
+fn patch_keys(patch: &Value) -> Vec<String> {
+    patch
+        .as_object()
+        .map(|object| object.keys().cloned().collect())
+        .unwrap_or_default()
 }
 
 fn after_settings(
@@ -41,11 +71,252 @@ fn after_settings(
     rec: &RecordingState,
     detection: &DetectionState,
     settings: &AppSettings,
+    keys: &[String],
 ) -> AppResult<()> {
-    hotkeys::register_all(app, &settings.hotkeys)?;
-    let snapshot = detection::current_snapshot(detection);
-    let _ = capture::sync_replay(app, rec, snapshot.pid, snapshot.name, snapshot.slug);
+    let _ = rec;
+    let hotkeys_changed = keys.iter().any(|key| key == "hotkeys");
+    let audio_changed = keys.iter().any(|key| LIVE_AUDIO_KEYS.contains(&key.as_str()));
+    let capture_changed = keys.iter().any(|key| CAPTURE_KEYS.contains(&key.as_str()));
+
+    if hotkeys_changed {
+        hotkeys::register_all(app, &settings.hotkeys)?;
+    }
+
+    #[cfg(windows)]
+    if audio_changed {
+        let handle = app.clone();
+        let settings = settings.clone();
+        let _ = std::thread::Builder::new()
+            .name("audio-apply".into())
+            .spawn(move || {
+                handle.state::<crate::audio::AudioRuntime>().apply(&settings);
+            });
+    }
+
+    if capture_changed {
+        let handle = app.clone();
+        let snapshot = detection::current_snapshot(detection);
+        let _ = std::thread::Builder::new()
+            .name("sync-replay".into())
+            .spawn(move || {
+                let rec = handle.state::<RecordingState>();
+                if let Err(err) = capture::sync_replay(
+                    &handle,
+                    &rec,
+                    snapshot.pid,
+                    snapshot.name.clone(),
+                    snapshot.slug.clone(),
+                ) {
+                    tracing::warn!("sync replay after settings: {err}");
+                }
+            });
+    }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn list_audio_devices() -> AppResult<Value> {
+    #[cfg(windows)]
+    {
+        let devices = tauri::async_runtime::spawn_blocking(crate::audio::list_devices)
+            .await
+            .map_err(|err| AppError::Message(err.to_string()))?
+            .map_err(AppError::Message)?;
+        Ok(serde_json::to_value(devices)?)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(json!([]))
+    }
+}
+
+#[tauri::command]
+pub async fn list_audio_sessions() -> AppResult<Value> {
+    #[cfg(windows)]
+    {
+        let sessions = tauri::async_runtime::spawn_blocking(crate::audio::list_sessions)
+            .await
+            .map_err(|err| AppError::Message(err.to_string()))?
+            .map_err(AppError::Message)?;
+        Ok(serde_json::to_value(sessions)?)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(json!([]))
+    }
+}
+
+#[tauri::command]
+pub fn get_audio_status(app: AppHandle) -> AppResult<Value> {
+    #[cfg(windows)]
+    {
+        let status = app.state::<crate::audio::AudioRuntime>().status();
+        Ok(serde_json::to_value(status)?)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Ok(json!({
+            "processLoopbackSupported": false,
+            "osBuild": 0,
+            "extraCount": 0,
+            "extraCap": 4,
+            "game": { "id": "game", "displayName": "Game Audio", "enabled": false, "running": false, "capturing": false, "isolationFailed": false, "status": "", "peak": 0.0, "gain": 1.0 },
+            "desktop": { "id": "desktop", "displayName": "Desktop / System", "enabled": false, "running": false, "capturing": false, "isolationFailed": false, "status": "", "peak": 0.0, "gain": 1.0 },
+            "discord": { "id": "discord", "displayName": "Discord", "enabled": false, "running": false, "capturing": false, "isolationFailed": false, "status": "", "peak": 0.0, "gain": 1.0 },
+            "extras": [],
+            "detectedExtras": []
+        }))
+    }
+}
+
+#[tauri::command]
+pub fn add_extra_audio_app(
+    app: AppHandle,
+    state: State<AppState>,
+    rec: State<RecordingState>,
+    detection: State<DetectionState>,
+    exe: String,
+    display_name: String,
+) -> AppResult<AppSettings> {
+    let exe = exe.trim().to_string();
+    if exe.is_empty() {
+        return Err(AppError::Message("Choose an app that is playing audio.".into()));
+    }
+    let current = {
+        let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        settings::load(&conn)?
+    };
+    if let Some(existing) = current
+        .extra_apps
+        .iter()
+        .find(|app| crate::games::process_name_matches(&app.exe, &exe))
+    {
+        let mut extras = current.extra_apps.clone();
+        if let Some(item) = extras.iter_mut().find(|item| item.id == existing.id) {
+            item.enabled = true;
+            if !display_name.trim().is_empty() {
+                item.display_name = display_name.trim().to_string();
+            }
+        }
+        let patch = json!({ "extraApps": extras });
+        let keys = patch_keys(&patch);
+        let settings = {
+            let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+            settings::set_document(&conn, patch)?
+        };
+        after_settings(&app, &rec, &detection, &settings, &keys)?;
+        return Ok(settings);
+    }
+    crate::audio_resolve::can_add_extra_app(current.discord_audio_enabled, &current.extra_apps)
+        .map_err(AppError::Message)?;
+    let catalog = crate::audio_resolve::catalog_for_exe(&exe);
+    let mut extras = current.extra_apps.clone();
+    extras.push(crate::settings::ExtraAudioApp {
+        id: catalog
+            .map(|app| app.id.to_string())
+            .unwrap_or_else(|| crate::games::normalize_process_name(&exe)),
+        exe,
+        display_name: display_name.trim().to_string().if_empty_then(catalog.map(|app| app.display_name)),
+        enabled: true,
+        gain: 1.0,
+    });
+    let patch = json!({ "extraApps": extras });
+    let keys = patch_keys(&patch);
+    let settings = {
+        let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        settings::set_document(&conn, patch)?
+    };
+    after_settings(&app, &rec, &detection, &settings, &keys)?;
+    Ok(settings)
+}
+
+trait IfEmptyThen {
+    fn if_empty_then(self, fallback: Option<&str>) -> String;
+}
+
+impl IfEmptyThen for String {
+    fn if_empty_then(self, fallback: Option<&str>) -> String {
+        if self.is_empty() {
+            fallback.unwrap_or("App").to_string()
+        } else {
+            self
+        }
+    }
+}
+
+#[tauri::command]
+pub fn get_mic_level(app: AppHandle, state: State<AppState>) -> f32 {
+    #[cfg(windows)]
+    {
+        let loaded = state
+            .db
+            .lock()
+            .ok()
+            .and_then(|conn| settings::load(&conn).ok());
+        let device_id = loaded
+            .as_ref()
+            .map(|settings| settings.microphone_id.clone())
+            .unwrap_or_else(|| "default".into());
+        let runtime = app.state::<crate::audio::AudioRuntime>();
+        if let Some(settings) = loaded.as_ref() {
+            runtime.set_gain(settings.mic_gain);
+        }
+        if !runtime.is_monitoring(&device_id) {
+            let handle = app.clone();
+            let _ = std::thread::Builder::new()
+                .name("mic-monitor".into())
+                .spawn(move || {
+                    handle
+                        .state::<crate::audio::AudioRuntime>()
+                        .ensure_peak_monitor(&device_id);
+                });
+        }
+        runtime.peak()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, state);
+        0.0
+    }
+}
+
+#[tauri::command]
+pub fn stop_mic_monitor(app: AppHandle) {
+    #[cfg(windows)]
+    {
+        app.state::<crate::audio::AudioRuntime>().stop_if_not_mixing();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+    }
+}
+
+#[tauri::command]
+pub fn resolve_mic_disconnect(
+    app: AppHandle,
+    state: State<AppState>,
+    rec: State<RecordingState>,
+    detection: State<DetectionState>,
+    action: String,
+) -> AppResult<AppSettings> {
+    #[cfg(windows)]
+    {
+        app.state::<crate::audio::AudioRuntime>().clear_hold();
+    }
+    let patch = match action.as_str() {
+        "default" => json!({ "microphoneId": "default", "micEnabled": true }),
+        "off" => json!({ "micEnabled": false }),
+        _ => return Err(AppError::Message("Unknown microphone disconnect action.".into())),
+    };
+    let keys = patch_keys(&patch);
+    let settings = {
+        let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        settings::set_document(&conn, patch)?
+    };
+    after_settings(&app, &rec, &detection, &settings, &keys)?;
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -113,6 +384,21 @@ pub async fn delete_cloud_clip(
     })
     .await
     .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+#[tauri::command]
+pub fn create_desktop_shortcut(app: AppHandle) -> AppResult<()> {
+    shortcut::create(&app)
+}
+
+#[tauri::command]
+pub fn remove_desktop_shortcut(app: AppHandle) -> AppResult<()> {
+    shortcut::remove(&app)
+}
+
+#[tauri::command]
+pub fn desktop_shortcut_exists(app: AppHandle) -> AppResult<bool> {
+    shortcut::exists(&app)
 }
 
 #[tauri::command]

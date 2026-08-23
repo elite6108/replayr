@@ -6,14 +6,17 @@ import {
   deleteAdminClip,
   fetchAdminClips,
   fetchAdminCreators,
+  fetchAdminErrors,
   fetchAdminOverview,
   fetchAdminPlans,
   fetchAdminStorage,
   fetchAdminUsers,
+  resolveAdminError,
   reviewCreatorApplication,
   updateAdminUser,
   type AdminClipRow,
   type AdminCreatorRow,
+  type AdminErrorRow,
   type AdminOverview,
   type AdminPlan,
   type AdminStorageRow,
@@ -23,7 +26,7 @@ import { useAuthStore } from "../stores/authStore";
 import { isAdminSession } from "../utils/admin";
 import { formatBytes, formatClipDate, formatDuration, planLabel } from "../utils/format";
 
-type Tab = "overview" | "users" | "clips" | "storage" | "creators";
+type Tab = "overview" | "users" | "clips" | "storage" | "creators" | "errors";
 
 function consoleUrl() {
   try {
@@ -63,6 +66,7 @@ export function AdminPage() {
             ["clips", "Clips"],
             ["storage", "Storage"],
             ["creators", "Creators"],
+            ["errors", "Errors"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -82,6 +86,7 @@ export function AdminPage() {
       {tab === "clips" ? <ClipsPane token={token} /> : null}
       {tab === "storage" ? <StoragePane token={token} /> : null}
       {tab === "creators" ? <CreatorsPane token={token} /> : null}
+      {tab === "errors" ? <ErrorsPane token={token} /> : null}
     </>
   );
 }
@@ -112,6 +117,8 @@ function OverviewPane({ token }: { token: string }) {
         <Stat label="Clips today" value={data?.clipsToday} />
         <Stat label="Cloud used" value={data ? formatBytes(data.storageUsedBytes) : undefined} />
         <Stat label="Pending creators" value={data?.pendingCreatorApps} />
+        <Stat label="Open errors" value={data?.openErrors} />
+        <Stat label="Errors / 24h" value={data?.errors24h} />
       </div>
     </section>
   );
@@ -403,6 +410,62 @@ function CreatorsPane({ token }: { token: string }) {
               Reject
             </button>
           </div>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function ErrorsPane({ token }: { token: string }) {
+  const [errors, setErrors] = useState<AdminErrorRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const next = await fetchAdminErrors(token);
+      setErrors(next.errors);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not load error logs.");
+    }
+  }
+
+  useEffect(() => {
+    if (token) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  return (
+    <section className="stack">
+      {error ? <p className="error">{error}</p> : null}
+      {errors.length === 0 ? <p className="muted">No open error groups.</p> : null}
+      {errors.map((row) => (
+        <article key={row.fingerprint} className="panel stack">
+          <strong>{row.message}</strong>
+          <p className="muted">
+            {row.surface} · {row.level} · {row.count}× · {formatClipDate(row.lastSeenAt)}
+            {row.path ? ` · ${row.path}` : ""}
+          </p>
+          <div className="row">
+            {row.stack ? (
+              <button
+                className="btn"
+                type="button"
+                onClick={() => setOpenId((current) => (current === row.fingerprint ? null : row.fingerprint))}
+              >
+                {openId === row.fingerprint ? "Hide stack" : "Stack"}
+              </button>
+            ) : null}
+            <button
+              className="btn"
+              type="button"
+              onClick={() => void resolveAdminError(token, row.fingerprint).then(() => load())}
+            >
+              Resolve
+            </button>
+          </div>
+          {openId === row.fingerprint && row.stack ? <pre className="admin-stack">{row.stack}</pre> : null}
         </article>
       ))}
     </section>

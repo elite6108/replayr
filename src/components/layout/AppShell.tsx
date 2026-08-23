@@ -3,8 +3,10 @@ import { Outlet, useNavigate } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
+import { DesktopShortcutPrompt } from "./DesktopShortcutPrompt";
 import { ClipPlayer } from "../common/ClipPlayer";
 import { ToastRegion } from "../common/ToastRegion";
+import { MicDisconnectToasts } from "./MicDisconnectToasts";
 
 function TrayNavigation() {
   const navigate = useNavigate();
@@ -37,6 +39,8 @@ export function AppShell() {
         </main>
       </div>
       <ToastRegion />
+      <MicDisconnectToasts />
+      <DesktopShortcutPrompt />
       <ClipPlayer />
     </div>
   );

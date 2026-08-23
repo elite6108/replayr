@@ -18,7 +18,7 @@ PUBLIC_APP_URL = "http://127.0.0.1:8787"
 directory = "../web/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/v1/*"]
+run_worker_first = ["/v1/*", "/releases/latest.json"]
 
 # Local secrets live in .dev.vars (gitignored). Sync from the repo env files:
 #   node worker/scripts/sync-dev-vars.mjs

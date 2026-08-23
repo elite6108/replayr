@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { AppSettings } from "../types/settings";
 import { DEFAULT_SETTINGS } from "../types/settings";
-import { getAllSettings, getDefaultSaveLocation, setSetting, setSettings } from "../services/tauri";
+import { createDesktopShortcut, getAllSettings, getDefaultSaveLocation, removeDesktopShortcut, setSetting, setSettings } from "../services/tauri";
 import { enable as enableAutostart, disable as disableAutostart } from "@tauri-apps/plugin-autostart";
 
 interface SettingsState {
@@ -12,37 +12,115 @@ interface SettingsState {
   patch: (values: Partial<AppSettings>) => Promise<void>;
 }
 
+async function syncLaunchAtStartup(enabled: boolean) {
+  if (enabled) await enableAutostart();
+  else await disableAutostart();
+}
+
+async function syncDesktopShortcut(enabled: boolean) {
+  if (enabled) await createDesktopShortcut();
+  else await removeDesktopShortcut();
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function normalizeSettings(settings: AppSettings): AppSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    micGain: typeof settings.micGain === "number" ? settings.micGain : DEFAULT_SETTINGS.micGain,
+    gameAudioEnabled: settings.gameAudioEnabled ?? DEFAULT_SETTINGS.gameAudioEnabled,
+    gameAudioGain: typeof settings.gameAudioGain === "number" ? settings.gameAudioGain : DEFAULT_SETTINGS.gameAudioGain,
+    discordAudioEnabled: settings.discordAudioEnabled ?? DEFAULT_SETTINGS.discordAudioEnabled,
+    discordAudioGain: typeof settings.discordAudioGain === "number" ? settings.discordAudioGain : DEFAULT_SETTINGS.discordAudioGain,
+    extraApps: Array.isArray(settings.extraApps) ? settings.extraApps : DEFAULT_SETTINGS.extraApps,
+    hotkeys: { ...DEFAULT_SETTINGS.hotkeys, ...settings.hotkeys },
+  };
+}
+
+async function reloadSettings(): Promise<AppSettings | null> {
+  try {
+    return normalizeSettings(await getAllSettings());
+  } catch (caught) {
+    console.warn("settings reload failed", caught);
+    return null;
+  }
+}
+
 export const useSettingsStore = create<SettingsState>((set) => ({
   settings: DEFAULT_SETTINGS,
   loaded: false,
   load: async () => {
-    let settings = await getAllSettings();
-    if (!settings.saveLocation) {
-      const saveLocation = await getDefaultSaveLocation();
-      settings = await setSetting("saveLocation", saveLocation);
+    try {
+      let settings = normalizeSettings(await getAllSettings());
+      if (!settings.saveLocation) {
+        try {
+          const saveLocation = await withTimeout(getDefaultSaveLocation(), 3000, "save location");
+          settings = await withTimeout(setSetting("saveLocation", saveLocation), 4000, "save location write");
+        } catch {
+          // Keep defaults so the splash can clear even if the first write fails.
+        }
+      }
+      if (settings.autoUpload === "off" && localStorage.getItem("replay.autoUploadWired") !== "1") {
+        try {
+          settings = await withTimeout(setSetting("autoUpload", "all"), 4000, "auto-upload write");
+        } catch {
+          settings = { ...settings, autoUpload: "all" };
+        }
+        localStorage.setItem("replay.autoUploadWired", "1");
+      } else {
+        localStorage.setItem("replay.autoUploadWired", "1");
+      }
+      set({ settings, loaded: true });
+    } catch (caught) {
+      console.warn("settings load failed; using defaults", caught);
+      set({ settings: DEFAULT_SETTINGS, loaded: true });
     }
-    if (settings.autoUpload === "off" && localStorage.getItem("replay.autoUploadWired") !== "1") {
-      settings = await setSetting("autoUpload", "all");
-      localStorage.setItem("replay.autoUploadWired", "1");
-    } else {
-      localStorage.setItem("replay.autoUploadWired", "1");
-    }
-    set({ settings, loaded: true });
   },
   update: async (key, value) => {
-    const settings = await setSetting(key, value);
-    if (key === "launchAtStartup") {
-      if (value) await enableAutostart();
-      else await disableAutostart();
+    set((state) => ({ settings: { ...state.settings, [key]: value } }));
+    try {
+      const settings = await setSetting(key, value);
+      if (key === "launchAtStartup") await syncLaunchAtStartup(Boolean(value));
+      if (key === "desktopShortcut") await syncDesktopShortcut(Boolean(value));
+      set({ settings });
+    } catch (caught) {
+      console.warn("settings update failed", key, caught);
+      const restored = await reloadSettings();
+      if (restored) set({ settings: restored });
+      throw caught;
     }
-    set({ settings });
   },
   patch: async (values) => {
-    const settings = await setSettings(values);
-    if (Object.prototype.hasOwnProperty.call(values, "launchAtStartup")) {
-      if (settings.launchAtStartup) await enableAutostart();
-      else await disableAutostart();
+    set((state) => ({ settings: { ...state.settings, ...values } }));
+    try {
+      const settings = await setSettings(values);
+      if (Object.prototype.hasOwnProperty.call(values, "launchAtStartup")) {
+        await syncLaunchAtStartup(settings.launchAtStartup);
+      }
+      if (Object.prototype.hasOwnProperty.call(values, "desktopShortcut")) {
+        await syncDesktopShortcut(settings.desktopShortcut);
+      }
+      set({ settings });
+    } catch (caught) {
+      console.warn("settings patch failed", caught);
+      const restored = await reloadSettings();
+      if (restored) set({ settings: restored });
+      throw caught;
     }
-    set({ settings });
   },
 }));

@@ -1,0 +1,34 @@
+[[permission]]
+identifier = "allow-list-audio-devices"
+description = "List WASAPI capture and render endpoints"
+commands.allow = ["list_audio_devices"]
+
+[[permission]]
+identifier = "allow-get-mic-level"
+description = "Read the live microphone peak meter"
+commands.allow = ["get_mic_level"]
+
+[[permission]]
+identifier = "allow-resolve-mic-disconnect"
+description = "Choose a microphone fallback after the selected device disappears"
+commands.allow = ["resolve_mic_disconnect"]
+
+[[permission]]
+identifier = "allow-stop-mic-monitor"
+description = "Stop the settings microphone meter when it is not recording"
+commands.allow = ["stop_mic_monitor"]
+
+[[permission]]
+identifier = "allow-list-audio-sessions"
+description = "List WASAPI render sessions for Add App"
+commands.allow = ["list_audio_sessions"]
+
+[[permission]]
+identifier = "allow-get-audio-status"
+description = "Read isolated audio source status and meters"
+commands.allow = ["get_audio_status"]
+
+[[permission]]
+identifier = "allow-add-extra-audio-app"
+description = "Add an isolated app to the mix, refusing over the four-app cap"
+commands.allow = ["add_extra_audio_app"]

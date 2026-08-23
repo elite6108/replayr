@@ -156,6 +156,7 @@ mod windows_impl {
     pub struct WindowsSession {
         encoder: Option<crate::encode::MfWriter>,
         audio: Option<crate::audio::LoopbackCapture>,
+        encoder_audio: bool,
         flags: SessionFlags,
         segment_index: u64,
         current_width: u32,
@@ -171,9 +172,11 @@ mod windows_impl {
         pub bitrate: u32,
         pub fps: u32,
         pub include_audio: bool,
+        pub loopback: bool,
         pub segmented: bool,
         pub min_free_disk_bytes: u64,
         pub shared: Arc<CaptureShared>,
+        pub audio_runtime: crate::audio::AudioRuntime,
     }
 
     impl GraphicsCaptureApiHandler for WindowsSession {
@@ -182,24 +185,26 @@ mod windows_impl {
 
         fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
             let flags = ctx.flags;
-            let mut audio = if flags.include_audio {
+            let mut audio = if flags.loopback {
                 crate::audio::LoopbackCapture::start()
             } else {
                 None
             };
-            let encoder = match open_encoder(&flags.path, flags.width, flags.height, flags.fps, flags.bitrate, audio.is_some())
+            let encoder = match open_encoder(&flags.path, flags.width, flags.height, flags.fps, flags.bitrate, flags.include_audio)
             {
                 Ok(encoder) => encoder,
-                Err(err) if audio.is_some() => {
+                Err(err) if flags.include_audio => {
                     tracing::warn!("encoder with audio failed ({err}); retrying silent");
                     audio = None;
                     open_encoder(&flags.path, flags.width, flags.height, flags.fps, flags.bitrate, false)?
                 }
                 Err(err) => return Err(err),
             };
+            let encoder_audio = encoder.has_audio();
             Ok(Self {
                 encoder: Some(encoder),
                 audio,
+                encoder_audio,
                 current_width: flags.width,
                 current_height: flags.height,
                 flags,
@@ -236,8 +241,9 @@ mod windows_impl {
                 return Ok(());
             };
             encoder.write_bgra(&bytes, pitch, width, height)?;
-            if let Some(audio) = self.audio.as_ref() {
-                let pcm = audio.take();
+            if self.encoder_audio {
+                let loopback = self.audio.as_ref().map(|audio| audio.take()).unwrap_or_default();
+                let pcm = self.flags.audio_runtime.mix_into(loopback);
                 if !pcm.is_empty() {
                     encoder.write_pcm(&pcm)?;
                 }
@@ -279,15 +285,16 @@ mod windows_impl {
             }
             self.segment_index += 1;
             self.flags.path = self.flags.dir.join(format!("seg-{:06}.mp4", self.segment_index));
-            let with_audio = self.audio.is_some();
-            self.encoder = Some(open_encoder(
+            let encoder = open_encoder(
                 &self.flags.path,
                 self.flags.width,
                 self.flags.height,
                 self.flags.fps,
                 self.flags.bitrate,
-                with_audio,
-            )?);
+                self.encoder_audio,
+            )?;
+            self.encoder_audio = encoder.has_audio();
+            self.encoder = Some(encoder);
             notify_rotate(&self.flags.shared);
             self.sweep_scratch();
             Ok(())
@@ -632,7 +639,12 @@ mod windows_impl {
 
         let fps = settings.fps.max(15).min(120);
         let bitrate = bitrate_of(&settings);
-        let include_audio = settings.system_audio_enabled;
+        let include_audio = settings.wants_audio_track();
+        let loopback = settings.system_audio_enabled;
+        let audio_runtime = {
+            let runtime = app.state::<crate::audio::AudioRuntime>();
+            (*runtime).clone()
+        };
         let first_path = if segmented {
             buffer_dir.join("seg-000000.mp4")
         } else {
@@ -651,9 +663,11 @@ mod windows_impl {
             bitrate,
             fps,
             include_audio,
+            loopback,
             segmented,
             min_free_disk_bytes: settings.min_free_disk_bytes,
             shared: state.shared.clone(),
+            audio_runtime: audio_runtime.clone(),
         };
 
         let mut last_error = None;

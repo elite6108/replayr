@@ -1,7 +1,7 @@
 {
   "name": "project-replay",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.6",
   "description": "Project Replay desktop application",
   "type": "module",
   "scripts": {
@@ -13,6 +13,7 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build --bundles nsis",
     "installer:stage": "node scripts/stage-windows-installer.mjs",
+    "mobile:start": "npm start --prefix mobile",
     "web:dev": "npm run dev --prefix web",
     "web:build": "npm run build --prefix web",
     "web:deploy": "node worker/scripts/ensure-web-dist.mjs && npm run build --prefix web && npm run deploy --prefix worker -- --var PUBLIC_APP_URL:https://replayr.tv --keep-vars",
@@ -26,6 +27,8 @@
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@tauri-apps/plugin-notification": "^2.3.1",
     "@tauri-apps/plugin-opener": "^2.5.0",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.8.2",

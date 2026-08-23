@@ -4,6 +4,14 @@ import { Seo } from "../components/Seo";
 import { useAuth } from "../lib/auth";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
 
+type SocialProvider = "google" | "discord" | "twitter";
+
+const PROVIDERS: { id: SocialProvider; label: string }[] = [
+  { id: "google", label: "Continue with Google" },
+  { id: "discord", label: "Continue with Discord" },
+  { id: "twitter", label: "Continue with X" },
+];
+
 export function SignInPage() {
   const { session } = useAuth();
   const [email, setEmail] = useState("");
@@ -12,6 +20,25 @@ export function SignInPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+
+  async function startSocial(provider: SocialProvider) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      if (!supabaseConfigured()) throw new Error("Supabase is not configured.");
+      const { error: next } = await getSupabase().auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+      if (next) throw next;
+    } catch (caught) {
+      setError(oauthError(caught));
+      setBusy(false);
+    }
+  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -52,11 +79,29 @@ export function SignInPage() {
     <main className="page narrow">
       <Seo
         title="Sign in — Replayr"
-        description="Sign in with the same email and password as the Windows app to manage cloud clips."
+        description="Sign in with Google, Discord, X, or the same email as the Windows app."
         robots="noindex"
       />
-      <h1>{mode === "in" ? "Sign in" : "Create free account"}</h1>
-      <p className="muted">Same account as the Windows app. Clipping still happens on the PC. Cloud copies show up here.</p>
+      <h1>{mode === "in" ? "Sign in" : "Create account"}</h1>
+      <p className="muted">Same Replayr account as the Windows app. Clipping still happens on the PC.</p>
+      <div className="auth-modes">
+        <button className={`btn ${mode === "in" ? "primary" : ""}`} type="button" onClick={() => setMode("in")}>
+          Sign in
+        </button>
+        <button className={`btn ${mode === "up" ? "primary" : ""}`} type="button" onClick={() => setMode("up")}>
+          Create account
+        </button>
+      </div>
+      <div className="auth-social" style={{ marginTop: 16 }}>
+        {PROVIDERS.map((provider) => (
+          <button key={provider.id} className="btn" type="button" disabled={busy} onClick={() => void startSocial(provider.id)}>
+            {provider.label}
+          </button>
+        ))}
+      </div>
+      <div className="auth-divider" style={{ margin: "18px 0" }}>
+        or email
+      </div>
       <form className="stack" onSubmit={(event) => void onSubmit(event)}>
         <label className="field">
           Email
@@ -75,23 +120,18 @@ export function SignInPage() {
         </label>
         {error ? <p className="error">{error}</p> : null}
         {notice ? <p className="muted">{notice}</p> : null}
-        <div className="row">
-          <button className="btn primary" type="submit" disabled={busy}>
-            {mode === "in" ? "Sign in" : "Create account"}
-          </button>
-          <button
-            className="btn"
-            type="button"
-            onClick={() => {
-              setMode(mode === "in" ? "up" : "in");
-              setError(null);
-              setNotice(null);
-            }}
-          >
-            {mode === "in" ? "Need an account?" : "Have an account?"}
-          </button>
-        </div>
+        <button className="btn primary" type="submit" disabled={busy}>
+          {busy ? "Working…" : mode === "in" ? "Sign in" : "Create account"}
+        </button>
       </form>
     </main>
   );
+}
+
+function oauthError(caught: unknown): string {
+  const message = caught instanceof Error ? caught.message : "Could not start social sign-in";
+  if (/provider is not enabled|unsupported provider/i.test(message)) {
+    return "That sign-in method is not enabled yet.";
+  }
+  return message;
 }

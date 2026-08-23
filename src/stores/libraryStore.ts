@@ -1,9 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { clipShareUrl, publicAppUrl } from "../branding";
 import { updateOwnClipTitle } from "../services/supabase";
 import {
+  deleteCloudClip,
   deleteLocalClip,
   exportLocalClip,
   listLocalClips,
@@ -13,7 +14,7 @@ import {
   uploadLocalClip,
 } from "../services/tauri";
 import type { LocalClip } from "../types/clip";
-import { suggestedFileName } from "../utils/files";
+import { joinPath, suggestedFileName, uniqueFileName } from "../utils/files";
 import { invokeErrorMessage, isVideoPath } from "../utils/format";
 import { useAuthStore } from "./authStore";
 import { useCloudStore } from "./cloudStore";
@@ -32,13 +33,18 @@ interface LibraryState {
   closePlayer: () => void;
   setFavoritesOnly: (value: boolean) => void;
   toggleSelect: (localId: string) => void;
+  selectAll: (localIds: string[]) => void;
   clearSelection: () => void;
   rename: (localId: string, title: string) => Promise<void>;
   favorite: (localId: string, value: boolean) => Promise<void>;
   remove: (localId: string) => Promise<void>;
+  removeMany: (localIds: string[]) => Promise<void>;
+  removeFromCloud: (localId: string) => Promise<void>;
+  removeFromCloudMany: (localIds: string[]) => Promise<void>;
   reveal: (filePath: string) => Promise<void>;
   upload: (localId: string) => Promise<void>;
   download: (localId: string) => Promise<void>;
+  downloadMany: (localIds: string[]) => Promise<void>;
   copyLink: (localId: string) => Promise<void>;
 }
 
@@ -46,6 +52,16 @@ let listening = false;
 
 function patchClip(clips: LocalClip[], next: LocalClip) {
   return clips.map((clip) => (clip.localId === next.localId ? next : clip));
+}
+
+async function deleteLinkedCloudCopy(cloudClipId: string | null | undefined) {
+  if (!cloudClipId) return;
+  const token = useAuthStore.getState().session?.access_token;
+  if (!token) {
+    useToastStore.getState().show("Sign in to delete the matching cloud copy");
+    return;
+  }
+  await deleteCloudClip(cloudClipId, token, publicAppUrl());
 }
 
 function shouldAutoUpload(clip: LocalClip | undefined): boolean {
@@ -104,6 +120,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       selectedIds: selected.includes(localId) ? selected.filter((id) => id !== localId) : [...selected, localId],
     });
   },
+  selectAll: (localIds) => set({ selectedIds: [...new Set(localIds)] }),
   clearSelection: () => set({ selectedIds: [] }),
   rename: async (localId, title) => {
     try {
@@ -131,17 +148,77 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
   },
   remove: async (localId) => {
+    const clip = get().clips.find((item) => item.localId === localId);
     try {
+      await deleteLinkedCloudCopy(clip?.cloudClipId);
       await deleteLocalClip(localId);
       set({
-        clips: get().clips.filter((clip) => clip.localId !== localId),
+        clips: get().clips.filter((item) => item.localId !== localId),
         playingId: get().playingId === localId ? null : get().playingId,
         selectedIds: get().selectedIds.filter((id) => id !== localId),
       });
-      useToastStore.getState().show("Clip deleted");
+      await useCloudStore.getState().refresh();
+      useToastStore
+        .getState()
+        .show(clip?.cloudClipId ? "Clip deleted from this PC and the cloud" : "Clip deleted");
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not delete clip"));
     }
+  },
+  removeMany: async (localIds) => {
+    let removed = 0;
+    let removedCloud = 0;
+    for (const localId of localIds) {
+      const clip = get().clips.find((item) => item.localId === localId);
+      try {
+        await deleteLinkedCloudCopy(clip?.cloudClipId);
+        await deleteLocalClip(localId);
+        removed += 1;
+        if (clip?.cloudClipId) removedCloud += 1;
+      } catch (caught) {
+        useToastStore.getState().show(invokeErrorMessage(caught, "Could not delete clip"));
+      }
+    }
+    const gone = new Set(localIds);
+    const playingId = get().playingId;
+    set({
+      clips: get().clips.filter((clip) => !gone.has(clip.localId)),
+      playingId: playingId && gone.has(playingId) ? null : playingId,
+      selectedIds: get().selectedIds.filter((id) => !gone.has(id)),
+    });
+    await useCloudStore.getState().refresh();
+    if (removed > 0) {
+      useToastStore.getState().show(
+        removedCloud > 0
+          ? removed === 1
+            ? "Clip deleted from this PC and the cloud"
+            : `${removed} clips deleted from this PC and the cloud`
+          : removed === 1
+            ? "Clip deleted from this PC"
+            : `${removed} clips deleted from this PC`,
+      );
+    }
+  },
+  removeFromCloud: async (localId) => {
+    const clip = get().clips.find((item) => item.localId === localId);
+    if (!clip?.cloudClipId) {
+      useToastStore.getState().show("This clip is not in the cloud");
+      return;
+    }
+    await useCloudStore.getState().unlink(clip.cloudClipId);
+    await get().refresh();
+  },
+  removeFromCloudMany: async (localIds) => {
+    const clipIds = get()
+      .clips.filter((clip) => localIds.includes(clip.localId) && clip.cloudClipId)
+      .map((clip) => clip.cloudClipId as string);
+    if (clipIds.length === 0) {
+      useToastStore.getState().show("None of the selected clips are in the cloud");
+      return;
+    }
+    await useCloudStore.getState().unlinkMany(clipIds);
+    await get().refresh();
+    get().clearSelection();
   },
   reveal: async (filePath) => {
     try {
@@ -181,6 +258,36 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       useToastStore.getState().show("Saved to disk");
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not download clip"));
+    }
+  },
+  downloadMany: async (localIds) => {
+    const clips = get().clips.filter((clip) => localIds.includes(clip.localId));
+    if (clips.length === 0) return;
+    try {
+      const folder = await open({
+        directory: true,
+        multiple: false,
+        title: "Save clips to folder",
+      });
+      if (typeof folder !== "string" || !folder) return;
+      const used = new Set<string>();
+      let saved = 0;
+      for (const clip of clips) {
+        const ext = clip.filePath.split(".").pop() || "mp4";
+        const dest = joinPath(folder, uniqueFileName(used, suggestedFileName(clip.title, "clip", ext)));
+        try {
+          await exportLocalClip(clip.filePath, dest);
+          saved += 1;
+        } catch (caught) {
+          useToastStore.getState().show(invokeErrorMessage(caught, "Could not download clip"));
+        }
+      }
+      if (saved > 0) {
+        useToastStore.getState().show(saved === 1 ? "Saved to disk" : `${saved} clips saved`);
+      }
+      get().clearSelection();
+    } catch (caught) {
+      useToastStore.getState().show(invokeErrorMessage(caught, "Could not download clips"));
     }
   },
   copyLink: async (localId) => {

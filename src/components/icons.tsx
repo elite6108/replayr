@@ -88,6 +88,15 @@ export function IconUploads(props: IconProps) {
   );
 }
 
+export function IconAdmin(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 3.5 19 7v5.2c0 4.2-2.8 7.2-7 8.3-4.2-1.1-7-4.1-7-8.3V7z" />
+      <path d="m9.2 12.2 1.9 1.9 3.7-3.8" />
+    </Icon>
+  );
+}
+
 export function IconSettings(props: IconProps) {
   return (
     <Icon {...props}>
@@ -128,6 +137,32 @@ export function IconCloud(props: IconProps) {
   return (
     <Icon {...props}>
       <path d="M7.5 17.5h9.2A3.8 3.8 0 0 0 18 10.2 5.2 5.2 0 0 0 8.2 9.4 3.7 3.7 0 0 0 7.5 17.5z" />
+    </Icon>
+  );
+}
+
+export function IconGoogle(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 11.2v2.4h5.4A5.6 5.6 0 1 1 12 6.4a5.4 5.4 0 0 1 3.8 1.5l1.7-1.7A8 8 0 1 0 12 20a7.7 7.7 0 0 0 7.6-6 8 8 0 0 0 .2-1.8z" />
+    </Icon>
+  );
+}
+
+export function IconDiscord(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M8.2 8.8c1.6-.8 3.1-1.1 3.8-1.2l.4 1c1 .1 2 .4 3 .9 1.4 2 1.9 4.1 1.7 6.1-1.1.5-2.2.9-3.4 1.1l-.6-1.1c.4-.1.8-.3 1.1-.5-.3-.2-.6-.4-.9-.6-.9.4-1.9.6-2.9.6s-2-.2-2.9-.6c-.3.2-.6.4-.9.6.3.2.7.4 1.1.5l-.6 1.1c-1.2-.2-2.3-.6-3.4-1.1-.3-2.1.2-4.3 1.7-6.2.9-.4 1.8-.7 2.8-.8l.4-1c.7.1 2.2.4 3.8 1.2z" />
+      <circle cx="9.4" cy="12.6" r="1" fill="currentColor" stroke="none" />
+      <circle cx="14.6" cy="12.6" r="1" fill="currentColor" stroke="none" />
+    </Icon>
+  );
+}
+
+export function IconX(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M5 5.5 10.8 12 5.2 18.5h2.2L12 13.4l4.4 5.1h2.4L12.8 11.8 18.8 5.5h-2.2L12 10.4 7.4 5.5z" />
     </Icon>
   );
 }

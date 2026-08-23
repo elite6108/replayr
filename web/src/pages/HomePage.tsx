@@ -24,7 +24,7 @@ export function HomePage() {
     <main className="landing">
       <Seo
         title="Replayr — Windows gameplay clipper"
-        description="Native Windows Instant Replay. Clips stay on this PC first. Share an unlisted cloud link that never includes your username."
+        description="The play already happened. Replayr keeps Instant Replay rolling on Windows, saves the clip on this PC, and shares a quiet unlisted link — no username in the URL."
       />
 
       <section className="landing-hero">
@@ -32,8 +32,8 @@ export function HomePage() {
           <div className="landing-hero-copy">
             <h1>Record and share your best gaming moments.</h1>
             <p className="lede">
-              Instant Replay on Windows. Clips stay on this PC first. When you want to send a play, upload an unlisted
-              cloud copy — no username in the URL.
+              The play is already in the buffer. One hotkey saves it to this PC. Share only when you want — an unlisted
+              link, no name attached.
             </p>
             <a className="btn glow" href={WINDOWS_DOWNLOAD_PATH}>
               Download Replayr for free

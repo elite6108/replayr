@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Seo } from "../components/Seo";
+import { isAdminSession } from "../lib/admin";
 import { useAuth } from "../lib/auth";
 import { formatBytes } from "../lib/format";
 import { getSupabase } from "../lib/supabase";
@@ -68,9 +70,16 @@ export function AccountPage() {
           </p>
         </div>
       ) : null}
-      <button className="btn" type="button" onClick={() => void signOut()}>
-        Sign out
-      </button>
+      <div className="row">
+        {isAdminSession(session) ? (
+          <Link className="btn primary" to="/admin">
+            Open admin
+          </Link>
+        ) : null}
+        <button className="btn" type="button" onClick={() => void signOut()}>
+          Sign out
+        </button>
+      </div>
     </main>
   );
 }

@@ -5,6 +5,7 @@ import { ClipCard } from "../components/common/ClipCard";
 import { ClipGrid } from "../components/common/ClipGrid";
 import { CloudClipCard } from "../components/common/CloudClipCard";
 import { PageHeader } from "../components/common/PageHeader";
+import { SelectionBar } from "../components/common/SelectionBar";
 import { useAuthStore } from "../stores/authStore";
 import { useCloudStore } from "../stores/cloudStore";
 import { useLibraryStore } from "../stores/libraryStore";
@@ -19,9 +20,14 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const upload = useLibraryStore((state) => state.upload);
   const renameLocal = useLibraryStore((state) => state.rename);
   const removeLocal = useLibraryStore((state) => state.remove);
+  const removeLocalMany = useLibraryStore((state) => state.removeMany);
+  const removeLocalFromCloud = useLibraryStore((state) => state.removeFromCloud);
+  const removeLocalFromCloudMany = useLibraryStore((state) => state.removeFromCloudMany);
   const downloadLocal = useLibraryStore((state) => state.download);
+  const downloadLocalMany = useLibraryStore((state) => state.downloadMany);
   const copyLocalLink = useLibraryStore((state) => state.copyLink);
   const toggleLocalSelect = useLibraryStore((state) => state.toggleSelect);
+  const selectAllLocal = useLibraryStore((state) => state.selectAll);
   const clearLocalSelection = useLibraryStore((state) => state.clearSelection);
   const selectedLocal = useLibraryStore((state) => state.selectedIds);
   const configured = useAuthStore((state) => state.configured);
@@ -31,10 +37,13 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const cloudError = useCloudStore((state) => state.error);
   const cloudLoading = useCloudStore((state) => state.loading);
   const removeCloud = useCloudStore((state) => state.remove);
+  const removeCloudMany = useCloudStore((state) => state.removeMany);
   const renameCloud = useCloudStore((state) => state.rename);
   const downloadCloud = useCloudStore((state) => state.download);
+  const downloadCloudMany = useCloudStore((state) => state.downloadMany);
   const copyCloudLink = useCloudStore((state) => state.copyLink);
   const toggleCloudSelect = useCloudStore((state) => state.toggleSelect);
+  const selectAllCloud = useCloudStore((state) => state.selectAll);
   const clearCloudSelection = useCloudStore((state) => state.clearSelection);
   const selectedCloud = useCloudStore((state) => state.selectedIds);
   const visible = useMemo(
@@ -44,12 +53,14 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const used = storage?.storage_used_bytes ?? 0;
   const limit = storage?.storage_limit_bytes ?? 0;
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+  const selectedLocalClips = visible.filter((clip) => selectedLocal.includes(clip.localId));
+  const selectedCloudLinked = selectedLocalClips.filter((clip) => clip.cloudClipId).length;
 
   return (
     <>
       <PageHeader
         title="Library"
-        subtitle="This PC and cloud copies stay separate. Right-click a clip to rename, download, or delete."
+        subtitle="This PC and cloud copies stay separate. Select clips to download or delete more than one."
       >
         <nav className="tabs" aria-label="Library view">
           <NavLink to="/library" end className={({ isActive }) => (isActive ? "active" : undefined)}>
@@ -85,11 +96,6 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
             <div className="panel-head">
               <h2>On this PC</h2>
               <span className="badge">{visible.length}</span>
-              {selectedLocal.length > 0 ? (
-                <button type="button" className="btn ghost" onClick={clearLocalSelection}>
-                  {selectedLocal.length} selected
-                </button>
-              ) : null}
             </div>
             <div className="clip-grid">
               {visible.map((clip) => (
@@ -103,13 +109,63 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
                   onSelect={(item) => toggleLocalSelect(item.localId)}
                   onRename={(item, title) => void renameLocal(item.localId, title)}
                   onDelete={(item) => {
-                    if (window.confirm("Delete this clip from this PC?")) void removeLocal(item.localId);
+                    if (window.confirm("Delete this clip from this PC and the cloud?")) void removeLocal(item.localId);
+                  }}
+                  onRemoveFromCloud={(item) => {
+                    if (
+                      window.confirm(
+                        "Remove this cloud copy? The file on this PC stays. The share link will stop working.",
+                      )
+                    ) {
+                      void removeLocalFromCloud(item.localId);
+                    }
                   }}
                   onDownload={(item) => void downloadLocal(item.localId)}
                   onCopyLink={(item) => void copyLocalLink(item.localId)}
                 />
               ))}
             </div>
+            <SelectionBar
+              count={selectedLocalClips.length}
+              onClear={clearLocalSelection}
+              onSelectAll={() => selectAllLocal(visible.map((clip) => clip.localId))}
+            >
+              <button type="button" className="btn" onClick={() => void downloadLocalMany(selectedLocalClips.map((clip) => clip.localId))}>
+                Download
+              </button>
+              {selectedCloudLinked > 0 ? (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Remove ${selectedCloudLinked} cloud ${selectedCloudLinked === 1 ? "copy" : "copies"}? Files on this PC stay.`,
+                      )
+                    ) {
+                      void removeLocalFromCloudMany(selectedLocalClips.map((clip) => clip.localId));
+                    }
+                  }}
+                >
+                  Remove from cloud
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="btn danger"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Delete ${selectedLocalClips.length} clip${selectedLocalClips.length === 1 ? "" : "s"} from this PC and the cloud?`,
+                    )
+                  ) {
+                    void removeLocalMany(selectedLocalClips.map((clip) => clip.localId));
+                  }
+                }}
+              >
+                Delete
+              </button>
+            </SelectionBar>
           </section>
         )
       ) : !configured ? (
@@ -149,11 +205,6 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
               <div className="panel-head">
                 <h2>Uploaded</h2>
                 <span className="badge">{cloudClips.length}</span>
-                {selectedCloud.length > 0 ? (
-                  <button type="button" className="btn ghost" onClick={clearCloudSelection}>
-                    {selectedCloud.length} selected
-                  </button>
-                ) : null}
               </div>
               <div className="clip-grid">
                 {cloudClips.map((clip) => (
@@ -169,6 +220,30 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
                   />
                 ))}
               </div>
+              <SelectionBar
+                count={selectedCloud.length}
+                onClear={clearCloudSelection}
+                onSelectAll={() => selectAllCloud(cloudClips.map((clip) => clip.id))}
+              >
+                <button type="button" className="btn" onClick={() => void downloadCloudMany(selectedCloud)}>
+                  Download
+                </button>
+                <button
+                  type="button"
+                  className="btn danger"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Delete ${selectedCloud.length} clip${selectedCloud.length === 1 ? "" : "s"} from this PC and the cloud?`,
+                      )
+                    ) {
+                      void removeCloudMany(selectedCloud);
+                    }
+                  }}
+                >
+                  Delete
+                </button>
+              </SelectionBar>
             </section>
           )}
         </div>

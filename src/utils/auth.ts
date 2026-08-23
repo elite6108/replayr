@@ -23,5 +23,8 @@ export function authErrorMessage(caught: unknown, fallback: string): string {
   if (/anonymous/i.test(message)) {
     return "Enter an email and password. Anonymous accounts are turned off.";
   }
+  if (/provider is not enabled|unsupported provider/i.test(message)) {
+    return "That sign-in method is not enabled yet.";
+  }
   return message || fallback;
 }

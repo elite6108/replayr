@@ -1,10 +1,12 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Seo } from "../components/Seo";
 import { ClipThumb } from "../components/ClipThumb";
 import { deleteCloudClip, downloadCloudClip, fetchLibrary, fetchPlayback, type ManagedClip, type PlaybackClip } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { formatBytes, formatDurationMs } from "../lib/format";
+import { formatBytes, formatClipDate, formatDurationMs } from "../lib/format";
 import { clipShareUrl, getSupabase } from "../lib/supabase";
+
+const PAGE_SIZE = 24;
 
 interface Quota {
   storage_used_bytes: number;
@@ -16,6 +18,7 @@ export function LibraryPage() {
   const userId = session?.user.id ?? "";
   const token = session?.access_token;
   const [clips, setClips] = useState<ManagedClip[]>([]);
+  const [total, setTotal] = useState(0);
   const [quota, setQuota] = useState<Quota | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -24,27 +27,80 @@ export function LibraryPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [busy, setBusy] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [playBusy, setPlayBusy] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const playerRef = useRef<HTMLElement | null>(null);
+  const loadingMoreRef = useRef(false);
+  const clipsLengthRef = useRef(0);
+  const totalRef = useRef(0);
+
+  clipsLengthRef.current = clips.length;
+  totalRef.current = total;
 
   useEffect(() => {
     if (!userId || !token) return;
     let cancelled = false;
+    setLoading(true);
+    setClips([]);
+    setTotal(0);
     void (async () => {
       try {
-        const [nextClips, quotaResult] = await Promise.all([
-          fetchLibrary(token),
+        const [library, quotaResult] = await Promise.all([
+          fetchLibrary(token, { page: 1, limit: PAGE_SIZE }),
           getSupabase().from("user_storage").select("storage_used_bytes, storage_limit_bytes").eq("user_id", userId).maybeSingle(),
         ]);
         if (cancelled) return;
-        setClips(nextClips);
+        setClips(library.clips);
+        setTotal(library.total);
         if (!quotaResult.error && quotaResult.data) setQuota(quotaResult.data as Quota);
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not load cloud clips.");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [userId, token]);
+
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || loading || !token) return;
+
+    async function loadMore() {
+      if (!token || loadingMoreRef.current) return;
+      if (clipsLengthRef.current >= totalRef.current) return;
+      const nextPage = Math.floor(clipsLengthRef.current / PAGE_SIZE) + 1;
+      loadingMoreRef.current = true;
+      setLoadingMore(true);
+      try {
+        const library = await fetchLibrary(token, { page: nextPage, limit: PAGE_SIZE });
+        setTotal(library.total);
+        setClips((current) => {
+          const seen = new Set(current.map((clip) => clip.id));
+          return [...current, ...library.clips.filter((clip) => !seen.has(clip.id))];
+        });
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Could not load more clips.");
+      } finally {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadMore();
+      },
+      { rootMargin: "240px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [loading, clips.length, total, token]);
 
   async function setVisibility(clip: ManagedClip, visibility: ManagedClip["visibility"]) {
     setNotice(null);
@@ -101,31 +157,31 @@ export function LibraryPage() {
     if (clip.status !== "ready" || !token) return;
     setError(null);
     setActiveId(clip.id);
-    if (clip.playbackUrl) {
-      setPlaying({
-        slug: clip.slug,
-        title: clip.title,
-        durationMs: clip.durationMs,
-        width: clip.width,
-        height: clip.height,
-        visibility: clip.visibility,
-        status: clip.status,
-        playbackUrl: clip.playbackUrl,
-        thumbnailUrl: clip.thumbnailUrl,
-      });
-      return;
-    }
+    setPlayBusy(true);
     try {
-      setPlaying(await fetchPlayback(clip.slug, token));
+      const next = await fetchPlayback(clip.slug, token);
+      setPlaying({ ...next, thumbnailUrl: next.thumbnailUrl || clip.thumbnailUrl });
+      queueMicrotask(() => playerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (caught) {
       setPlaying(null);
       setError(caught instanceof Error ? caught.message : "Could not play this clip.");
+    } finally {
+      setPlayBusy(false);
     }
   }
 
-  async function remove(clip: ManagedClip) {
+  function toggleSelect(clipId: string) {
+    setSelectedIds((current) =>
+      current.includes(clipId) ? current.filter((id) => id !== clipId) : [...current, clipId],
+    );
+  }
+
+  async function remove(clip: ManagedClip, skipConfirm = false) {
     if (!token) return;
-    if (!window.confirm("Delete this cloud copy? The file on your PC stays. The share link will stop working.")) {
+    if (
+      !skipConfirm &&
+      !window.confirm("Delete this clip from the cloud and the Windows app? The share link will stop working.")
+    ) {
       return;
     }
     setBusy(true);
@@ -133,6 +189,7 @@ export function LibraryPage() {
     try {
       await deleteCloudClip(clip.id, token);
       setClips((current) => current.filter((item) => item.id !== clip.id));
+      setTotal((current) => Math.max(0, current - 1));
       if (activeId === clip.id) {
         setActiveId(null);
         setPlaying(null);
@@ -143,9 +200,43 @@ export function LibraryPage() {
           storage_used_bytes: Math.max(0, quota.storage_used_bytes - clip.fileSizeBytes),
         });
       }
-      setNotice("Cloud copy deleted. The file on your PC is unchanged.");
+      setSelectedIds((current) => current.filter((id) => id !== clip.id));
+      setNotice("Deleted from the cloud. The Windows app will remove the local file when it next opens.");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not delete that clip.");
+      setError(caught instanceof Error ? caught.message : "Could not remove that clip.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeSelected() {
+    const chosen = clips.filter((clip) => selectedIds.includes(clip.id));
+    if (chosen.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${chosen.length} clip${chosen.length === 1 ? "" : "s"} from the cloud and the Windows app?`,
+      )
+    ) {
+      return;
+    }
+    for (const clip of chosen) {
+      await remove(clip, true);
+    }
+  }
+
+  async function downloadSelected() {
+    const chosen = clips.filter((clip) => selectedIds.includes(clip.id) && clip.status === "ready");
+    if (!token || chosen.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      for (const clip of chosen) {
+        await downloadCloudClip(clip.slug, clip.title, token);
+      }
+      setNotice(chosen.length === 1 ? "Download started" : `${chosen.length} downloads started`);
+      setSelectedIds([]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not download those clips.");
     } finally {
       setBusy(false);
     }
@@ -163,7 +254,7 @@ export function LibraryPage() {
         <div>
           <p className="eyebrow">Your uploads</p>
           <h1>Cloud library</h1>
-          <p className="muted">Watch here. Capture still happens on Windows. Delete removes the cloud copy only.</p>
+          <p className="muted">Watch here. Capture still happens on Windows. Deleting a clip here also removes it from the Windows app when it next opens.</p>
         </div>
         {quota ? (
           <div className="quota bubble">
@@ -179,15 +270,21 @@ export function LibraryPage() {
       {error ? <p className="error">{error}</p> : null}
       {notice ? <p className="ok">{notice}</p> : null}
 
-      {clips.length === 0 ? (
+      {loading ? (
+        <p className="muted">Loading cloud clips…</p>
+      ) : clips.length === 0 ? (
         <div className="empty-bubble">
           <h2>Nothing in the cloud yet</h2>
           <p className="muted">Install the Windows app to capture. This page only plays and manages uploads.</p>
         </div>
       ) : (
         <>
-          {playing ? (
-            <section className="player-stage">
+          {playBusy && !playing ? (
+            <section className="player-stage" ref={playerRef}>
+              <p className="muted">Loading clip…</p>
+            </section>
+          ) : playing ? (
+            <section className="player-stage" ref={playerRef}>
               <video className="player" key={playing.playbackUrl} src={playing.playbackUrl} poster={playing.thumbnailUrl || undefined} controls playsInline autoPlay />
               <div className="player-meta">
                 <div>
@@ -212,10 +309,36 @@ export function LibraryPage() {
             </section>
           ) : null}
 
+          {selectedIds.length > 0 ? (
+            <div className="selection-bar" role="toolbar" aria-label="Selected clips">
+              <span>{selectedIds.length} selected</span>
+              <button type="button" className="btn ghost" onClick={() => setSelectedIds(clips.map((clip) => clip.id))}>
+                Select all
+              </button>
+              <button className="btn" type="button" disabled={busy} onClick={() => void downloadSelected()}>
+                Download
+              </button>
+              <button className="btn danger" type="button" disabled={busy} onClick={() => void removeSelected()}>
+                Delete
+              </button>
+              <button type="button" className="btn ghost" onClick={() => setSelectedIds([])}>
+                Clear
+              </button>
+            </div>
+          ) : null}
+
           <ul className="clip-grid">
             {clips.map((clip) => (
               <li key={clip.id}>
-                <article className={`web-clip-card${activeId === clip.id ? " active" : ""}`}>
+                <article className={`web-clip-card${activeId === clip.id ? " active" : ""}${selectedIds.includes(clip.id) ? " selected" : ""}`}>
+                  <label className="clip-check">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(clip.id)}
+                      aria-label={`Select ${clip.title || "clip"}`}
+                      onChange={() => toggleSelect(clip.id)}
+                    />
+                  </label>
                   <button className="clip-open" type="button" disabled={clip.status !== "ready"} onClick={() => void play(clip)}>
                     <div className="clip-thumb">
                       <ClipThumb title={clip.title || "Clip"} thumbnailUrl={clip.thumbnailUrl} playbackUrl={clip.playbackUrl} />
@@ -261,8 +384,8 @@ export function LibraryPage() {
                         {clip.title || "Untitled clip"}
                       </button>
                     )}
-                    <div className="muted">
-                      {clip.status}
+                    <div className="clip-date">
+                      {formatClipDate(clip.createdAt) || clip.status}
                       {clip.fileSizeBytes ? ` · ${formatBytes(clip.fileSizeBytes)}` : ""}
                     </div>
                   </div>
@@ -306,6 +429,8 @@ export function LibraryPage() {
               </li>
             ))}
           </ul>
+          {clips.length < total ? <div ref={sentinelRef} className="library-sentinel" aria-hidden="true" /> : null}
+          {loadingMore ? <p className="muted">Loading more…</p> : null}
         </>
       )}
     </main>

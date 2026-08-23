@@ -10,6 +10,7 @@ import { GamesPage } from "./pages/GamesPage";
 import { GamePage } from "./pages/GamePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ProfilePage } from "./pages/ProfilePage";
+import { AdminPage } from "./pages/AdminPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { useAuthStore } from "./stores/authStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -45,6 +46,18 @@ export default function App() {
     void refreshCloud();
   }, [userId, refreshCloud]);
 
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible") void refreshCloud();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [refreshCloud]);
+
   if (!loaded || !authReady) {
     return <div className="onboarding-shell muted">Starting {APP_NAME}…</div>;
   }
@@ -69,6 +82,7 @@ export default function App() {
           <Route path="/uploads" element={<Navigate to="/library/cloud" replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

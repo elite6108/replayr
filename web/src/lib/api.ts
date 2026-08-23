@@ -27,15 +27,32 @@ export interface ManagedClip {
   playbackUrl: string | null;
 }
 
-export async function fetchLibrary(accessToken: string): Promise<ManagedClip[]> {
-  const response = await fetch(apiUrl("/v1/library"), {
+export interface LibraryPage {
+  clips: ManagedClip[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export async function fetchLibrary(
+  accessToken: string,
+  options?: { page?: number; limit?: number },
+): Promise<LibraryPage> {
+  const page = options?.page ?? 1;
+  const limit = options?.limit ?? 24;
+  const response = await fetch(apiUrl(`/v1/library?page=${page}&limit=${limit}`), {
     headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
   });
-  const body = (await response.json()) as { clips?: ManagedClip[]; error?: string };
+  const body = (await response.json()) as LibraryPage & { error?: string };
   if (!response.ok) {
     throw new Error(body.error || "Could not load cloud clips.");
   }
-  return body.clips ?? [];
+  return {
+    clips: body.clips ?? [],
+    total: Number(body.total) || 0,
+    page: Number(body.page) || page,
+    limit: Number(body.limit) || limit,
+  };
 }
 
 export async function fetchPlayback(slug: string, accessToken?: string | null): Promise<PlaybackClip> {

@@ -21,6 +21,13 @@ const vars = {
   R2_BUCKET_NAME: env.R2_BUCKET_NAME || "",
   PUBLIC_APP_URL: "http://127.0.0.1:8787",
 };
+if (env.SUPABASE_SERVICE_ROLE_KEY) {
+  vars.SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+} else {
+  console.warn(
+    "SUPABASE_SERVICE_ROLE_KEY is missing. Admin routes will stay disabled until you add it to .env (not VITE_) and restart the Worker.",
+  );
+}
 
 const missing = Object.entries(vars)
   .filter(([, value]) => !value)

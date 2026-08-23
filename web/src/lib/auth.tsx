@@ -21,8 +21,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     const supabase = getSupabase();
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
+    void hydrateSession().then(setSession).catch(() => setSession(null));
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+      if (!next) {
+        setSession(null);
+        return;
+      }
+      void mergeRemoteUser(next).then(setSession);
+    });
     return () => data.subscription.unsubscribe();
   }, []);
 
@@ -43,4 +49,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth(): AuthValue {
   return useContext(AuthContext);
+}
+
+async function hydrateSession() {
+  const supabase = getSupabase();
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return null;
+  try {
+    const refreshed = await supabase.auth.refreshSession();
+    return mergeRemoteUser(refreshed.data.session ?? data.session);
+  } catch {
+    return mergeRemoteUser(data.session);
+  }
+}
+
+async function mergeRemoteUser(session: Session) {
+  try {
+    const { data } = await getSupabase().auth.getUser();
+    return data.user ? { ...session, user: data.user } : session;
+  } catch {
+    return session;
+  }
 }

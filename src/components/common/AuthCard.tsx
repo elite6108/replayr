@@ -1,15 +1,36 @@
 import { FormEvent, useState } from "react";
-import { useAuthStore } from "../../stores/authStore";
+import { IconDiscord, IconGoogle, IconX } from "../icons";
+import { useAuthStore, type SocialProvider } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
+
+const PROVIDERS: { id: SocialProvider; label: string; icon: typeof IconGoogle }[] = [
+  { id: "google", label: "Continue with Google", icon: IconGoogle },
+  { id: "discord", label: "Continue with Discord", icon: IconDiscord },
+  { id: "twitter", label: "Continue with X", icon: IconX },
+];
 
 export function AuthCard({ compact = false }: { compact?: boolean }) {
   const error = useAuthStore((state) => state.error);
   const signIn = useAuthStore((state) => state.signIn);
   const signUp = useAuthStore((state) => state.signUp);
+  const signInWithProvider = useAuthStore((state) => state.signInWithProvider);
   const showToast = useToastStore((state) => state.show);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"in" | "up">("in");
   const [busy, setBusy] = useState(false);
+
+  async function run(action: () => Promise<void>, success: string) {
+    setBusy(true);
+    try {
+      await action();
+      showToast(success);
+    } catch {
+      /* store sets error */
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -18,26 +39,50 @@ export function AuthCard({ compact = false }: { compact?: boolean }) {
     const nextPassword = String(form.get("password") ?? password);
     setEmail(nextEmail);
     setPassword(nextPassword);
-    const submitter = (event.nativeEvent as SubmitEvent).submitter;
-    const mode = submitter instanceof HTMLButtonElement && submitter.dataset.mode === "up" ? "up" : "in";
-    void (async () => {
-      setBusy(true);
-      try {
-        if (mode === "in") await signIn(nextEmail, nextPassword);
-        else await signUp(nextEmail, nextPassword);
-        showToast(mode === "in" ? "Signed in" : "Account created");
-      } catch {
-        /* store sets error */
-      } finally {
-        setBusy(false);
-      }
-    })();
+    void run(
+      () => (mode === "in" ? signIn(nextEmail, nextPassword) : signUp(nextEmail, nextPassword)),
+      mode === "in" ? "Signed in" : "Account created",
+    );
   }
 
   return (
     <section className={`panel auth-card stack ${compact ? "compact" : ""}`}>
-      <h2>Sign in</h2>
-      <p className="muted">Cloud clips use your Replay account. Passwords stay in Supabase, not on this PC.</p>
+      <h2>{mode === "in" ? "Sign in" : "Create account"}</h2>
+      <p className="muted">Same Replayr account on this PC and the website. Cloud clips stay on your account, not in the URL.</p>
+      <div className="auth-modes">
+        <button
+          className={`btn ${mode === "in" ? "primary" : ""}`}
+          type="button"
+          onClick={() => setMode("in")}
+        >
+          Sign in
+        </button>
+        <button
+          className={`btn ${mode === "up" ? "primary" : ""}`}
+          type="button"
+          onClick={() => setMode("up")}
+        >
+          Create account
+        </button>
+      </div>
+      <div className="auth-social">
+        {PROVIDERS.map((provider) => {
+          const Icon = provider.icon;
+          return (
+            <button
+              key={provider.id}
+              className="btn"
+              type="button"
+              disabled={busy}
+              onClick={() => void run(() => signInWithProvider(provider.id), "Finish sign-in in your browser")}
+            >
+              <Icon size={16} />
+              {provider.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="auth-divider">or email</div>
       <form className="stack" onSubmit={onSubmit}>
         <div className="field">
           <label htmlFor="auth-email">Email</label>
@@ -57,7 +102,7 @@ export function AuthCard({ compact = false }: { compact?: boolean }) {
             id="auth-password"
             name="password"
             type="password"
-            autoComplete="current-password"
+            autoComplete={mode === "in" ? "current-password" : "new-password"}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required
@@ -65,14 +110,9 @@ export function AuthCard({ compact = false }: { compact?: boolean }) {
           />
         </div>
         {error ? <div className="error-text">{error}</div> : null}
-        <div className="row">
-          <button className="btn primary" type="submit" data-mode="in" disabled={busy}>
-            {busy ? "Working…" : "Sign in"}
-          </button>
-          <button className="btn" type="submit" data-mode="up" disabled={busy}>
-            Create account
-          </button>
-        </div>
+        <button className="btn primary" type="submit" disabled={busy}>
+          {busy ? "Working…" : mode === "in" ? "Sign in" : "Create account"}
+        </button>
       </form>
     </section>
   );

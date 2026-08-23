@@ -22,6 +22,7 @@ export function HomePage() {
   const remove = useLibraryStore((state) => state.remove);
   const download = useLibraryStore((state) => state.download);
   const copyLink = useLibraryStore((state) => state.copyLink);
+  const removeFromCloud = useLibraryStore((state) => state.removeFromCloud);
   const toggleSelect = useLibraryStore((state) => state.toggleSelect);
   const selected = useLibraryStore((state) => state.selectedIds);
   const replay = useRecordingStore((state) => state.replay);
@@ -52,7 +53,7 @@ export function HomePage() {
             title="Recent clips"
             action={
               <Link className="btn ghost" to="/library">
-                Open library
+                {selected.length > 0 ? `${selected.length} selected · Open library` : "Open library"}
               </Link>
             }
           >
@@ -66,10 +67,19 @@ export function HomePage() {
                 onUpload={user ? (item) => void upload(item.localId) : undefined}
                 onSelect={(item) => toggleSelect(item.localId)}
                 onRename={(item, title) => void rename(item.localId, title)}
-                onDelete={(item) => {
-                  if (window.confirm("Delete this clip from this PC?")) void remove(item.localId);
-                }}
-                onDownload={(item) => void download(item.localId)}
+                  onDelete={(item) => {
+                    if (window.confirm("Delete this clip from this PC and the cloud?")) void remove(item.localId);
+                  }}
+                  onRemoveFromCloud={(item) => {
+                    if (
+                      window.confirm(
+                        "Remove this cloud copy? The file on this PC stays. The share link will stop working.",
+                      )
+                    ) {
+                      void removeFromCloud(item.localId);
+                    }
+                  }}
+                  onDownload={(item) => void download(item.localId)}
                 onCopyLink={(item) => void copyLink(item.localId)}
               />
             ))}

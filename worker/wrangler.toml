@@ -25,6 +25,7 @@ run_worker_first = ["/v1/*"]
 #
 # SUPABASE_URL
 # SUPABASE_ANON_KEY
+# SUPABASE_SERVICE_ROLE_KEY  (admin API only; never a VITE_ variable)
 # R2_ACCOUNT_ID
 # R2_ACCESS_KEY_ID
 # R2_SECRET_ACCESS_KEY

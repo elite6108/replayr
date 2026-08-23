@@ -1,5 +1,6 @@
 import type { Session, User } from "@supabase/supabase-js";
 import { create } from "zustand";
+import { publicSiteUrl } from "../branding";
 import {
   fetchOwnProfile,
   fetchOwnStorage,
@@ -9,6 +10,8 @@ import {
 } from "../services/supabase";
 import type { Profile, UserStorage } from "../types/profile";
 import { authErrorMessage, normalizeAuthEmail, validateAuthCredentials } from "../utils/auth";
+
+export type SocialProvider = "google" | "discord" | "twitter";
 
 interface AuthState {
   configured: boolean;
@@ -21,10 +24,14 @@ interface AuthState {
   initialize: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
+  signInWithProvider: (provider: SocialProvider) => Promise<void>;
+  completeOAuthFromUrl: (url: string) => Promise<void>;
   signOut: () => Promise<void>;
   saveProfile: (patch: Partial<Pick<Profile, "username" | "display_name" | "bio">>) => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
+
+let deepLinkListening = false;
 
 async function loadUserData(userId: string) {
   const [profile, storage] = await Promise.all([
@@ -49,9 +56,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     try {
     const supabase = getSupabase();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const session = await hydrateSession();
     const extra = session?.user ? await loadUserData(session.user.id) : { profile: null, storage: null };
     set({
       configured: true,
@@ -61,15 +66,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       error: null,
       ...extra,
     });
+    if (!deepLinkListening) {
+      deepLinkListening = true;
+      void listenForOAuthReturn((url) => {
+        void get().completeOAuthFromUrl(url);
+      });
+    }
     supabase.auth.onAuthStateChange((_event, nextSession) => {
       void (async () => {
         try {
-          const nextExtra = nextSession?.user
-            ? await loadUserData(nextSession.user.id)
+          const session = nextSession ? await mergeRemoteUser(nextSession) : null;
+          const nextExtra = session?.user
+            ? await loadUserData(session.user.id)
             : { profile: null, storage: null };
           set({
-            session: nextSession,
-            user: nextSession?.user ?? null,
+            session,
+            user: session?.user ?? null,
             error: null,
             ...nextExtra,
           });
@@ -152,6 +164,54 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       throw new Error(message);
     }
   },
+  signInWithProvider: async (provider) => {
+    set({ error: null });
+    try {
+      const { data, error } = await getSupabase().auth.signInWithOAuth({
+        provider,
+        options: {
+          skipBrowserRedirect: true,
+          redirectTo: `${publicSiteUrl()}/auth/desktop`,
+        },
+      });
+      if (error || !data.url) {
+        const message = authErrorMessage(error, "Could not start social sign-in");
+        set({ error: message });
+        throw new Error(message);
+      }
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(data.url);
+    } catch (caught) {
+      if (get().error) throw caught instanceof Error ? caught : new Error(String(caught));
+      const message = authErrorMessage(caught, "Could not start social sign-in");
+      set({ error: message });
+      throw new Error(message);
+    }
+  },
+  completeOAuthFromUrl: async (url) => {
+    try {
+      const parsed = new URL(url);
+      const code = parsed.searchParams.get("code");
+      const denied = parsed.searchParams.get("error_description") || parsed.searchParams.get("error");
+      if (denied) {
+        set({ error: denied });
+        return;
+      }
+      if (!code) return;
+      const { data, error } = await getSupabase().auth.exchangeCodeForSession(code);
+      if (error || !data.session) {
+        const message = authErrorMessage(error, "Could not finish social sign-in");
+        set({ error: message });
+        return;
+      }
+      set({ session: data.session, user: data.session.user, error: null });
+      await get().refreshProfile();
+      const { useToastStore } = await import("./toastStore");
+      useToastStore.getState().show("Signed in");
+    } catch (caught) {
+      set({ error: authErrorMessage(caught, "Could not finish social sign-in") });
+    }
+  },
   signOut: async () => {
     await getSupabase().auth.signOut();
     set({ session: null, user: null, profile: null, storage: null, error: null });
@@ -173,3 +233,48 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 }));
+
+async function hydrateSession() {
+  const supabase = getSupabase();
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return null;
+  try {
+    const refreshed = await supabase.auth.refreshSession();
+    return mergeRemoteUser(refreshed.data.session ?? data.session);
+  } catch {
+    return mergeRemoteUser(data.session);
+  }
+}
+
+async function mergeRemoteUser(session: Session) {
+  try {
+    const { data } = await getSupabase().auth.getUser();
+    return data.user ? { ...session, user: data.user } : session;
+  } catch {
+    return session;
+  }
+}
+
+async function listenForOAuthReturn(onUrl: (url: string) => void) {
+  const handle = (url: string) => {
+    if (url.startsWith("replayr://")) onUrl(url);
+  };
+  try {
+    const { getCurrent, onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
+    const current = await getCurrent();
+    for (const url of current ?? []) handle(url);
+    await onOpenUrl((urls) => {
+      for (const url of urls) handle(url);
+    });
+  } catch {
+    /* plugin missing in tests */
+  }
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    await listen<string[]>("oauth-callback-url", (event) => {
+      for (const url of event.payload) handle(url);
+    });
+  } catch {
+    /* keep going */
+  }
+}

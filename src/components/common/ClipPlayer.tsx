@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { useAuthStore } from "../../stores/authStore";
-import { formatBytes, formatDuration, isVideoPath } from "../../utils/format";
+import { formatBytes, formatClipDate, formatDuration, isVideoPath } from "../../utils/format";
 
 export function ClipPlayer() {
   const clips = useLibraryStore((state) => state.clips);
@@ -12,6 +12,7 @@ export function ClipPlayer() {
   const rename = useLibraryStore((state) => state.rename);
   const favorite = useLibraryStore((state) => state.favorite);
   const remove = useLibraryStore((state) => state.remove);
+  const removeFromCloud = useLibraryStore((state) => state.removeFromCloud);
   const reveal = useLibraryStore((state) => state.reveal);
   const upload = useLibraryStore((state) => state.upload);
   const user = useAuthStore((state) => state.user);
@@ -67,7 +68,8 @@ export function ClipPlayer() {
             }}
           />
           <p className="muted">
-            {formatDuration(clip.durationMs)}
+            {formatClipDate(clip.createdAt)}
+            {clip.durationMs ? ` · ${formatDuration(clip.durationMs)}` : ""}
             {clip.width && clip.height ? ` · ${clip.width}×${clip.height}` : ""}
             {clip.fileSize ? ` · ${formatBytes(clip.fileSize)}` : ""}
           </p>
@@ -102,10 +104,27 @@ export function ClipPlayer() {
               </Link>
             )
           ) : null}
+          {clip.cloudClipId && clip.uploadStatus === "completed" ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Remove this cloud copy? The file on this PC stays. The share link will stop working.",
+                  )
+                ) {
+                  void removeFromCloud(clip.localId);
+                }
+              }}
+            >
+              Remove from cloud
+            </button>
+          ) : null}
           {confirmDelete ? (
             <div className="row">
               <button type="button" className="btn danger" onClick={() => void remove(clip.localId)}>
-                Delete file
+                {clip.cloudClipId ? "Delete from this PC and the cloud" : "Delete file"}
               </button>
               <button type="button" className="btn" onClick={() => setConfirmDelete(false)}>
                 Cancel

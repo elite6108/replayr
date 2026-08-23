@@ -22,10 +22,18 @@ export function publicApiUrl(): string {
   return url;
 }
 
+export function publicShareUrl(): string {
+  return DEFAULT_PUBLIC_APP_URL;
+}
+
+export function publicSiteUrl(): string {
+  return "https://www.replayr.tv";
+}
+
 export function clipShareUrl(slug: string): string {
-  return `${publicAppUrl()}/c/${slug}`;
+  return `${publicShareUrl()}/c/${slug}`;
 }
 
 export function profileUrl(username: string): string {
-  return `${publicAppUrl()}/u/${username}`;
+  return `${publicShareUrl()}/u/${username}`;
 }

@@ -393,7 +393,7 @@ mod windows_impl {
         Settings::new(
             item,
             CursorCaptureSettings::Default,
-            DrawBorderSettings::Default,
+            DrawBorderSettings::WithoutBorder,
             SecondaryWindowSettings::Default,
             MinimumUpdateIntervalSettings::Default,
             DirtyRegionSettings::Default,
@@ -407,9 +407,25 @@ mod windows_impl {
         flags: SessionFlags,
     ) -> Result<windows_capture::capture::CaptureControl<WindowsSession, String>, String>
     where
-        T: TryInto<windows_capture::settings::GraphicsCaptureItemType> + Send + 'static,
+        T: TryInto<windows_capture::settings::GraphicsCaptureItemType> + Clone + Send + 'static,
     {
-        WindowsSession::start_free_threaded(capture_settings(item, flags)).map_err(|err| err.to_string())
+        match WindowsSession::start_free_threaded(capture_settings(item.clone(), flags.clone())) {
+            Ok(control) => Ok(control),
+            Err(err) => {
+                tracing::warn!("borderless capture unavailable ({err}); retrying with default border");
+                let fallback = Settings::new(
+                    item,
+                    CursorCaptureSettings::Default,
+                    DrawBorderSettings::Default,
+                    SecondaryWindowSettings::Default,
+                    MinimumUpdateIntervalSettings::Default,
+                    DirtyRegionSettings::Default,
+                    ColorFormat::Bgra8,
+                    flags,
+                );
+                WindowsSession::start_free_threaded(fallback).map_err(|err| err.to_string())
+            }
+        }
     }
 
     fn window_for_pid(pid: u32) -> Option<Window> {

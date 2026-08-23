@@ -27,6 +27,8 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 keyring = { version = "3", features = ["windows-native"] }
+tauri-plugin-deep-link = "2.4.9"
+tauri-plugin-single-instance = { version = "2.4.3", features = ["deep-link"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [

@@ -1,10 +1,13 @@
 import { AwsClient } from "aws4fetch";
+import { handleAdmin } from "./admin";
+import { cors, HttpError, json } from "./http";
 
 export interface Env {
   CLIPS?: R2Bucket;
   ASSETS?: { fetch: (request: Request) => Promise<Response> };
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
   R2_ACCOUNT_ID: string;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
@@ -40,67 +43,85 @@ export default {
       return Response.redirect(url.toString(), 301);
     }
     if (request.method === "OPTIONS") {
-      return cors(new Response(null, { status: 204 }));
+      return cors(new Response(null, { status: 204 }), request);
     }
     try {
-      if (request.method === "GET" && url.pathname === "/v1/health") {
-        return json({
-          ok: true,
-          storage: Boolean(env.R2_BUCKET_NAME && env.R2_ACCESS_KEY_ID && env.R2_ACCOUNT_ID),
-        });
-      }
-      if (request.method === "GET" && url.pathname === "/v1/library") {
-        return cors(await listLibrary(request, env));
-      }
-      if (request.method === "GET" && url.pathname === "/v1/clips/public") {
-        return cors(await listPublicClips(env));
-      }
-      const gameClips = url.pathname.match(/^\/v1\/games\/([^/]+)\/clips$/);
-      if (request.method === "GET" && gameClips?.[1]) {
-        return cors(await listGameClips(env, gameClips[1]));
-      }
-      if (request.method === "POST" && url.pathname === "/v1/clips/uploads") {
-        return cors(await createUpload(request, env));
-      }
-      const complete = url.pathname.match(/^\/v1\/clips\/([^/]+)\/complete$/);
-      if (request.method === "POST" && complete?.[1]) {
-        return cors(await completeUpload(request, env, complete[1]));
-      }
-      const download = url.pathname.match(/^\/v1\/clips\/([^/]+)\/download$/);
-      if (request.method === "GET" && download?.[1]) {
-        return cors(await downloadClip(request, env, download[1]));
-      }
-      const clipItem = url.pathname.match(/^\/v1\/clips\/([^/]+)$/);
-      if (request.method === "DELETE" && clipItem?.[1]) {
-        return cors(await deleteClip(request, env, clipItem[1]));
-      }
-      if (request.method === "GET" && clipItem?.[1]) {
-        return cors(await getPlayback(request, env, clipItem[1]));
-      }
-      const share = url.pathname.match(/^\/c\/([^/]+)\/?$/);
-      if (request.method === "GET" && share?.[1]) {
-        return clipPlayerPage(request, env, share[1]);
-      }
-      if (request.method === "GET" && url.pathname === "/") {
-        if (env.ASSETS) return env.ASSETS.fetch(request);
-        return siteLanding(env);
-      }
-      if (request.method === "GET" && (url.pathname === "/library" || url.pathname === "/signin")) {
-        if (env.ASSETS) return env.ASSETS.fetch(request);
-      }
-      if (env.ASSETS && request.method === "GET") {
-        return env.ASSETS.fetch(request);
-      }
-      return json({ error: "Not found." }, 404);
+      return cors(await route(request, env, url), request);
     } catch (caught) {
       if (caught instanceof HttpError) {
-        return json({ error: caught.message }, caught.status);
+        return cors(json({ error: caught.message }, caught.status), request);
       }
       const message = caught instanceof Error ? caught.message : "Worker failed.";
-      return json({ error: message }, 500);
+      return cors(json({ error: message }, 500), request);
     }
   },
 };
+
+async function route(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method === "GET" && url.pathname === "/v1/health") {
+    return json({
+      ok: true,
+      storage: Boolean(env.R2_BUCKET_NAME && env.R2_ACCESS_KEY_ID && env.R2_ACCOUNT_ID),
+    });
+  }
+  if (request.method === "GET" && url.pathname === "/v1/library") {
+    return listLibrary(request, env);
+  }
+  if (request.method === "GET" && url.pathname === "/v1/clips/public") {
+    return listPublicClips(env);
+  }
+  const gameClips = url.pathname.match(/^\/v1\/games\/([^/]+)\/clips$/);
+  if (request.method === "GET" && gameClips?.[1]) {
+    return listGameClips(env, gameClips[1]);
+  }
+  if (request.method === "POST" && url.pathname === "/v1/clips/uploads") {
+    return createUpload(request, env);
+  }
+  const complete = url.pathname.match(/^\/v1\/clips\/([^/]+)\/complete$/);
+  if (request.method === "POST" && complete?.[1]) {
+    return completeUpload(request, env, complete[1]);
+  }
+  const download = url.pathname.match(/^\/v1\/clips\/([^/]+)\/download$/);
+  if (request.method === "GET" && download?.[1]) {
+    return downloadClip(request, env, download[1]);
+  }
+  const clipItem = url.pathname.match(/^\/v1\/clips\/([^/]+)$/);
+  if (request.method === "DELETE" && clipItem?.[1]) {
+    return deleteClip(request, env, clipItem[1]);
+  }
+  if (request.method === "GET" && clipItem?.[1]) {
+    return getPlayback(request, env, clipItem[1]);
+  }
+  if (url.pathname.startsWith("/v1/admin")) {
+    return handleAdmin(request, env, url);
+  }
+  const share = url.pathname.match(/^\/c\/([^/]+)\/?$/);
+  if (request.method === "GET" && share?.[1]) {
+    return clipPlayerPage(request, env, share[1]);
+  }
+  if (request.method === "GET" && url.pathname === "/") {
+    if (env.ASSETS) return env.ASSETS.fetch(request);
+    return siteLanding(env);
+  }
+  if (
+    request.method === "GET" &&
+    (url.pathname === "/library" ||
+      url.pathname === "/signin" ||
+      url.pathname === "/auth/callback" ||
+      url.pathname === "/auth/desktop" ||
+      url.pathname === "/admin" ||
+      url.pathname.startsWith("/admin/"))
+  ) {
+    if (env.ASSETS) {
+      const index = new URL("/index.html", request.url);
+      return env.ASSETS.fetch(new Request(index, request));
+    }
+  }
+  if (env.ASSETS && request.method === "GET") {
+    return env.ASSETS.fetch(request);
+  }
+  return json({ error: "Not found." }, 404);
+}
 
 async function createUpload(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
@@ -110,6 +131,9 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
   if (!Number.isFinite(size) || size <= 0) {
     return json({ error: "Clip file size is required." }, 400);
   }
+
+  await releaseExpiredUploads(env, user.id);
+
   const storage = await rest<StorageRow[]>(
     env,
     user.token,
@@ -122,6 +146,13 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
   }
   if (quota.storage_used_bytes + size > quota.storage_limit_bytes) {
     return json({ error: "This clip would exceed your cloud storage limit." }, 403);
+  }
+  const openSessions = await serviceRestCount(
+    env,
+    `/upload_sessions?user_id=eq.${user.id}&status=eq.uploading&expires_at=gt.${new Date().toISOString()}&select=id`,
+  );
+  if (openSessions >= 5) {
+    return json({ error: "Finish or wait for an existing upload before starting another." }, 429);
   }
 
   const clipId = crypto.randomUUID();
@@ -154,10 +185,12 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
     const started = await aws.fetch(`${endpoint}?uploads`, { method: "POST" });
     const xml = await started.text();
     if (!started.ok) {
+      await failClip(env, user.id, clipId);
       return json({ error: `Could not start multipart upload: ${xml}` }, 502);
     }
     uploadId = xml.match(/<UploadId>([^<]+)<\/UploadId>/)?.[1] ?? null;
     if (!uploadId) {
+      await failClip(env, user.id, clipId);
       return json({ error: "R2 did not return an upload id." }, 502);
     }
     const count = Math.ceil(size / PART_SIZE);
@@ -173,24 +206,38 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
     parts.push({ partNumber: 1, url: signed.url });
   }
 
-  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  await rest(env, user.token, "POST", "/upload_sessions", {
-    clip_id: clipId,
-    user_id: user.id,
-    storage_key: key,
-    multipart_upload_id: uploadId,
-    expected_size_bytes: size,
-    declared_content_type: CONTENT_TYPE,
-    status: "uploading",
-    expires_at: expires,
-  });
+  try {
+    await reserveUploadBytes(env, user.id, size);
+  } catch (caught) {
+    await abortMultipart(env, key, uploadId);
+    await failClip(env, user.id, clipId);
+    throw caught;
+  }
+
+  try {
+    await serviceRest(env, "POST", "/upload_sessions", {
+      clip_id: clipId,
+      user_id: user.id,
+      storage_key: key,
+      multipart_upload_id: uploadId,
+      expected_size_bytes: size,
+      declared_content_type: CONTENT_TYPE,
+      status: "uploading",
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    });
+  } catch (caught) {
+    await releaseReservedBytes(env, user.id, size);
+    await abortMultipart(env, key, uploadId);
+    await failClip(env, user.id, clipId);
+    throw caught;
+  }
 
   return json({
     clipId,
     slug,
     key,
     thumbKey,
-    thumbUrl: (await signObject(env, thumbKey, "PUT", { "content-type": "image/bmp" })).url,
+    thumbUrl: await signedOwnedUrl(env, user.id, thumbKey, "PUT", { "content-type": "image/bmp" }),
     uploadId,
     partSize: PART_SIZE,
     parts,
@@ -200,16 +247,31 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
 async function completeUpload(request: Request, env: Env, clipId: string): Promise<Response> {
   const user = await requireUser(request, env);
   requireR2(env);
+  await releaseExpiredUploads(env, user.id);
   const body = (await request.json()) as CompleteBody;
-  const clips = await rest<ClipRow[]>(
+  const clips = await serviceRest<ClipRow[]>(
     env,
-    user.token,
     "GET",
-    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,slug,storage_key,status`,
+    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,status`,
   );
   const clip = clips[0];
-  if (!clip?.storage_key) {
+  if (!clip) {
     return json({ error: "Clip upload was not found." }, 404);
+  }
+  if (clip.status === "ready") {
+    return json({
+      clipId,
+      slug: clip.slug,
+      status: "ready",
+      shareUrl: `${publicShareOrigin(env)}/c/${clip.slug}`,
+    });
+  }
+  if (clip.status !== "uploading") {
+    return json({ error: "Clip upload was not found." }, 404);
+  }
+  if (!ownedObjectKey(user.id, clip.storage_key)) {
+    await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, { status: "failed" });
+    return json({ error: "Clip storage key is invalid." }, 403);
   }
 
   if (body.uploadId && body.parts?.length) {
@@ -230,35 +292,36 @@ async function completeUpload(request: Request, env: Env, clipId: string): Promi
     }
   }
 
+  const sessions = await serviceRest<{ expected_size_bytes: number }[]>(
+    env,
+    "GET",
+    `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&select=expected_size_bytes`,
+  );
+  const expected = Number(sessions[0]?.expected_size_bytes ?? NaN);
   const size = await objectSize(env, clip.storage_key);
-  if (size == null || size <= 0) {
-    await rest(env, user.token, "PATCH", `/clips?id=eq.${clipId}`, { status: "failed" });
+  if (size == null || size <= 0 || !Number.isFinite(expected) || size !== expected) {
+    await deleteOwnedObject(env, user.id, clip.storage_key);
+    await releaseReservedBytes(env, user.id, expected);
+    await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, { status: "failed" });
+    await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`, {
+      status: "aborted",
+    });
     return json({ error: "Uploaded object was not found in cloud storage." }, 400);
   }
 
-  try {
-    await rest(env, user.token, "POST", "/rpc/add_storage_used", { p_bytes: size });
-  } catch (caught) {
-    if (env.CLIPS) await env.CLIPS.delete(clip.storage_key);
-    else await r2Client(env).fetch(objectUrl(env, clip.storage_key), { method: "DELETE" });
-    await rest(env, user.token, "PATCH", `/clips?id=eq.${clipId}`, { status: "failed" });
-    throw caught;
-  }
-
-  await rest(env, user.token, "PATCH", `/clips?id=eq.${clipId}`, {
+  await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, {
     status: "ready",
     file_size_bytes: size,
   });
-  await rest(env, user.token, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`, {
+  await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`, {
     status: "completed",
   });
 
-  const origin = env.PUBLIC_APP_URL.replace(/\/$/, "");
   return json({
     clipId,
     slug: clip.slug,
     status: "ready",
-    shareUrl: `${origin}/c/${clip.slug}`,
+    shareUrl: `${publicShareOrigin(env)}/c/${clip.slug}`,
   });
 }
 
@@ -267,57 +330,65 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
     return json({ error: "Clip id is invalid." }, 400);
   }
   const user = await requireUser(request, env);
-  const clips = await rest<ClipRow[]>(
+  const clips = await serviceRest<ClipRow[]>(
     env,
-    user.token,
     "GET",
-    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,slug,storage_key,thumbnail_key,status,file_size_bytes`,
+    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,thumbnail_key,status,file_size_bytes`,
   );
   const clip = clips[0];
   if (!clip || clip.status === "deleted") {
     return json({ error: "That cloud clip was not found." }, 404);
   }
 
-  if (clip.storage_key) {
-    requireR2(env);
-    if (env.CLIPS) await env.CLIPS.delete(clip.storage_key);
-    else await r2Client(env).fetch(objectUrl(env, clip.storage_key), { method: "DELETE" });
-  }
+  const sessions =
+    clip.status === "uploading"
+      ? await serviceRest<{ expected_size_bytes: number }[]>(
+          env,
+          "GET",
+          `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&select=expected_size_bytes`,
+        )
+      : [];
 
-  if (clip.thumbnail_key) {
-    if (env.CLIPS) await env.CLIPS.delete(clip.thumbnail_key);
-    else await r2Client(env).fetch(objectUrl(env, clip.thumbnail_key), { method: "DELETE" });
-  }
+  if (clip.storage_key || clip.thumbnail_key) requireR2(env);
+  await deleteOwnedObject(env, user.id, clip.storage_key);
+  await deleteOwnedObject(env, user.id, clip.thumbnail_key);
 
   if (clip.status === "ready" && clip.file_size_bytes && clip.file_size_bytes > 0) {
-    await rest(env, user.token, "POST", "/rpc/release_storage_used", { p_bytes: clip.file_size_bytes });
+    await releaseReservedBytes(env, user.id, clip.file_size_bytes);
+  } else if (clip.status === "uploading") {
+    await releaseReservedBytes(env, user.id, Number(sessions[0]?.expected_size_bytes ?? NaN));
   }
 
-  await rest(env, user.token, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, {
+  await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, {
     status: "deleted",
     storage_key: null,
     thumbnail_key: null,
   });
-  await rest(env, user.token, "DELETE", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`);
+  await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`);
 
   return json({ clipId, status: "deleted" });
 }
 
 async function listLibrary(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  const rows = await rest<LibraryRow[]>(
+  const url = new URL(request.url);
+  const rawPage = Number(url.searchParams.get("page"));
+  const rawLimit = Number(url.searchParams.get("limit"));
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1;
+  const limit = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(48, Math.floor(rawLimit)) : 24;
+  const offset = (page - 1) * limit;
+  const filter = `user_id=eq.${user.id}&status=in.(ready,uploading)`;
+  const total = await serviceRestCount(env, `/clips?${filter}&select=id`);
+  const rows = await serviceRest<LibraryRow[]>(
     env,
-    user.token,
     "GET",
-    `/clips?user_id=eq.${user.id}&status=neq.deleted&select=id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key&order=created_at.desc`,
+    `/clips?${filter}&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key&order=created_at.desc&limit=${limit}&offset=${offset}`,
   );
   requireR2(env);
   const clips = [];
   for (const row of rows) {
     const thumbnailUrl =
-      row.status === "ready" && row.thumbnail_key ? (await signObject(env, row.thumbnail_key, "GET")).url : null;
-    const playbackUrl =
-      row.status === "ready" && row.storage_key ? (await signObject(env, row.storage_key, "GET")).url : null;
+      row.status === "ready" ? await signedOwnedUrl(env, user.id, row.thumbnail_key, "GET") : null;
     clips.push({
       id: row.id,
       title: row.title,
@@ -330,10 +401,13 @@ async function listLibrary(request: Request, env: Env): Promise<Response> {
       fileSizeBytes: row.file_size_bytes,
       createdAt: row.created_at,
       thumbnailUrl,
-      playbackUrl,
+      playbackUrl:
+        row.status === "ready" && !thumbnailUrl
+          ? await signedOwnedUrl(env, user.id, row.storage_key, "GET")
+          : null,
     });
   }
-  return json({ clips });
+  return json({ clips, total, page, limit });
 }
 
 async function listGameClips(env: Env, slug: string): Promise<Response> {
@@ -350,17 +424,16 @@ async function listGameClips(env: Env, slug: string): Promise<Response> {
   if (!game) {
     return json({ error: "That game was not found." }, 404);
   }
-  const rows = await rest<LibraryRow[]>(
+  const rows = await serviceRest<LibraryRow[]>(
     env,
-    env.SUPABASE_ANON_KEY,
     "GET",
-    `/clips?game_id=eq.${game.id}&visibility=eq.public&status=eq.ready&select=id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key&order=created_at.desc&limit=48`,
+    `/clips?game_id=eq.${game.id}&visibility=eq.public&status=eq.ready&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key&order=created_at.desc&limit=48`,
   );
   requireR2(env);
   const clips = [];
   for (const row of rows) {
-    const thumbnailUrl = row.thumbnail_key ? (await signObject(env, row.thumbnail_key, "GET")).url : null;
-    const playbackUrl = row.storage_key ? (await signObject(env, row.storage_key, "GET")).url : null;
+    const thumbnailUrl = await signedOwnedUrl(env, row.user_id, row.thumbnail_key, "GET");
+    const playbackUrl = await signedOwnedUrl(env, row.user_id, row.storage_key, "GET");
     clips.push({
       id: row.id,
       title: row.title,
@@ -380,11 +453,10 @@ async function listGameClips(env: Env, slug: string): Promise<Response> {
 }
 
 async function listPublicClips(env: Env): Promise<Response> {
-  const rows = await rest<PublicClipRow[]>(
+  const rows = await serviceRest<PublicClipRow[]>(
     env,
-    env.SUPABASE_ANON_KEY,
     "GET",
-    "/clips?visibility=eq.public&status=eq.ready&select=id,title,slug,duration_ms,created_at,storage_key,thumbnail_key,games(name,slug,cover_url)&order=created_at.desc&limit=12",
+    "/clips?visibility=eq.public&status=eq.ready&select=id,user_id,title,slug,duration_ms,created_at,storage_key,thumbnail_key,games(name,slug,cover_url)&order=created_at.desc&limit=12",
   );
   requireR2(env);
   const clips = [];
@@ -396,8 +468,8 @@ async function listPublicClips(env: Env): Promise<Response> {
       slug: row.slug,
       durationMs: row.duration_ms,
       createdAt: row.created_at,
-      thumbnailUrl: row.thumbnail_key ? (await signObject(env, row.thumbnail_key, "GET")).url : null,
-      playbackUrl: row.storage_key ? (await signObject(env, row.storage_key, "GET")).url : null,
+      thumbnailUrl: await signedOwnedUrl(env, row.user_id, row.thumbnail_key, "GET"),
+      playbackUrl: await signedOwnedUrl(env, row.user_id, row.storage_key, "GET"),
       game: game
         ? { name: game.name, slug: game.slug, coverUrl: game.cover_url }
         : null,
@@ -408,7 +480,7 @@ async function listPublicClips(env: Env): Promise<Response> {
 
 async function downloadClip(request: Request, env: Env, slug: string): Promise<Response> {
   const clip = await lookupPlayback(request, env, slug);
-  if (!clip?.storage_key) {
+  if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) {
     return json({ error: "That clip is not available." }, 404);
   }
   requireR2(env);
@@ -440,7 +512,7 @@ function downloadFileName(title: string | null, slug: string) {
 
 async function getPlayback(request: Request, env: Env, slug: string): Promise<Response> {
   const clip = await lookupPlayback(request, env, slug);
-  if (!clip?.storage_key) {
+  if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) {
     return json({ error: "That clip is not available." }, 404);
   }
   requireR2(env);
@@ -457,13 +529,34 @@ async function getPlayback(request: Request, env: Env, slug: string): Promise<Re
     visibility: clip.visibility,
     status: clip.status,
     playbackUrl: signed.url,
+    thumbnailUrl: await signedOwnedUrl(env, clip.user_id, clip.thumbnail_key, "GET"),
   });
 }
 
 async function lookupPlayback(request: Request, env: Env, slug: string): Promise<PlaybackRow | null> {
-  const token = bearerToken(request) || env.SUPABASE_ANON_KEY;
-  const rows = await rest<PlaybackRow[]>(env, token, "POST", "/rpc/get_clip_for_playback", { p_slug: slug });
-  return rows[0] ?? null;
+  if (!/^[a-z0-9]{6,16}$/.test(slug)) return null;
+  const rows = await serviceRest<PlaybackRow[]>(
+    env,
+    "GET",
+    `/clips?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,visibility,status,storage_key,thumbnail_key`,
+  );
+  const clip = rows[0];
+  if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) return null;
+  if (clip.visibility === "public" || clip.visibility === "unlisted") return clip;
+  if (clip.visibility === "private") {
+    const user = await optionalUser(request, env);
+    if (user?.id === clip.user_id) return clip;
+  }
+  return null;
+}
+
+async function optionalUser(request: Request, env: Env): Promise<AuthUser | null> {
+  try {
+    if (!bearerToken(request)) return null;
+    return await requireUser(request, env);
+  } catch {
+    return null;
+  }
 }
 
 function bearerToken(request: Request): string | null {
@@ -478,7 +571,7 @@ async function clipPlayerPage(request: Request, env: Env, slug: string): Promise
     const index = new URL("/index.html", request.url);
     return env.ASSETS.fetch(new Request(index, request));
   }
-  const origin = env.PUBLIC_APP_URL.replace(/\/$/, "") || new URL(request.url).origin;
+  const origin = publicShareOrigin(env) || new URL(request.url).origin;
   const safeSlug = slug.replace(/[^a-z0-9]/g, "");
   const html = `<!doctype html>
 <html lang="en">
@@ -532,7 +625,7 @@ async function insertClip(env: Env, user: AuthUser, row: Record<string, unknown>
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const slug = randomSlug();
     try {
-      await rest(env, user.token, "POST", "/clips", { ...row, slug });
+      await serviceRest(env, "POST", "/clips", { ...row, slug });
       return slug;
     } catch (caught) {
       const text = caught instanceof HttpError ? caught.message : "";
@@ -594,6 +687,107 @@ function requireR2(env: Env) {
   }
 }
 
+function requireServiceRole(env: Env): string {
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new HttpError(503, "Cloud quota is not configured on the Worker.");
+  }
+  return env.SUPABASE_SERVICE_ROLE_KEY;
+}
+
+export function ownedObjectKey(userId: string, key: string | null | undefined): key is string {
+  return Boolean(
+    key &&
+      key.startsWith(`clips/${userId}/`) &&
+      !key.includes("..") &&
+      /^clips\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/(original\.mp4|thumb)$/i.test(key),
+  );
+}
+
+async function deleteOwnedObject(env: Env, userId: string, key: string | null | undefined) {
+  if (!ownedObjectKey(userId, key)) return;
+  if (env.CLIPS) await env.CLIPS.delete(key);
+  else await r2Client(env).fetch(objectUrl(env, key), { method: "DELETE" });
+}
+
+async function releaseExpiredUploads(env: Env, userId: string) {
+  const expired = await serviceRest<{ clip_id: string; expected_size_bytes: number }[]>(
+    env,
+    "GET",
+    `/upload_sessions?user_id=eq.${userId}&status=eq.uploading&expires_at=lt.${new Date().toISOString()}&select=clip_id,expected_size_bytes`,
+  );
+  for (const session of expired) {
+    await releaseReservedBytes(env, userId, Number(session.expected_size_bytes));
+    await failClip(env, userId, session.clip_id);
+    await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${session.clip_id}&user_id=eq.${userId}`);
+  }
+}
+
+async function reserveUploadBytes(env: Env, userId: string, bytes: number) {
+  try {
+    await serviceRest(env, "POST", "/rpc/add_storage_used_for", { p_user_id: userId, p_bytes: bytes });
+  } catch (caught) {
+    throw quotaHttpError(caught) ?? caught;
+  }
+}
+
+async function releaseReservedBytes(env: Env, userId: string, bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return;
+  await serviceRest(env, "POST", "/rpc/release_storage_used_for", { p_user_id: userId, p_bytes: bytes });
+}
+
+async function failClip(env: Env, userId: string, clipId: string) {
+  await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${userId}`, { status: "failed" });
+}
+
+async function abortMultipart(env: Env, key: string, uploadId: string | null) {
+  if (!uploadId) return;
+  try {
+    await r2Client(env).fetch(`${objectUrl(env, key)}?uploadId=${encodeURIComponent(uploadId)}`, { method: "DELETE" });
+  } catch {
+    /* best-effort abort */
+  }
+}
+
+function quotaHttpError(caught: unknown): HttpError | null {
+  if (!(caught instanceof HttpError)) return null;
+  if (/exceed your cloud storage/i.test(caught.message)) {
+    return new HttpError(403, "This clip would exceed your cloud storage limit.");
+  }
+  if (/No storage plan/i.test(caught.message)) {
+    return new HttpError(403, "No storage plan is attached to this account.");
+  }
+  return null;
+}
+
+async function signedOwnedUrl(
+  env: Env,
+  userId: string,
+  key: string | null | undefined,
+  method: "GET" | "PUT",
+  headers?: Record<string, string>,
+): Promise<string | null> {
+  if (!ownedObjectKey(userId, key)) return null;
+  return (await signObject(env, key, method, headers)).url;
+}
+
+async function serviceRestCount(env: Env, path: string): Promise<number> {
+  const key = requireServiceRole(env);
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
+    method: "GET",
+    headers: {
+      apikey: key,
+      authorization: `Bearer ${key}`,
+      prefer: "count=exact",
+      range: "0-0",
+    },
+  });
+  if (!response.ok) {
+    throw new HttpError(502, restError(await response.text()) || "Supabase request failed.");
+  }
+  const total = response.headers.get("content-range")?.split("/")[1];
+  return total && total !== "*" ? Number(total) : 0;
+}
+
 function r2Client(env: Env) {
   return new AwsClient({
     accessKeyId: env.R2_ACCESS_KEY_ID,
@@ -616,10 +810,26 @@ function signObject(env: Env, key: string, method: "GET" | "PUT", headers?: Reco
 }
 
 async function rest<T>(env: Env, token: string, method: string, path: string, body?: unknown): Promise<T> {
+  return restFetch<T>(env, env.SUPABASE_ANON_KEY, token, method, path, body);
+}
+
+async function serviceRest<T>(env: Env, method: string, path: string, body?: unknown): Promise<T> {
+  const key = requireServiceRole(env);
+  return restFetch<T>(env, key, key, method, path, body);
+}
+
+async function restFetch<T>(
+  env: Env,
+  apikey: string,
+  token: string,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
   const response = await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
     method,
     headers: {
-      apikey: env.SUPABASE_ANON_KEY,
+      apikey,
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
       prefer: method === "POST" && path.startsWith("/rpc/")
@@ -653,7 +863,7 @@ function randomSlug() {
 }
 
 function siteLanding(env: Env): Response {
-  const origin = env.PUBLIC_APP_URL.replace(/\/$/, "");
+  const origin = publicShareOrigin(env);
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -680,34 +890,22 @@ function siteLanding(env: Env): Response {
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
+function publicShareOrigin(env: Env) {
+  const origin = (env.PUBLIC_APP_URL || "").replace(/\/$/, "");
+  try {
+    const host = new URL(origin).hostname;
+    if (host === "127.0.0.1" || host === "localhost") return "https://replayr.tv";
+  } catch {
+    /* keep configured origin */
+  }
+  return origin || "https://replayr.tv";
+}
+
 function shouldUpgradeToHttps(url: URL) {
+  if (url.pathname.startsWith("/v1/")) return false;
   return url.protocol === "http:" && (url.hostname === "replayr.tv" || url.hostname === "www.replayr.tv");
 }
 
-function json(body: unknown, status = 200) {
-  return cors(
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { "content-type": "application/json" },
-    }),
-  );
-}
-
-function cors(response: Response) {
-  const headers = new Headers(response.headers);
-  headers.set("access-control-allow-origin", "*");
-  headers.set("access-control-allow-headers", "authorization, content-type");
-  headers.set("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
-  return new Response(response.body, { status: response.status, headers });
-}
-
-class HttpError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
 
 interface AuthUser {
   id: string;
@@ -721,6 +919,7 @@ interface StorageRow {
 
 interface ClipRow {
   id: string;
+  user_id?: string;
   slug: string;
   storage_key: string | null;
   thumbnail_key?: string | null;
@@ -730,6 +929,7 @@ interface ClipRow {
 
 interface LibraryRow {
   id: string;
+  user_id: string;
   title: string | null;
   slug: string;
   status: string;
@@ -753,6 +953,7 @@ interface GameRow {
 
 interface PublicClipRow {
   id: string;
+  user_id: string;
   title: string | null;
   slug: string;
   duration_ms: number | null;
@@ -764,6 +965,7 @@ interface PublicClipRow {
 
 interface PlaybackRow {
   id: string;
+  user_id: string;
   slug: string;
   title: string | null;
   duration_ms: number | null;
@@ -772,4 +974,5 @@ interface PlaybackRow {
   visibility: string;
   status: string;
   storage_key: string | null;
+  thumbnail_key?: string | null;
 }

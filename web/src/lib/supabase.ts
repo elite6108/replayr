@@ -18,6 +18,7 @@ export function getSupabase(): SupabaseClient {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      flowType: "pkce",
     },
   });
   return client;
@@ -27,8 +28,12 @@ export function publicAppUrl(): string {
   return (import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin).replace(/\/$/, "");
 }
 
+export function publicShareUrl(): string {
+  return "https://replayr.tv";
+}
+
 export function clipShareUrl(slug: string): string {
-  return `${publicAppUrl()}/c/${slug}`;
+  return `${publicShareUrl()}/c/${slug}`;
 }
 
 export function apiUrl(path: string): string {

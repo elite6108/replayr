@@ -73,6 +73,20 @@ Desktop `.env` may only contain:
 
 Never put `SUPABASE_SERVICE_ROLE_KEY` or R2 keys in the desktop app or any `VITE_` variable.
 
+## Admin console
+
+The operator console lives at `/admin` on the website. Admins also get a simpler Admin page in the desktop app. Both call `GET/PATCH/DELETE /v1/admin/*` with the signed-in JWT. The Worker accepts the request only when `app_metadata.role === "admin"` (never `user_metadata`). Privileged reads and writes use `SUPABASE_SERVICE_ROLE_KEY` on the Worker only.
+
+Grant access in the Supabase SQL editor, then sign out and sign in again:
+
+```sql
+update auth.users
+set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"admin"}'::jsonb
+where email = 'you@example.com';
+```
+
+Unlisted clips can appear here for support. Copied share links stay `{origin}/c/{slug}`. Deletes are soft (`status = deleted`) plus R2 object removal. There is no mass wipe.
+
 ## Capture and Instant Replay
 
 Pipeline:
@@ -108,7 +122,7 @@ Library is one page with two views. Local and cloud copies stay distinct.
 - **This PC** — files in the save folder (default `Videos\Project Replay`), SQLite `local_clips`, in-app player, thumbs, favorite / rename / delete, Show in folder.
 - **Cloud** — metadata for clips you uploaded, listed from Supabase under owner RLS.
 
-A local clip can later point at a `cloud_clip_id`. Deleting the local file does not delete the R2 object (cloud delete is not built yet).
+A local clip can later point at a `cloud_clip_id`. Delete on the desktop app also deletes the cloud copy. Delete on the website deletes the cloud copy and removes the matching file from the Windows app the next time it opens. "Remove from cloud" on a local card only unlinks the upload and leaves the file on this PC.
 
 ## Accounts
 
@@ -121,6 +135,8 @@ After a successful login, `supabase-js` persists the session through a Tauri com
 `handle_new_user` creates a `profiles` row and a `user_storage` row (free plan quota) when an auth user is inserted. Usernames are 3–24 characters, `[a-zA-Z0-9_]`, unique case-insensitively. Clip URLs never include the username.
 
 For local testing, turn **Confirm email** off in the Supabase dashboard so sign-up can sign in immediately. Leave **Anonymous** disabled.
+
+Auth database connections must use **percentage allocation**, not a fixed cap. In the dashboard: **Authentication → Performance → Connection management → Allocation strategy → Percent of max connections**. Save about 10–20%. An absolute cap of 10 connections queues signups.
 
 ## Cloud upload (Phase 6)
 

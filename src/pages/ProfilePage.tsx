@@ -4,12 +4,14 @@ import { AuthCard } from "../components/common/AuthCard";
 import { PageHeader } from "../components/common/PageHeader";
 import { useAuthStore } from "../stores/authStore";
 import { useToastStore } from "../stores/toastStore";
+import { isAdminSession } from "../utils/admin";
 import { formatBytes, initials } from "../utils/format";
 import { validateUsername } from "../utils/username";
 
 export function ProfilePage() {
   const configured = useAuthStore((state) => state.configured);
   const user = useAuthStore((state) => state.user);
+  const session = useAuthStore((state) => state.session);
   const profile = useAuthStore((state) => state.profile);
   const storage = useAuthStore((state) => state.storage);
   const signOut = useAuthStore((state) => state.signOut);
@@ -79,6 +81,11 @@ export function ProfilePage() {
   return (
     <>
       <PageHeader title="Account" subtitle="Usernames are unique. Clip URLs never include this name.">
+        {isAdminSession(session) ? (
+          <Link className="btn primary" to="/admin">
+            Admin
+          </Link>
+        ) : null}
         <button className="btn" type="button" onClick={() => void signOut()}>
           Sign out
         </button>

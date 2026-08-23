@@ -1,11 +1,11 @@
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { clipShareUrl, publicAppUrl } from "../branding";
-import { fetchOwnClips, updateOwnClipTitle } from "../services/supabase";
-import { deleteCloudClip, downloadUrlToFile, renameLocalClip } from "../services/tauri";
+import { fetchOwnClipStatuses, fetchOwnClips, updateOwnClipTitle } from "../services/supabase";
+import { deleteCloudClip, deleteLocalClip, downloadUrlToFile, listLocalClips, renameLocalClip } from "../services/tauri";
 import type { CloudClip } from "../types/clip";
-import { suggestedFileName } from "../utils/files";
+import { joinPath, suggestedFileName, uniqueFileName } from "../utils/files";
 import { invokeErrorMessage } from "../utils/format";
 import { useAuthStore } from "./authStore";
 import { useToastStore } from "./toastStore";
@@ -18,10 +18,15 @@ interface CloudState {
   initialize: () => Promise<void>;
   refresh: () => Promise<void>;
   remove: (clipId: string) => Promise<void>;
+  removeMany: (clipIds: string[]) => Promise<void>;
+  unlink: (clipId: string) => Promise<void>;
+  unlinkMany: (clipIds: string[]) => Promise<void>;
   rename: (clipId: string, title: string) => Promise<void>;
   toggleSelect: (clipId: string) => void;
+  selectAll: (clipIds: string[]) => void;
   clearSelection: () => void;
   download: (clipId: string) => Promise<void>;
+  downloadMany: (clipIds: string[]) => Promise<void>;
   copyLink: (clipId: string) => Promise<void>;
 }
 
@@ -51,6 +56,7 @@ export const useCloudStore = create<CloudState>((set, get) => ({
     try {
       const clips = await fetchOwnClips(user.id);
       set({ clips, loading: false, error: null });
+      await reconcileDeletedCloudClips();
     } catch (caught) {
       set({
         clips: [],
@@ -72,9 +78,95 @@ export const useCloudStore = create<CloudState>((set, get) => ({
         selectedIds: get().selectedIds.filter((id) => id !== clipId),
       });
       await useAuthStore.getState().refreshProfile();
-      useToastStore.getState().show("Cloud clip deleted. The file on this PC is unchanged.");
+      await deleteLocalCopiesForCloudIds([clipId]);
+      useToastStore.getState().show("Clip deleted from this PC and the cloud");
     } catch (caught) {
-      useToastStore.getState().show(invokeErrorMessage(caught, "Could not delete cloud clip"));
+      useToastStore.getState().show(invokeErrorMessage(caught, "Could not remove cloud clip"));
+    }
+  },
+  removeMany: async (clipIds) => {
+    const token = useAuthStore.getState().session?.access_token;
+    if (!token) {
+      useToastStore.getState().show("Sign in to remove cloud clips");
+      return;
+    }
+    let removed = 0;
+    for (const clipId of clipIds) {
+      try {
+        await deleteCloudClip(clipId, token, publicAppUrl());
+        removed += 1;
+      } catch (caught) {
+        useToastStore.getState().show(invokeErrorMessage(caught, "Could not remove cloud clip"));
+      }
+    }
+    const gone = new Set(clipIds);
+    set({
+      clips: get().clips.filter((clip) => !gone.has(clip.id)),
+      selectedIds: get().selectedIds.filter((id) => !gone.has(id)),
+    });
+    await useAuthStore.getState().refreshProfile();
+    await deleteLocalCopiesForCloudIds(clipIds);
+    if (removed > 0) {
+      useToastStore
+        .getState()
+        .show(
+          removed === 1
+            ? "Clip deleted from this PC and the cloud"
+            : `${removed} clips deleted from this PC and the cloud`,
+        );
+    }
+  },
+  unlink: async (clipId) => {
+    const token = useAuthStore.getState().session?.access_token;
+    if (!token) {
+      useToastStore.getState().show("Sign in to delete a cloud clip");
+      return;
+    }
+    try {
+      await deleteCloudClip(clipId, token, publicAppUrl());
+      set({
+        clips: get().clips.filter((clip) => clip.id !== clipId),
+        selectedIds: get().selectedIds.filter((id) => id !== clipId),
+      });
+      await useAuthStore.getState().refreshProfile();
+      const { useLibraryStore } = await import("./libraryStore");
+      await useLibraryStore.getState().refresh();
+      useToastStore.getState().show("Removed from cloud. The file on this PC is unchanged.");
+    } catch (caught) {
+      useToastStore.getState().show(invokeErrorMessage(caught, "Could not remove cloud clip"));
+    }
+  },
+  unlinkMany: async (clipIds) => {
+    const token = useAuthStore.getState().session?.access_token;
+    if (!token) {
+      useToastStore.getState().show("Sign in to remove cloud clips");
+      return;
+    }
+    let removed = 0;
+    for (const clipId of clipIds) {
+      try {
+        await deleteCloudClip(clipId, token, publicAppUrl());
+        removed += 1;
+      } catch (caught) {
+        useToastStore.getState().show(invokeErrorMessage(caught, "Could not remove cloud clip"));
+      }
+    }
+    const gone = new Set(clipIds);
+    set({
+      clips: get().clips.filter((clip) => !gone.has(clip.id)),
+      selectedIds: get().selectedIds.filter((id) => !gone.has(id)),
+    });
+    await useAuthStore.getState().refreshProfile();
+    const { useLibraryStore } = await import("./libraryStore");
+    await useLibraryStore.getState().refresh();
+    if (removed > 0) {
+      useToastStore
+        .getState()
+        .show(
+          removed === 1
+            ? "Removed from cloud. The file on this PC is unchanged."
+            : `${removed} cloud copies removed. Files on this PC are unchanged.`,
+        );
     }
   },
   rename: async (clipId, title) => {
@@ -112,6 +204,7 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       selectedIds: selected.includes(clipId) ? selected.filter((id) => id !== clipId) : [...selected, clipId],
     });
   },
+  selectAll: (clipIds) => set({ selectedIds: [...new Set(clipIds)] }),
   clearSelection: () => set({ selectedIds: [] }),
   download: async (clipId) => {
     const clip = get().clips.find((item) => item.id === clipId);
@@ -143,6 +236,50 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not download clip"));
     }
   },
+  downloadMany: async (clipIds) => {
+    const token = useAuthStore.getState().session?.access_token;
+    const clips = get().clips.filter((clip) => clipIds.includes(clip.id) && clip.status === "ready");
+    if (!token) {
+      useToastStore.getState().show("Sign in to download cloud clips");
+      return;
+    }
+    if (clips.length === 0) {
+      useToastStore.getState().show("None of the selected clips are ready to download");
+      return;
+    }
+    try {
+      const folder = await open({
+        directory: true,
+        multiple: false,
+        title: "Save clips to folder",
+      });
+      if (typeof folder !== "string" || !folder) return;
+      const used = new Set<string>();
+      let saved = 0;
+      for (const clip of clips) {
+        try {
+          const response = await fetch(`${publicAppUrl()}/v1/clips/${clip.slug}`, {
+            headers: { authorization: `Bearer ${token}` },
+          });
+          const body = (await response.json()) as { playbackUrl?: string; error?: string };
+          if (!response.ok || !body.playbackUrl) {
+            throw new Error(body.error || "Could not get a download URL");
+          }
+          const dest = joinPath(folder, uniqueFileName(used, suggestedFileName(clip.title, "clip", "mp4")));
+          await downloadUrlToFile(body.playbackUrl, dest);
+          saved += 1;
+        } catch (caught) {
+          useToastStore.getState().show(invokeErrorMessage(caught, "Could not download clip"));
+        }
+      }
+      if (saved > 0) {
+        useToastStore.getState().show(saved === 1 ? "Saved to disk" : `${saved} clips saved`);
+      }
+      get().clearSelection();
+    } catch (caught) {
+      useToastStore.getState().show(invokeErrorMessage(caught, "Could not download clips"));
+    }
+  },
   copyLink: async (clipId) => {
     const clip = get().clips.find((item) => item.id === clipId);
     if (!clip) return;
@@ -154,3 +291,53 @@ export const useCloudStore = create<CloudState>((set, get) => ({
     }
   },
 }));
+
+async function deleteLocalCopiesForCloudIds(clipIds: string[]) {
+  const { useLibraryStore } = await import("./libraryStore");
+  const locals = useLibraryStore
+    .getState()
+    .clips.filter((clip) => clip.cloudClipId && clipIds.includes(clip.cloudClipId));
+  for (const clip of locals) {
+    try {
+      await deleteLocalClip(clip.localId);
+    } catch {
+      /* local file may already be gone */
+    }
+  }
+  await useLibraryStore.getState().refresh();
+}
+
+async function reconcileDeletedCloudClips() {
+  const user = useAuthStore.getState().user;
+  if (!user) return;
+  let locals;
+  try {
+    locals = (await listLocalClips(2000)).filter((clip) => clip.cloudClipId);
+  } catch {
+    return;
+  }
+  if (locals.length === 0) return;
+  try {
+    const statuses = await fetchOwnClipStatuses(
+      user.id,
+      locals.map((clip) => clip.cloudClipId as string),
+    );
+    let removed = 0;
+    for (const clip of locals) {
+      const status = statuses.get(clip.cloudClipId as string);
+      if (status && status !== "deleted") continue;
+      try {
+        await deleteLocalClip(clip.localId);
+        removed += 1;
+      } catch {
+        /* keep going */
+      }
+    }
+    if (removed > 0) {
+      const { useLibraryStore } = await import("./libraryStore");
+      await useLibraryStore.getState().refresh();
+    }
+  } catch {
+    /* a failed status check must not delete local files */
+  }
+}

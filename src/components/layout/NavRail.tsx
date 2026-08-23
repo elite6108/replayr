@@ -5,7 +5,8 @@ import { useAuthStore } from "../../stores/authStore";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { useRecordingStore } from "../../stores/recordingStore";
-import { IconFriends, IconGames, IconHome, IconLibrary, IconLogo, IconProfile, IconRecord, IconSettings } from "../icons";
+import { IconAdmin, IconFriends, IconGames, IconHome, IconLibrary, IconLogo, IconProfile, IconRecord, IconSettings } from "../icons";
+import { isAdminUser } from "../../utils/admin";
 import { formatBytes } from "../../utils/format";
 
 type Glyph = ComponentType<SVGProps<SVGSVGElement> & { size?: number }>;
@@ -23,6 +24,7 @@ export function NavRail() {
   const recording = useRecordingStore((state) => state.status.active);
   const clips = useLibraryStore((state) => state.clips);
   const storage = useAuthStore((state) => state.storage);
+  const admin = isAdminUser(useAuthStore((state) => state.user), useAuthStore((state) => state.session?.access_token));
   const used = storage?.storage_used_bytes ?? 0;
   const limit = storage?.storage_limit_bytes ?? 0;
 
@@ -50,6 +52,14 @@ export function NavRail() {
         );
       })}
       <div className="nav-spacer" />
+      {admin ? (
+        <NavLink to="/admin" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
+          <span className="nav-icon">
+            <IconAdmin size={18} />
+          </span>
+          <span>Admin</span>
+        </NavLink>
+      ) : null}
       <NavLink to="/settings" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
         <span className="nav-icon">
           <IconSettings size={18} />

@@ -26,7 +26,8 @@ mod upload;
 
 use database::AppState;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tracing_subscriber::EnvFilter;
 
 fn init_logging() {
@@ -44,6 +45,21 @@ pub fn run() {
     tracing::info!("{} ({}) starting", branding::APP_NAME, branding::APP_IDENTIFIER);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            let urls: Vec<String> = args
+                .into_iter()
+                .filter(|arg| arg.starts_with("replayr://"))
+                .collect();
+            if !urls.is_empty() {
+                let _ = app.emit("oauth-callback-url", urls);
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -69,6 +85,9 @@ pub fn run() {
                 if let Err(err) = capture::sync_replay(app.handle(), &rec, None, None, None) {
                     tracing::warn!("instant replay did not start: {err}");
                 }
+            }
+            if let Err(err) = app.deep_link().register("replayr") {
+                tracing::warn!("could not register replayr:// handler: {err}");
             }
             Ok(())
         })

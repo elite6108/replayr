@@ -23,6 +23,7 @@
   --radius-sm: 12px;
   --shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
   --font: "Outfit", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-chrome: "Segoe UI Variable Text", "Segoe UI", Tahoma, sans-serif;
 }
 
 * {
@@ -104,6 +105,8 @@ a {
   border-right: 1px solid var(--border);
   background: #08090d;
   user-select: none;
+  font-family: var(--font-chrome);
+  letter-spacing: 0;
 }
 
 .nav-brand {
@@ -115,10 +118,10 @@ a {
   height: 56px;
   margin-bottom: 10px;
   color: var(--accent);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  font-size: 10px;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0;
+  font-size: 12px;
+  text-transform: none;
 }
 
 .nav-brand svg {
@@ -160,8 +163,8 @@ a {
 }
 
 .nav-item span:last-child {
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .nav-icon {
@@ -192,7 +195,7 @@ a {
 .nav-storage {
   margin-top: 8px;
   text-align: center;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.3;
   color: var(--text-muted);
 }
@@ -200,8 +203,8 @@ a {
 .nav-storage strong {
   display: block;
   color: var(--text);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .topbar {
@@ -212,6 +215,8 @@ a {
   border-bottom: 1px solid var(--border);
   background: rgba(10, 12, 16, 0.78);
   backdrop-filter: blur(18px);
+  font-family: var(--font-chrome);
+  letter-spacing: 0;
 }
 
 .topbar-game {
@@ -226,14 +231,14 @@ a {
 }
 
 .topbar-kicker {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--text-muted);
 }
 
 .topbar-title {
-  font-weight: 650;
+  font-weight: 600;
   font-size: 13px;
 }
 
@@ -275,9 +280,11 @@ a {
 .hotkey-chip kbd {
   min-width: 52px;
   text-align: center;
-  font-weight: 650;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-weight: 600;
   font-size: 11px;
-  border-radius: 8px;
+  letter-spacing: 0;
+  border-radius: 6px;
   padding: 3px 7px;
   background: #0d1016;
 }
@@ -290,14 +297,14 @@ a {
 }
 
 .hotkey-chip .chip-copy span {
-  font-size: 12px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .hotkey-chip .chip-copy small {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .topbar-pill,
@@ -322,6 +329,7 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 400;
 }
 
 .avatar {
@@ -568,6 +576,10 @@ a {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border: 1px solid var(--border);
   background: #1a1f27;
   color: var(--text);
@@ -977,10 +989,63 @@ a {
   text-transform: capitalize;
 }
 
-.clip-upload {
+.clip-check {
   position: absolute;
   top: 8px;
   left: 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  border-radius: 8px;
+  background: rgba(8, 10, 14, 0.72);
+  cursor: pointer;
+}
+
+.clip-check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.clip-cloud-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(8, 10, 14, 0.82);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--accent, #7dd3fc);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.clip-cloud-badge.busy {
+  color: var(--text-muted);
+}
+
+.clip-cloud-badge.failed {
+  color: var(--danger);
+}
+
+.clip-cloud-mark {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.clip-upload {
+  position: absolute;
+  top: 8px;
+  left: 40px;
   z-index: 1;
   background: rgba(8, 10, 14, 0.72);
   border: 0;
@@ -988,6 +1053,54 @@ a {
   padding: 6px;
   color: var(--text);
   cursor: pointer;
+}
+
+.selection-bar {
+  position: sticky;
+  bottom: 16px;
+  z-index: 12;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  margin-top: 16px;
+  background: rgba(10, 12, 18, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.auth-modes {
+  display: flex;
+  gap: 6px;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth-social {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-social .btn,
+.auth-card form .btn.primary {
+  width: 100%;
 }
 
 .clip-upload:hover {
@@ -1046,6 +1159,12 @@ a {
 
 .clip-meta {
   padding: 10px 12px 12px;
+}
+
+.clip-date {
+  margin-top: 2px;
+  color: #c4cad4;
+  font-size: 12px;
 }
 
 .clip-line {
@@ -1357,4 +1476,56 @@ code {
   .topbar-actions {
     display: none;
   }
+}
+
+.admin-tabs button {
+  padding: 6px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.admin-tabs button.active {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+
+.admin-stats .panel strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.admin-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.admin-table th {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.admin-table tr:last-child td {
+  border-bottom: 0;
 }

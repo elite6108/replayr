@@ -22,6 +22,7 @@ export function getSupabase(): SupabaseClient {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: false,
+      flowType: "pkce",
       storage: credentialStorage,
       storageKey: "tv.elite.replay.auth",
       // WebView2's navigator.locks can stall supabase-js after a successful login.
@@ -74,6 +75,25 @@ export async function updateOwnClipTitle(userId: string, clipId: string, title: 
   if (!trimmed) throw new Error("Clip name cannot be empty.");
   const { error } = await getSupabase().from("clips").update({ title: trimmed }).eq("id", clipId).eq("user_id", userId);
   if (error) throw error;
+}
+
+export async function fetchOwnClipStatuses(
+  userId: string,
+  clipIds: string[],
+): Promise<Map<string, string>> {
+  const statuses = new Map<string, string>();
+  const unique = [...new Set(clipIds.filter(Boolean))];
+  for (let index = 0; index < unique.length; index += 80) {
+    const chunk = unique.slice(index, index + 80);
+    const { data, error } = await getSupabase()
+      .from("clips")
+      .select("id, status")
+      .eq("user_id", userId)
+      .in("id", chunk);
+    if (error) throw error;
+    for (const row of data ?? []) statuses.set(row.id, row.status);
+  }
+  return statuses;
 }
 
 export async function fetchOwnClips(userId: string): Promise<CloudClip[]> {

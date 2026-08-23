@@ -1,3 +1,10 @@
+export function planLabel(slug: string): string {
+  if (slug === "pro_plus") return "Pro+";
+  if (slug === "pro") return "Pro";
+  if (slug === "free") return "Free";
+  return slug;
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -51,4 +58,50 @@ export function formatDuration(ms: number | null | undefined): string {
 
 export function isVideoPath(path: string): boolean {
   return /\.(mp4|webm|mov|mkv)$/i.test(path);
+}
+
+export function parseClipDate(value: string | number | null | undefined): Date | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") {
+    const date = new Date(value < 1e12 ? value * 1000 : value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) {
+    const numeric = Number(raw);
+    const date = new Date(numeric < 1e12 ? numeric * 1000 : numeric);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const sqlite = raw.match(
+    /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/,
+  );
+  if (sqlite) {
+    const iso = `${sqlite[1]}T${sqlite[2]}${sqlite[3] || ""}${sqlite[4] || "Z"}`;
+    const date = new Date(iso);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatClipDate(value: string | number | null | undefined): string {
+  const date = parseClipDate(value);
+  if (!date) {
+    const raw = value == null ? "" : String(value).trim();
+    return raw.slice(0, 10);
+  }
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayMs = 24 * 60 * 60 * 1000;
+  const deltaDays = Math.round((startOfToday.getTime() - startOfDate.getTime()) / dayMs);
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (deltaDays === 0) return `Today · ${time}`;
+  if (deltaDays === 1) return `Yesterday · ${time}`;
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
 }

@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { APP_NAME } from "../branding";
+import { AuthCard } from "../components/common/AuthCard";
 import { useAuthStore } from "../stores/authStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { validateUsername } from "../utils/username";
@@ -15,13 +16,8 @@ export function OnboardingPage() {
   const configured = useAuthStore((state) => state.configured);
   const user = useAuthStore((state) => state.user);
   const profile = useAuthStore((state) => state.profile);
-  const signIn = useAuthStore((state) => state.signIn);
-  const signUp = useAuthStore((state) => state.signUp);
   const saveProfile = useAuthStore((state) => state.saveProfile);
-  const error = useAuthStore((state) => state.error);
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [username, setUsername] = useState(profile?.username ?? "");
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -32,24 +28,6 @@ export function OnboardingPage() {
   async function chooseFolder() {
     const selected = await open({ directory: true, multiple: false, title: "Choose clip save location" });
     if (typeof selected === "string") await patch({ saveLocation: selected });
-  }
-
-  async function onAuth(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const nextEmail = String(form.get("email") ?? email);
-    const nextPassword = String(form.get("password") ?? password);
-    setEmail(nextEmail);
-    setPassword(nextPassword);
-    const submitter = (event.nativeEvent as SubmitEvent).submitter;
-    const intent = submitter instanceof HTMLButtonElement && submitter.dataset.mode === "up" ? "up" : "in";
-    setAuthError(null);
-    try {
-      if (intent === "in") await signIn(nextEmail, nextPassword);
-      else await signUp(nextEmail, nextPassword);
-    } catch (caught) {
-      setAuthError(caught instanceof Error ? caught.message : "Authentication failed");
-    }
   }
 
   async function saveUsername(event: FormEvent) {
@@ -113,25 +91,7 @@ export function OnboardingPage() {
                 </form>
               )
             ) : (
-              <form className="stack" onSubmit={(event) => void onAuth(event)}>
-                <div className="field">
-                  <label htmlFor="onboard-email">Email</label>
-                  <input id="onboard-email" name="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
-                </div>
-                <div className="field">
-                  <label htmlFor="onboard-password">Password</label>
-                  <input id="onboard-password" name="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={6} />
-                </div>
-                {authError || error ? <div className="error-text">{authError || error}</div> : null}
-                <div className="row">
-                  <button className="btn primary" type="submit" data-mode="in">
-                    Sign in
-                  </button>
-                  <button className="btn" type="submit" data-mode="up">
-                    Create account
-                  </button>
-                </div>
-              </form>
+              <AuthCard compact />
             )}
             <div className="row">
               <button className="btn" type="button" onClick={() => setStep(2)}>

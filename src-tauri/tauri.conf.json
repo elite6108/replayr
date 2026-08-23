@@ -30,6 +30,13 @@
       }
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["replayr"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],

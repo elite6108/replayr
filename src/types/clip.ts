@@ -37,4 +37,7 @@ export interface LocalClip {
   favorite: boolean;
   title: string | null;
   description: string | null;
+  sourceClipId: string | null;
+  sourceStartMs: number | null;
+  sourceEndMs: number | null;
 }

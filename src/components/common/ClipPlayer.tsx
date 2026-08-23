@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { useAuthStore } from "../../stores/authStore";
@@ -16,6 +16,7 @@ export function ClipPlayer() {
   const reveal = useLibraryStore((state) => state.reveal);
   const upload = useLibraryStore((state) => state.upload);
   const user = useAuthStore((state) => state.user);
+  const navigate = useNavigate();
   const clip = clips.find((item) => item.localId === playingId) ?? null;
   const [title, setTitle] = useState(clip?.title ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -82,6 +83,18 @@ export function ClipPlayer() {
               Show in folder
             </button>
           </div>
+          {video ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                closePlayer();
+                navigate(`/editor/${clip.localId}`);
+              }}
+            >
+              Edit clip
+            </button>
+          ) : null}
           {video ? (
             user ? (
               <button

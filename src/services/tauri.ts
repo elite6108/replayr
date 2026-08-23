@@ -80,6 +80,33 @@ export async function listLocalClips(limit = 80): Promise<LocalClip[]> {
   return invoke("list_local_clips", { limit });
 }
 
+export async function saveTrimmedClip(
+  sourceLocalId: string,
+  startMs: number,
+  endMs: number,
+  title?: string,
+): Promise<LocalClip> {
+  return invoke("save_trimmed_clip", {
+    sourceLocalId,
+    startMs: Math.round(startMs),
+    endMs: Math.round(endMs),
+    title,
+  });
+}
+
+export async function listClipFilmstrip(
+  localId: string,
+  count = 12,
+): Promise<Array<{ path: string; atMs: number }>> {
+  try {
+    const frames = await invoke<Array<{ path: string; atMs: number }>>("list_clip_filmstrip", { localId, count });
+    return Array.isArray(frames) ? frames : [];
+  } catch (caught) {
+    console.warn("list_clip_filmstrip failed", caught);
+    return [];
+  }
+}
+
 export async function renameLocalClip(localId: string, title: string): Promise<LocalClip> {
   return invoke("rename_local_clip", { localId, title });
 }

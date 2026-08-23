@@ -15,6 +15,7 @@ mod commands;
 mod database;
 mod detection;
 mod disk;
+mod editor;
 mod error;
 mod games;
 mod hotkeys;
@@ -154,6 +155,8 @@ pub fn run() {
             commands::stop_mic_monitor,
             commands::resolve_mic_disconnect,
             commands::list_local_clips,
+            commands::save_trimmed_clip,
+            commands::list_clip_filmstrip,
             commands::rename_local_clip,
             commands::set_local_clip_favorite,
             commands::delete_local_clip,

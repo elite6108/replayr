@@ -50,6 +50,7 @@ interface LibraryState {
 }
 
 let listening = false;
+const uploadsInFlight = new Map<string, Promise<void>>();
 
 function patchClip(clips: LocalClip[], next: LocalClip) {
   return clips.map((clip) => (clip.localId === next.localId ? next : clip));
@@ -233,6 +234,12 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
   },
   upload: async (localId) => {
+    const existing = uploadsInFlight.get(localId);
+    if (existing) {
+      await existing;
+      return;
+    }
+    const work = (async () => {
     const token = useAuthStore.getState().session?.access_token;
     if (!token) {
       useToastStore.getState().show("Sign in to upload");
@@ -247,6 +254,13 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Upload failed"));
       await get().refresh();
+    }
+    })();
+    uploadsInFlight.set(localId, work);
+    try {
+      await work;
+    } finally {
+      uploadsInFlight.delete(localId);
     }
   },
   download: async (localId) => {

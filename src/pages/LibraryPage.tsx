@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { useEffect, useMemo } from "react";
 import { AuthCard } from "../components/common/AuthCard";
 import { ClipCard } from "../components/common/ClipCard";
@@ -12,6 +12,7 @@ import { useLibraryStore } from "../stores/libraryStore";
 import { formatBytes } from "../utils/format";
 
 export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
+  const navigate = useNavigate();
   const clips = useLibraryStore((state) => state.clips);
   const localError = useLibraryStore((state) => state.error);
   const refreshLocal = useLibraryStore((state) => state.refresh);
@@ -133,6 +134,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
                   }}
                   onDownload={(item) => void downloadLocal(item.localId)}
                   onCopyLink={(item) => void copyLocalLink(item.localId)}
+                  onEdit={(item) => navigate(`/editor/${item.localId}`)}
                 />
               ))}
             </div>

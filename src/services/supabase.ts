@@ -75,6 +75,15 @@ export async function updateOwnClipTitle(userId: string, clipId: string, title: 
   if (error) throw error;
 }
 
+export async function updateOwnClipVisibility(
+  userId: string,
+  clipId: string,
+  visibility: CloudClip["visibility"],
+): Promise<void> {
+  const { error } = await getSupabase().from("clips").update({ visibility }).eq("id", clipId).eq("user_id", userId);
+  if (error) throw error;
+}
+
 export async function fetchOwnClipStatuses(
   userId: string,
   clipIds: string[],

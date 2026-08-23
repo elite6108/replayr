@@ -27,6 +27,15 @@ pub struct LocalClipDto {
     pub favorite: bool,
     pub title: Option<String>,
     pub description: Option<String>,
+    pub source_clip_id: Option<String>,
+    pub source_start_ms: Option<i64>,
+    pub source_end_ms: Option<i64>,
+}
+
+pub struct ClipLineage {
+    pub source_clip_id: String,
+    pub source_start_ms: i64,
+    pub source_end_ms: i64,
 }
 
 pub fn insert(
@@ -53,31 +62,109 @@ pub fn insert(
     let file_size = std::fs::metadata(path).map(|meta| meta.len() as i64).unwrap_or(0);
     let db = app.state::<AppState>();
     let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    insert_row(
+        &conn,
+        &local_id,
+        path,
+        thumbnail_path.as_ref(),
+        game_id,
+        duration_ms,
+        width,
+        height,
+        fps,
+        file_size,
+        title,
+        None,
+    )?;
+    Ok(local_id)
+}
+
+pub fn insert_derived(
+    app: &AppHandle,
+    path: &Path,
+    duration_ms: u64,
+    width: u32,
+    height: u32,
+    fps: u32,
+    game_id: Option<String>,
+    title: String,
+    preview: Option<&StillFrame>,
+    lineage: ClipLineage,
+) -> AppResult<String> {
+    let local_id = format!(
+        "clip-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    let thumbnail_path = preview
+        .and_then(|frame| preview_thumb(path, &local_id, frame))
+        .or_else(|| thumbnail_for(path, &local_id));
+    let file_size = std::fs::metadata(path).map(|meta| meta.len() as i64).unwrap_or(0);
+    let db = app.state::<AppState>();
+    let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    insert_row(
+        &conn,
+        &local_id,
+        path,
+        thumbnail_path.as_ref(),
+        game_id,
+        duration_ms,
+        width,
+        height,
+        fps,
+        file_size,
+        title,
+        Some(&lineage),
+    )?;
+    Ok(local_id)
+}
+
+fn insert_row(
+    conn: &Connection,
+    local_id: &str,
+    path: &Path,
+    thumbnail_path: Option<&PathBuf>,
+    game_id: Option<String>,
+    duration_ms: u64,
+    width: u32,
+    height: u32,
+    fps: u32,
+    file_size: i64,
+    title: String,
+    lineage: Option<&ClipLineage>,
+) -> AppResult<()> {
     conn.execute(
         "INSERT INTO local_clips (
             local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
-            duration_ms, width, height, fps, file_size, upload_status, favorite, title, description
-         ) VALUES (?1, NULL, ?2, ?3, ?4, datetime('now'), ?5, ?6, ?7, ?8, ?9, 'local', 0, ?10, NULL)",
+            duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
+            source_clip_id, source_start_ms, source_end_ms
+         ) VALUES (?1, NULL, ?2, ?3, ?4, datetime('now'), ?5, ?6, ?7, ?8, ?9, 'local', 0, ?10, NULL, ?11, ?12, ?13)",
         rusqlite::params![
             local_id,
             path.display().to_string(),
-            thumbnail_path.as_ref().map(|p| p.display().to_string()),
+            thumbnail_path.map(|p| p.display().to_string()),
             game_id,
             duration_ms as i64,
             width as i64,
             height as i64,
             fps as i64,
             file_size,
-            title
+            title,
+            lineage.map(|row| row.source_clip_id.as_str()),
+            lineage.map(|row| row.source_start_ms),
+            lineage.map(|row| row.source_end_ms),
         ],
     )?;
-    Ok(local_id)
+    Ok(())
 }
 
 pub fn list(conn: &Connection, limit: i64) -> AppResult<Vec<LocalClipDto>> {
     let mut stmt = conn.prepare(
         "SELECT local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
-                duration_ms, width, height, fps, file_size, upload_status, favorite, title, description
+                duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
+                source_clip_id, source_start_ms, source_end_ms
          FROM local_clips
          ORDER BY created_at DESC
          LIMIT ?1",
@@ -184,7 +271,8 @@ pub fn delete(conn: &Connection, local_id: &str) -> AppResult<()> {
 pub fn get(conn: &Connection, local_id: &str) -> AppResult<LocalClipDto> {
     conn.query_row(
         "SELECT local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
-                duration_ms, width, height, fps, file_size, upload_status, favorite, title, description
+                duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
+                source_clip_id, source_start_ms, source_end_ms
          FROM local_clips WHERE local_id = ?1",
         [local_id],
         map_clip,
@@ -244,6 +332,9 @@ fn map_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalClipDto> {
         favorite: row.get::<_, i64>(12)? != 0,
         title: row.get(13)?,
         description: row.get(14)?,
+        source_clip_id: row.get(15)?,
+        source_start_ms: row.get(16)?,
+        source_end_ms: row.get(17)?,
     })
 }
 
@@ -333,5 +424,22 @@ mod tests {
             )
             .unwrap();
         assert_eq!(status, "completed");
+    }
+
+    #[test]
+    fn lineage_columns_exist_after_migrate() {
+        let dir = tempdir().unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+        seed(&conn, "clip-3", "Source");
+        conn.execute(
+            "UPDATE local_clips SET source_clip_id = 'clip-3', source_start_ms = 1000, source_end_ms = 4000 WHERE local_id = 'clip-3'",
+            [],
+        )
+        .unwrap();
+        let clip = get(&conn, "clip-3").unwrap();
+        assert_eq!(clip.source_clip_id.as_deref(), Some("clip-3"));
+        assert_eq!(clip.source_start_ms, Some(1000));
+        assert_eq!(clip.source_end_ms, Some(4000));
     }
 }

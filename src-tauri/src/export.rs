@@ -8,6 +8,7 @@ use windows::Win32::Media::MediaFoundation::{
     MF_SOURCE_READERF_ENDOFSTREAM, MF_SOURCE_READER_FIRST_AUDIO_STREAM, MF_SOURCE_READER_FIRST_VIDEO_STREAM,
     MFSTARTUP_FULL, MF_VERSION,
 };
+use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 
 /// Pass encoded samples through. Do not load decoders/encoders (those are busy on the capture thread).
 const MF_READWRITE_DISABLE_CONVERTERS: GUID = GUID::from_u128(0x98d5b065_1374_4847_8d5d_31520fee7156);
@@ -74,6 +75,91 @@ pub fn concat_mp4s(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
         started.elapsed().as_millis(),
         output.display()
     );
+    Ok(())
+}
+
+pub fn trim_mp4(input: &Path, output: &Path, start_hns: i64, end_hns: i64) -> Result<i64, String> {
+    if !input.exists() {
+        return Err("That clip is no longer on disk.".into());
+    }
+    if end_hns <= start_hns {
+        return Err("Choose a longer selection.".into());
+    }
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let started = Instant::now();
+    unsafe {
+        MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|err| err.to_string())?;
+    }
+
+    let probe = open_reader(input)?;
+    let video_type = native_type(&probe, MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32)
+        .ok_or_else(|| "That clip has no video.".to_string())?;
+    let audio_type = native_type(&probe, MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32);
+    drop(probe);
+
+    let writer = open_writer(output, &video_type, audio_type.as_ref())?;
+    let fallback = frame_duration_hns(&video_type);
+    let mut video_time = 0_i64;
+    let mut audio_time = 0_i64;
+
+    let video_reader = open_reader(input)?;
+    seek_reader(&video_reader, start_hns)?;
+    let mut origin = None;
+    copy_stream_until(
+        &video_reader,
+        &writer,
+        0,
+        MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+        &mut video_time,
+        fallback,
+        end_hns,
+        &mut origin,
+    )?;
+    drop(video_reader);
+
+    if audio_type.is_some() {
+        let audio_reader = open_reader(input)?;
+        seek_reader(&audio_reader, start_hns)?;
+        copy_stream_until(
+            &audio_reader,
+            &writer,
+            1,
+            MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32,
+            &mut audio_time,
+            10_000_000 / 48,
+            end_hns,
+            &mut origin,
+        )?;
+    }
+
+    if video_time <= 0 {
+        return Err("That range did not include any video.".into());
+    }
+
+    unsafe {
+        writer
+            .Finalize()
+            .map_err(|err| format!("Could not finish the trimmed clip: {err}"))?;
+    }
+    tracing::info!(
+        "trimmed {} -> {} ({} ms) in {} ms",
+        input.display(),
+        output.display(),
+        video_time / 10_000,
+        started.elapsed().as_millis()
+    );
+    Ok(video_time / 10_000)
+}
+
+fn seek_reader(reader: &IMFSourceReader, position_hns: i64) -> Result<(), String> {
+    unsafe {
+        let position = PROPVARIANT::from(position_hns.max(0));
+        reader
+            .SetCurrentPosition(&GUID::zeroed(), &position)
+            .map_err(|err| format!("Could not seek the clip: {err}"))?;
+    }
     Ok(())
 }
 
@@ -188,6 +274,64 @@ fn copy_stream(
                 .map_err(|err| format!("Could not copy a replay sample: {err}"))?;
         }
         *timeline += duration;
+    }
+    Ok(())
+}
+
+fn copy_stream_until(
+    reader: &IMFSourceReader,
+    writer: &IMFSinkWriter,
+    writer_stream: u32,
+    reader_stream: u32,
+    timeline: &mut i64,
+    fallback_duration: i64,
+    end_hns: i64,
+    origin: &mut Option<i64>,
+) -> Result<(), String> {
+    let mut previous_ts: Option<i64> = None;
+    loop {
+        let mut flags = 0_u32;
+        let mut timestamp = 0_i64;
+        let mut sample: Option<IMFSample> = None;
+        unsafe {
+            reader
+                .ReadSample(reader_stream, 0, None, Some(&mut flags), Some(&mut timestamp), Some(&mut sample))
+                .map_err(|err| format!("Could not read a clip sample: {err}"))?;
+        }
+        if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 {
+            break;
+        }
+        if timestamp >= end_hns {
+            break;
+        }
+        let Some(sample) = sample else {
+            continue;
+        };
+        let from_sample = unsafe { sample.GetSampleDuration().unwrap_or(0) };
+        let from_delta = previous_ts
+            .map(|previous| timestamp.saturating_sub(previous))
+            .unwrap_or(0);
+        previous_ts = Some(timestamp);
+        let duration = if from_sample >= 10_000 {
+            from_sample
+        } else if from_delta >= 10_000 {
+            from_delta
+        } else {
+            fallback_duration
+        };
+        let base = *origin.get_or_insert(timestamp);
+        let out_time = timestamp.saturating_sub(base);
+        if out_time < 0 {
+            continue;
+        }
+        unsafe {
+            sample.SetSampleTime(out_time).map_err(|err| err.to_string())?;
+            sample.SetSampleDuration(duration).map_err(|err| err.to_string())?;
+            writer
+                .WriteSample(writer_stream, &sample)
+                .map_err(|err| format!("Could not copy a clip sample: {err}"))?;
+        }
+        *timeline = out_time + duration;
     }
     Ok(())
 }

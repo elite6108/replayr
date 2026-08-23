@@ -12,6 +12,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { AdminPage } from "./pages/AdminPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
+import { EditorPage } from "./pages/EditorPage";
 import { MicDisconnectToasts } from "./components/layout/MicDisconnectToasts";
 import { ToastRegion } from "./components/common/ToastRegion";
 import { useAuthStore } from "./stores/authStore";
@@ -103,6 +104,7 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/editor/:clipId" element={<EditorPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

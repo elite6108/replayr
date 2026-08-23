@@ -2,7 +2,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { clipShareUrl, publicAppUrl } from "../branding";
-import { fetchOwnClipStatuses, fetchOwnClips, updateOwnClipTitle } from "../services/supabase";
+import { fetchOwnClipStatuses, fetchOwnClips, updateOwnClipTitle, updateOwnClipVisibility } from "../services/supabase";
 import { deleteCloudClip, deleteLocalClip, downloadUrlToFile, listLocalClips, renameLocalClip } from "../services/tauri";
 import type { CloudClip } from "../types/clip";
 import { joinPath, suggestedFileName, uniqueFileName } from "../utils/files";
@@ -22,6 +22,7 @@ interface CloudState {
   unlink: (clipId: string) => Promise<void>;
   unlinkMany: (clipIds: string[]) => Promise<void>;
   rename: (clipId: string, title: string) => Promise<void>;
+  setVisibility: (clipId: string, visibility: CloudClip["visibility"]) => Promise<void>;
   toggleSelect: (clipId: string) => void;
   selectAll: (clipIds: string[]) => void;
   clearSelection: () => void;
@@ -196,6 +197,22 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       useToastStore.getState().show("Cloud clip renamed");
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not rename clip"));
+    }
+  },
+  setVisibility: async (clipId, visibility) => {
+    const user = useAuthStore.getState().user;
+    if (!user) {
+      useToastStore.getState().show("Sign in to change visibility");
+      return;
+    }
+    try {
+      await updateOwnClipVisibility(user.id, clipId, visibility);
+      set({
+        clips: get().clips.map((clip) => (clip.id === clipId ? { ...clip, visibility } : clip)),
+      });
+      useToastStore.getState().show(visibility === "unlisted" ? "Link stays unlisted" : `Visibility set to ${visibility}`);
+    } catch (caught) {
+      useToastStore.getState().show(invokeErrorMessage(caught, "Could not change visibility"));
     }
   },
   toggleSelect: (clipId) => {

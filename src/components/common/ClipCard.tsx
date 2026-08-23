@@ -36,6 +36,7 @@ export function ClipCard({
   onRemoveFromCloud,
   onDownload,
   onCopyLink,
+  onEdit,
 }: {
   clip: LocalClip;
   selected?: boolean;
@@ -48,6 +49,7 @@ export function ClipCard({
   onRemoveFromCloud?: (clip: LocalClip) => void;
   onDownload?: (clip: LocalClip) => void;
   onCopyLink?: (clip: LocalClip) => void;
+  onEdit?: (clip: LocalClip) => void;
 }) {
   const cloudClips = useCloudStore((state) => state.clips);
   const linkedCloud = findLinkedCloudClip(clip, cloudClips);
@@ -153,6 +155,9 @@ export function ClipCard({
           onClose={() => setMenu(null)}
           items={[
             { label: selected ? "Deselect" : "Select", onClick: () => onSelect?.(clip) },
+            ...(onEdit && isVideoPath(clip.filePath)
+              ? [{ label: "Edit", onClick: () => onEdit(clip) }]
+              : []),
             {
               label: "Rename",
               onClick: () => {

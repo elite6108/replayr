@@ -1720,3 +1720,151 @@ code {
 .comment-form input {
   flex: 1;
 }
+
+.editor-layout {
+  display: grid;
+  gap: 14px;
+  max-width: 1100px;
+}
+
+.editor-stage video {
+  width: 100%;
+  max-height: min(52vh, 560px);
+  background: #000;
+}
+
+.editor-transport {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.editor-timeline {
+  position: relative;
+  height: 80px;
+  margin: 8px 0 4px;
+  border-radius: 12px;
+  overflow: visible;
+  background: var(--bg-chip);
+  border: 1px solid var(--border);
+  user-select: none;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.editor-strip {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 11px;
+}
+
+.editor-strip canvas {
+  flex: 1;
+  width: 0;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  background: #12161f;
+}
+
+.editor-dim {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.editor-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-top: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  background: rgba(127, 208, 239, 0.12);
+  pointer-events: none;
+}
+
+.editor-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  padding: 0;
+  margin-left: -5px;
+  border: 0;
+  border-radius: 0;
+  background: var(--accent);
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.editor-playhead {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 18px;
+  padding: 0;
+  margin-left: -9px;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+  z-index: 4;
+}
+
+.editor-playhead::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  bottom: 0;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.editor-playhead::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 2px;
+  transform: rotate(45deg);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.editor-fields {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.editor-fields label,
+.editor-success label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.editor-fields input {
+  width: 120px;
+}
+
+.editor-duration {
+  display: grid;
+  gap: 6px;
+}
+
+.editor-hint {
+  margin: 0;
+}
+
+.editor-success {
+  margin-top: 4px;
+}

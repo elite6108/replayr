@@ -72,6 +72,27 @@ export function formatDuration(ms: number | null | undefined): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+export function formatClock(ms: number, precise = false): string {
+  const total = Math.max(0, Math.round(ms));
+  const minutes = Math.floor(total / 60_000);
+  const seconds = Math.floor((total % 60_000) / 1000);
+  const millis = total % 1000;
+  const base = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return precise ? `${base}.${String(millis).padStart(3, "0")}` : base;
+}
+
+export function parseClock(value: string): number | null {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d+):(\d{1,2})(?:\.(\d{1,3}))?$/);
+  if (!match) return null;
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || seconds >= 60) return null;
+  const millis = match[3] ? Number(match[3].padEnd(3, "0")) : 0;
+  if (!Number.isFinite(millis)) return null;
+  return minutes * 60_000 + seconds * 1000 + millis;
+}
+
 export function isVideoPath(path: string): boolean {
   return /\.(mp4|webm|mov|mkv)$/i.test(path);
 }

@@ -15,6 +15,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (2, include_str!("../migrations/002_games.sql")),
     (3, include_str!("../migrations/003_gta_fivem.sql")),
     (4, include_str!("../migrations/004_more_games.sql")),
+    (5, include_str!("../migrations/005_clip_lineage.sql")),
 ];
 
 pub fn database_path(app: &AppHandle) -> AppResult<PathBuf> {
@@ -82,7 +83,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
 
         let tables: Vec<String> = {
             let mut stmt = conn

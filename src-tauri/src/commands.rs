@@ -319,6 +319,44 @@ pub fn resolve_mic_disconnect(
     Ok(settings)
 }
 
+fn ms_arg(value: f64) -> u64 {
+    if !value.is_finite() || value <= 0.0 {
+        0
+    } else {
+        value.round() as u64
+    }
+}
+
+#[tauri::command]
+pub async fn save_trimmed_clip(
+    app: AppHandle,
+    source_local_id: String,
+    start_ms: f64,
+    end_ms: f64,
+    title: Option<String>,
+) -> AppResult<crate::library::LocalClipDto> {
+    let start_ms = ms_arg(start_ms);
+    let end_ms = ms_arg(end_ms);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::editor::save_trimmed_clip(&app, &source_local_id, start_ms, end_ms, title)
+    })
+    .await
+    .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+#[tauri::command]
+pub async fn list_clip_filmstrip(
+    app: AppHandle,
+    local_id: String,
+    count: Option<u32>,
+) -> AppResult<Vec<crate::editor::FilmstripFrame>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::editor::list_filmstrip(&app, &local_id, count.unwrap_or(12))
+    })
+    .await
+    .map_err(|err| AppError::Message(err.to_string()))?
+}
+
 #[tauri::command]
 pub fn list_local_clips(state: State<AppState>, limit: Option<i64>) -> AppResult<Vec<LocalClipDto>> {
     let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;

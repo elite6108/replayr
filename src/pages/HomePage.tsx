@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ClipCard } from "../components/common/ClipCard";
 import { ClipGrid } from "../components/common/ClipGrid";
 import { ClipRail } from "../components/common/ClipRail";
@@ -12,6 +12,7 @@ import { useRecordingStore } from "../stores/recordingStore";
 import { formatBytes, formatCount, formatDuration, formatHandle } from "../utils/format";
 
 export function HomePage() {
+  const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const profile = useAuthStore((state) => state.profile);
   const storage = useAuthStore((state) => state.storage);
@@ -91,6 +92,7 @@ export function HomePage() {
                   }}
                   onDownload={(item) => void download(item.localId)}
                 onCopyLink={(item) => void copyLink(item.localId)}
+                onEdit={(item) => navigate(`/editor/${item.localId}`)}
               />
             ))}
           </ClipRail>

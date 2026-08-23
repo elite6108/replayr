@@ -6,6 +6,8 @@ commands.allow = [
   "set_setting",
   "set_settings",
   "list_local_clips",
+  "save_trimmed_clip",
+  "list_clip_filmstrip",
   "rename_local_clip",
   "set_local_clip_favorite",
   "delete_local_clip",

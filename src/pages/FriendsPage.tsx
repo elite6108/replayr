@@ -1,11 +1,10 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AuthCard } from "../components/common/AuthCard";
 import { EmptyState } from "../components/common/EmptyState";
 import { PageHeader } from "../components/common/PageHeader";
 import { SocialAvatar } from "../components/common/SocialAvatar";
 import { IconFriends, IconSearch } from "../components/icons";
-import { profileUrl } from "../branding";
 import {
   acceptFriendRequest,
   blockUser,
@@ -28,13 +27,18 @@ import { formatClipDate, formatHandle } from "../utils/format";
 type FriendsTab = "friends" | "requests" | "find";
 type SearchHit = SocialUser & { relationship: Relationship };
 
+function tabFromParam(value: string | null): FriendsTab {
+  return value === "requests" || value === "find" ? value : "friends";
+}
+
 export function FriendsPage() {
   const configured = useAuthStore((state) => state.configured);
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.session?.access_token);
   const showToast = useToastStore((state) => state.show);
   const navigate = useNavigate();
-  const [tab, setTab] = useState<FriendsTab>("friends");
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState<FriendsTab>(() => tabFromParam(params.get("tab")));
   const [friends, setFriends] = useState<Friend[]>([]);
   const [incoming, setIncoming] = useState<FriendRequest[]>([]);
   const [outgoing, setOutgoing] = useState<FriendRequest[]>([]);
@@ -62,6 +66,10 @@ export function FriendsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setTab(tabFromParam(params.get("tab")));
+  }, [params]);
 
   useEffect(() => {
     if (!token || tab !== "find") return;
@@ -455,8 +463,8 @@ export function FriendsPage() {
 function PersonHandle({ person }: { person: SocialUser }) {
   if (!person.username) return <span className="muted">No username</span>;
   return (
-    <a className="muted person-handle" href={profileUrl(person.username)} target="_blank" rel="noreferrer">
+    <Link className="muted person-handle" to={`/u/${person.username}`}>
       {formatHandle(person)}
-    </a>
+    </Link>
   );
 }

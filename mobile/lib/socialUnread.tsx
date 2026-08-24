@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { fetchFriendRequests } from "./api.friends";
+import { fetchFriendRequests, fetchNotifications } from "./api.friends";
 import { fetchConversations } from "./api.messages";
 import { useAuth } from "./auth";
 import { getSupabase, supabaseConfigured } from "./supabase";
@@ -7,18 +7,26 @@ import { getSupabase, supabaseConfigured } from "./supabase";
 type UnreadValue = {
   friendsUnread: boolean;
   messagesUnread: boolean;
+  notificationsUnread: number;
   setActiveConversation: (id: string | null) => void;
   markConversationRead: (id: string) => void;
   setFriendsUnread: (value: boolean) => void;
+  setNotificationsUnread: (value: number) => void;
 };
 
 const UnreadContext = createContext<UnreadValue>({
   friendsUnread: false,
   messagesUnread: false,
+  notificationsUnread: 0,
   setActiveConversation: () => undefined,
   markConversationRead: () => undefined,
   setFriendsUnread: () => undefined,
+  setNotificationsUnread: () => undefined,
 });
+
+function isBellKind(kind?: string) {
+  return kind === "friend_request" || kind === "friend_accept" || kind === "message" || kind === "group_invite";
+}
 
 export function SocialUnreadProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
@@ -26,21 +34,24 @@ export function SocialUnreadProvider({ children }: { children: ReactNode }) {
   const userId = session?.user.id;
   const [friendsUnread, setFriendsUnread] = useState(false);
   const [unreadIds, setUnreadIds] = useState<string[]>([]);
+  const [notificationsUnread, setNotificationsUnread] = useState(0);
   const activeConversationId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!token || !userId || !supabaseConfigured()) {
       setFriendsUnread(false);
       setUnreadIds([]);
+      setNotificationsUnread(0);
       activeConversationId.current = null;
       return;
     }
     let cancelled = false;
-    void Promise.all([fetchConversations(token), fetchFriendRequests(token)])
-      .then(([conversations, requests]) => {
+    void Promise.all([fetchConversations(token), fetchFriendRequests(token), fetchNotifications(token)])
+      .then(([conversations, requests, notifications]) => {
         if (cancelled) return;
         setFriendsUnread(requests.incoming.length > 0);
         setUnreadIds(conversations.filter((item) => item.unreadCount > 0).map((item) => item.id));
+        setNotificationsUnread(notifications.filter((item) => !item.readAt).length);
       })
       .catch(() => undefined);
 
@@ -56,6 +67,9 @@ export function SocialUnreadProvider({ children }: { children: ReactNode }) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, (payload) => {
         const row = payload.new as { kind?: string; conversation_id?: string | null; actor_id?: string | null };
         if (row.kind === "friend_request") setFriendsUnread(true);
+        if (isBellKind(row.kind) && row.actor_id !== userId) {
+          setNotificationsUnread((current) => current + 1);
+        }
         if ((row.kind === "message" || row.kind === "group_invite") && row.conversation_id && row.actor_id !== userId) {
           if (row.conversation_id === activeConversationId.current) return;
           setUnreadIds((current) =>
@@ -82,11 +96,13 @@ export function SocialUnreadProvider({ children }: { children: ReactNode }) {
     () => ({
       friendsUnread,
       messagesUnread: unreadIds.length > 0,
+      notificationsUnread,
       setActiveConversation,
       markConversationRead,
       setFriendsUnread,
+      setNotificationsUnread,
     }),
-    [friendsUnread, unreadIds, setActiveConversation, markConversationRead],
+    [friendsUnread, unreadIds, notificationsUnread, setActiveConversation, markConversationRead],
   );
 
   return <UnreadContext.Provider value={value}>{children}</UnreadContext.Provider>;

@@ -271,7 +271,13 @@ export default function FriendsScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <Pressable style={styles.row} onLongPress={() => confirmFriendActions(item)} onPress={() => void openDm(item.id, item.dmId)}>
+            <Pressable
+              style={styles.row}
+              onLongPress={() => confirmFriendActions(item)}
+              onPress={() => {
+                if (item.username) router.push(`/u/${item.username}`);
+              }}
+            >
               <Avatar name={socialName(item)} uri={item.avatarUrl} size={44} />
               <View style={styles.copy}>
                 <Text style={styles.name}>{socialName(item)}</Text>
@@ -280,7 +286,10 @@ export default function FriendsScreen() {
               <Pressable
                 style={styles.pill}
                 disabled={busyId === item.id}
-                onPress={() => void openDm(item.id, item.dmId)}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  void openDm(item.id, item.dmId);
+                }}
               >
                 <Text style={styles.pillText}>{busyId === item.id ? "…" : "Message"}</Text>
               </Pressable>
@@ -305,7 +314,12 @@ export default function FriendsScreen() {
             const person = row.kind === "in" ? row.item.from : row.item.to;
             const busy = busyId === row.item.id;
             return (
-              <View style={styles.row}>
+              <Pressable
+                style={styles.row}
+                onPress={() => {
+                  if (person.username) router.push(`/u/${person.username}`);
+                }}
+              >
                 <Avatar name={socialName(person)} uri={person.avatarUrl} size={44} />
                 <View style={styles.copy}>
                   <Text style={styles.name}>{socialName(person)}</Text>
@@ -313,19 +327,40 @@ export default function FriendsScreen() {
                 </View>
                 {row.kind === "in" ? (
                   <View style={styles.actions}>
-                    <Pressable style={styles.pill} disabled={busy} onPress={() => void onAccept(row.item)}>
+                    <Pressable
+                      style={styles.pill}
+                      disabled={busy}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        void onAccept(row.item);
+                      }}
+                    >
                       <Text style={styles.pillText}>{busy ? "…" : "Accept"}</Text>
                     </Pressable>
-                    <Pressable style={styles.ghost} disabled={busy} onPress={() => void onDecline(row.item)}>
+                    <Pressable
+                      style={styles.ghost}
+                      disabled={busy}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        void onDecline(row.item);
+                      }}
+                    >
                       <Text style={styles.ghostText}>Decline</Text>
                     </Pressable>
                   </View>
                 ) : (
-                  <Pressable style={styles.ghost} disabled={busy} onPress={() => void onCancel(row.item)}>
+                  <Pressable
+                    style={styles.ghost}
+                    disabled={busy}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      void onCancel(row.item);
+                    }}
+                  >
                     <Text style={styles.ghostText}>{busy ? "…" : "Cancel"}</Text>
                   </Pressable>
                 )}
-              </View>
+              </Pressable>
             );
           }}
         />
@@ -364,7 +399,12 @@ export default function FriendsScreen() {
             ) : null
           }
           renderItem={({ item }) => (
-            <View style={styles.row}>
+            <Pressable
+              style={styles.row}
+              onPress={() => {
+                if (item.username) router.push(`/u/${item.username}`);
+              }}
+            >
               <Avatar name={socialName(item)} uri={item.avatarUrl} size={44} />
               <View style={styles.copy}>
                 <Text style={styles.name}>{socialName(item)}</Text>
@@ -379,7 +419,7 @@ export default function FriendsScreen() {
                   void openDm(item.id, friend?.dmId);
                 }}
               />
-            </View>
+            </Pressable>
           )}
         />
       )}
@@ -400,7 +440,14 @@ function RelationAction({
 }) {
   if (user.relationship === "friends") {
     return (
-      <Pressable style={styles.pill} disabled={busy} onPress={onMessage}>
+      <Pressable
+        style={styles.pill}
+        disabled={busy}
+        onPress={(event) => {
+          event.stopPropagation();
+          onMessage();
+        }}
+      >
         <Text style={styles.pillText}>Message</Text>
       </Pressable>
     );
@@ -412,7 +459,14 @@ function RelationAction({
     return <Text style={styles.muted}>Responds in Requests</Text>;
   }
   return (
-    <Pressable style={styles.pill} disabled={busy} onPress={onAdd}>
+    <Pressable
+      style={styles.pill}
+      disabled={busy}
+      onPress={(event) => {
+        event.stopPropagation();
+        onAdd();
+      }}
+    >
       <Text style={styles.pillText}>{busy ? "…" : "Add"}</Text>
     </Pressable>
   );

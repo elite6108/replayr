@@ -10,6 +10,7 @@ export function useSocialUnreadSync() {
   const reset = useSocialUnreadStore((state) => state.reset);
   const noteMessage = useSocialUnreadStore((state) => state.noteMessage);
   const noteFriendRequest = useSocialUnreadStore((state) => state.noteFriendRequest);
+  const noteNotification = useSocialUnreadStore((state) => state.noteNotification);
 
   useEffect(() => {
     if (!token || !userId || !supabaseConfigured()) {
@@ -27,6 +28,15 @@ export function useSocialUnreadSync() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, (payload) => {
         const row = payload.new as { kind?: string; conversation_id?: string | null; actor_id?: string | null };
         if (row.kind === "friend_request") noteFriendRequest();
+        if (
+          (row.kind === "friend_request" ||
+            row.kind === "friend_accept" ||
+            row.kind === "message" ||
+            row.kind === "group_invite") &&
+          row.actor_id !== userId
+        ) {
+          noteNotification();
+        }
         if ((row.kind === "message" || row.kind === "group_invite") && row.conversation_id) {
           noteMessage(row.conversation_id, row.actor_id || "", userId);
         }
@@ -35,5 +45,5 @@ export function useSocialUnreadSync() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [token, userId, refresh, reset, noteMessage, noteFriendRequest]);
+  }, [token, userId, refresh, reset, noteMessage, noteFriendRequest, noteNotification]);
 }

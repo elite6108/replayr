@@ -4,6 +4,7 @@ import { useDetectionStore } from "../../stores/detectionStore";
 import { useRecordingStore } from "../../stores/recordingStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { displayHotkey, formatBytes, initials } from "../../utils/format";
+import { NotificationBell } from "./NotificationBell";
 
 function replayLabel(seconds: number) {
   return seconds % 60 === 0 ? `${seconds / 60}m` : `${seconds}s`;
@@ -77,6 +78,7 @@ export function TopBar() {
         ) : null}
       </div>
 
+      <NotificationBell />
       <Link to="/profile" className={`topbar-user ${user ? "" : "sign-in"}`} title={label}>
         <span className="avatar">{initials(profile?.username || profile?.display_name || user?.email || "R")}</span>
         <span className="topbar-user-name">{user ? label : "Sign in"}</span>

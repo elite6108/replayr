@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { SocialAvatar } from "../components/SocialAvatar";
 import {
@@ -25,12 +25,17 @@ import { useSocialUnread } from "../lib/socialUnread";
 
 type Tab = "friends" | "requests" | "find";
 
+function tabFromParam(value: string | null): Tab {
+  return value === "requests" || value === "find" ? value : "friends";
+}
+
 export function FriendsPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const token = session?.access_token ?? "";
   const { setFriendsUnread } = useSocialUnread();
-  const [tab, setTab] = useState<Tab>("friends");
+  const [tab, setTab] = useState<Tab>(() => tabFromParam(params.get("tab")));
   const [friends, setFriends] = useState<Friend[]>([]);
   const [incoming, setIncoming] = useState<FriendRequest[]>([]);
   const [outgoing, setOutgoing] = useState<FriendRequest[]>([]);
@@ -64,6 +69,10 @@ export function FriendsPage() {
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => {
+    setTab(tabFromParam(params.get("tab")));
+  }, [params]);
 
   useEffect(() => {
     if (!token || tab !== "find") return;

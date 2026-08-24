@@ -210,3 +210,20 @@ export async function fetchUserSuggestions(accessToken: string): Promise<UsersSe
   const body = await readApiJson<UsersSearchResponse>(response, "Could not load suggestions.");
   return body.users ?? [];
 }
+
+export async function fetchNotifications(accessToken: string, limit = 30): Promise<NotificationItem[]> {
+  const response = await fetch(apiUrl(`/v1/notifications?limit=${Math.min(50, Math.max(1, limit))}`), {
+    headers: authHeaders(accessToken),
+  });
+  const body = await readApiJson<NotificationsResponse>(response, "Could not load notifications.");
+  return body.notifications ?? [];
+}
+
+export async function readNotifications(accessToken: string, ids?: string[]): Promise<void> {
+  const response = await fetch(apiUrl("/v1/notifications/read"), {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "content-type": "application/json" },
+    body: JSON.stringify(ids ? { ids } : {}),
+  });
+  await readApiJson<ReadNotificationsResponse>(response, "Could not mark notifications read.");
+}

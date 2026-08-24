@@ -201,6 +201,15 @@ export function IconSearch(props: IconProps) {
   );
 }
 
+export function IconBell(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10 21a2 2 0 0 0 4 0" />
+    </Icon>
+  );
+}
+
 export function IconLogo(props: IconProps) {
   return (
     <Icon {...props}>

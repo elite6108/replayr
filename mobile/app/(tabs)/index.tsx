@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
-  Alert,
   NativeSyntheticEvent,
   NativeScrollEvent,
   Pressable,
@@ -18,6 +17,7 @@ import { Avatar } from "@/components/Avatar";
 import { ClipThumb } from "@/components/ClipThumb";
 import { CommentsSheet } from "@/components/CommentsSheet";
 import { GameCover } from "@/components/GameCover";
+import { NotificationsSheet } from "@/components/NotificationsSheet";
 import {
   attachPublicClipCounts,
   fetchFavoriteGames,
@@ -35,6 +35,7 @@ import { shareClipUrl } from "@/lib/media";
 import { clipShareUrl } from "@/lib/supabase";
 import { colors, gameGlow } from "@/lib/theme";
 import { listContinueWatching, type WatchItem } from "@/lib/watchProgress";
+import { useSocialUnread } from "@/lib/socialUnread";
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -54,6 +55,8 @@ export default function HomeScreen() {
   );
   const [refreshing, setRefreshing] = useState(false);
   const [commentSlug, setCommentSlug] = useState<string | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const { notificationsUnread } = useSocialUnread();
 
   const load = useCallback(async () => {
     const [trending, latest, catalog, history] = await Promise.all([
@@ -145,12 +148,22 @@ export default function HomeScreen() {
             Replay<Text style={styles.brandAccent}>r</Text>
           </Text>
           <View style={styles.headerActions}>
+            <Pressable style={styles.bell} onPress={() => router.push("/search")} hitSlop={8}>
+              <Ionicons name="search" size={20} color={colors.text} />
+            </Pressable>
             <Pressable
               style={styles.bell}
-              onPress={() => Alert.alert("Notifications", "You’re all caught up.")}
+              onPress={() => {
+                if (!session) {
+                  router.push("/signin");
+                  return;
+                }
+                setNotificationsOpen(true);
+              }}
               hitSlop={8}
             >
               <Ionicons name="notifications-outline" size={22} color={colors.text} />
+              {notificationsUnread > 0 ? <View style={styles.bellPip} /> : null}
             </Pressable>
             <Pressable onPress={() => router.push(session ? "/account" : "/signin")}>
               <Avatar name={profile?.display_name || profile?.username || session?.user.email} uri={profile?.avatar_url} size={36} />
@@ -356,6 +369,11 @@ export default function HomeScreen() {
           setFeatured((current) => current.map(apply));
         }}
       />
+      <NotificationsSheet
+        visible={notificationsOpen}
+        token={token}
+        onClose={() => setNotificationsOpen(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -378,12 +396,22 @@ const styles = StyleSheet.create({
   brandAccent: { color: colors.accent },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 12 },
   bell: {
+    position: "relative",
     width: 36,
     height: 36,
     borderRadius: 18,
     backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
+  },
+  bellPip: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.accent,
   },
   featuredBlock: { gap: 10 },
   featured: { borderRadius: 22, overflow: "hidden", backgroundColor: colors.card },

@@ -11,6 +11,7 @@ import { GamesPage } from "./pages/GamesPage";
 import { GamePage } from "./pages/GamePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ProfilePage } from "./pages/ProfilePage";
+import { UserProfilePage } from "./pages/UserProfilePage";
 import { AdminPage } from "./pages/AdminPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { EditorPage } from "./pages/EditorPage";
@@ -103,6 +104,7 @@ export default function App() {
           <Route path="/clips" element={<Navigate to="/library/cloud" replace />} />
           <Route path="/explore" element={<ExplorePage />} />
           <Route path="/friends" element={<FriendsPage />} />
+          <Route path="/u/:username" element={<UserProfilePage />} />
           <Route path="/messages" element={<MessagesPage />} />
           <Route path="/messages/:conversationId" element={<MessagesPage />} />
           <Route path="/uploads" element={<Navigate to="/library/cloud" replace />} />

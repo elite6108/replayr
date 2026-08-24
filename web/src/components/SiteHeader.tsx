@@ -4,6 +4,8 @@ import { isAdminSession } from "../lib/admin";
 import { useAuth } from "../lib/auth";
 import { useSocialUnread } from "../lib/socialUnread";
 import { APP_NAME, WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
+import { NotificationBell } from "./NotificationBell";
+import { HeaderSearch } from "./HeaderSearch";
 
 export function SiteHeader() {
   const { session } = useAuth();
@@ -82,6 +84,8 @@ export function SiteHeader() {
             )}
           </nav>
           <div className="header-actions">
+            <HeaderSearch />
+            <NotificationBell />
             <a className="btn outline" href={WINDOWS_DOWNLOAD_PATH}>
               Download and open
             </a>

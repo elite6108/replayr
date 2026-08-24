@@ -52,6 +52,8 @@ export default function RootLayout() {
         <Stack.Screen name="c/[slug]" options={{ headerShown: false, animation: "fade" }} />
         <Stack.Screen name="games/[slug]" options={{ title: "Game" }} />
         <Stack.Screen name="friends" options={{ title: "Friends" }} />
+        <Stack.Screen name="search" options={{ title: "Search" }} />
+        <Stack.Screen name="u/[username]" options={{ title: "Profile" }} />
         <Stack.Screen name="messages/[id]" options={{ title: "Chat" }} />
         <Stack.Screen name="auth/callback" options={{ title: "Signing in" }} />
       </Stack>

@@ -116,6 +116,110 @@ pub fn save_trimmed_clip(
     library::get(&conn, &local_id)
 }
 
+pub fn save_short_clip(
+    app: &AppHandle,
+    source_local_id: &str,
+    start_ms: u64,
+    end_ms: u64,
+    pan: f32,
+    title: Option<String>,
+) -> AppResult<LocalClipDto> {
+    let source = {
+        let db = app.state::<AppState>();
+        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        library::get(&conn, source_local_id)?
+    };
+    let path = PathBuf::from(&source.file_path);
+    if !path.exists() {
+        return Err(AppError::Message("That clip is no longer on disk.".into()));
+    }
+    let ext = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext != "mp4" {
+        return Err(AppError::Message("Only MP4 clips can be exported as a Short.".into()));
+    }
+    let duration_ms = source.duration_ms.unwrap_or(0).max(0) as u64;
+    let (start_ms, end_ms) = validate_range(start_ms, end_ms, duration_ms).map_err(AppError::Message)?;
+    let pan = pan.clamp(0.0, 1.0);
+    let _ = library::set_editor_crop(app, source_local_id, pan);
+    let dest_dir = path
+        .parent()
+        .ok_or_else(|| AppError::Message("That clip has no folder.".into()))?;
+    let dest = output_path(dest_dir, "clip-short", "mp4");
+    let fps = source.fps.unwrap_or(60).max(24).min(60) as u32;
+
+    #[cfg(windows)]
+    let written_ms = crate::export::write_vertical_mp4(
+        &path,
+        &dest,
+        ms_to_hns(start_ms),
+        ms_to_hns(end_ms),
+        pan,
+        fps,
+    )
+    .map_err(|err| {
+        // The sink writer creates the file up front, so a failed encode would
+        // otherwise leave a 0-byte MP4 next to the real clips.
+        let _ = std::fs::remove_file(&dest);
+        AppError::Message(err)
+    })?;
+    #[cfg(not(windows))]
+    let written_ms: i64 = {
+        let _ = (dest, pan, fps);
+        return Err(AppError::Message("Shorts export is only available on Windows.".into()));
+    };
+
+    let duration_ms = if written_ms > 0 { written_ms as u64 } else { end_ms - start_ms };
+    let mid_ms = duration_ms / 2;
+    #[cfg(windows)]
+    let preview = crate::thumb::frame_at(&dest, mid_ms).ok();
+    #[cfg(not(windows))]
+    let preview = None;
+
+    let title = title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| {
+            format!(
+                "{} — Short",
+                source.title.as_deref().filter(|value| !value.is_empty()).unwrap_or("Clip")
+            )
+        });
+
+    let local_id = library::insert_derived(
+        app,
+        &dest,
+        duration_ms,
+        1080,
+        1920,
+        fps,
+        source.game_id.clone(),
+        title,
+        preview.as_ref(),
+        ClipLineage {
+            source_clip_id: source.local_id.clone(),
+            source_start_ms: start_ms as i64,
+            source_end_ms: end_ms as i64,
+        },
+    )?;
+    let _ = app.emit(
+        "local-clip-saved",
+        SavedClipEvent {
+            path: dest.display().to_string(),
+            kind: "short".into(),
+            local_id: local_id.clone(),
+        },
+    );
+    let db = app.state::<AppState>();
+    let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    library::get(&conn, &local_id)
+}
+
 pub fn list_filmstrip(app: &AppHandle, local_id: &str, count: u32) -> AppResult<Vec<FilmstripFrame>> {
     let clip = {
         let db = app.state::<AppState>();

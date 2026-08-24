@@ -346,6 +346,30 @@ pub async fn save_trimmed_clip(
 }
 
 #[tauri::command]
+pub async fn save_short_clip(
+    app: AppHandle,
+    source_local_id: String,
+    start_ms: f64,
+    end_ms: f64,
+    pan: Option<f64>,
+    title: Option<String>,
+) -> AppResult<crate::library::LocalClipDto> {
+    let start_ms = ms_arg(start_ms);
+    let end_ms = ms_arg(end_ms);
+    let pan = pan.unwrap_or(0.5) as f32;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::editor::save_short_clip(&app, &source_local_id, start_ms, end_ms, pan, title)
+    })
+    .await
+    .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+#[tauri::command]
+pub fn set_clip_editor_crop(app: AppHandle, local_id: String, pan: f64) -> AppResult<crate::library::LocalClipDto> {
+    crate::library::set_editor_crop(&app, &local_id, pan as f32)
+}
+
+#[tauri::command]
 pub async fn list_clip_filmstrip(
     app: AppHandle,
     local_id: String,
@@ -385,6 +409,11 @@ pub fn delete_local_clip(state: State<AppState>, local_id: String) -> AppResult<
 #[tauri::command]
 pub fn reveal_local_clip(file_path: String) -> AppResult<()> {
     library::reveal(&file_path)
+}
+
+#[tauri::command]
+pub fn share_local_clip(app: AppHandle, file_path: String) -> AppResult<String> {
+    crate::share::share_file(&app, &file_path)
 }
 
 #[tauri::command]

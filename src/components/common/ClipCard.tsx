@@ -98,6 +98,11 @@ export function ClipCard({
             </span>
           </span>
           {clip.durationMs ? <span className="clip-duration">{formatDuration(clip.durationMs)}</span> : null}
+          {(clip.width ?? 0) > 0 && (clip.height ?? 0) > (clip.width ?? 0) ? (
+            <span className="clip-aspect-badge" title="Vertical 9:16">
+              9:16
+            </span>
+          ) : null}
           {badge ? (
             <span className={`clip-cloud-badge ${badge.state}`} title={badge.title}>
               <IconCloud size={14} fill={badge.state === "ready" ? "currentColor" : "none"} />

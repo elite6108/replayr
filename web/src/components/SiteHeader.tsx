@@ -45,8 +45,7 @@ export function SiteHeader() {
     <header className={`site-header${open ? " is-open" : ""}`} ref={headerRef}>
       <div className="site-header-inner">
         <NavLink className="brand" to="/" end>
-          <span className="brand-mark">R</span>
-          {APP_NAME}
+          <img className="brand-logo" src="/replayr-logo.png" alt={APP_NAME} />
         </NavLink>
         <button
           className="menu-toggle"

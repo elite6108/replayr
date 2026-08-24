@@ -40,4 +40,5 @@ export interface LocalClip {
   sourceClipId: string | null;
   sourceStartMs: number | null;
   sourceEndMs: number | null;
+  editorCropX?: number;
 }

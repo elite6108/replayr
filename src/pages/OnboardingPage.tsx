@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import logoWordmark from "../assets/replayr-logo.png";
 import { APP_NAME } from "../branding";
 import { AuthCard } from "../components/common/AuthCard";
 import { useAuthStore } from "../stores/authStore";
@@ -78,7 +79,7 @@ export function OnboardingPage() {
     <div className="onboarding-shell">
       <div className="onboarding panel stack">
         <div className="nav-brand onboarding-mark">
-          Replay
+          <img src={logoWordmark} alt={APP_NAME} />
         </div>
         <div className="muted">{STEPS[step]}</div>
         <div className="steps" aria-hidden="true">

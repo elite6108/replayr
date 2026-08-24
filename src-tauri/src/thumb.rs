@@ -4,9 +4,11 @@ use std::time::UNIX_EPOCH;
 use windows::core::{GUID, PCWSTR};
 use windows::Win32::Media::MediaFoundation::{
     IMFMediaType, IMFSample, IMFSourceReader, MFCreateAttributes, MFCreateMediaType, MFCreateSourceReaderFromURL,
-    MFStartup, MFMediaType_Video, MFVideoFormat_RGB32, MFVideoInterlace_Progressive, MF_MT_FRAME_SIZE,
-    MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
-    MF_SOURCE_READERF_ENDOFSTREAM, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MFSTARTUP_FULL, MF_VERSION,
+    MFStartup, MFMediaType_Video, MFVideoFormat_ARGB32, MFVideoFormat_RGB32, MFVideoInterlace_Progressive,
+    MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE,
+    MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READERF_ENDOFSTREAM,
+    MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MFSTARTUP_FULL,
+    MF_VERSION,
 };
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 
@@ -21,19 +23,10 @@ pub fn from_video(source: &Path, dest: &Path) -> Result<(), String> {
     unsafe {
         MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|err| err.to_string())?;
     }
-    let reader = open_reader(source)?;
-    let rgb = rgb32_type()?;
-    unsafe {
-        reader
-            .SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, true)
-            .map_err(|err| err.to_string())?;
-        reader
-            .SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, None, &rgb)
-            .map_err(|err| format!("Could not decode a thumbnail frame: {err}"))?;
-    }
+    let reader = open_decode_reader(source)?;
     let mut frame = None;
     for _ in 0..24 {
-        if let Some(next) = read_frame(&reader)? {
+        if let Some((next, _, _)) = read_rgb_sample(&reader)? {
             frame = Some(next);
         } else {
             break;
@@ -96,13 +89,13 @@ pub fn filmstrip(source: &Path, dest_dir: &Path, count: u32, duration_ms: u64) -
     if frames.is_empty() {
         return Err("Could not build a timeline preview.".into());
     }
-    let _ = std::fs::write(dest_dir.join(".meta"), format!("{mtime}:{count}:{duration_ms}"));
+    let _ = std::fs::write(dest_dir.join(".meta"), format!("{mtime}:{count}:{duration_ms}:a8"));
     Ok(frames)
 }
 
 fn cached_filmstrip(dest_dir: &Path, count: u32, mtime: u64, duration_ms: u64) -> Option<Vec<(PathBuf, u64)>> {
     let meta = std::fs::read_to_string(dest_dir.join(".meta")).ok()?;
-    if meta.trim() != format!("{mtime}:{count}:{duration_ms}") {
+    if meta.trim() != format!("{mtime}:{count}:{duration_ms}:a8") {
         return None;
     }
     let mut frames = Vec::new();
@@ -121,18 +114,44 @@ fn cached_filmstrip(dest_dir: &Path, count: u32, mtime: u64, duration_ms: u64) -
     Some(frames)
 }
 
+/// Opens a reader that hands back uncompressed BGRA frames.
+///
+/// The decoder emits NV12, so the reader has to insert the video processor to
+/// reach RGB32. That only happens with advanced video processing turned on;
+/// without it `SetCurrentMediaType` fails with MF_E_INVALIDMEDIATYPE. Some GPU
+/// decoders still refuse the conversion, so fall back to software transforms
+/// and then to ARGB32 before giving up.
 fn open_decode_reader(path: &Path) -> Result<IMFSourceReader, String> {
-    let reader = open_reader(path)?;
-    let rgb = rgb32_type()?;
-    unsafe {
-        reader
-            .SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, true)
-            .map_err(|err| err.to_string())?;
-        reader
-            .SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, None, &rgb)
-            .map_err(|err| format!("Could not decode a thumbnail frame: {err}"))?;
+    let mut last = String::new();
+    for hardware in [true, false] {
+        for subtype in [MFVideoFormat_RGB32, MFVideoFormat_ARGB32] {
+            let reader = match open_reader(path, hardware) {
+                Ok(reader) => reader,
+                Err(err) => {
+                    last = err;
+                    continue;
+                }
+            };
+            let output = uncompressed_type(subtype)?;
+            let applied = unsafe {
+                reader
+                    .SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, true)
+                    .and_then(|()| {
+                        reader.SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, None, &output)
+                    })
+            };
+            match applied {
+                Ok(()) => return Ok(reader),
+                Err(err) => {
+                    last = format!(
+                        "hardware={hardware} subtype={} rejected: {err}",
+                        if subtype == MFVideoFormat_RGB32 { "RGB32" } else { "ARGB32" }
+                    );
+                }
+            }
+        }
     }
-    Ok(reader)
+    Err(format!("Could not decode frames from {}: {last}", path.display()))
 }
 
 fn seek_reader(reader: &IMFSourceReader, position_hns: i64) -> Result<(), String> {
@@ -145,13 +164,16 @@ fn seek_reader(reader: &IMFSourceReader, position_hns: i64) -> Result<(), String
     Ok(())
 }
 
-fn open_reader(path: &Path) -> Result<IMFSourceReader, String> {
+fn open_reader(path: &Path, hardware: bool) -> Result<IMFSourceReader, String> {
     let wide = wide_path(path);
     unsafe {
         let mut attrs = None;
-        MFCreateAttributes(&mut attrs, 1).map_err(|err| err.to_string())?;
+        MFCreateAttributes(&mut attrs, 2).map_err(|err| err.to_string())?;
         if let Some(attrs) = attrs.as_ref() {
-            let _ = attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1);
+            let _ = attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1);
+            if hardware {
+                let _ = attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1);
+            }
         }
         MFCreateSourceReaderFromURL(PCWSTR(wide.as_ptr()), attrs.as_ref())
             .map_err(|err| format!("Could not open {}: {err}", path.display()))
@@ -160,31 +182,25 @@ fn open_reader(path: &Path) -> Result<IMFSourceReader, String> {
 
 fn read_next_frame(reader: &IMFSourceReader) -> Result<Option<StillFrame>, String> {
     for _ in 0..12 {
-        if let Some(frame) = read_frame(reader)? {
+        if let Some((frame, _, _)) = read_rgb_sample(reader)? {
             return Ok(Some(frame));
         }
     }
     Ok(None)
 }
 
-fn rgb32_type() -> Result<IMFMediaType, String> {
-    unsafe {
-        let media_type = MFCreateMediaType().map_err(|err| err.to_string())?;
-        media_type
-            .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
-            .map_err(|err| err.to_string())?;
-        media_type
-            .SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)
-            .map_err(|err| err.to_string())?;
-        media_type
-            .SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)
-            .map_err(|err| err.to_string())?;
-        Ok(media_type)
-    }
+pub(crate) fn open_rgb_reader(path: &Path) -> Result<IMFSourceReader, String> {
+    open_decode_reader(path)
 }
 
-fn read_frame(reader: &IMFSourceReader) -> Result<Option<StillFrame>, String> {
+pub(crate) fn seek_hns(reader: &IMFSourceReader, position_hns: i64) -> Result<(), String> {
+    seek_reader(reader, position_hns)
+}
+
+/// Next decoded RGB32 frame plus its source timestamp and duration, in 100ns units.
+pub(crate) fn read_rgb_sample(reader: &IMFSourceReader) -> Result<Option<(StillFrame, i64, i64)>, String> {
     let mut flags = 0_u32;
+    let mut timestamp = 0_i64;
     let mut sample: Option<IMFSample> = None;
     unsafe {
         reader
@@ -193,7 +209,7 @@ fn read_frame(reader: &IMFSourceReader) -> Result<Option<StillFrame>, String> {
                 0,
                 None,
                 Some(&mut flags),
-                None,
+                Some(&mut timestamp),
                 Some(&mut sample),
             )
             .map_err(|err| err.to_string())?;
@@ -204,6 +220,7 @@ fn read_frame(reader: &IMFSourceReader) -> Result<Option<StillFrame>, String> {
     let Some(sample) = sample else {
         return Ok(None);
     };
+    let duration = unsafe { sample.GetSampleDuration().unwrap_or(0) }.max(10_000);
     let (width, height) = frame_size(reader)?;
     let buffer = unsafe { sample.ConvertToContiguousBuffer().map_err(|err| err.to_string())? };
     let mut data = std::ptr::null_mut();
@@ -220,12 +237,32 @@ fn read_frame(reader: &IMFSourceReader) -> Result<Option<StillFrame>, String> {
     unsafe {
         buffer.Unlock().map_err(|err| err.to_string())?;
     }
-    Ok(Some(StillFrame {
-        bgra: bytes,
-        width,
-        height,
-        pitch,
-    }))
+    Ok(Some((
+        StillFrame {
+            bgra: bytes,
+            width,
+            height,
+            pitch,
+        },
+        timestamp,
+        duration,
+    )))
+}
+
+fn uncompressed_type(subtype: GUID) -> Result<IMFMediaType, String> {
+    unsafe {
+        let media_type = MFCreateMediaType().map_err(|err| err.to_string())?;
+        media_type
+            .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
+            .map_err(|err| err.to_string())?;
+        media_type
+            .SetGUID(&MF_MT_SUBTYPE, &subtype)
+            .map_err(|err| err.to_string())?;
+        media_type
+            .SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)
+            .map_err(|err| err.to_string())?;
+        Ok(media_type)
+    }
 }
 
 fn frame_size(reader: &IMFSourceReader) -> Result<(u32, u32), String> {

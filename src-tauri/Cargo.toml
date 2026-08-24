@@ -1,6 +1,6 @@
 [package]
 name = "replay"
-version = "0.1.9"
+version = "0.1.10",
 description = "Project Replay desktop application"
 authors = ["Project Replay"]
 edition = "2021"
@@ -49,7 +49,16 @@ windows = { version = "0.61", features = [
     "Win32_Media_Audio",
     "Win32_Media_MediaFoundation",
     "Win32_Storage_FileSystem",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_WinRT",
+    "ApplicationModel_DataTransfer",
+    "Foundation",
+    "Foundation_Collections",
+    "Storage",
+    "Storage_Streams",
 ] }
+windows-collections = "0.2"
 windows-capture = "2"
 wasapi = "0.19"
 

@@ -1,8 +1,16 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { PageHeader } from "../components/common/PageHeader";
-import { saveTrimmedClip } from "../services/tauri";
+import { IconInstagram, IconTikTok, IconYoutube } from "../components/icons";
+import {
+  listClipFilmstrip,
+  revealLocalClip,
+  saveShortClip,
+  saveTrimmedClip,
+  setClipEditorCrop,
+  shareLocalClip,
+} from "../services/tauri";
 import { useAuthStore } from "../stores/authStore";
 import { useCloudStore } from "../stores/cloudStore";
 import { useLibraryStore } from "../stores/libraryStore";
@@ -12,12 +20,21 @@ import { formatClock, formatDuration, invokeErrorMessage, isVideoPath, parseCloc
 import { normalizeUploadStatus } from "../utils/clips";
 
 const MIN_TRIM_MS = 1000;
+const SHORTS_WARN_MS = 60_000;
+// Part of the on-disk filmstrip cache key, so keep it stable across resizes.
+const STRIP_TILES = 12;
 
 type DragKind = "start" | "end" | "playhead";
+type SaveKind = "trim" | "short";
 
 function asMs(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.round(value));
+}
+
+function clampPan(value: number): number {
+  if (!Number.isFinite(value)) return 0.5;
+  return Math.max(0, Math.min(1, value));
 }
 
 function clampRange(startMs: number, endMs: number, durationMs: number): { startMs: number; endMs: number } {
@@ -27,18 +44,13 @@ function clampRange(startMs: number, endMs: number, durationMs: number): { start
   return { startMs: start, endMs: end };
 }
 
-function filmstripCount(width: number): number {
-  if (width <= 0) return 12;
-  return Math.min(16, Math.max(8, Math.round(width / 90)));
-}
-
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
 }
 
-function waitVideoEvent(video: HTMLVideoElement, event: string, timeoutMs = 4000): Promise<void> {
+function waitVideoEvent(video: HTMLVideoElement, event: string, timeoutMs = 800): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
       video.removeEventListener(event, onEvent);
@@ -65,33 +77,44 @@ function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
   });
 }
 
-async function paintFilmstrip(
-  video: HTMLVideoElement,
-  canvases: Array<HTMLCanvasElement | null>,
-  isCancelled: () => boolean,
-): Promise<void> {
-  const duration = video.duration;
-  if (!Number.isFinite(duration) || duration <= 0 || video.videoWidth < 2) return;
-  const saved = video.currentTime;
-  const wasPaused = video.paused;
-  video.pause();
-  const tileW = 160;
-  const tileH = Math.max(90, Math.round((video.videoHeight / video.videoWidth) * tileW));
-  for (let index = 0; index < canvases.length; index += 1) {
-    if (isCancelled()) return;
-    video.currentTime = (duration * index) / Math.max(canvases.length, 1);
+async function ensureFirstFrame(video: HTMLVideoElement): Promise<void> {
+  try {
+    if (Math.abs(video.currentTime) < 0.0005) {
+      video.currentTime = 0.001;
+      await waitVideoEvent(video, "seeked").catch(() => undefined);
+    }
+    video.currentTime = 0;
     await waitVideoEvent(video, "seeked").catch(() => undefined);
     await waitForVideoFrame(video);
-    const canvas = canvases[index];
-    const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) continue;
-    canvas.width = tileW;
-    canvas.height = tileH;
-    ctx.drawImage(video, 0, 0, tileW, tileH);
+  } catch {
+    // Poster covers the wait; a later scrub still paints a frame.
   }
-  if (isCancelled()) return;
-  video.currentTime = saved;
-  if (!wasPaused) void video.play();
+}
+
+function cropOverlay(
+  width: number,
+  height: number,
+  pan: number,
+): { left: number; width: number; visible: boolean } {
+  if (width < 2 || height < 2) return { left: 0, width: 1, visible: false };
+  const src = width / height;
+  const target = 9 / 16;
+  if (Math.abs(src - target) / target < 0.02) {
+    return { left: 0, width: 1, visible: false };
+  }
+  if (src > target) {
+    const window = (height * target) / width;
+    const left = (1 - window) * clampPan(pan);
+    return { left, width: window, visible: true };
+  }
+  return { left: 0, width: 1, visible: false };
+}
+
+function panFromClientX(clientX: number, rect: DOMRect, windowPct: number): number {
+  const windowPx = rect.width * windowPct;
+  const max = Math.max(1, rect.width - windowPx);
+  const x = clientX - rect.left - windowPx / 2;
+  return clampPan(x / max);
 }
 
 export function EditorPage() {
@@ -104,6 +127,7 @@ export function EditorPage() {
   const rename = useLibraryStore((state) => state.rename);
   const upload = useLibraryStore((state) => state.upload);
   const copyLink = useLibraryStore((state) => state.copyLink);
+  const download = useLibraryStore((state) => state.download);
   const refresh = useLibraryStore((state) => state.refresh);
   const user = useAuthStore((state) => state.user);
   const cloudClips = useCloudStore((state) => state.clips);
@@ -112,11 +136,14 @@ export function EditorPage() {
 
   const source = clips.find((item) => item.localId === clipId) ?? null;
   const videoRef = useRef<HTMLVideoElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
-  const stripCanvasRefs = useRef<Array<HTMLCanvasElement | null>>([]);
   const dragRef = useRef<DragKind | null>(null);
+  const reframeDragRef = useRef(false);
+  const panRef = useRef(0.5);
 
   const [videoMs, setVideoMs] = useState(0);
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [startMs, setStartMs] = useState(0);
   const [endMs, setEndMs] = useState(0);
   const [playheadMs, setPlayheadMs] = useState(0);
@@ -124,13 +151,18 @@ export function EditorPage() {
   const [endText, setEndText] = useState("00:00");
   const [playing, setPlaying] = useState(false);
   const [previewing, setPreviewing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingKind, setSavingKind] = useState<SaveKind | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [sharingFile, setSharingFile] = useState(false);
   const [saved, setSaved] = useState<LocalClip | null>(null);
+  const [savedKind, setSavedKind] = useState<SaveKind | null>(null);
   const [savedTitle, setSavedTitle] = useState("");
-  const [stripTiles, setStripTiles] = useState(12);
-  const [videoReady, setVideoReady] = useState(false);
+  const [stripFrames, setStripFrames] = useState<Array<{ path: string; atMs: number }>>([]);
+  const [pan, setPan] = useState(0.5);
+  const [shortsMode, setShortsMode] = useState(false);
 
+  panRef.current = pan;
+  const saving = savingKind !== null;
   const durationMs = Math.max(source?.durationMs ?? 0, videoMs);
   const savedClip = clips.find((item) => item.localId === saved?.localId) ?? saved;
   const cloud = savedClip?.cloudClipId
@@ -138,6 +170,12 @@ export function EditorPage() {
     : null;
   const uploadStatus = normalizeUploadStatus(savedClip?.uploadStatus);
   const uploading = ["queued", "preparing", "uploading", "processing"].includes(uploadStatus);
+  const overlay = cropOverlay(
+    frameSize.width || source?.width || 0,
+    frameSize.height || source?.height || 0,
+    pan,
+  );
+  const poster = source?.thumbnailPath ? convertFileSrc(source.thumbnailPath) : undefined;
 
   useEffect(() => {
     closePlayer();
@@ -159,8 +197,12 @@ export function EditorPage() {
     setStartText(formatClock(0, true));
     setEndText(formatClock(duration, true));
     setSaved(null);
+    setSavedKind(null);
     setPreviewing(false);
-    setVideoReady(false);
+    setShortsMode(false);
+    setPan(clampPan(source.editorCropX ?? 0.5));
+    setFrameSize({ width: source.width ?? 0, height: source.height ?? 0 });
+    setStripFrames([]);
     const video = videoRef.current;
     if (video) {
       video.pause();
@@ -169,29 +211,17 @@ export function EditorPage() {
   }, [source?.localId]);
 
   useEffect(() => {
-    const node = timelineRef.current;
-    if (!node) return;
-    const apply = () => setStripTiles(filmstripCount(node.clientWidth));
-    apply();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => apply());
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [source?.localId]);
-
-  useEffect(() => {
-    if (!source || !videoReady) return;
-    const video = videoRef.current;
-    if (!video || video.videoWidth < 2) return;
+    if (!source) return;
     let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void paintFilmstrip(video, stripCanvasRefs.current, () => cancelled);
-    }, 80);
+    setStripFrames([]);
+    void (async () => {
+      const frames = await listClipFilmstrip(source.localId, STRIP_TILES);
+      if (!cancelled) setStripFrames(frames);
+    })();
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
     };
-  }, [source?.localId, videoReady, stripTiles]);
+  }, [source?.localId]);
 
   const applyRange = useCallback(
     (nextStart: number, nextEnd: number) => {
@@ -222,8 +252,24 @@ export function EditorPage() {
     return asMs(ratio * durationMs);
   }, [durationMs]);
 
+  const persistPan = useCallback(
+    (next: number) => {
+      if (!source) return;
+      const clamped = clampPan(next);
+      void setClipEditorCrop(source.localId, clamped).catch(() => undefined);
+    },
+    [source?.localId],
+  );
+
   useEffect(() => {
     function onMove(event: PointerEvent) {
+      if (reframeDragRef.current) {
+        const node = previewRef.current;
+        if (!node || !overlay.visible) return;
+        const next = panFromClientX(event.clientX, node.getBoundingClientRect(), overlay.width);
+        setPan(next);
+        return;
+      }
       const kind = dragRef.current;
       if (!kind) return;
       const at = msFromClientX(event.clientX);
@@ -239,6 +285,10 @@ export function EditorPage() {
       }
     }
     function onUp() {
+      if (reframeDragRef.current) {
+        reframeDragRef.current = false;
+        persistPan(panRef.current);
+      }
       dragRef.current = null;
     }
     window.addEventListener("pointermove", onMove);
@@ -247,7 +297,7 @@ export function EditorPage() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [applyRange, endMs, msFromClientX, seekTo, startMs]);
+  }, [applyRange, endMs, msFromClientX, overlay.visible, overlay.width, persistPan, seekTo, startMs]);
 
   const saveRef = useRef<(share: boolean) => Promise<void>>(async () => {});
   const togglePlayRef = useRef<() => void>(() => {});
@@ -294,6 +344,7 @@ export function EditorPage() {
   const endPct = durationMs > 0 ? (endMs / durationMs) * 100 : 100;
   const playheadPct = durationMs > 0 ? (playheadMs / durationMs) * 100 : 0;
   const canSave = Boolean(source) && selectedMs >= MIN_TRIM_MS && !saving;
+  const longShort = selectedMs > SHORTS_WARN_MS;
 
   function togglePlay() {
     const video = videoRef.current;
@@ -319,6 +370,7 @@ export function EditorPage() {
     applyRange(0, durationMs);
     seekTo(0);
     setPreviewing(false);
+    setShortsMode(false);
     videoRef.current?.pause();
   }
 
@@ -333,12 +385,16 @@ export function EditorPage() {
     else applyRange(startMs, parsed);
   }
 
-  async function saveClip(share: boolean) {
+  async function saveClip(kind: SaveKind, share: boolean) {
     if (!source || saving) return;
-    setSaving(true);
+    setSavingKind(kind);
     try {
-      const next = await saveTrimmedClip(source.localId, asMs(startMs), asMs(endMs));
+      const next =
+        kind === "short"
+          ? await saveShortClip(source.localId, asMs(startMs), asMs(endMs), pan)
+          : await saveTrimmedClip(source.localId, asMs(startMs), asMs(endMs));
       setSaved(next);
+      setSavedKind(kind);
       setSavedTitle(next.title || "");
       await refresh();
       if (share) {
@@ -350,16 +406,16 @@ export function EditorPage() {
         await upload(next.localId);
         await copyLink(next.localId);
       } else {
-        showToast("Saved as a new clip");
+        showToast(kind === "short" ? "Saved as a Short" : "Saved as a new clip");
       }
     } catch (caught) {
-      showToast(invokeErrorMessage(caught, "Could not save that trim"));
+      showToast(invokeErrorMessage(caught, kind === "short" ? "Could not save that Short" : "Could not save that trim"));
     } finally {
-      setSaving(false);
+      setSavingKind(null);
       setSharing(false);
     }
   }
-  saveRef.current = saveClip;
+  saveRef.current = (share) => saveClip(shortsMode ? "short" : "trim", share);
 
   async function shareSaved() {
     if (!savedClip) return;
@@ -378,6 +434,23 @@ export function EditorPage() {
     }
   }
 
+  async function shareSavedFile() {
+    if (!savedClip) return;
+    setSharingFile(true);
+    try {
+      const how = await shareLocalClip(savedClip.filePath);
+      if (how === "clipboard") {
+        showToast("Clip copied. Paste it into TikTok, CapCut, Explorer, or an upload dialog.");
+      } else if (how === "folder") {
+        showToast("Opened the clip’s folder.");
+      }
+    } catch (caught) {
+      showToast(invokeErrorMessage(caught, "Could not share that file"));
+    } finally {
+      setSharingFile(false);
+    }
+  }
+
   const media = useMemo(() => (source ? convertFileSrc(source.filePath) : ""), [source]);
 
   if (!source) {
@@ -385,7 +458,14 @@ export function EditorPage() {
   }
 
   return (
-    <div className="editor-layout">
+    <div
+      className="editor-layout"
+      style={
+        frameSize.width > 0 && frameSize.height > 0
+          ? ({ "--editor-aspect": frameSize.width / frameSize.height } as CSSProperties)
+          : undefined
+      }
+    >
       <PageHeader title={source.title || "Untitled clip"} subtitle="Trim a new local MP4. The original file stays unchanged.">
         <Link className="btn" to="/library" onClick={() => closePlayer()}>
           Back
@@ -393,34 +473,64 @@ export function EditorPage() {
       </PageHeader>
 
       <div className="editor-stage player-stage">
-        <video
-          ref={videoRef}
-          src={media}
-          controls={false}
-          onClick={togglePlay}
-          onLoadedMetadata={(event) => {
-            const next = asMs(event.currentTarget.duration * 1000);
-            if (next > 0) {
-              setVideoMs(next);
-              if ((source.durationMs ?? 0) <= 0) {
-                applyRange(0, next);
+        <div ref={previewRef} className="editor-preview">
+          <video
+            ref={videoRef}
+            src={media}
+            poster={poster}
+            controls={false}
+            onClick={togglePlay}
+            onLoadedMetadata={(event) => {
+              const video = event.currentTarget;
+              const next = asMs(video.duration * 1000);
+              if (next > 0) {
+                setVideoMs(next);
+                if ((source.durationMs ?? 0) <= 0) {
+                  applyRange(0, next);
+                }
               }
-            }
-            setVideoReady(true);
-          }}
-          onTimeUpdate={(event) => {
-            const ms = asMs(event.currentTarget.currentTime * 1000);
-            setPlayheadMs(ms);
-            if (previewing && ms >= endMs) {
-              event.currentTarget.pause();
-              event.currentTarget.currentTime = endMs / 1000;
-              setPlayheadMs(asMs(endMs));
-              setPreviewing(false);
-            }
-          }}
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
-        />
+              if (video.videoWidth > 0 && video.videoHeight > 0) {
+                setFrameSize({ width: video.videoWidth, height: video.videoHeight });
+              }
+              void ensureFirstFrame(video);
+            }}
+            onTimeUpdate={(event) => {
+              const ms = asMs(event.currentTarget.currentTime * 1000);
+              setPlayheadMs(ms);
+              if (previewing && ms >= endMs) {
+                event.currentTarget.pause();
+                event.currentTarget.currentTime = endMs / 1000;
+                setPlayheadMs(asMs(endMs));
+                setPreviewing(false);
+              }
+            }}
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+          />
+          {shortsMode && overlay.visible ? (
+            <div
+              className="editor-reframe interactive"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                reframeDragRef.current = true;
+                const node = previewRef.current;
+                if (!node) return;
+                setPan(panFromClientX(event.clientX, node.getBoundingClientRect(), overlay.width));
+              }}
+            >
+              <div className="editor-reframe-dim" style={{ width: `${overlay.left * 100}%` }} />
+              <div
+                className="editor-reframe-window"
+                style={{ left: `${overlay.left * 100}%`, width: `${overlay.width * 100}%` }}
+              />
+              <div
+                className="editor-reframe-dim"
+                style={{ left: `${(overlay.left + overlay.width) * 100}%`, right: 0 }}
+              />
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="editor-transport">
@@ -442,14 +552,13 @@ export function EditorPage() {
         }}
       >
         <div className="editor-strip">
-          {Array.from({ length: stripTiles }, (_, index) => (
-            <canvas
-              key={index}
-              ref={(node) => {
-                stripCanvasRefs.current[index] = node;
-              }}
-            />
-          ))}
+          {stripFrames.length > 0
+            ? stripFrames.map((frame) => (
+                <img key={frame.path} src={convertFileSrc(frame.path)} alt="" draggable={false} />
+              ))
+            : Array.from({ length: STRIP_TILES }, (_, index) => (
+                <span key={index} className="editor-strip-empty" />
+              ))}
         </div>
         <div className="editor-dim" style={{ left: 0, width: `${startPct}%` }} />
         <div className="editor-dim" style={{ left: `${endPct}%`, right: 0 }} />
@@ -522,28 +631,66 @@ export function EditorPage() {
       </div>
 
       <p className="muted editor-hint">
-        Start may snap back by up to about 2 seconds to the previous keyframe. Space plays, I / O set in and out, arrows
-        nudge 1s (Shift 5s).
+        Space plays, I / O set in and out, arrows nudge 1s (Shift 5s). Start may snap back by up to about 2 seconds to
+        the previous keyframe.
       </p>
+      {longShort && shortsMode ? (
+        <p className="muted editor-hint">Longer than 60 seconds — some apps cap Shorts there. You can still save.</p>
+      ) : null}
 
-      <div className="row">
+      <div className="row editor-actions">
         <button type="button" className="btn" onClick={resetRange}>
           Reset
         </button>
         <button type="button" className="btn" onClick={previewSelection}>
           {playing && previewing ? "Previewing…" : "Preview Selection"}
         </button>
-        <button type="button" className="btn primary" disabled={!canSave} onClick={() => void saveClip(false)}>
-          {saving && !sharing ? "Saving…" : "Save as New Clip"}
+        <button
+          type="button"
+          className={`btn ${shortsMode ? "primary" : ""}`}
+          disabled={!canSave}
+          onClick={() => void saveClip(shortsMode ? "short" : "trim", false)}
+        >
+          {saving ? (shortsMode ? "Saving Short…" : "Saving…") : "Save as New Clip"}
         </button>
-        <button type="button" className="btn primary" disabled={!canSave} onClick={() => void saveClip(true)}>
-          {sharing ? "Sharing…" : "Save & Share"}
+        <button
+          type="button"
+          className={`btn editor-short-btn ${shortsMode ? "on" : "primary"}`}
+          disabled={shortsMode}
+          aria-pressed={shortsMode}
+          onClick={() => setShortsMode(true)}
+        >
+          <span className="editor-brand-logos" aria-hidden="true">
+            <IconTikTok className="logo-tiktok" />
+            <IconInstagram className="logo-instagram" />
+            <IconYoutube className="logo-youtube" />
+          </span>
+          Save as Short
         </button>
       </div>
+      {shortsMode ? (
+        <p className="muted editor-hint editor-short-hint">
+          <span className="editor-brand-logos" aria-hidden="true">
+            <IconTikTok className="logo-tiktok" />
+            <IconInstagram className="logo-instagram" />
+            <IconYoutube className="logo-youtube" />
+          </span>
+          Drag to frame, then Save as New Clip. 1080×1920 for TikTok, Instagram Reels, and YouTube Shorts.
+        </p>
+      ) : (
+        <p className="muted editor-hint editor-short-hint">
+          <span className="editor-brand-logos" aria-hidden="true">
+            <IconTikTok className="logo-tiktok" />
+            <IconInstagram className="logo-instagram" />
+            <IconYoutube className="logo-youtube" />
+          </span>
+          1080×1920 for TikTok, Instagram Reels, and YouTube Shorts.
+        </p>
+      )}
 
       {savedClip ? (
         <section className="panel stack editor-success">
-          <h2>New clip saved</h2>
+          <h2>{savedKind === "short" ? "Short saved" : "New clip saved"}</h2>
           <input
             value={savedTitle}
             aria-label="New clip name"
@@ -557,7 +704,10 @@ export function EditorPage() {
               if (event.key === "Enter") event.currentTarget.blur();
             }}
           />
-          <p className="muted">{formatDuration(savedClip.durationMs)} · The original file is unchanged.</p>
+          <p className="muted">
+            {formatDuration(savedClip.durationMs)} · The original file is unchanged.
+            {savedKind === "short" ? " This file is 1080×1920." : ""}
+          </p>
           {uploading ? <p className="muted">Uploading…</p> : null}
           {uploadStatus === "failed" ? <p className="muted">Upload failed. Retry from the player or library.</p> : null}
           {cloud?.status === "ready" ? (
@@ -578,8 +728,17 @@ export function EditorPage() {
             <button type="button" className="btn" onClick={() => play(savedClip.localId)}>
               Watch
             </button>
-            <button type="button" className="btn primary" disabled={sharing || uploading} onClick={() => void shareSaved()}>
-              {uploadStatus === "completed" ? "Copy link" : sharing || uploading ? "Uploading…" : "Share"}
+            <button type="button" className="btn" onClick={() => void revealLocalClip(savedClip.filePath)}>
+              Show in folder
+            </button>
+            <button type="button" className="btn" onClick={() => void download(savedClip.localId)}>
+              Save a copy…
+            </button>
+            <button type="button" className="btn" disabled={sharingFile} onClick={() => void shareSavedFile()}>
+              {sharingFile ? "Sharing…" : "Share file"}
+            </button>
+            <button type="button" className="btn" disabled={sharing || uploading} onClick={() => void shareSaved()}>
+              {uploadStatus === "completed" ? "Copy Replayr link" : sharing || uploading ? "Uploading…" : "Replayr link"}
             </button>
             <Link className="btn" to="/library">
               Open in Library

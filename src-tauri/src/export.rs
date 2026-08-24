@@ -197,6 +197,114 @@ pub fn trim_mp4(input: &Path, output: &Path, start_hns: i64, end_hns: i64) -> Re
     Ok(video_time / 10_000)
 }
 
+const SHORT_WIDTH: u32 = 1080;
+const SHORT_HEIGHT: u32 = 1920;
+const SHORT_BITRATE: u32 = 15_000_000;
+
+/// Re-encodes `start_hns..end_hns` as 1080×1920 9:16. `pan` 0 is left, 1 is right.
+pub fn write_vertical_mp4(
+    input: &Path,
+    output: &Path,
+    start_hns: i64,
+    end_hns: i64,
+    pan: f32,
+    fps: u32,
+) -> Result<i64, String> {
+    if !input.exists() {
+        return Err("That clip is no longer on disk.".into());
+    }
+    if end_hns <= start_hns {
+        return Err("Choose a longer selection.".into());
+    }
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let started = Instant::now();
+    unsafe {
+        MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|err| err.to_string())?;
+    }
+
+    let pcm = decode_audio_range(input, start_hns, end_hns).unwrap_or_default();
+    let has_audio = !pcm.is_empty();
+    let mut writer = crate::encode::MfWriter::new(
+        output,
+        SHORT_WIDTH,
+        SHORT_HEIGHT,
+        fps,
+        SHORT_BITRATE,
+        has_audio,
+        None,
+    )?;
+
+    let reader = crate::thumb::open_rgb_reader(input)?;
+    if start_hns > 0 {
+        crate::thumb::seek_hns(&reader, start_hns)?;
+    }
+    let mut origin: Option<i64> = None;
+    let mut clock = 0_i64;
+    let mut frames = 0_u32;
+    loop {
+        let Some((frame, timestamp, duration)) = crate::thumb::read_rgb_sample(&reader)? else {
+            break;
+        };
+        if timestamp >= end_hns && origin.is_some() {
+            break;
+        }
+        let base = *origin.get_or_insert(timestamp);
+        if timestamp >= end_hns {
+            break;
+        }
+        let from_source = (timestamp - base).max(0);
+        let capture_hns = if from_source > clock { from_source } else { clock };
+        let vertical = crate::still::crop_and_scale_9x16(&frame, pan, SHORT_WIDTH, SHORT_HEIGHT);
+        writer.write_bgra(
+            &vertical.bgra,
+            vertical.pitch,
+            vertical.width,
+            vertical.height,
+            capture_hns,
+            frames == 0,
+        )?;
+        clock = capture_hns + duration;
+        frames += 1;
+    }
+    drop(reader);
+
+    if frames == 0 {
+        return Err("That range did not include any video.".into());
+    }
+
+    let video_hns = writer.timestamp();
+    if has_audio {
+        let mut audio = pcm;
+        let _ = fit_pcm_to_video(&mut audio, video_hns);
+        writer.write_pcm_closing(&audio)?;
+    } else {
+        let _ = writer.write_pcm_closing(&[]);
+    }
+    let written_ms = (writer.timestamp() / 10_000).max(0);
+    writer.finish()?;
+    tracing::info!(
+        "short {} -> {} ({} ms, {} frames) in {} ms",
+        input.display(),
+        output.display(),
+        written_ms,
+        frames,
+        started.elapsed().as_millis()
+    );
+    Ok(written_ms)
+}
+
+fn decode_audio_range(path: &Path, start_hns: i64, end_hns: i64) -> Result<Vec<u8>, String> {
+    let mut pcm = decode_audio_pcm(path)?;
+    if start_hns <= 0 {
+        skip_aac_encoder_delay(&mut pcm);
+    }
+    let start = hns_to_pcm_bytes(start_hns).min(pcm.len());
+    let end = hns_to_pcm_bytes(end_hns).min(pcm.len()).max(start);
+    Ok(pcm[start..end].to_vec())
+}
+
 fn seek_reader(reader: &IMFSourceReader, position_hns: i64) -> Result<(), String> {
     unsafe {
         let position = PROPVARIANT::from(position_hns.max(0));

@@ -151,25 +151,18 @@ a {
   gap: 8px;
 }
 
+.brand-logo {
+  display: block;
+  height: 32px;
+  width: auto;
+}
+
 .brand-dot {
   width: 10px;
   height: 10px;
   border-radius: 99px;
   background: linear-gradient(135deg, #7fd0ef, #ff9ec8);
   box-shadow: 0 0 16px rgba(127, 208, 239, 0.7);
-}
-
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  background: linear-gradient(180deg, #5ce1ff, #2f7dff);
-  color: #041018;
-  font-size: 14px;
-  font-weight: 800;
-  box-shadow: 0 0 18px rgba(92, 225, 255, 0.45);
 }
 
 .site-nav,

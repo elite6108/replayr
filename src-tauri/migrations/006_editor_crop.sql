@@ -1,0 +1,1 @@
+ALTER TABLE local_clips ADD COLUMN editor_crop_x REAL NOT NULL DEFAULT 0.5;

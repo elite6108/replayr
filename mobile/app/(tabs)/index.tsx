@@ -10,6 +10,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -144,9 +145,12 @@ export default function HomeScreen() {
         }
       >
         <View style={styles.header}>
-          <Text style={styles.brand}>
-            Replay<Text style={styles.brandAccent}>r</Text>
-          </Text>
+          <Image
+            source={require("../../assets/images/replayr-logo.png")}
+            style={styles.brandLogo}
+            contentFit="contain"
+            accessibilityLabel="Replayr"
+          />
           <View style={styles.headerActions}>
             <Pressable style={styles.bell} onPress={() => router.push("/search")} hitSlop={8}>
               <Ionicons name="search" size={20} color={colors.text} />
@@ -392,8 +396,7 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: 16, paddingBottom: 40, gap: 22 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 4 },
-  brand: { color: colors.text, fontSize: 30, fontWeight: "800", letterSpacing: -0.6 },
-  brandAccent: { color: colors.accent },
+  brandLogo: { width: 148, height: 40 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 12 },
   bell: {
     position: "relative",

@@ -11,6 +11,7 @@ import { Redirect, useRouter } from "expo-router";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { AppleSignInButton } from "@/components/AppleSignInButton";
+import { Image } from "expo-image";
 import { Button, Field, Notice } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase";
@@ -116,6 +117,12 @@ export default function SignInScreen() {
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets
       >
+        <Image
+          source={require("../assets/images/replayr-logo.png")}
+          style={styles.brandLogo}
+          contentFit="contain"
+          accessibilityLabel="Replayr"
+        />
         <Text style={styles.title}>{mode === "in" ? "Sign in" : "Create account"}</Text>
         <Text style={styles.muted}>Same Replayr account as the Windows app. Clipping still happens on the PC.</Text>
         <View style={styles.row}>
@@ -202,6 +209,7 @@ function oauthError(caught: unknown): string {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
   page: { flexGrow: 1, backgroundColor: colors.bg, padding: 16, paddingBottom: 32, gap: 12 },
+  brandLogo: { width: 168, height: 46, marginBottom: 8 },
   title: { color: colors.text, fontSize: 28, fontWeight: "700" },
   muted: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   row: { flexDirection: "row", gap: 8 },

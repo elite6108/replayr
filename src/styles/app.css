@@ -23,7 +23,7 @@
   --radius-sm: 12px;
   --shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
   --font: "Outfit", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --font-chrome: "Segoe UI Variable Text", "Segoe UI", Tahoma, sans-serif;
+  --font-chrome: "Sora", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
 }
 
 * {
@@ -113,7 +113,7 @@ a {
   background: #08090d;
   user-select: none;
   font-family: var(--font-chrome);
-  letter-spacing: 0;
+  letter-spacing: 0.01em;
 }
 
 .nav-brand {
@@ -131,13 +131,10 @@ a {
   text-transform: none;
 }
 
-.nav-brand svg {
-  width: 34px;
-  height: 34px;
-  padding: 7px;
-  border-radius: 12px;
-  background: var(--accent-dim);
-  color: var(--accent);
+.nav-brand img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
 }
 
 .nav-item {
@@ -239,7 +236,7 @@ a {
   background: rgba(10, 12, 16, 0.78);
   backdrop-filter: blur(18px);
   font-family: var(--font-chrome);
-  letter-spacing: 0;
+  letter-spacing: 0.01em;
   overflow: visible;
   z-index: 40;
 }
@@ -249,7 +246,7 @@ a {
   align-items: center;
   gap: 10px;
   min-width: 168px;
-  padding: 6px 10px 6px 6px;
+  padding: 6px 12px;
   border-radius: 999px;
   background: var(--bg-chip);
   border: 1px solid var(--border);
@@ -1013,6 +1010,19 @@ a {
   bottom: 8px;
 }
 
+.clip-aspect-badge {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 2;
+  background: rgba(8, 10, 14, 0.82);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
 .clip-flag {
   position: absolute;
   left: 8px;
@@ -1445,9 +1455,17 @@ img.avatar {
 
 .onboarding-mark {
   height: auto;
+  flex: none;
+  width: auto;
   margin-bottom: 0;
   flex-direction: row;
+  align-self: flex-start;
   gap: 8px;
+}
+
+.onboarding-mark img {
+  height: 36px;
+  width: auto;
 }
 
 .player-overlay {
@@ -1753,13 +1771,57 @@ img.avatar {
 .editor-layout {
   display: grid;
   gap: 14px;
-  max-width: 1100px;
+  /* Match the column to the picture so the timeline lines up under it. */
+  width: min(1100px, calc(min(52vh, 560px) * var(--editor-aspect, 1.7778)));
+  min-width: min(100%, 560px);
+  margin-inline: auto;
 }
 
 .editor-stage video {
   width: 100%;
   max-height: min(52vh, 560px);
   background: #000;
+}
+
+.editor-preview {
+  position: relative;
+  width: 100%;
+  display: grid;
+}
+
+.editor-preview video {
+  display: block;
+  width: 100%;
+}
+
+.editor-reframe {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.editor-reframe.interactive {
+  pointer-events: auto;
+  cursor: ew-resize;
+}
+
+.editor-reframe-dim {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.editor-reframe-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  box-shadow: inset 0 0 0 2px var(--accent);
+  pointer-events: none;
+}
+
+.editor-actions {
+  flex-wrap: wrap;
 }
 
 .editor-transport {
@@ -1788,13 +1850,62 @@ img.avatar {
   border-radius: 11px;
 }
 
-.editor-strip canvas {
+.editor-strip img,
+.editor-strip-empty {
+  display: block;
   flex: 1;
   width: 0;
   height: 100%;
   object-fit: cover;
   pointer-events: none;
   background: #12161f;
+}
+
+.editor-strip-empty {
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.editor-short-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-short-btn.on:disabled {
+  opacity: 1;
+  cursor: default;
+  border-color: var(--border-strong);
+  background: #1a1f27;
+}
+
+.editor-brand-logos {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.editor-short-btn .editor-brand-logos {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.editor-short-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo-tiktok {
+  color: #69c9d0;
+}
+
+.logo-instagram {
+  color: #e4405f;
+}
+
+.logo-youtube {
+  color: #ff0033;
 }
 
 .editor-dim {

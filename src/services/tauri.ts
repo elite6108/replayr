@@ -94,6 +94,33 @@ export async function saveTrimmedClip(
   });
 }
 
+export async function saveShortClip(
+  sourceLocalId: string,
+  startMs: number,
+  endMs: number,
+  pan?: number,
+  title?: string,
+): Promise<LocalClip> {
+  return invoke("save_short_clip", {
+    sourceLocalId,
+    startMs: Math.round(startMs),
+    endMs: Math.round(endMs),
+    pan: pan == null ? 0.5 : Math.max(0, Math.min(1, pan)),
+    title,
+  });
+}
+
+export async function setClipEditorCrop(localId: string, pan: number): Promise<LocalClip> {
+  return invoke("set_clip_editor_crop", {
+    localId,
+    pan: Math.max(0, Math.min(1, pan)),
+  });
+}
+
+export async function shareLocalClip(filePath: string): Promise<string> {
+  return invoke("share_local_clip", { filePath });
+}
+
 export async function listClipFilmstrip(
   localId: string,
   count = 12,

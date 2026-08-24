@@ -17,8 +17,7 @@ export function SiteFooter() {
       </div>
       <div className="site-footer-bar">
         <Link className="brand" to="/">
-          <span className="brand-mark">R</span>
-          {APP_NAME}
+          <img className="brand-logo" src="/replayr-logo.png" alt={APP_NAME} />
         </Link>
         <p>© {new Date().getFullYear()} Replayr. Clipping happens on Windows.</p>
       </div>

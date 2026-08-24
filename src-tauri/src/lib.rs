@@ -31,6 +31,7 @@ mod process;
 mod process_loopback;
 mod settings;
 mod shortcut;
+mod share;
 mod still;
 mod system;
 mod upload;
@@ -162,11 +163,14 @@ pub fn run() {
             commands::resolve_mic_disconnect,
             commands::list_local_clips,
             commands::save_trimmed_clip,
+            commands::save_short_clip,
             commands::list_clip_filmstrip,
+            commands::set_clip_editor_crop,
             commands::rename_local_clip,
             commands::set_local_clip_favorite,
             commands::delete_local_clip,
             commands::reveal_local_clip,
+            commands::share_local_clip,
             commands::export_local_clip,
             commands::download_url_to_file,
             commands::get_default_save_location,

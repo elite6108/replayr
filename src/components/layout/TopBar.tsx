@@ -30,7 +30,6 @@ export function TopBar() {
   return (
     <header className="topbar">
       <div className={`topbar-game ${detected ? "live" : ""}`}>
-        <span className={detected ? "status-dot live" : "status-dot"} />
         <div>
           <div className="topbar-kicker">{detected ? (snapshot.focused ? "Playing" : "Running") : "Waiting"}</div>
           <div className="topbar-title">{detected ? snapshot.name : "Waiting for game"}</div>

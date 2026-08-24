@@ -30,6 +30,7 @@ pub struct LocalClipDto {
     pub source_clip_id: Option<String>,
     pub source_start_ms: Option<i64>,
     pub source_end_ms: Option<i64>,
+    pub editor_crop_x: f64,
 }
 
 pub struct ClipLineage {
@@ -139,8 +140,8 @@ fn insert_row(
         "INSERT INTO local_clips (
             local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
             duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-            source_clip_id, source_start_ms, source_end_ms
-         ) VALUES (?1, NULL, ?2, ?3, ?4, datetime('now'), ?5, ?6, ?7, ?8, ?9, 'local', 0, ?10, NULL, ?11, ?12, ?13)",
+            source_clip_id, source_start_ms, source_end_ms, editor_crop_x
+         ) VALUES (?1, NULL, ?2, ?3, ?4, datetime('now'), ?5, ?6, ?7, ?8, ?9, 'local', 0, ?10, NULL, ?11, ?12, ?13, 0.5)",
         rusqlite::params![
             local_id,
             path.display().to_string(),
@@ -164,7 +165,7 @@ pub fn list(conn: &Connection, limit: i64) -> AppResult<Vec<LocalClipDto>> {
     let mut stmt = conn.prepare(
         "SELECT local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
                 duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-                source_clip_id, source_start_ms, source_end_ms
+                source_clip_id, source_start_ms, source_end_ms, editor_crop_x
          FROM local_clips
          ORDER BY created_at DESC
          LIMIT ?1",
@@ -268,11 +269,25 @@ pub fn delete(conn: &Connection, local_id: &str) -> AppResult<()> {
     Ok(())
 }
 
+pub fn set_editor_crop(app: &AppHandle, local_id: &str, pan: f32) -> AppResult<LocalClipDto> {
+    let pan = f64::from(pan).clamp(0.0, 1.0);
+    let db = app.state::<AppState>();
+    let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    let changed = conn.execute(
+        "UPDATE local_clips SET editor_crop_x = ?1 WHERE local_id = ?2",
+        rusqlite::params![pan, local_id],
+    )?;
+    if changed == 0 {
+        return Err(AppError::Message("Clip not found.".into()));
+    }
+    get(&conn, local_id)
+}
+
 pub fn get(conn: &Connection, local_id: &str) -> AppResult<LocalClipDto> {
     conn.query_row(
         "SELECT local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
                 duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-                source_clip_id, source_start_ms, source_end_ms
+                source_clip_id, source_start_ms, source_end_ms, editor_crop_x
          FROM local_clips WHERE local_id = ?1",
         [local_id],
         map_clip,
@@ -335,6 +350,7 @@ fn map_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalClipDto> {
         source_clip_id: row.get(15)?,
         source_start_ms: row.get(16)?,
         source_end_ms: row.get(17)?,
+        editor_crop_x: row.get::<_, Option<f64>>(18)?.unwrap_or(0.5).clamp(0.0, 1.0),
     })
 }
 
@@ -441,5 +457,12 @@ mod tests {
         assert_eq!(clip.source_clip_id.as_deref(), Some("clip-3"));
         assert_eq!(clip.source_start_ms, Some(1000));
         assert_eq!(clip.source_end_ms, Some(4000));
+        conn.execute(
+            "UPDATE local_clips SET editor_crop_x = 0.25 WHERE local_id = 'clip-3'",
+            [],
+        )
+        .unwrap();
+        let framed = get(&conn, "clip-3").unwrap();
+        assert!((framed.editor_crop_x - 0.25).abs() < f64::EPSILON);
     }
 }

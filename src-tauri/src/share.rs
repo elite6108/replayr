@@ -1,0 +1,141 @@
+use std::path::Path;
+
+use tauri::{AppHandle, Manager};
+
+use crate::error::{AppError, AppResult};
+use crate::library;
+
+/// How the file was handed off: native share UI, clipboard file drop, or Explorer.
+pub fn share_file(app: &AppHandle, file_path: &str) -> AppResult<String> {
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return Err(AppError::Message("That file is no longer on disk.".into()));
+    }
+    #[cfg(windows)]
+    {
+        if show_share_ui(app, path).is_ok() {
+            return Ok("share".into());
+        }
+        if copy_file_drop(path).is_ok() {
+            return Ok("clipboard".into());
+        }
+        library::reveal(file_path)?;
+        Ok("folder".into())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        library::reveal(file_path)?;
+        Ok("folder".into())
+    }
+}
+
+#[cfg(windows)]
+fn show_share_ui(app: &AppHandle, path: &Path) -> Result<(), String> {
+    use windows::core::{Interface, HSTRING};
+    use windows::ApplicationModel::DataTransfer::{DataRequestedEventArgs, DataTransferManager};
+    use windows::Foundation::TypedEventHandler;
+    use windows::Storage::{IStorageItem, StorageFile};
+    use windows::Win32::System::WinRT::RoGetActivationFactory;
+    use windows::Win32::UI::Shell::IDataTransferManagerInterop;
+    use windows_collections::IIterable;
+
+    let hwnd = app
+        .get_webview_window("main")
+        .ok_or_else(|| "No window to share from.".to_string())?
+        .hwnd()
+        .map_err(|err| err.to_string())?;
+
+    let file_path = HSTRING::from(path.to_string_lossy().as_ref());
+    let file = StorageFile::GetFileFromPathAsync(&file_path)
+        .map_err(|err| err.to_string())?
+        .get()
+        .map_err(|err| err.to_string())?;
+    let item: IStorageItem = file.cast().map_err(|err| err.to_string())?;
+    let item = windows::core::AgileReference::new(&item).map_err(|err| err.to_string())?;
+    let title = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Replayr clip")
+        .to_string();
+
+    let class = HSTRING::from("Windows.ApplicationModel.DataTransfer.DataTransferManager");
+    let interop: IDataTransferManagerInterop =
+        unsafe { RoGetActivationFactory(&class) }.map_err(|err| err.to_string())?;
+    let manager: DataTransferManager = unsafe { interop.GetForWindow(hwnd) }.map_err(|err| err.to_string())?;
+
+    let handler = TypedEventHandler::<DataTransferManager, DataRequestedEventArgs>::new(move |_, args| {
+        let Some(args) = args.as_ref() else {
+            return Ok(());
+        };
+        let item = item.resolve()?;
+        let request = args.Request()?;
+        let data = request.Data()?;
+        data.Properties()?.SetTitle(&HSTRING::from(title.as_str()))?;
+        let storage_items: IIterable<IStorageItem> = vec![Some(item)].into();
+        data.SetStorageItemsReadOnly(&storage_items)?;
+        Ok(())
+    });
+    let _token = manager.DataRequested(&handler).map_err(|err| err.to_string())?;
+    unsafe {
+        interop.ShowShareUIForWindow(hwnd).map_err(|err| err.to_string())?;
+    }
+    // DataRequested fires after this returns; keep the manager alive for the flyout.
+    std::mem::forget(manager);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn copy_file_drop(path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE, GMEM_ZEROINIT};
+
+    const CF_HDROP: u32 = 15;
+
+    #[repr(C)]
+    struct Dropfiles {
+        p_files: u32,
+        x: i32,
+        y: i32,
+        nc: i32,
+        wide: i32,
+    }
+
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide.push(0);
+    wide.push(0);
+    let header = std::mem::size_of::<Dropfiles>();
+    let bytes = header + wide.len() * 2;
+    unsafe {
+        let handle = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes).map_err(|err| err.to_string())?;
+        if handle.is_invalid() {
+            return Err("Could not copy that clip.".into());
+        }
+        let locked = GlobalLock(handle);
+        if locked.is_null() {
+            return Err("Could not copy that clip.".into());
+        }
+        let header_ptr = locked.cast::<Dropfiles>();
+        header_ptr.write(Dropfiles {
+            p_files: header as u32,
+            x: 0,
+            y: 0,
+            nc: 0,
+            wide: 1,
+        });
+        std::ptr::copy_nonoverlapping(
+            wide.as_ptr(),
+            locked.cast::<u8>().add(header).cast::<u16>(),
+            wide.len(),
+        );
+        let _ = GlobalUnlock(handle);
+        OpenClipboard(None).map_err(|err| err.to_string())?;
+        let _ = EmptyClipboard();
+        let copied = SetClipboardData(CF_HDROP, Some(HANDLE(handle.0)));
+        let _ = CloseClipboard();
+        copied.map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}

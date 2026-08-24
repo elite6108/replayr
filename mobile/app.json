@@ -11,6 +11,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "tv.elite.replay",
       "usesAppleSignIn": true,
+      "entitlements": {
+        "aps-environment": "production"
+      },
       "associatedDomains": [
         "applinks:replayr.tv",
         "applinks:www.replayr.tv",

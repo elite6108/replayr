@@ -1423,6 +1423,22 @@ code {
     justify-content: center;
   }
 
+  .header-popover-wrap,
+  .header-icon-btn {
+    width: 100%;
+  }
+
+  .header-icon-btn {
+    height: 42px;
+    border-radius: 999px;
+  }
+
+  .header-popover {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+
   .product-frame-body,
   .app-preview-body,
   .landing-hero-grid,
@@ -2238,12 +2254,5 @@ code {
   display: flex;
   gap: 6px;
   justify-content: flex-end;
-}
-
-@media (max-width: 860px) {
-  .header-popover {
-    right: auto;
-    left: 0;
-  }
 }
 

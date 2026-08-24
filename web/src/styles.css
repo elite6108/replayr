@@ -244,6 +244,61 @@ a {
   margin: 0 0 16px;
 }
 
+.page.legal {
+  max-width: 760px;
+}
+
+.page.legal h1 {
+  font-size: clamp(2.1rem, 5vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  max-width: none;
+  margin: 0 0 8px;
+}
+
+.legal-updated {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.legal-doc {
+  margin-top: 28px;
+}
+
+.legal-doc h2 {
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+  margin: 28px 0 10px;
+}
+
+.legal-doc h3 {
+  font-size: 1rem;
+  margin: 16px 0 8px;
+}
+
+.legal-doc p,
+.legal-doc li {
+  color: var(--muted);
+  max-width: 68ch;
+  line-height: 1.55;
+}
+
+.legal-doc ul {
+  margin: 0 0 12px;
+  padding-left: 1.2em;
+}
+
+.legal-doc li {
+  margin: 0 0 6px;
+}
+
+.legal-switch {
+  margin-top: 36px;
+  color: var(--muted);
+}
+
 .hero {
   padding: 36px 0 12px;
 }

@@ -1,6 +1,6 @@
 [package]
 name = "replay"
-version = "0.1.8"
+version = "0.1.9"
 description = "Project Replay desktop application"
 authors = ["Project Replay"]
 edition = "2021"
@@ -40,6 +40,7 @@ windows = { version = "0.61", features = [
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Performance",
     "Win32_System_Threading",
     "Win32_System_Variant",
     "Win32_UI_Shell",

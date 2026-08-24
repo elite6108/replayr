@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
-import { publicAppUrl, APP_NAME } from "../branding";
+import { publicAppUrl, publicSiteUrl, APP_NAME } from "../branding";
 import { PageHeader } from "../components/common/PageHeader";
 import { DEFAULT_HOTKEYS, findHotkeyConflicts, HOTKEY_ACTIONS, HOTKEY_LABELS } from "../utils/hotkeys";
 import { displayHotkey } from "../utils/format";
@@ -119,6 +119,19 @@ export function SettingsPage() {
                   : "Restart to update"}
               </button>
             ) : null}
+          </div>
+        </section>
+
+        <section className="panel stack">
+          <h2>Legal</h2>
+          <p className="muted">Privacy and terms for Replayr on this PC, the website, and the phone apps.</p>
+          <div className="row">
+            <a className="btn" href={`${publicSiteUrl()}/privacy`} target="_blank" rel="noreferrer">
+              Privacy Policy
+            </a>
+            <a className="btn" href={`${publicSiteUrl()}/terms`} target="_blank" rel="noreferrer">
+              Terms of Service
+            </a>
           </div>
         </section>
 

@@ -71,15 +71,25 @@ pub fn concat_mp4s(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
         drop(reader);
         if has_audio {
             let video_added = video_time.saturating_sub(video_before);
-            let (chunk, from_sidecar) = load_segment_pcm(path);
-            let chunk = if chunk.is_empty() {
-                vec![0u8; hns_to_pcm_bytes(video_added)]
-            } else {
-                chunk
-            };
+            let (mut chunk, from_sidecar) = load_segment_pcm(path);
             if from_sidecar {
+                // Each sidecar already runs at 1x for exactly its own segment,
+                // so pinning it to that segment's video length keeps every later
+                // segment at its true offset. Correcting only the total would
+                // let a short segment shift everything after it.
+                let drift = fit_pcm_to_video(&mut chunk, video_added);
+                if drift.abs() > hns_to_pcm_bytes(200_000) as i64 {
+                    tracing::warn!(
+                        "segment {} audio was {} ms off its video",
+                        path.display(),
+                        pcm_bytes_to_ms(drift)
+                    );
+                }
                 append_pcm(&mut pcm, &chunk);
             } else {
+                if chunk.is_empty() {
+                    chunk = vec![0u8; hns_to_pcm_bytes(video_added)];
+                }
                 append_crossfade(&mut pcm, &chunk);
             }
         }
@@ -474,13 +484,22 @@ fn hns_to_pcm_bytes(hns: i64) -> usize {
     bytes - (bytes % PCM_ALIGN)
 }
 
-fn fit_pcm_to_video(pcm: &mut Vec<u8>, video_hns: i64) {
+/// Pins `pcm` to the duration of the video it accompanies. Returns how far off
+/// it was, in bytes; anything but a rounding error means audio went missing
+/// upstream.
+fn fit_pcm_to_video(pcm: &mut Vec<u8>, video_hns: i64) -> i64 {
     let want = hns_to_pcm_bytes(video_hns);
+    let drift = pcm.len() as i64 - want as i64;
     if pcm.len() > want {
         pcm.truncate(want);
     } else if pcm.len() < want {
         pcm.resize(want, 0);
     }
+    drift
+}
+
+fn pcm_bytes_to_ms(bytes: i64) -> i64 {
+    bytes * 1000 / i64::from(PCM_BYTES_PER_SEC)
 }
 
 fn write_stitched_aac(writer: &IMFSinkWriter, stream: u32, pcm: &[u8]) -> Result<(), String> {

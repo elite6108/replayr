@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { useAuth } from "../lib/auth";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
@@ -123,6 +123,10 @@ export function SignInPage() {
         <button className="btn primary" type="submit" disabled={busy}>
           {busy ? "Working…" : mode === "in" ? "Sign in" : "Create account"}
         </button>
+        <p className="muted">
+          By continuing you agree to the <Link to="/terms">Terms</Link> and{" "}
+          <Link to="/privacy">Privacy Policy</Link>.
+        </p>
       </form>
     </main>
   );

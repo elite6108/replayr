@@ -272,6 +272,7 @@ pub fn get_mic_level(app: AppHandle, state: State<AppState>) -> f32 {
                         .ensure_peak_monitor(&device_id);
                 });
         }
+        runtime.idle_tick();
         runtime.peak()
     }
     #[cfg(not(windows))]

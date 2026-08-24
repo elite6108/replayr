@@ -7,6 +7,8 @@ use std::time::Duration;
 
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
+use crate::audio::AudioRuntime;
+use crate::audio_timeline::{frames_from_hns, MixStats, AUDIO_LEAD_HNS};
 use crate::buffer::Segment;
 use crate::capture::CaptureShared;
 use crate::encode::MfWriter;
@@ -21,7 +23,6 @@ pub struct QueuedFrame {
     pub width: u32,
     pub height: u32,
     pub capture_hns: i64,
-    pub pcm: Vec<u8>,
 }
 
 pub struct EncodeSession {
@@ -35,6 +36,7 @@ pub struct EncodeSession {
     pub segmented: bool,
     pub min_free_disk_bytes: u64,
     pub shared: Arc<CaptureShared>,
+    pub audio: AudioRuntime,
 }
 
 struct FrameQueue {
@@ -145,7 +147,11 @@ struct EncodeState {
     segmented: bool,
     min_free_disk_bytes: u64,
     shared: Arc<CaptureShared>,
+    audio: AudioRuntime,
     segment_index: u64,
+    /// Session-absolute, unlike the writer's own clock which resets per segment.
+    last_capture_hns: i64,
+    stats_at_segment_start: MixStats,
 }
 
 fn encode_thread_main(
@@ -189,7 +195,10 @@ fn encode_thread_main(
         segmented: session.segmented,
         min_free_disk_bytes: session.min_free_disk_bytes,
         shared: session.shared,
+        audio: session.audio,
         segment_index: 0,
+        last_capture_hns: 0,
+        stats_at_segment_start: MixStats::default(),
     };
     while let Some(frame) = queue.pop() {
         if let Err(err) = state.handle_frame(frame) {
@@ -204,6 +213,7 @@ fn encode_thread_main(
 impl EncodeState {
     fn handle_frame(&mut self, frame: QueuedFrame) -> Result<(), String> {
         let requested = self.shared.rotate.swap(false, Ordering::SeqCst);
+        self.last_capture_hns = frame.capture_hns;
         let Some(encoder) = self.encoder.as_mut() else {
             return Ok(());
         };
@@ -218,10 +228,14 @@ impl EncodeState {
             closing,
         )?;
         if self.include_audio {
+            let pcm = self.audio.read_audio(audio_cursor(frame.capture_hns));
+            let Some(encoder) = self.encoder.as_mut() else {
+                return Ok(());
+            };
             if closing {
-                encoder.write_pcm_closing(&frame.pcm)?;
+                encoder.write_pcm_closing(&pcm)?;
             } else {
-                encoder.write_pcm(&frame.pcm)?;
+                encoder.write_pcm(&pcm)?;
             }
         }
         if closing {
@@ -231,11 +245,6 @@ impl EncodeState {
     }
 
     fn rotate(&mut self) -> Result<(), String> {
-        let leftover = self
-            .encoder
-            .as_mut()
-            .map(|encoder| encoder.take_audio_leftover())
-            .unwrap_or_default();
         let last_capture = self.encoder.as_ref().and_then(MfWriter::last_capture_hns);
         self.finish_encoder()?;
         match crate::disk::ensure_free_space(&self.dir, self.min_free_disk_bytes) {
@@ -251,7 +260,6 @@ impl EncodeState {
         let session = self.as_session();
         let mut encoder = open_session_encoder(&self.path, &session, self.include_audio)?;
         encoder.set_last_capture_hns(last_capture);
-        encoder.prepend_audio_leftover(leftover);
         self.include_audio = self.include_audio && encoder.has_audio();
         self.encoder = Some(encoder);
         self.shared.notify_rotate();
@@ -271,6 +279,7 @@ impl EncodeState {
             segmented: self.segmented,
             min_free_disk_bytes: self.min_free_disk_bytes,
             shared: Arc::clone(&self.shared),
+            audio: self.audio.clone(),
         }
     }
 
@@ -287,9 +296,37 @@ impl EncodeState {
 
     fn finish_encoder(&mut self) -> Result<(), String> {
         if let Some(mut encoder) = self.encoder.take() {
-            let _ = encoder.write_pcm_closing(&[]);
+            if self.include_audio {
+                // Take everything the timeline owes this segment so the audio
+                // covers the same span as the video that just closed.
+                let tail = self.audio.read_audio(audio_cursor(self.last_capture_hns));
+                let _ = encoder.write_pcm_closing(&tail);
+            } else {
+                let _ = encoder.write_pcm_closing(&[]);
+            }
             let duration_ms = (encoder.timestamp() / 10_000).max(0) as u64;
+            let skew_ms = encoder.av_skew_hns() / 10_000;
             let path = self.path.clone();
+            if self.include_audio {
+                let total = self.audio.mix_stats();
+                let stats = total.since(&self.stats_at_segment_start);
+                self.stats_at_segment_start = total;
+                tracing::debug!(
+                    "segment {} {duration_ms} ms audio skew {skew_ms} ms; gaps={} ({} ms) silent={} ms late={} ms overflow={} ms",
+                    self.segment_index,
+                    stats.gaps,
+                    MixStats::ms(stats.gap_frames),
+                    MixStats::ms(stats.silent_frames),
+                    MixStats::ms(stats.late_frames),
+                    MixStats::ms(stats.overflow_frames),
+                );
+                if skew_ms.abs() > 100 {
+                    tracing::warn!(
+                        "segment {} audio is {skew_ms} ms off its video; the timeline is losing frames",
+                        self.segment_index
+                    );
+                }
+            }
             encoder.finish().map_err(|err| err.to_string())?;
             if self.segmented && duration_ms > 0 {
                 if let Ok(mut buffer) = self.shared.buffer.lock() {
@@ -308,6 +345,15 @@ impl EncodeState {
         }
         Ok(())
     }
+}
+
+/// The timeline frame the encoder may read up to at this video timestamp.
+///
+/// Audio reaches us later than the video frame it belongs with, so the read
+/// cursor trails by one lead. That lead is emitted as silence at the head of
+/// the recording, which keeps every later frame at its true position.
+fn audio_cursor(capture_hns: i64) -> i64 {
+    frames_from_hns(capture_hns) - frames_from_hns(AUDIO_LEAD_HNS)
 }
 
 fn open_session_encoder(path: &Path, session: &EncodeSession, want_audio: bool) -> Result<MfWriter, String> {

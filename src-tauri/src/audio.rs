@@ -1,5 +1,4 @@
-use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -7,15 +6,16 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
-use wasapi::{
-    DeviceCollection, Direction, SampleType, StreamMode, WaveFormat, get_default_device,
-    initialize_mta,
-};
+use wasapi::{DeviceCollection, Direction, get_default_device, initialize_mta};
 
+use crate::audio_capture::{
+    capture_device_present, default_render_device, open_device_client, run_capture_loop,
+};
 use crate::audio_resolve::{
     extra_isolated_count, process_loopback_supported, resolve_catalog_pid, resolve_extra_app_pid,
     resolve_game_pids, DETECTED_EXTRAS, DISCORD,
 };
+use crate::audio_timeline::{MixSink, MixStats, SourceControl};
 use crate::games::{DetectedGameSnapshot, GameRecord};
 use crate::process::list_processes;
 use crate::process_loopback::{
@@ -25,12 +25,6 @@ use crate::settings::{AppSettings, ExtraAudioApp};
 
 pub use crate::process_loopback::AudioSessionInfo;
 
-const MIX_RATE: u32 = 48_000;
-const MIX_CHANNELS: u32 = 2;
-const BYTES_PER_SAMPLE: usize = 2;
-const FRAME_BYTES: usize = MIX_CHANNELS as usize * BYTES_PER_SAMPLE;
-const MAX_BUFFER: usize = MIX_RATE as usize * FRAME_BYTES;
-const PEAK_SCALE: f32 = 10_000.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -126,10 +120,11 @@ pub struct AudioRuntime {
 
 struct AudioRuntimeInner {
     mic: Mutex<Option<MicCapture>>,
-    gain_bits: AtomicU32,
-    peak: AtomicU32,
-    mix_enabled: AtomicBool,
-    desktop_enabled: AtomicBool,
+    mic_control: Arc<SourceControl>,
+    desktop_control: Arc<SourceControl>,
+    /// Every capture thread sums into this one timeline. Sources that are off
+    /// keep running for their level meters but do not contribute.
+    sink: Arc<MixSink>,
     hold_device: Mutex<Option<String>>,
     isolated: Mutex<Vec<IsolatedClient>>,
     status: Mutex<AudioEngineStatus>,
@@ -141,16 +136,41 @@ impl AudioRuntime {
         Self {
             inner: Arc::new(AudioRuntimeInner {
                 mic: Mutex::new(None),
-                gain_bits: AtomicU32::new(1.0f32.to_bits()),
-                peak: AtomicU32::new(0),
-                mix_enabled: AtomicBool::new(false),
-                desktop_enabled: AtomicBool::new(false),
+                mic_control: Arc::new(SourceControl::new(false, 1.0)),
+                desktop_control: Arc::new(SourceControl::new(false, 1.0)),
+                sink: Arc::new(MixSink::new()),
                 hold_device: Mutex::new(None),
                 isolated: Mutex::new(Vec::new()),
                 status: Mutex::new(AudioEngineStatus::unsupported()),
                 app: Mutex::new(None),
             }),
         }
+    }
+
+    pub fn sink(&self) -> Arc<MixSink> {
+        Arc::clone(&self.inner.sink)
+    }
+
+    pub fn desktop_control(&self) -> Arc<SourceControl> {
+        Arc::clone(&self.inner.desktop_control)
+    }
+
+    /// Opens the timeline. `origin_hns` must be sampled next to the video
+    /// session clock so the two agree on where time zero is.
+    pub fn begin_session(&self, origin_hns: i64) {
+        self.inner.sink.begin_session(origin_hns);
+    }
+
+    pub fn end_session(&self) {
+        self.inner.sink.end_session();
+    }
+
+    pub fn read_audio(&self, end_frame: i64) -> Vec<u8> {
+        self.inner.sink.read_upto(end_frame)
+    }
+
+    pub fn mix_stats(&self) -> MixStats {
+        self.inner.sink.stats()
     }
 
     pub fn bind(&self, app: AppHandle) {
@@ -166,13 +186,11 @@ impl AudioRuntime {
     }
 
     pub fn peak(&self) -> f32 {
-        self.inner.peak.load(Ordering::Relaxed) as f32 / PEAK_SCALE
+        self.inner.mic_control.peak()
     }
 
     pub fn set_gain(&self, gain: f32) {
-        self.inner
-            .gain_bits
-            .store(gain.clamp(0.0, 2.0).to_bits(), Ordering::Relaxed);
+        self.inner.mic_control.set_gain(gain);
     }
 
     pub fn is_monitoring(&self, device_id: &str) -> bool {
@@ -198,18 +216,16 @@ impl AudioRuntime {
         }
         match MicCapture::start(requested, self.clone()) {
             Some(capture) => self.replace_mic(Some(capture)),
-            None => {
-                self.inner.peak.store(0, Ordering::Relaxed);
-            }
+            None => self.inner.mic_control.reset_peak(),
         }
     }
 
     pub fn stop_if_not_mixing(&self) {
-        if self.inner.mix_enabled.load(Ordering::Relaxed) {
+        if self.inner.mic_control.enabled() {
             return;
         }
         self.replace_mic(None);
-        self.inner.peak.store(0, Ordering::Relaxed);
+        self.inner.mic_control.reset_peak();
     }
 
     pub fn apply(&self, settings: &AppSettings) {
@@ -224,22 +240,18 @@ impl AudioRuntime {
         catalog: &[GameRecord],
     ) {
         self.inner
-            .desktop_enabled
-            .store(settings.system_audio_enabled, Ordering::Relaxed);
+            .desktop_control
+            .set_enabled(settings.system_audio_enabled);
         self.sync_isolated(settings, Some(snapshot), Some(catalog));
     }
 
     fn apply_mic(&self, settings: &AppSettings) {
         let route = MicRoute::from_settings(settings);
+        self.inner.mic_control.set_gain(route.gain);
+        self.inner.mic_control.set_enabled(route.enabled);
         self.inner
-            .gain_bits
-            .store(route.gain.to_bits(), Ordering::Relaxed);
-        self.inner
-            .mix_enabled
-            .store(route.enabled, Ordering::Relaxed);
-        self.inner
-            .desktop_enabled
-            .store(settings.system_audio_enabled, Ordering::Relaxed);
+            .desktop_control
+            .set_enabled(settings.system_audio_enabled);
 
         let held = self
             .inner
@@ -249,7 +261,7 @@ impl AudioRuntime {
             .and_then(|guard| guard.clone());
         if route.enabled && held.as_ref() == Some(&route.device_id) {
             self.replace_mic(None);
-            self.inner.peak.store(0, Ordering::Relaxed);
+            self.inner.mic_control.reset_peak();
             return;
         }
         if !route.enabled {
@@ -304,48 +316,17 @@ impl AudioRuntime {
         }
     }
 
-    pub fn mix_into(&self, loopback: Vec<u8>) -> Vec<u8> {
-        let isolated = self.take_isolated();
-        let mic = if self.inner.mix_enabled.load(Ordering::Relaxed) {
-            self.inner
-                .mic
-                .lock()
-                .ok()
-                .and_then(|slot| slot.as_ref().map(MicCapture::take))
-                .unwrap_or_default()
-        } else {
-            if self.inner.mic.lock().ok().and_then(|slot| slot.as_ref().map(|_| ())).is_none() {
-                decay_peak(&self.inner.peak);
-            }
-            Vec::new()
-        };
-        let mic_gain = f32::from_bits(self.inner.gain_bits.load(Ordering::Relaxed)).clamp(0.0, 2.0);
-        let desktop_on = self.inner.desktop_enabled.load(Ordering::Relaxed);
-        let system = if desktop_on { loopback } else { isolated };
-        if mic.is_empty() {
-            return system;
-        }
-        mix_pcm(&system, &mic, mic_gain)
-    }
-
-    fn take_isolated(&self) -> Vec<u8> {
-        let Ok(clients) = self.inner.isolated.lock() else {
-            return Vec::new();
-        };
-        let mut mixed = Vec::new();
-        for client in clients.iter() {
-            let pcm = client.capture.take();
-            mixed = mix_pcm(&mixed, &pcm, client.gain);
-        }
-        mixed
-    }
-
-    pub fn discard_pending(&self) {
-        let _ = self.take_isolated();
-        if let Ok(slot) = self.inner.mic.lock() {
-            if let Some(mic) = slot.as_ref() {
-                let _ = MicCapture::take(mic);
-            }
+    /// Decays the microphone meter when no capture thread is feeding it.
+    pub fn idle_tick(&self) {
+        let running = self
+            .inner
+            .mic
+            .lock()
+            .ok()
+            .map(|slot| slot.is_some())
+            .unwrap_or(false);
+        if !running {
+            self.inner.mic_control.decay_peak();
         }
     }
 
@@ -428,6 +409,9 @@ impl AudioRuntime {
             }
         }
 
+        // Desktop loopback already carries every app's audio. Running the
+        // isolated sources alongside it would sum each one twice.
+        let isolated_enabled = !settings.system_audio_enabled;
         if let Ok(mut clients) = self.inner.isolated.lock() {
             clients.retain(|client| {
                 let still_wanted = desired.iter().any(|plan| plan.key == client.key);
@@ -440,10 +424,17 @@ impl AudioRuntime {
                 if let Some(existing) = clients.iter_mut().find(|client| client.key == plan.key) {
                     if !existing.capture.failed() {
                         existing.gain = plan.gain;
+                        existing.capture.control().set_gain(plan.gain);
+                        existing.capture.control().set_enabled(isolated_enabled);
                     }
                     continue;
                 }
-                if let Some(capture) = ProcessLoopbackCapture::start(plan.pid) {
+                if let Some(capture) = ProcessLoopbackCapture::start(
+                    plan.pid,
+                    self.sink(),
+                    isolated_enabled,
+                    plan.gain,
+                ) {
                     clients.push(IsolatedClient {
                         key: plan.key.clone(),
                         gain: plan.gain,
@@ -494,7 +485,7 @@ impl AudioRuntime {
         } else {
             self.replace_mic(None);
         }
-        self.inner.peak.store(0, Ordering::Relaxed);
+        self.inner.mic_control.reset_peak();
         self.emit_disconnect(device_id, name);
     }
 
@@ -514,34 +505,29 @@ impl AudioRuntime {
 }
 
 pub struct LoopbackCapture {
-    buffer: Arc<Mutex<Vec<u8>>>,
     stop: Arc<AtomicBool>,
     join: Option<JoinHandle<()>>,
 }
 
 impl LoopbackCapture {
-    pub fn start() -> Option<Self> {
-        let buffer = Arc::new(Mutex::new(Vec::new()));
+    pub fn start(sink: Arc<MixSink>, control: Arc<SourceControl>) -> Option<Self> {
         let stop = Arc::new(AtomicBool::new(false));
-        let buffer_thread = buffer.clone();
         let stop_thread = stop.clone();
         let join = thread::Builder::new()
             .name("wasapi-loopback".into())
             .spawn(move || {
-                if let Err(err) = loopback_loop(buffer_thread, stop_thread) {
-                    tracing::warn!("WASAPI loopback stopped: {err}");
+                let _ = initialize_mta().ok();
+                if let Err(err) = loopback_loop(&sink, &control, &stop_thread) {
+                    if !stop_thread.load(Ordering::Relaxed) {
+                        tracing::warn!("WASAPI loopback stopped: {err}");
+                    }
                 }
             })
             .ok()?;
         Some(Self {
-            buffer,
             stop,
             join: Some(join),
         })
-    }
-
-    pub fn take(&self) -> Vec<u8> {
-        take_pcm(&self.buffer)
     }
 }
 
@@ -556,24 +542,23 @@ impl Drop for LoopbackCapture {
 
 struct MicCapture {
     requested_id: String,
-    buffer: Arc<Mutex<Vec<u8>>>,
     stop: Arc<AtomicBool>,
     join: Option<JoinHandle<()>>,
 }
 
 impl MicCapture {
     fn start(requested_id: String, runtime: AudioRuntime) -> Option<Self> {
-        let buffer = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
-        let buffer_thread = buffer.clone();
         let stop_thread = stop.clone();
         let id_thread = requested_id.clone();
+        let sink = runtime.sink();
+        let control = Arc::clone(&runtime.inner.mic_control);
         let join = thread::Builder::new()
             .name("wasapi-mic".into())
             .spawn(move || {
                 let _ = initialize_mta().ok();
                 let friendly = device_name(&id_thread).unwrap_or_else(|| "Microphone".into());
-                if let Err(err) = mic_loop(&id_thread, buffer_thread, stop_thread.clone(), runtime.clone()) {
+                if let Err(err) = mic_loop(&id_thread, &sink, &control, &stop_thread) {
                     if !stop_thread.load(Ordering::Relaxed) {
                         tracing::warn!("WASAPI microphone stopped: {err}");
                         runtime.notify_disconnect(&id_thread, &friendly, true);
@@ -583,14 +568,9 @@ impl MicCapture {
             .ok()?;
         Some(Self {
             requested_id,
-            buffer,
             stop,
             join: Some(join),
         })
-    }
-
-    fn take(&self) -> Vec<u8> {
-        take_pcm(&self.buffer)
     }
 
     fn detach(&mut self) {
@@ -885,146 +865,52 @@ fn failed_for_prefix(clients: Option<&[IsolatedClient]>, prefix: &str) -> bool {
     !matching.is_empty() && matching.iter().all(|client| client.capture.failed())
 }
 
-pub fn mix_pcm(loopback: &[u8], mic: &[u8], gain: f32) -> Vec<u8> {
-    let loopback = align_frames(loopback);
-    let mic = align_frames(mic);
-    if mic.is_empty() {
-        return loopback.to_vec();
-    }
-    let gain = gain.clamp(0.0, 2.0);
-    if loopback.is_empty() {
-        return scale_pcm(mic, gain);
-    }
-    let loop_samples = pcm_i16(loopback);
-    let mic_samples = pcm_i16(mic);
-    let len = loop_samples.len().max(mic_samples.len());
-    let mut mixed = vec![0i16; len];
-    mixed[..loop_samples.len()].copy_from_slice(&loop_samples);
-    for (index, sample) in mic_samples.iter().enumerate() {
-        let scaled = *sample as f32 * gain;
-        mixed[index] = soft_clip_i16(mixed[index] as f32 + scaled);
-    }
-    i16_to_bytes(&mixed)
-}
-
-fn scale_pcm(pcm: &[u8], gain: f32) -> Vec<u8> {
-    if (gain - 1.0).abs() < f32::EPSILON {
-        return pcm.to_vec();
-    }
-    let scaled: Vec<i16> = pcm_i16(pcm)
-        .into_iter()
-        .map(|sample| {
-            soft_clip_i16(sample as f32 * gain)
-        })
-        .collect();
-    i16_to_bytes(&scaled)
-}
-
 fn loopback_loop(
-    buffer: Arc<Mutex<Vec<u8>>>,
-    stop: Arc<AtomicBool>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let _ = initialize_mta().ok();
-    let device = get_default_device(&Direction::Render)?;
-    let mut audio_client = device.get_iaudioclient()?;
-    let desired_format = WaveFormat::new(16, 16, &SampleType::Int, MIX_RATE as usize, MIX_CHANNELS as usize, None);
-    let (_default_period, min_period) = audio_client.get_device_period()?;
-    let mode = StreamMode::EventsShared {
-        autoconvert: true,
-        buffer_duration_hns: min_period,
-    };
-    audio_client.initialize_client(&desired_format, &Direction::Capture, &mode)?;
-    let event = audio_client.set_get_eventhandle()?;
-    let capture_client = audio_client.get_audiocaptureclient()?;
-    audio_client.start_stream()?;
-    let mut queue = VecDeque::new();
-    while !stop.load(Ordering::Relaxed) {
-        if event.wait_for_event(200).is_err() {
-            continue;
-        }
-        capture_client.read_from_device_to_deque(&mut queue)?;
-        if queue.is_empty() {
-            continue;
-        }
-        append_pcm(&buffer, queue.drain(..));
-    }
-    let _ = audio_client.stop_stream();
-    Ok(())
+    sink: &Arc<MixSink>,
+    control: &Arc<SourceControl>,
+    stop: &AtomicBool,
+) -> Result<(), String> {
+    let device = default_render_device()?;
+    let ready = open_device_client(&device, true)?;
+    let result = run_capture_loop(&ready, sink, control, stop, || Ok(()));
+    ready.close();
+    result
 }
 
 fn mic_loop(
     requested_id: &str,
-    buffer: Arc<Mutex<Vec<u8>>>,
-    stop: Arc<AtomicBool>,
-    runtime: AudioRuntime,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let _ = initialize_mta().ok();
-    let device = capture_device(requested_id)?;
-    let mut audio_client = device.get_iaudioclient()?;
-    let desired_format = WaveFormat::new(16, 16, &SampleType::Int, MIX_RATE as usize, MIX_CHANNELS as usize, None);
-    let (_default_period, min_period) = audio_client.get_device_period()?;
-    let mode = StreamMode::EventsShared {
-        autoconvert: true,
-        buffer_duration_hns: min_period,
-    };
-    audio_client.initialize_client(&desired_format, &Direction::Capture, &mode)?;
-    let event = audio_client.set_get_eventhandle()?;
-    let capture_client = audio_client.get_audiocaptureclient()?;
-    audio_client.start_stream()?;
-    let mut queue = VecDeque::new();
-    let mut last_presence = Instant::now();
-    while !stop.load(Ordering::Relaxed) {
-        if event.wait_for_event(200).is_err() {
-            if last_presence.elapsed() >= Duration::from_secs(2) {
-                if !capture_device_present(requested_id) {
-                    return Err("microphone device disappeared".into());
-                }
-                last_presence = Instant::now();
-            }
-            continue;
+    sink: &Arc<MixSink>,
+    control: &Arc<SourceControl>,
+    stop: &AtomicBool,
+) -> Result<(), String> {
+    let device = crate::audio_capture::capture_device(&normalize_device_id(requested_id))?;
+    let ready = open_device_client(&device, false)?;
+    let result = run_capture_loop(&ready, sink, control, stop, || {
+        if capture_device_present(&normalize_device_id(requested_id)) {
+            Ok(())
+        } else {
+            Err("microphone device disappeared".into())
         }
-        capture_client.read_from_device_to_deque(&mut queue)?;
-        if queue.is_empty() {
-            continue;
-        }
-        let chunk: Vec<u8> = queue.drain(..).collect();
-        let gain = f32::from_bits(runtime.inner.gain_bits.load(Ordering::Relaxed)).clamp(0.0, 2.0);
-        update_peak(&runtime.inner.peak, &chunk, gain);
-        append_pcm(&buffer, chunk.into_iter());
-        if last_presence.elapsed() >= Duration::from_secs(2) {
-            if !capture_device_present(requested_id) {
-                return Err("microphone device disappeared".into());
-            }
-            last_presence = Instant::now();
-        }
-    }
-    let _ = audio_client.stop_stream();
-    Ok(())
-}
-
-fn capture_device(id: &str) -> Result<wasapi::Device, Box<dyn std::error::Error + Send + Sync>> {
-    let id = normalize_device_id(id);
-    if id == "default" {
-        return Ok(get_default_device(&Direction::Capture)?);
-    }
-    let collection = DeviceCollection::new(&Direction::Capture)?;
-    for device in &collection {
-        let device = device?;
-        if device.get_id()? == id {
-            return Ok(device);
-        }
-    }
-    Err("microphone device not found".into())
-}
-
-fn capture_device_present(id: &str) -> bool {
-    capture_device(id).is_ok()
+    });
+    ready.close();
+    result
 }
 
 fn device_name(id: &str) -> Option<String> {
-    capture_device(id)
-        .ok()
-        .and_then(|device| device.get_friendlyname().ok())
+    let id = normalize_device_id(id);
+    if id == "default" {
+        return get_default_device(&Direction::Capture)
+            .ok()
+            .and_then(|device| device.get_friendlyname().ok());
+    }
+    let collection = DeviceCollection::new(&Direction::Capture).ok()?;
+    for device in &collection {
+        let device = device.ok()?;
+        if device.get_id().ok()? == id {
+            return device.get_friendlyname().ok();
+        }
+    }
+    None
 }
 
 fn normalize_device_id(id: &str) -> String {
@@ -1036,98 +922,9 @@ fn normalize_device_id(id: &str) -> String {
     }
 }
 
-fn take_pcm(buffer: &Mutex<Vec<u8>>) -> Vec<u8> {
-    buffer
-        .lock()
-        .map(|mut guard| std::mem::take(&mut *guard))
-        .unwrap_or_default()
-}
-
-fn append_pcm(buffer: &Mutex<Vec<u8>>, bytes: impl IntoIterator<Item = u8>) {
-    if let Ok(mut guard) = buffer.lock() {
-        guard.extend(bytes);
-        if guard.len() > MAX_BUFFER {
-            let overflow = guard.len() - MAX_BUFFER;
-            let overflow = overflow - (overflow % FRAME_BYTES);
-            if overflow > 0 {
-                guard.drain(..overflow);
-            }
-        }
-    }
-}
-
-fn align_frames(pcm: &[u8]) -> &[u8] {
-    let end = pcm.len() - (pcm.len() % FRAME_BYTES);
-    &pcm[..end]
-}
-
-fn pcm_i16(pcm: &[u8]) -> Vec<i16> {
-    align_frames(pcm)
-        .chunks_exact(2)
-        .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
-        .collect()
-}
-
-fn soft_clip_i16(sample: f32) -> i16 {
-    let x = sample / 32768.0;
-    let y = x / (1.0 + x.abs() * 0.35);
-    (y * 32767.0)
-        .round()
-        .clamp(i16::MIN as f32, i16::MAX as f32) as i16
-}
-
-fn i16_to_bytes(samples: &[i16]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(samples.len() * 2);
-    for sample in samples {
-        out.extend_from_slice(&sample.to_le_bytes());
-    }
-    out
-}
-
-fn update_peak(peak: &AtomicU32, pcm: &[u8], gain: f32) {
-    let mut max_abs = 0.0f32;
-    for sample in pcm_i16(pcm) {
-        max_abs = max_abs.max((sample.abs() as f32 / 32768.0) * gain);
-    }
-    let new = (max_abs.clamp(0.0, 1.0) * PEAK_SCALE) as u32;
-    let decayed = peak.load(Ordering::Relaxed).saturating_mul(85) / 100;
-    peak.store(decayed.max(new), Ordering::Relaxed);
-}
-
-fn decay_peak(peak: &AtomicU32) {
-    let decayed = peak.load(Ordering::Relaxed).saturating_mul(85) / 100;
-    peak.store(decayed, Ordering::Relaxed);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn sample_bytes(values: &[i16]) -> Vec<u8> {
-        i16_to_bytes(values)
-    }
-
-    #[test]
-    fn mix_pcm_keeps_loopback_when_mic_silent() {
-        let loopback = sample_bytes(&[1000, -1000, 2000, -2000]);
-        assert_eq!(mix_pcm(&loopback, &[], 1.0), loopback);
-    }
-
-    #[test]
-    fn mix_pcm_applies_mic_gain() {
-        let loopback = sample_bytes(&[0, 0]);
-        let mic = sample_bytes(&[1000, 1000]);
-        let mixed = mix_pcm(&loopback, &mic, 2.0);
-        assert_eq!(pcm_i16(&mixed), vec![2000, 2000]);
-    }
-
-    #[test]
-    fn mix_pcm_does_not_wrap_on_clip() {
-        let loopback = sample_bytes(&[20_000, 20_000]);
-        let mic = sample_bytes(&[20_000, 20_000]);
-        let mixed = mix_pcm(&loopback, &mic, 1.0);
-        assert_eq!(pcm_i16(&mixed), vec![i16::MAX, i16::MAX]);
-    }
 
     #[test]
     fn apply_disabled_mic_returns_without_wasapi() {
@@ -1152,24 +949,36 @@ mod tests {
     }
 
     #[test]
-    fn mix_into_uses_loopback_when_desktop_is_on() {
+    fn desktop_source_follows_the_system_audio_setting() {
         let runtime = AudioRuntime::new();
+        let desktop = runtime.desktop_control();
         let mut settings = AppSettings::default();
-        settings.system_audio_enabled = true;
-        settings.game_audio_enabled = false;
+        assert!(!settings.system_audio_enabled);
         runtime.apply(&settings);
-        let loopback = sample_bytes(&[111, -111, 222, -222]);
-        assert_eq!(runtime.mix_into(loopback.clone()), loopback);
+        assert!(!desktop.enabled());
+        settings.system_audio_enabled = true;
+        runtime.apply(&settings);
+        assert!(desktop.enabled());
     }
 
     #[test]
-    fn mix_into_ignores_loopback_when_desktop_is_off() {
+    fn a_closed_session_accepts_no_audio() {
         let runtime = AudioRuntime::new();
-        let mut settings = AppSettings::default();
-        settings.game_audio_enabled = false;
-        assert!(!settings.system_audio_enabled);
-        runtime.apply(&settings);
-        let loopback = sample_bytes(&[111, -111, 222, -222]);
-        assert!(runtime.mix_into(loopback).is_empty());
+        // Sources keep running for their meters between recordings; nothing they
+        // produce may reach a timeline that is not open.
+        runtime.sink().mix(0, &[500i16; 8], 1.0);
+        assert!(runtime.read_audio(4).is_empty());
+    }
+
+    #[test]
+    fn an_open_session_reads_back_exactly_what_video_asks_for() {
+        let runtime = AudioRuntime::new();
+        runtime.begin_session(0);
+        let lead = crate::audio_timeline::frames_from_hns(
+            crate::audio_timeline::AUDIO_LEAD_HNS,
+        );
+        let pcm = runtime.read_audio(480 - lead);
+        assert_eq!(pcm.len(), 480 * crate::audio_timeline::FRAME_BYTES);
+        runtime.end_session();
     }
 }

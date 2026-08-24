@@ -1,6 +1,10 @@
 #[cfg(windows)]
 mod audio;
+#[cfg(windows)]
+mod audio_capture;
 mod audio_resolve;
+#[cfg(windows)]
+mod audio_timeline;
 #[cfg(windows)]
 mod encode;
 #[cfg(windows)]

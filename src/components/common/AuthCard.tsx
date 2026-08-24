@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { publicSiteUrl } from "../../branding";
 import { IconDiscord, IconGoogle, IconX } from "../icons";
 import { useAuthStore, type SocialProvider } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
@@ -113,6 +114,17 @@ export function AuthCard({ compact = false }: { compact?: boolean }) {
         <button className="btn primary" type="submit" disabled={busy}>
           {busy ? "Working…" : mode === "in" ? "Sign in" : "Create account"}
         </button>
+        <p className="muted">
+          By continuing you agree to the{" "}
+          <a href={`${publicSiteUrl()}/terms`} target="_blank" rel="noreferrer">
+            Terms
+          </a>{" "}
+          and{" "}
+          <a href={`${publicSiteUrl()}/privacy`} target="_blank" rel="noreferrer">
+            Privacy Policy
+          </a>
+          .
+        </p>
       </form>
     </section>
   );

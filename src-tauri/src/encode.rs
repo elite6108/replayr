@@ -23,9 +23,6 @@ const AUDIO_RATE: u32 = 48_000;
 const AUDIO_CHANNELS: u32 = 2;
 const AUDIO_BITS: u32 = 16;
 const AUDIO_ALIGN: usize = (AUDIO_CHANNELS * (AUDIO_BITS / 8)) as usize;
-const AUDIO_LEFTOVER_MAX: usize = (AUDIO_RATE as usize * AUDIO_ALIGN * 200) / 1000;
-const AUDIO_HARD_DROP_BYTES: usize = (AUDIO_RATE as usize * AUDIO_ALIGN * 200) / 1000;
-const CROSSFADE_FRAMES: usize = 128;
 const AAC_FRAME_BYTES: usize = 1024 * AUDIO_ALIGN;
 const JOIN_FADE_FRAMES: usize = 240;
 
@@ -41,8 +38,10 @@ pub struct MfWriter {
     first_video: bool,
     first_audio: bool,
     last_capture_hns: Option<i64>,
-    audio_leftover: Vec<u8>,
-    crossfade_incoming: bool,
+    /// Only the AAC path needs this: the encoder wants whole 1024-sample
+    /// frames, so a partial tail waits for the next write. The sidecar path
+    /// writes everything immediately and holds nothing.
+    aac_pending: Vec<u8>,
     pcm_file: Option<File>,
 }
 
@@ -196,6 +195,11 @@ pub fn pcm_sidecar_path(mp4: &Path) -> PathBuf {
     mp4.with_extension("pcm")
 }
 
+fn bytes_to_hns(bytes: usize) -> i64 {
+    let bytes_per_sec = i64::from(AUDIO_RATE * AUDIO_CHANNELS * (AUDIO_BITS / 8));
+    bytes as i64 * 10_000_000 / bytes_per_sec
+}
+
 impl MfWriter {
     pub fn new(
         path: &Path,
@@ -280,8 +284,7 @@ impl MfWriter {
                 first_video: true,
                 first_audio: true,
                 last_capture_hns: None,
-                audio_leftover: Vec::new(),
-                crossfade_incoming: false,
+                aac_pending: Vec::new(),
                 pcm_file,
             })
         }
@@ -364,59 +367,57 @@ impl MfWriter {
         self.write_pcm_inner(pcm, true)
     }
 
+    /// Writes `pcm` at the current audio position.
+    ///
+    /// The timeline hands over exactly the span the video clock advanced, with
+    /// silence already filled in for anything a source did not deliver, so this
+    /// writes all of it and never has to decide what to keep or drop. That
+    /// decision is what every previous version got wrong: trimming compressed
+    /// time, and stalling let the audio clock fall behind for good.
     fn write_pcm_inner(&mut self, pcm: &[u8], closing: bool) -> Result<(), String> {
         if self.audio_stream.is_none() && self.pcm_file.is_none() {
             return Ok(());
         }
-        if !pcm.is_empty() {
-            if self.crossfade_incoming {
-                crossfade_append(&mut self.audio_leftover, pcm);
-                self.crossfade_incoming = false;
-            } else {
-                self.audio_leftover.extend_from_slice(pcm);
-            }
-        }
-        if self.audio_leftover.len() > AUDIO_LEFTOVER_MAX {
-            self.trim_audio_leftover();
-        }
-        let bytes_per_sec = AUDIO_RATE * AUDIO_CHANNELS * (AUDIO_BITS / 8);
-        let align = AUDIO_ALIGN;
-        let need_hns = self.video_time.saturating_sub(self.audio_time);
-        let mut need_bytes = ((need_hns.max(0) as u64) * u64::from(bytes_per_sec) / 10_000_000) as usize;
-        need_bytes -= need_bytes % align;
-        let available = self.audio_leftover.len() - (self.audio_leftover.len() % align);
-        let mut len = available.min(need_bytes);
-        // AAC MFTs want 1024-sample frames. Sidecar-only writes every frame so leftover
-        // does not pile up waiting for a batch (that hold was a splice source).
-        if self.audio_stream.is_some() && !closing {
-            if len >= AAC_FRAME_BYTES {
-                len -= len % AAC_FRAME_BYTES;
-            } else {
-                return Ok(());
-            }
-        }
-        if len == 0 {
+        let aligned = pcm.len() - (pcm.len() % AUDIO_ALIGN);
+        if aligned == 0 && !closing {
             return Ok(());
         }
-        let mut chunk: Vec<u8> = self.audio_leftover.drain(..len).collect();
+        if let Some(file) = &mut self.pcm_file {
+            file.write_all(&pcm[..aligned])
+                .map_err(|err| format!("Could not write the PCM sidecar: {err}"))?;
+            self.audio_time += bytes_to_hns(aligned);
+        }
         if self.audio_stream.is_some() {
+            self.aac_pending.extend_from_slice(&pcm[..aligned]);
+            self.flush_aac(closing)?;
+        }
+        Ok(())
+    }
+
+    /// The AAC MFT clicks on short frames, so batch to 1024-sample boundaries
+    /// and only pad on the final write.
+    fn flush_aac(&mut self, closing: bool) -> Result<(), String> {
+        let Some(audio_stream) = self.audio_stream else {
+            return Ok(());
+        };
+        loop {
+            let available = self.aac_pending.len();
+            let len = if available >= AAC_FRAME_BYTES {
+                AAC_FRAME_BYTES
+            } else if closing && available > 0 {
+                available
+            } else {
+                return Ok(());
+            };
+            let mut chunk: Vec<u8> = self.aac_pending.drain(..len).collect();
             if self.first_audio {
                 fade_in_s16_stereo(&mut chunk, JOIN_FADE_FRAMES);
                 self.first_audio = false;
             }
-            if closing {
+            if closing && self.aac_pending.is_empty() {
                 fade_out_s16_stereo(&mut chunk, JOIN_FADE_FRAMES);
             }
-        }
-        let duration = (len as i64) * 10_000_000 / i64::from(bytes_per_sec);
-        if duration <= 0 {
-            return Ok(());
-        }
-        if let Some(file) = &mut self.pcm_file {
-            file.write_all(&chunk)
-                .map_err(|err| format!("Could not write the PCM sidecar: {err}"))?;
-        }
-        if let Some(audio_stream) = self.audio_stream {
+            let duration = bytes_to_hns(len);
             unsafe {
                 let media_buffer = MFCreateMemoryBuffer(len as u32).map_err(|err| err.to_string())?;
                 let mut data = std::ptr::null_mut();
@@ -435,40 +436,14 @@ impl MfWriter {
                     .WriteSample(audio_stream, &sample)
                     .map_err(|err| err.to_string())?;
             }
+            self.audio_time += duration;
         }
-        self.audio_time += duration;
-        Ok(())
     }
 
-    fn trim_audio_leftover(&mut self) {
-        let max_bytes = AUDIO_LEFTOVER_MAX - (AUDIO_LEFTOVER_MAX % AUDIO_ALIGN);
-        let len = self.audio_leftover.len() - (self.audio_leftover.len() % AUDIO_ALIGN);
-        if len <= max_bytes {
-            return;
-        }
-        let drop = len - max_bytes;
-        if drop >= AUDIO_HARD_DROP_BYTES {
-            self.audio_leftover.drain(..drop);
-            fade_in_s16_stereo(&mut self.audio_leftover, CROSSFADE_FRAMES);
-            return;
-        }
-        drop_oldest_crossfade(&mut self.audio_leftover, drop);
-    }
-
-    pub fn take_audio_leftover(&mut self) -> Vec<u8> {
-        self.trim_audio_leftover();
-        std::mem::take(&mut self.audio_leftover)
-    }
-
-    pub fn prepend_audio_leftover(&mut self, mut pcm: Vec<u8>) {
-        if pcm.is_empty() {
-            return;
-        }
-        pcm.append(&mut self.audio_leftover);
-        self.audio_leftover = pcm;
-        if self.audio_leftover.len() > AUDIO_LEFTOVER_MAX {
-            self.trim_audio_leftover();
-        }
+    /// How far the audio track lags the video track in this segment. The remux
+    /// pads this out per segment; a growing value means audio is being lost.
+    pub fn av_skew_hns(&self) -> i64 {
+        self.video_time - self.audio_time
     }
 
     pub fn has_audio(&self) -> bool {
@@ -521,67 +496,6 @@ fn make_sample(
     }
 }
 
-fn crossfade_append(dest: &mut Vec<u8>, incoming: &[u8]) {
-    let incoming_len = incoming.len() - (incoming.len() % AUDIO_ALIGN);
-    if dest.is_empty() || incoming_len == 0 {
-        dest.extend_from_slice(&incoming[..incoming_len]);
-        return;
-    }
-    let dest_len = dest.len() - (dest.len() % AUDIO_ALIGN);
-    dest.truncate(dest_len);
-    let cross = CROSSFADE_FRAMES
-        .min(dest_len / AUDIO_ALIGN)
-        .min(incoming_len / AUDIO_ALIGN);
-    if cross == 0 {
-        dest.extend_from_slice(&incoming[..incoming_len]);
-        return;
-    }
-    let dest_frames = dest_len / AUDIO_ALIGN;
-    for index in 0..cross {
-        let t = (index + 1) as f32 / (cross + 1) as f32;
-        let dest_frame = dest_frames - cross + index;
-        for channel in 0..AUDIO_CHANNELS as usize {
-            let dest_at = dest_frame * AUDIO_ALIGN + channel * 2;
-            let src_at = index * AUDIO_ALIGN + channel * 2;
-            let previous = i16::from_le_bytes([dest[dest_at], dest[dest_at + 1]]) as f32;
-            let next = i16::from_le_bytes([incoming[src_at], incoming[src_at + 1]]) as f32;
-            let mixed = previous * (1.0 - t) + next * t;
-            dest[dest_at..dest_at + 2].copy_from_slice(&(mixed.round() as i16).to_le_bytes());
-        }
-    }
-    dest.extend_from_slice(&incoming[cross * AUDIO_ALIGN..incoming_len]);
-}
-
-fn drop_oldest_crossfade(pcm: &mut Vec<u8>, drop_bytes: usize) {
-    let drop_bytes = drop_bytes - (drop_bytes % AUDIO_ALIGN);
-    if drop_bytes == 0 || drop_bytes >= pcm.len() {
-        if drop_bytes >= pcm.len() {
-            pcm.clear();
-        }
-        return;
-    }
-    let keep = pcm.len() - drop_bytes;
-    let cross = CROSSFADE_FRAMES
-        .min(drop_bytes / AUDIO_ALIGN)
-        .min(keep / AUDIO_ALIGN);
-    if cross > 0 {
-        for index in 0..cross {
-            let t = (index + 1) as f32 / (cross + 1) as f32;
-            let old_frame = drop_bytes / AUDIO_ALIGN - cross + index;
-            let new_frame = drop_bytes / AUDIO_ALIGN + index;
-            for channel in 0..AUDIO_CHANNELS as usize {
-                let old_at = old_frame * AUDIO_ALIGN + channel * 2;
-                let new_at = new_frame * AUDIO_ALIGN + channel * 2;
-                let previous = i16::from_le_bytes([pcm[old_at], pcm[old_at + 1]]) as f32;
-                let next = i16::from_le_bytes([pcm[new_at], pcm[new_at + 1]]) as f32;
-                let mixed = previous * (1.0 - t) + next * t;
-                pcm[new_at..new_at + 2].copy_from_slice(&(mixed.round() as i16).to_le_bytes());
-            }
-        }
-    }
-    pcm.drain(..drop_bytes);
-}
-
 fn fade_out_s16_stereo(pcm: &mut [u8], frames: usize) {
     let available = pcm.len() / AUDIO_ALIGN;
     let frames = frames.min(available);
@@ -620,9 +534,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn drop_oldest_crossfade_keeps_cap() {
-        let mut pcm = vec![0u8; 200 * AUDIO_ALIGN];
-        drop_oldest_crossfade(&mut pcm, 40 * AUDIO_ALIGN);
-        assert_eq!(pcm.len(), 160 * AUDIO_ALIGN);
+    fn a_second_of_pcm_is_a_second_of_timeline() {
+        let second = AUDIO_RATE as usize * AUDIO_ALIGN;
+        assert_eq!(bytes_to_hns(second), 10_000_000);
+        assert_eq!(bytes_to_hns(AAC_FRAME_BYTES), 1024 * 10_000_000 / 48_000);
     }
 }

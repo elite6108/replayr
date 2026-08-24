@@ -161,10 +161,11 @@ mod windows_impl {
     };
     use windows_capture::window::Window;
 
+    use crate::audio_timeline::qpc_hns;
+
     pub struct WindowsSession {
         pump: crate::encode_pump::EncodePump,
         audio: Option<crate::audio::LoopbackCapture>,
-        include_audio: bool,
         flags: SessionFlags,
         clock: Instant,
     }
@@ -178,7 +179,6 @@ mod windows_impl {
         pub bitrate: u32,
         pub fps: u32,
         pub include_audio: bool,
-        pub loopback: bool,
         pub segmented: bool,
         pub min_free_disk_bytes: u64,
         pub shared: Arc<CaptureShared>,
@@ -191,8 +191,15 @@ mod windows_impl {
 
         fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
             let flags = ctx.flags;
-            let mut audio = if flags.loopback {
-                crate::audio::LoopbackCapture::start()
+            // The audio timeline and the video clock must agree on time zero,
+            // so open both here before anything can produce a sample.
+            let clock = Instant::now();
+            flags.audio_runtime.begin_session(qpc_hns());
+            let mut audio = if flags.include_audio {
+                crate::audio::LoopbackCapture::start(
+                    flags.audio_runtime.sink(),
+                    flags.audio_runtime.desktop_control(),
+                )
             } else {
                 None
             };
@@ -207,17 +214,17 @@ mod windows_impl {
                 segmented: flags.segmented,
                 min_free_disk_bytes: flags.min_free_disk_bytes,
                 shared: Arc::clone(&flags.shared),
+                audio: flags.audio_runtime.clone(),
             })?;
-            let include_audio = pump.include_audio;
-            if !include_audio {
+            if !pump.include_audio {
                 audio = None;
+                flags.audio_runtime.end_session();
             }
             Ok(Self {
                 pump,
                 audio,
-                include_audio,
                 flags,
-                clock: Instant::now(),
+                clock,
             })
         }
 
@@ -246,19 +253,12 @@ mod windows_impl {
                 });
             }
             let capture_hns = (self.clock.elapsed().as_nanos() / 100) as i64;
-            let pcm = if self.include_audio {
-                let loopback = self.audio.as_ref().map(|audio| audio.take()).unwrap_or_default();
-                self.flags.audio_runtime.mix_into(loopback)
-            } else {
-                Vec::new()
-            };
             self.pump.push(crate::encode_pump::QueuedFrame {
                 bgra: bytes,
                 pitch,
                 width,
                 height,
                 capture_hns,
-                pcm,
             });
             Ok(())
         }
@@ -274,6 +274,7 @@ mod windows_impl {
                 drop(self.audio.take());
             }
             self.pump.shutdown();
+            self.flags.audio_runtime.end_session();
             Ok(())
         }
     }
@@ -542,7 +543,6 @@ mod windows_impl {
         let fps = settings.fps.max(15).min(120);
         let bitrate = bitrate_of(&settings);
         let include_audio = settings.wants_audio_track();
-        let loopback = settings.system_audio_enabled;
         let audio_runtime = {
             let runtime = app.state::<crate::audio::AudioRuntime>();
             (*runtime).clone()
@@ -565,7 +565,6 @@ mod windows_impl {
             bitrate,
             fps,
             include_audio,
-            loopback,
             segmented,
             min_free_disk_bytes: settings.min_free_disk_bytes,
             shared: state.shared.clone(),

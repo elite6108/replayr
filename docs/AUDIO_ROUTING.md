@@ -46,34 +46,35 @@ These are not negotiable in implementation.
 
 Milestone A is in the tree: one mixed AAC track, Game Audio via process loopback of the detected game, optional mic, optional desktop loopback. Instant Replay and long recording share this engine. Separate tracks / Mode 2 are still later work.
 
+Audio runs on an **absolute-position timeline** (`audio_timeline.rs`), not on byte queues. Every packet carries the QPC position WASAPI reported for its first sample, which is converted to a frame index on a session clock shared with video and **summed in place**. A source that stops delivering leaves a hole that reads back as silence at the right place. Nothing is ever concatenated, so nothing can slide.
+
 ```mermaid
 flowchart LR
-  subgraph capture [Capture threads]
+  subgraph capture [Capture threads — audio_capture.rs]
     Game[Process loopback<br/>detected game PIDs]
     Mic[WASAPI mic]
-    Desk[Desktop loopback<br/>only if Desktop ON]
+    Desk[Desktop loopback]
   end
-  subgraph mix [AudioRuntime]
-    Mix[mix_into 48k s16 stereo]
+  subgraph mix [MixSink — one accumulator]
+    Sink[sum at frame_at qpc]
   end
   subgraph wgc [WGC callback]
-    Copy[Copy BGRA plus mix drain]
+    Copy[Copy BGRA only]
   end
   subgraph enc [Encode thread owns MF]
     Vid[write_bgra capture_hns]
-    Pcm[write_pcm fill to video_time]
+    Pcm[read_upto video minus lead<br/>then write_pcm]
     Rot[rotate Finalize]
   end
   subgraph out [Output]
     Seg[2s MP4 plus pcm sidecar]
     Remux[concat_mp4s video-master]
   end
-  Game --> Mix
-  Mic --> Mix
-  Desk --> Mix
-  Mix --> Copy
+  Game --> Sink
+  Mic --> Sink
+  Desk --> Sink
   Copy --> Vid
-  Copy --> Pcm
+  Sink --> Pcm
   Vid --> Rot
   Pcm --> Seg
   Rot --> Remux
@@ -83,30 +84,33 @@ flowchart LR
 Verified facts:
 
 - Game Audio is `ActivateAudioInterface` process loopback (`process_loopback.rs`), not the speaker mix. Initialize on the agile activate callback as 48 kHz s16 stereo (`LOOPBACK | EVENTCALLBACK | AUTOCONVERTPCM`, 100 ms buffer). Packets are **s16**. `GetMixFormat` is `E_NOTIMPL` for process loopback — do not fail on that.
+- All three source kinds share one `IAudioCaptureClient` drain loop (`audio_capture.rs` `run_capture_loop`) so they get the same 100 ms buffer, the same QPC stamp, and the same `DATA_DISCONTINUITY` handling. Mic and desktop used to ask for the **minimum device period** (~3 ms) while being drained from a 16 ms video callback; that alone loses packets on any hiccup.
 - PID resolution (`audio_resolve.rs` `resolve_game_pids`) prefers the WASAPI-session owner and the real game exe (`GTA5.exe` / `*GTAProcess.exe`) over launchers (`PlayGTAV.exe`).
 - Isolation failure stays honest: UI “Can't capture this source separately” + explicit **Use Desktop Audio Instead**. Never auto-switch Game → Desktop. Failed isolated clients restart after a short backoff.
-- `audio.rs` `mix_into` full-drains isolated clients and the mic (if enabled). Desktop loopback is used only when Desktop is ON. `mix_pcm` takes `max(len)` and mixes; it does not concatenate.
-- The WGC callback only copies BGRA, full-drains `mix_into`, and enqueues `QueuedFrame { capture_hns, pcm }`. It must not call Media Foundation. `wants_audio_track()` is Game or Mic or Desktop or isolated extras — not Desktop-only.
-- A dedicated encode thread (`encode_pump.rs`, MTA + `MFStartup`) owns every `IMFSinkWriter` create / `WriteSample` / `Finalize`. IR and long recording are **2 s segments**. Segment files are **H.264 only**. Paced 48 kHz s16 stereo PCM is written to a `seg-XXXXXX.pcm` sidecar. Leftover PCM is prepended onto the next writer. Last frame before Finalize is a clean point.
-- `export.rs` `concat_mp4s` copies video, then stitches sidecar PCM (fallback: decode AAC and skip encoder delay), onto **separate running clocks**. Audio is **capped to that segment’s video duration**. Video is the master timeline.
+- The mix sums into `i32` and clamps once at read. There is **no saturator on the default path** — an always-on soft clip adds harmonic distortion to every sample even at unity gain.
+- The WGC callback only copies BGRA and enqueues `QueuedFrame { capture_hns }`. It carries no audio and must not call Media Foundation.
+- A dedicated encode thread (`encode_pump.rs`, MTA + `MFStartup`) owns every `IMFSinkWriter` create / `WriteSample` / `Finalize`. IR and long recording are **2 s segments**. Segment files are **H.264 only**, with 48 kHz s16 stereo PCM in a `seg-XXXXXX.pcm` sidecar. Last frame before Finalize is a clean point.
+- `export.rs` `concat_mp4s` copies video, then stitches sidecar PCM (fallback: decode AAC and skip encoder delay). Each sidecar is pinned to **its own** segment's video duration, then the total is pinned again. Video is the master timeline.
 
 ### 2.1 A/V clock contract — do not regress
 
-Video is the master clock. Audio must fill that clock, not invent its own.
+Video is the master clock. Audio is positioned on it, not queued behind it.
 
 | Clock | Who owns it | Rule |
 | --- | --- | --- |
-| Video | Capture clock → encode thread | WGC stamps `capture_hns` from a session `Instant`. `write_bgra` uses `duration = capture_hns - last_capture_hns` (min 10_000). Do not stamp with the encode thread’s clock — queued frames would play as a fast-forward after Finalize. Per-segment `video_time` still resets at 0. |
-| Audio content | WASAPI threads | Isolated + mic keep producing realtime PCM into their buffers. `take()` / `mix_into` is a **full drain** on the WGC callback into the queued frame. |
-| Audio timestamps | `MfWriter::write_pcm` on the encode thread | Append incoming PCM to `audio_leftover`. Playback rate is always **1×** — never resample leftover to “fit” a cap. Write only enough to reach capture-based `video_time`. Stamp at `audio_time`, then `audio_time += duration`. Only a backlog larger than **200 ms** drops oldest samples. Do not raise the cap to 1–2 s — leftover is delay. |
-| Segment rotate | Encode thread only | When `video_time + duration >= 2 s` (or a requested rotate), force a clean point on that frame, Finalize **on this same thread**, open the next writer, prepend leftover. Do **not** `discard_pending`. Do **not** Finalize on a one-off worker. Do **not** Finalize on the WGC callback. |
-| Remux | `concat_mp4s` | Video is copied as encoded H.264. Audio is **not** concatenated AAC-to-AAC. Prefer each segment’s paced PCM sidecar and **plain-append**. Fallback: decode AAC, skip ~2112 priming frames, **crossfade ~10 ms**. Trim/pad to the video timeline, then encode **one software AAC** stream (payload type 0, LC 0x29, no hardware MFT, no `MF_LOW_LATENCY`). Hardware AAC and low-latency mode cackle through the whole file. |
+| Session origin | `WindowsSession::new` | `Instant::now()` for video and `MixSink::begin_session(qpc_hns())` for audio are taken **together**, so frame `N` on the timeline is video time `N / 48000`. |
+| Video | Capture clock → encode thread | WGC stamps `capture_hns` from that session `Instant`. `write_bgra` uses `duration = capture_hns - last_capture_hns` (min 10_000). Do not stamp with the encode thread’s clock — queued frames would play as a fast-forward after Finalize. Per-segment `video_time` still resets at 0. |
+| Audio content | WASAPI threads | Each source resolves its packet's QPC to a frame index and sums there. `SourceCursor` lays consecutive packets back to back and only trusts the QPC again when it disagrees by more than 10 ms or `DATA_DISCONTINUITY` is set, so ordinary driver jitter cannot chop the waveform. |
+| Audio timestamps | `read_upto` on the encode thread | Read the exact range `[cursor, frames(capture_hns) - frames(AUDIO_LEAD_HNS))`. The read length always equals the request, so audio and video advance by the same amount every frame **by construction** — there is no leftover, no cap, and no backlog to drop. |
+| Jitter buffer | `AUDIO_LEAD_HNS` (50 ms) | How far the read trails the video clock. Must exceed the worst-case packet delay or late packets are dropped (watch `late=` in the segment log). It also sets the residual A/V offset, minus WGC callback latency; this is the one number to retune from a clap test. |
+| Segment rotate | Encode thread only | When `video_time + duration >= 2 s` (or a requested rotate), force a clean point on that frame, Finalize **on this same thread**, open the next writer. The audio cursor is session-absolute and does not reset, so a rotate cannot lose or duplicate a sample. Do **not** Finalize on a one-off worker or on the WGC callback. |
+| Remux | `concat_mp4s` | Video is copied as encoded H.264. Audio is **not** concatenated AAC-to-AAC. Prefer each segment’s PCM sidecar and **plain-append**, fitted to that segment's own video duration. Fallback: decode AAC, skip ~2112 priming frames, **crossfade ~10 ms**. Then encode **one software AAC** stream (payload type 0, LC 0x29, no hardware MFT, no `MF_LOW_LATENCY`). Hardware AAC and low-latency mode cackle through the whole file. |
 
 **Why this shape**
 
-- Isolated/mic `take()` can return more than one video frame (WASAPI period ~10–20 ms, encode stalls, rotate gaps). If every byte is written with `duration = pcm_len / 48k`, audio time runs **ahead** of video. Remux concatenates audio independently, so a 5:00 recording becomes ~5:35 and everything after the first 2 s segment looks broken.
-- If leftover is an uncapped FIFO, incoming is slightly more than one frame, the queue grows without bound (logged at **1.3 s → 46 s**). Writing oldest-first then puts **stale** audio on current video — the clip is tens of seconds out of sync.
-- Remux does **not** share a clock between A and V. Any systematic extra or shortfall **per 2 s segment** stacks across a long recording or IR save.
+- Every earlier failure had the same root: audio was treated as a **queue of bytes** with no position. Concatenation is only correct if not one sample is ever missing. When a packet is dropped, arrives late, or a source goes quiet, concatenation closes the hole — which pulls everything after it early (time compression), and the splice clicks. Pacing, trimming, capping, and crossfading are all attempts to manage a queue that should never have existed.
+- With positions, a hole stays a hole and reads back as silence in the right place. The only failure modes left are measurable rather than audible-and-mysterious, and each has a counter in the per-segment log: `gaps` (a source stopped), `silent` (nothing was there), `late` (the lead is too short), `overflow` (the encoder stalled).
+- Remux still does not share a clock between A and V, so each sidecar is pinned to its **own** segment. Correcting only the total would let one short segment shift everything after it.
 
 **Failed approaches — do not revive**
 
@@ -127,13 +131,18 @@ Video is the master clock. Audio must fill that clock, not invent its own.
 | Hardware AAC MFT + `MF_LOW_LATENCY` on remux | Cackle on clips **and** long recordings, game and mic | Incomplete AAC media type / GPU encoder / low-latency flush. Software AAC, payload type 0, pad last 1024-sample frame. |
 | `audio_time = video_time.saturating_sub(duration)` on first write | Negative timestamps on rotate (`i64` saturates at `MIN`, not 0) | Start audio at 0 and fill up to `video_time`. |
 | Auto-switch Game → Desktop when isolation fails | Dishonest Game Audio | Surface “Can't capture this source separately”. |
+| Any byte-queue mixer (`mix_pcm` head-align, per-source FIFOs, `audio_leftover`) | Every symptom above, in rotation | A queue has no position, so a lost packet silently shortens the stream. Stamp positions and sum in place instead. Everything in this table is a symptom of that one cause. |
+| Soft-clip / saturate the mix on the default path | Fuzz on loud game audio at unity gain | A nonlinear curve applied to every sample is harmonic distortion whether or not gain is 1.0. Sum in `i32`; clamp once at read. |
+| Minimum device period (~3 ms) buffers drained from the 16 ms video callback | Grainy mic, dropouts under load | The buffer must survive a scheduling hiccup. 100 ms for every source, drained on its own thread. |
 
 **Acceptance**
 
 - Game ON, Desktop OFF, Mic ON: clip has isolated game + mic, not the speaker mix, not silence.
-- Spoken word / in-game hit lands on the matching frame (small leftover delay, not tens of seconds).
+- Spoken word / in-game hit lands on the matching frame.
 - A N-second recording or IR save is about N seconds long, not ~12% long and not audio-early after the first segment.
+- A source that is silent for a while does not shift the audio that follows it.
 - Isolation failure does not silently become Desktop Audio.
+- Per-segment log reads `gaps=0 ... late=0 ms overflow=0 ms` on a healthy machine.
 
 ---
 

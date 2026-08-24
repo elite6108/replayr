@@ -1,3 +1,4 @@
+import { readApiJson } from "./http";
 import { apiUrl, getSupabase } from "./supabase";
 
 export interface CatalogGame {
@@ -75,10 +76,15 @@ export async function fetchPublicClips(accessToken?: string | null): Promise<Pub
   const response = await fetch(apiUrl("/v1/clips/public?limit=24"), {
     headers: authHeaders(accessToken),
   });
-  const body = (await response.json()) as { clips?: PublicClipCard[]; error?: string };
-  if (!response.ok) {
-    throw new Error(body.error || "Could not load public clips.");
-  }
+  const body = await readApiJson<{ clips?: PublicClipCard[] }>(response, "Could not load public clips.");
+  return (body.clips ?? []).map(normalizePublicClip);
+}
+
+export async function fetchFriendClips(accessToken: string): Promise<PublicClipCard[]> {
+  const response = await fetch(apiUrl("/v1/clips/friends?limit=24"), {
+    headers: authHeaders(accessToken),
+  });
+  const body = await readApiJson<{ clips?: PublicClipCard[] }>(response, "Could not load friends’ clips.");
   return (body.clips ?? []).map(normalizePublicClip);
 }
 
@@ -89,13 +95,12 @@ export async function fetchGameClips(
   const response = await fetch(apiUrl(`/v1/games/${encodeURIComponent(slug)}/clips`), {
     headers: authHeaders(accessToken),
   });
-  const body = (await response.json()) as {
+  const body = await readApiJson<{
     game?: { id: string; slug: string; name: string; publisher: string | null; cover_url: string | null };
     clips?: PublicGameClip[];
-    error?: string;
-  };
-  if (!response.ok || !body.game) {
-    throw new Error(body.error || "Could not load that game.");
+  }>(response, "Could not load that game.");
+  if (!body.game) {
+    throw new Error("Could not load that game.");
   }
   return {
     game: {

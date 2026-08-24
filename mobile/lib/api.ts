@@ -1,9 +1,11 @@
+import { readApiError, readApiJson } from "./http";
 import { apiUrl, getSupabase } from "./supabase";
 
 export interface ClipAuthor {
   username: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  verified?: boolean;
 }
 
 export interface ClipComment {
@@ -60,13 +62,17 @@ export interface CatalogGame {
   name: string;
   publisher: string | null;
   coverUrl: string | null;
+  clipCount?: number;
 }
 
 export interface PublicClipCard {
   id: string;
   title: string | null;
+  description?: string | null;
   slug: string;
   durationMs: number | null;
+  createdAt?: string;
+  viewCount?: number;
   thumbnailUrl: string | null;
   game: { name: string; slug: string; coverUrl: string | null } | null;
   author: ClipAuthor;
@@ -88,15 +94,6 @@ export interface PublicGameClip {
   liked?: boolean;
 }
 
-async function readError(response: Response, fallback: string) {
-  try {
-    const body = (await response.json()) as { error?: string };
-    return body.error || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 export async function fetchLibrary(
   accessToken: string,
   options?: { page?: number; limit?: number },
@@ -106,8 +103,7 @@ export async function fetchLibrary(
   const response = await fetch(apiUrl(`/v1/library?page=${page}&limit=${limit}`), {
     headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
   });
-  const body = (await response.json()) as LibraryPage & { error?: string };
-  if (!response.ok) throw new Error(body.error || "Could not load cloud clips.");
+  const body = await readApiJson<LibraryPage>(response, "Could not load cloud clips.");
   return {
     clips: body.clips ?? [],
     total: Number(body.total) || 0,
@@ -120,8 +116,7 @@ export async function fetchPlayback(slug: string, accessToken?: string | null): 
   const headers: HeadersInit = { accept: "application/json" };
   if (accessToken) headers.authorization = `Bearer ${accessToken}`;
   const response = await fetch(apiUrl(`/v1/clips/${slug}`), { headers });
-  const body = (await response.json()) as PlaybackClip & { error?: string };
-  if (!response.ok) throw new Error(body.error || "That clip is not available.");
+  const body = await readApiJson<PlaybackClip>(response, "That clip is not available.");
   return body;
 }
 
@@ -130,7 +125,7 @@ export async function deleteCloudClip(clipId: string, accessToken: string): Prom
     method: "DELETE",
     headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
   });
-  if (!response.ok) throw new Error(await readError(response, "Could not delete that cloud clip."));
+  if (!response.ok) throw new Error(await readApiError(response, "Could not delete that cloud clip."));
 }
 
 export async function fetchGames(): Promise<CatalogGame[]> {
@@ -154,10 +149,21 @@ function authHeaders(accessToken?: string | null): HeadersInit {
   return headers;
 }
 
-export async function fetchPublicClips(accessToken?: string | null): Promise<PublicClipCard[]> {
-  const response = await fetch(apiUrl("/v1/clips/public?limit=24"), { headers: authHeaders(accessToken) });
-  const body = (await response.json()) as { clips?: PublicClipCard[]; error?: string };
-  if (!response.ok) throw new Error(body.error || "Could not load public clips.");
+export async function fetchPublicClips(
+  accessToken?: string | null,
+  options?: { limit?: number; sort?: "latest" | "trending" },
+): Promise<PublicClipCard[]> {
+  const query = new URLSearchParams();
+  query.set("limit", String(options?.limit ?? 24));
+  if (options?.sort === "trending") query.set("sort", "trending");
+  const response = await fetch(apiUrl(`/v1/clips/public?${query}`), { headers: authHeaders(accessToken) });
+  const body = await readApiJson<{ clips?: PublicClipCard[] }>(response, "Could not load public clips.");
+  return (body.clips ?? []).map(normalizePublicClip);
+}
+
+export async function fetchFriendClips(accessToken: string): Promise<PublicClipCard[]> {
+  const response = await fetch(apiUrl("/v1/clips/friends?limit=24"), { headers: authHeaders(accessToken) });
+  const body = await readApiJson<{ clips?: PublicClipCard[] }>(response, "Could not load friends’ clips.");
   return (body.clips ?? []).map(normalizePublicClip);
 }
 
@@ -193,7 +199,24 @@ export async function fetchFavoriteGames(userId: string): Promise<CatalogGame[]>
       coverUrl: game.cover_url,
     });
   }
-  return games;
+  return attachPublicClipCounts(games);
+}
+
+export async function attachPublicClipCounts(games: CatalogGame[]): Promise<CatalogGame[]> {
+  if (games.length === 0) return games;
+  const counts = await Promise.all(
+    games.map(async (game) => {
+      const { count } = await getSupabase()
+        .from("clips")
+        .select("id", { count: "exact", head: true })
+        .eq("game_id", game.id)
+        .eq("visibility", "public")
+        .eq("status", "ready");
+      return [game.id, count ?? 0] as const;
+    }),
+  );
+  const byId = new Map(counts);
+  return games.map((game) => ({ ...game, clipCount: byId.get(game.id) ?? 0 }));
 }
 
 export async function fetchOwnProfile(userId: string) {
@@ -210,15 +233,13 @@ export async function setClipLiked(slug: string, liked: boolean, accessToken: st
     method: liked ? "POST" : "DELETE",
     headers: authHeaders(accessToken),
   });
-  const body = (await response.json()) as { liked?: boolean; likeCount?: number; error?: string };
-  if (!response.ok) throw new Error(body.error || "Could not update that like.");
+  const body = await readApiJson<{ liked?: boolean; likeCount?: number }>(response, "Could not update that like.");
   return { liked: Boolean(body.liked), likeCount: Number(body.likeCount) || 0 };
 }
 
 export async function fetchClipComments(slug: string, accessToken?: string | null): Promise<ClipComment[]> {
   const response = await fetch(apiUrl(`/v1/clips/${slug}/comments`), { headers: authHeaders(accessToken) });
-  const body = (await response.json()) as { comments?: ClipComment[]; error?: string };
-  if (!response.ok) throw new Error(body.error || "Could not load comments.");
+  const body = await readApiJson<{ comments?: ClipComment[] }>(response, "Could not load comments.");
   return body.comments ?? [];
 }
 
@@ -228,8 +249,10 @@ export async function postClipComment(slug: string, text: string, accessToken: s
     headers: { ...authHeaders(accessToken), "content-type": "application/json" },
     body: JSON.stringify({ body: text }),
   });
-  const body = (await response.json()) as { comments?: ClipComment[]; commentCount?: number; error?: string };
-  if (!response.ok) throw new Error(body.error || "Could not post that comment.");
+  const body = await readApiJson<{ comments?: ClipComment[]; commentCount?: number }>(
+    response,
+    "Could not post that comment.",
+  );
   return { comments: body.comments ?? [], commentCount: Number(body.commentCount) || 0 };
 }
 
@@ -238,8 +261,7 @@ export async function deleteClipComment(slug: string, commentId: string, accessT
     method: "DELETE",
     headers: authHeaders(accessToken),
   });
-  const body = (await response.json()) as { commentCount?: number; error?: string };
-  if (!response.ok) throw new Error(body.error || "Could not delete that comment.");
+  const body = await readApiJson<{ commentCount?: number }>(response, "Could not delete that comment.");
   return { commentCount: Number(body.commentCount) || 0 };
 }
 
@@ -250,12 +272,11 @@ export async function fetchGameClips(
   const response = await fetch(apiUrl(`/v1/games/${encodeURIComponent(slug)}/clips`), {
     headers: authHeaders(accessToken),
   });
-  const body = (await response.json()) as {
+  const body = await readApiJson<{
     game?: { id: string; slug: string; name: string; publisher: string | null; cover_url: string | null };
     clips?: PublicGameClip[];
-    error?: string;
-  };
-  if (!response.ok || !body.game) throw new Error(body.error || "Could not load that game.");
+  }>(response, "Could not load that game.");
+  if (!body.game) throw new Error("Could not load that game.");
   return {
     game: {
       id: body.game.id,
@@ -272,7 +293,7 @@ export async function downloadClipBytes(slug: string, accessToken?: string | nul
   const headers: HeadersInit = { accept: "application/octet-stream, application/json" };
   if (accessToken) headers.authorization = `Bearer ${accessToken}`;
   const response = await fetch(apiUrl(`/v1/clips/${slug}/download`), { headers });
-  if (!response.ok) throw new Error(await readError(response, "Could not download that clip."));
+  if (!response.ok) throw new Error(await readApiError(response, "Could not download that clip."));
   return response.arrayBuffer();
 }
 
@@ -281,7 +302,7 @@ export async function deleteAccount(accessToken: string): Promise<void> {
     method: "POST",
     headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
   });
-  if (!response.ok) throw new Error(await readError(response, "Could not delete this account."));
+  if (!response.ok) throw new Error(await readApiError(response, "Could not delete this account."));
 }
 
 export function clipAllowsSocial(visibility: string | undefined) {

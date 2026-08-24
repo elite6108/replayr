@@ -2,11 +2,13 @@ import { useEffect, useId, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { isAdminSession } from "../lib/admin";
 import { useAuth } from "../lib/auth";
+import { useSocialUnread } from "../lib/socialUnread";
 import { APP_NAME, WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
 
 export function SiteHeader() {
   const { session } = useAuth();
   const signedIn = Boolean(session);
+  const { friendsUnread, messagesUnread } = useSocialUnread();
   const admin = isAdminSession(session);
   const location = useLocation();
   const [open, setOpen] = useState(false);
@@ -64,7 +66,14 @@ export function SiteHeader() {
             {signedIn ? (
               <>
                 <NavLink to="/library">Library</NavLink>
-                <NavLink to="/friends">Friends</NavLink>
+                <NavLink className="nav-with-pip" to="/friends">
+                  Friends
+                  {friendsUnread ? <span className="unread-pip" aria-label="Unread" /> : null}
+                </NavLink>
+                <NavLink className="nav-with-pip" to="/messages">
+                  Messages
+                  {messagesUnread ? <span className="unread-pip" aria-label="Unread" /> : null}
+                </NavLink>
                 <NavLink to="/account">Account</NavLink>
                 {admin ? <NavLink to="/admin">Admin</NavLink> : null}
               </>

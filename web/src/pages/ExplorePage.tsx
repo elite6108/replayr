@@ -4,11 +4,12 @@ import { ClipThumb } from "../components/ClipThumb";
 import { Seo } from "../components/Seo";
 import { useAuth } from "../lib/auth";
 import { formatCount, formatDurationMs, formatHandle } from "../lib/format";
-import { fetchPublicClips, type PublicClipCard } from "../lib/games";
+import { fetchFriendClips, fetchPublicClips, type PublicClipCard } from "../lib/games";
 
 export function ExplorePage() {
   const { session } = useAuth();
   const [clips, setClips] = useState<PublicClipCard[]>([]);
+  const [friendClips, setFriendClips] = useState<PublicClipCard[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -25,6 +26,25 @@ export function ExplorePage() {
     };
   }, [session?.access_token]);
 
+  useEffect(() => {
+    const token = session?.access_token;
+    if (!token) {
+      setFriendClips([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchFriendClips(token)
+      .then((next) => {
+        if (!cancelled) setFriendClips(next);
+      })
+      .catch(() => {
+        if (!cancelled) setFriendClips([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.access_token]);
+
   return (
     <main className="page">
       <Seo
@@ -33,6 +53,32 @@ export function ExplorePage() {
       />
       <h1>For You</h1>
       <p className="muted">Public clips only. Unlisted links never show up here, and share URLs stay /c/…</p>
+      <section className="discover-rail">
+        <h2>From friends</h2>
+        {!session ? (
+          <p className="muted">
+            Add friends to see their clips here. <Link to="/signin">Sign in</Link>
+          </p>
+        ) : friendClips === null ? (
+          <p className="muted">Loading friends’ clips…</p>
+        ) : friendClips.length === 0 ? (
+          <p className="muted">
+            Add friends to see their clips here. <Link to="/friends">Find people</Link>
+          </p>
+        ) : (
+          <ul className="discover-rail-track">
+            {friendClips.map((clip) => (
+              <li key={clip.id}>
+                <Link className="feed-card" to={`/c/${clip.slug}`}>
+                  <ClipThumb title={clip.title || "Clip"} thumbnailUrl={clip.thumbnailUrl} playbackUrl={null} />
+                  <h2>{clip.title || "Untitled clip"}</h2>
+                  <p className="muted">{formatHandle(clip.author)}</p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       {error ? <p className="error">{error}</p> : null}
       {clips.length === 0 && !error ? (
         <div className="empty-bubble">

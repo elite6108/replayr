@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { SendClipSheet } from "./SendClipSheet";
 import { useLibraryStore } from "../../stores/libraryStore";
+import { useCloudStore } from "../../stores/cloudStore";
 import { useAuthStore } from "../../stores/authStore";
 import { formatBytes, formatClipDate, formatDuration, isVideoPath } from "../../utils/format";
 
@@ -16,14 +18,17 @@ export function ClipPlayer() {
   const reveal = useLibraryStore((state) => state.reveal);
   const upload = useLibraryStore((state) => state.upload);
   const user = useAuthStore((state) => state.user);
+  const cloudClips = useCloudStore((state) => state.clips);
   const navigate = useNavigate();
   const clip = clips.find((item) => item.localId === playingId) ?? null;
   const [title, setTitle] = useState(clip?.title ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
 
   useEffect(() => {
     setTitle(clip?.title ?? "");
     setConfirmDelete(false);
+    setSendOpen(false);
   }, [clip?.localId, clip?.title]);
 
   useEffect(() => {
@@ -40,6 +45,7 @@ export function ClipPlayer() {
   const media = convertFileSrc(clip.filePath);
   const video = isVideoPath(clip.filePath);
   const uploading = ["queued", "preparing", "uploading", "processing"].includes(clip.uploadStatus);
+  const cloudSlug = cloudClips.find((item) => item.id === clip.cloudClipId)?.slug;
 
   return (
     <div className="player-overlay" role="dialog" aria-modal="true" aria-label={clip.title || "Clip player"}>
@@ -117,6 +123,11 @@ export function ClipPlayer() {
               </Link>
             )
           ) : null}
+          {cloudSlug && user ? (
+            <button type="button" className="btn" onClick={() => setSendOpen(true)}>
+              Send
+            </button>
+          ) : null}
           {clip.cloudClipId && clip.uploadStatus === "completed" ? (
             <button
               type="button"
@@ -153,6 +164,7 @@ export function ClipPlayer() {
           </button>
         </div>
       </section>
+      {sendOpen && cloudSlug ? <SendClipSheet slug={cloudSlug} onClose={() => setSendOpen(false)} /> : null}
     </div>
   );
 }

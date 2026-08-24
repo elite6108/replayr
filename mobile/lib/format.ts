@@ -48,6 +48,20 @@ export function formatSectionLabel(value: string | null | undefined): string {
   return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
+export function formatTimeAgo(value: string | null | undefined): string {
+  if (!value) return "";
+  const then = new Date(value).getTime();
+  if (Number.isNaN(then)) return "";
+  const minutes = Math.max(0, Math.floor((Date.now() - then) / 60_000));
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return formatClipDate(value);
+}
+
 export function formatClipDate(value: string | null | undefined): string {
   if (!value) return "";
   const date = new Date(value);

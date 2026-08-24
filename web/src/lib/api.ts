@@ -1,3 +1,4 @@
+import { readApiError, readApiJson } from "./http";
 import { apiUrl } from "./supabase";
 
 export interface ClipAuthor {
@@ -63,10 +64,7 @@ export async function fetchLibrary(
   const response = await fetch(apiUrl(`/v1/library?page=${page}&limit=${limit}`), {
     headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
   });
-  const body = (await response.json()) as LibraryPage & { error?: string };
-  if (!response.ok) {
-    throw new Error(body.error || "Could not load cloud clips.");
-  }
+  const body = await readApiJson<LibraryPage>(response, "Could not load cloud clips.");
   return {
     clips: body.clips ?? [],
     total: Number(body.total) || 0,
@@ -79,11 +77,7 @@ export async function fetchPlayback(slug: string, accessToken?: string | null): 
   const headers: HeadersInit = { accept: "application/json" };
   if (accessToken) headers.authorization = `Bearer ${accessToken}`;
   const response = await fetch(apiUrl(`/v1/clips/${slug}`), { headers });
-  const body = (await response.json()) as PlaybackClip & { error?: string };
-  if (!response.ok) {
-    throw new Error(body.error || "That clip is not available.");
-  }
-  return body;
+  return readApiJson<PlaybackClip>(response, "That clip is not available.");
 }
 
 export async function downloadCloudClip(slug: string, title: string | null, accessToken?: string | null): Promise<void> {
@@ -91,14 +85,7 @@ export async function downloadCloudClip(slug: string, title: string | null, acce
   if (accessToken) headers.authorization = `Bearer ${accessToken}`;
   const response = await fetch(apiUrl(`/v1/clips/${slug}/download`), { headers });
   if (!response.ok) {
-    let message = "Could not download that clip.";
-    try {
-      const body = (await response.json()) as { error?: string };
-      if (body.error) message = body.error;
-    } catch {
-      /* keep default */
-    }
-    throw new Error(message);
+    throw new Error(await readApiError(response, "Could not download that clip."));
   }
   const blob = await response.blob();
   const href = URL.createObjectURL(blob);
@@ -131,15 +118,13 @@ export async function setClipLiked(slug: string, liked: boolean, accessToken: st
     method: liked ? "POST" : "DELETE",
     headers: authHeaders(accessToken),
   });
-  const body = (await response.json()) as { liked?: boolean; likeCount?: number; error?: string };
-  if (!response.ok) throw new Error(body.error || "Could not update that like.");
+  const body = await readApiJson<{ liked?: boolean; likeCount?: number }>(response, "Could not update that like.");
   return { liked: Boolean(body.liked), likeCount: Number(body.likeCount) || 0 };
 }
 
 export async function fetchClipComments(slug: string, accessToken?: string | null): Promise<ClipComment[]> {
   const response = await fetch(apiUrl(`/v1/clips/${slug}/comments`), { headers: authHeaders(accessToken) });
-  const body = (await response.json()) as { comments?: ClipComment[]; error?: string };
-  if (!response.ok) throw new Error(body.error || "Could not load comments.");
+  const body = await readApiJson<{ comments?: ClipComment[] }>(response, "Could not load comments.");
   return body.comments ?? [];
 }
 
@@ -149,8 +134,10 @@ export async function postClipComment(slug: string, text: string, accessToken: s
     headers: { ...authHeaders(accessToken), "content-type": "application/json" },
     body: JSON.stringify({ body: text }),
   });
-  const body = (await response.json()) as { comments?: ClipComment[]; commentCount?: number; error?: string };
-  if (!response.ok) throw new Error(body.error || "Could not post that comment.");
+  const body = await readApiJson<{ comments?: ClipComment[]; commentCount?: number }>(
+    response,
+    "Could not post that comment.",
+  );
   return { comments: body.comments ?? [], commentCount: Number(body.commentCount) || 0 };
 }
 
@@ -159,8 +146,7 @@ export async function deleteClipComment(slug: string, commentId: string, accessT
     method: "DELETE",
     headers: authHeaders(accessToken),
   });
-  const body = (await response.json()) as { commentCount?: number; error?: string };
-  if (!response.ok) throw new Error(body.error || "Could not delete that comment.");
+  const body = await readApiJson<{ commentCount?: number }>(response, "Could not delete that comment.");
   return { commentCount: Number(body.commentCount) || 0 };
 }
 
@@ -170,14 +156,7 @@ export async function deleteAccount(accessToken: string): Promise<void> {
     headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
   });
   if (response.ok) return;
-  let message = "Could not delete this account.";
-  try {
-    const body = (await response.json()) as { error?: string };
-    if (body.error) message = body.error;
-  } catch {
-    /* keep default */
-  }
-  throw new Error(message);
+  throw new Error(await readApiError(response, "Could not delete this account."));
 }
 
 export async function deleteCloudClip(clipId: string, accessToken: string): Promise<void> {
@@ -189,12 +168,5 @@ export async function deleteCloudClip(clipId: string, accessToken: string): Prom
     },
   });
   if (response.ok) return;
-  let message = "Could not delete that cloud clip.";
-  try {
-    const body = (await response.json()) as { error?: string };
-    if (body.error) message = body.error;
-  } catch {
-    /* keep default */
-  }
-  throw new Error(message);
+  throw new Error(await readApiError(response, "Could not delete that cloud clip."));
 }

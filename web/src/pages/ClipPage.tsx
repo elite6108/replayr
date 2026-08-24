@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ClipSocial } from "../components/ClipSocial";
+import { SendClipSheet } from "../components/SendClipSheet";
 import { Seo } from "../components/Seo";
 import { downloadCloudClip, fetchPlayback, type PlaybackClip } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { formatHandle } from "../lib/format";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
 
@@ -11,6 +13,8 @@ export function ClipPage() {
   const [clip, setClip] = useState<PlaybackClip | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  const { session } = useAuth();
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +83,11 @@ export function ClipPage() {
             >
               {downloading ? "Downloading…" : "Download"}
             </button>
+            {session ? (
+              <button className="btn" type="button" onClick={() => setSendOpen(true)}>
+                Send
+              </button>
+            ) : null}
           </div>
           <div className="player-stage">
             <video className="player" src={clip.playbackUrl} controls playsInline autoPlay />
@@ -90,6 +99,7 @@ export function ClipPage() {
             likeCount={clip.likeCount}
             commentCount={clip.commentCount}
           />
+          {sendOpen ? <SendClipSheet slug={clip.slug} onClose={() => setSendOpen(false)} /> : null}
         </>
       )}
     </main>

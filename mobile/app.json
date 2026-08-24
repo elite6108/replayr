@@ -24,6 +24,7 @@
     },
     "android": {
       "package": "tv.elite.replay",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#0b0c0f",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

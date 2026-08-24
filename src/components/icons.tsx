@@ -78,6 +78,15 @@ export function IconFriends(props: IconProps) {
   );
 }
 
+export function IconMessages(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M5 6.5h14a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 17.5H9l-4 3v-3H5A1.5 1.5 0 0 1 3.5 16V8A1.5 1.5 0 0 1 5 6.5z" />
+      <path d="M8 11h.01M12 11h.01M16 11h.01" />
+    </Icon>
+  );
+}
+
 export function IconUploads(props: IconProps) {
   return (
     <Icon {...props}>

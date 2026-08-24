@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { PageHeader } from "../components/common/PageHeader";
+import { SendClipSheet } from "../components/common/SendClipSheet";
 import { clipShareUrl } from "../branding";
 import {
   deleteClipComment,
   fetchClipComments,
+  fetchFriendClips,
   fetchPublicFeed,
   postClipComment,
   setClipLiked,
@@ -20,9 +22,10 @@ export function ExplorePage() {
   const signedIn = Boolean(useAuthStore((state) => state.user));
   const showToast = useToastStore((state) => state.show);
   const [clips, setClips] = useState<PublicFeedClip[]>([]);
+  const [friendClips, setFriendClips] = useState<PublicFeedClip[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openSlug, setOpenSlug] = useState<string | null>(null);
-  const open = clips.find((clip) => clip.slug === openSlug) ?? null;
+  const open = clips.find((clip) => clip.slug === openSlug) ?? friendClips?.find((clip) => clip.slug === openSlug) ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -32,6 +35,24 @@ export function ExplorePage() {
       })
       .catch((caught) => {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not load public clips.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) {
+      setFriendClips([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchFriendClips(token)
+      .then((next) => {
+        if (!cancelled) setFriendClips(next);
+      })
+      .catch(() => {
+        if (!cancelled) setFriendClips([]);
       });
     return () => {
       cancelled = true;
@@ -71,6 +92,32 @@ export function ExplorePage() {
   return (
     <>
       <PageHeader title="Explore" subtitle="Public clips only. Unlisted links never show up here." />
+      <section className="discover-rail">
+        <div className="panel-head">
+          <h2>From friends</h2>
+        </div>
+        {!signedIn ? (
+          <p className="muted">
+            Add friends to see their clips here. <Link to="/profile">Sign in</Link>
+          </p>
+        ) : friendClips === null ? (
+          <p className="muted">Loading friends’ clips…</p>
+        ) : friendClips.length === 0 ? (
+          <p className="muted">
+            Add friends to see their clips here. <Link to="/friends">Find people</Link>
+          </p>
+        ) : (
+          <div className="explore-rail">
+            {friendClips.map((clip) => (
+              <button key={clip.id} className="feed-home-card" type="button" onClick={() => setOpenSlug(clip.slug)}>
+                {clip.thumbnailUrl ? <img src={clip.thumbnailUrl} alt="" /> : <div className="feed-thumb-empty" />}
+                <strong>{clip.title || "Untitled clip"}</strong>
+                <span className="muted">{formatHandle(clip.author)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
       {error ? <p className="error-text">{error}</p> : null}
       {clips.length === 0 && !error ? (
         <section className="panel">
@@ -133,6 +180,7 @@ function PublicClipPanel({
   const [comments, setComments] = useState<ClipComment[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [sendOpen, setSendOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -181,6 +229,11 @@ function PublicClipPanel({
             <button className={`btn ${clip.liked ? "liked" : ""}`} type="button" onClick={onLike}>
               {clip.liked ? "Liked" : "Like"} · {formatCount(clip.likeCount)}
             </button>
+            {signedIn ? (
+              <button className="btn" type="button" onClick={() => setSendOpen(true)}>
+                Send
+              </button>
+            ) : null}
             <a className="btn" href={clipShareUrl(clip.slug)} target="_blank" rel="noreferrer">
               Open link
             </a>
@@ -228,6 +281,7 @@ function PublicClipPanel({
           )}
         </div>
       </section>
+      {sendOpen ? <SendClipSheet slug={clip.slug} onClose={() => setSendOpen(false)} /> : null}
     </div>
   );
 }

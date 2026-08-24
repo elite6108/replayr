@@ -1,4 +1,5 @@
 import { publicApiUrl } from "../branding";
+import { readApiJson } from "../utils/http";
 
 export interface AdminOverview {
   users: number;
@@ -91,9 +92,7 @@ async function adminFetch<T>(path: string, token: string, init?: RequestInit): P
   headers.set("authorization", `Bearer ${token}`);
   if (init?.body) headers.set("content-type", "application/json");
   const response = await fetch(`${publicApiUrl()}${path}`, { ...init, headers });
-  const body = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error || "Admin request failed.");
-  return body;
+  return readApiJson<T>(response, "Admin request failed.");
 }
 
 export function fetchAdminOverview(token: string) {

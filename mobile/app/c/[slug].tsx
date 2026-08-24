@@ -7,11 +7,13 @@ import { useVideoPlayer, VideoView, type VideoPlayer } from "expo-video";
 import { PlayerTools } from "@/components/PlayerTools";
 import { TimelineBar } from "@/components/TimelineBar";
 import { CommentsSheet } from "@/components/CommentsSheet";
+import { SendClipSheet } from "@/components/SendClipSheet";
 import { clipAllowsSocial, deleteCloudClip, fetchPlayback, setClipLiked, type PlaybackClip } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatHandle } from "@/lib/format";
 import { copyClipUrl, saveClipToPhotos, shareClipUrl } from "@/lib/media";
 import { clipShareUrl, getSupabase } from "@/lib/supabase";
+import { saveWatchProgress } from "@/lib/watchProgress";
 
 function firstParam(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value[0] ?? "";
@@ -103,6 +105,7 @@ function ReadyPlayer({
   const [likeCount, setLikeCount] = useState(clip.likeCount ?? 0);
   const [commentCount, setCommentCount] = useState(clip.commentCount ?? 0);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
   const player = useVideoPlayer(clip.playbackUrl, (instance) => {
     instance.loop = true;
     instance.timeUpdateEventInterval = 0.25;
@@ -112,12 +115,42 @@ function ReadyPlayer({
   playerRef.current = player;
 
   useEffect(() => {
+    let lastSaved = 0;
+    let latestTime = 0;
+    let latestDuration = fallbackDuration;
+    const persist = (seconds: number, length: number) => {
+      const total = length > 0 ? length : fallbackDuration;
+      if (total <= 0) return;
+      void saveWatchProgress({
+        slug: clip.slug,
+        title: clip.title,
+        thumbnailUrl: clip.thumbnailUrl ?? null,
+        durationMs: Math.round(total * 1000),
+        progress: Math.min(1, Math.max(0, seconds / total)),
+        updatedAt: Date.now(),
+      });
+    };
     const sub = player.addListener("timeUpdate", (event) => {
+      latestTime = event.currentTime;
       setCurrent(event.currentTime);
-      if (player.duration > 0) setDuration(player.duration);
+      try {
+        if (player.duration > 0) {
+          latestDuration = player.duration;
+          setDuration(player.duration);
+        }
+      } catch {
+        /* native player already released */
+      }
+      if (event.currentTime - lastSaved >= 5) {
+        lastSaved = event.currentTime;
+        persist(event.currentTime, latestDuration);
+      }
     });
-    return () => sub.remove();
-  }, [player]);
+    return () => {
+      persist(latestTime, latestDuration);
+      sub.remove();
+    };
+  }, [player, clip.slug, clip.title, clip.thumbnailUrl, fallbackDuration]);
 
   useFocusEffect(
     useCallback(() => {
@@ -128,8 +161,8 @@ function ReadyPlayer({
   );
 
   useEffect(() => {
-    if (commentsOpen) pausePlayer(player);
-  }, [commentsOpen, player]);
+    if (commentsOpen || sendOpen) pausePlayer(player);
+  }, [commentsOpen, sendOpen, player]);
 
   function togglePlayback() {
     try {
@@ -269,6 +302,14 @@ function ReadyPlayer({
           onCopy={() => {
             void copyClipUrl(clipShareUrl(clip.slug));
           }}
+          onSend={() => {
+            if (!token) {
+              router.push("/signin");
+              return;
+            }
+            pausePlayer(player);
+            setSendOpen(true);
+          }}
           onMore={more}
         />
       </View>
@@ -279,6 +320,7 @@ function ReadyPlayer({
         onClose={() => setCommentsOpen(false)}
         onCount={setCommentCount}
       />
+      <SendClipSheet slug={clip.slug} visible={sendOpen} onClose={() => setSendOpen(false)} />
     </View>
   );
 }

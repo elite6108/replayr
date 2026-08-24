@@ -8,6 +8,7 @@ export function PlayerTools({
   onLike,
   onComment,
   onCopy,
+  onSend,
   onMore,
   bottom = 88,
 }: {
@@ -17,6 +18,7 @@ export function PlayerTools({
   onLike: () => void;
   onComment: () => void;
   onCopy: () => void;
+  onSend?: () => void;
   onMore: () => void;
   bottom?: number;
 }) {
@@ -25,6 +27,7 @@ export function PlayerTools({
       <Tool icon={liked ? "heart" : "heart-outline"} label={String(likeCount || "Like")} color={liked ? "#ff4d6d" : "#fff"} onPress={onLike} />
       <Tool icon="chatbubble-outline" label={String(commentCount || "Comment")} onPress={onComment} />
       <Tool icon="link-outline" label="Copy" onPress={onCopy} />
+      {onSend ? <Tool icon="paper-plane-outline" label="Send" onPress={onSend} /> : null}
       <Tool icon="ellipsis-horizontal" label="More" onPress={onMore} />
     </View>
   );

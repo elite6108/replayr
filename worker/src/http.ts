@@ -24,7 +24,10 @@ const ALLOWED_ORIGINS = new Set([
 export function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "private, no-store",
+    },
   });
 }
 

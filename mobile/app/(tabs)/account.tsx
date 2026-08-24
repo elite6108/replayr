@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Notice } from "@/components/ui";
 import { deleteAccount } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -83,19 +84,19 @@ export default function AccountScreen() {
 
   if (session === undefined) {
     return (
-      <View style={styles.center}>
+      <SafeAreaView style={styles.center} edges={["top"]}>
         <Text style={styles.muted}>Loading…</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
   if (!session) {
     return (
-      <View style={styles.center}>
+      <SafeAreaView style={styles.center} edges={["top"]}>
         <Text style={styles.title}>Account</Text>
         <Text style={styles.muted}>Same Replayr identity as the Windows app and website.</Text>
         <Button label="Sign in" kind="primary" onPress={() => router.push("/signin")} />
-      </View>
+      </SafeAreaView>
     );
   }
 
@@ -104,7 +105,7 @@ export default function AccountScreen() {
   const percent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
 
   return (
-    <View style={styles.page}>
+    <SafeAreaView style={styles.page} edges={["top"]}>
       <Text style={styles.title}>Account</Text>
       <Text style={styles.muted}>Same identity as the Windows app. Capture still happens on the PC.</Text>
       <Notice tone="danger">{error}</Notice>
@@ -135,7 +136,7 @@ export default function AccountScreen() {
       <Pressable onPress={() => void Linking.openURL("https://www.replayr.tv/terms")}>
         <Text style={styles.link}>Terms</Text>
       </Pressable>
-    </View>
+    </SafeAreaView>
   );
 }
 

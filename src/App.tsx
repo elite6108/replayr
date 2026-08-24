@@ -6,6 +6,7 @@ import { LibraryPage } from "./pages/LibraryPage";
 import { RecordPage } from "./pages/RecordPage";
 import { ExplorePage } from "./pages/ExplorePage";
 import { FriendsPage } from "./pages/FriendsPage";
+import { MessagesPage } from "./pages/MessagesPage";
 import { GamesPage } from "./pages/GamesPage";
 import { GamePage } from "./pages/GamePage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -23,6 +24,7 @@ import { useLibraryStore } from "./stores/libraryStore";
 import { useCloudStore } from "./stores/cloudStore";
 import { useUpdateStore } from "./stores/updateStore";
 import { APP_NAME } from "./branding";
+import { useSocialUnreadSync } from "./hooks/useSocialUnreadSync";
 
 export default function App() {
   const loaded = useSettingsStore((state) => state.loaded);
@@ -37,6 +39,7 @@ export default function App() {
   const initializeUpdates = useUpdateStore((state) => state.initialize);
   const userId = useAuthStore((state) => state.user?.id);
   const refreshCloud = useCloudStore((state) => state.refresh);
+  useSocialUnreadSync();
 
   useEffect(() => {
     void loadSettings();
@@ -100,6 +103,8 @@ export default function App() {
           <Route path="/clips" element={<Navigate to="/library/cloud" replace />} />
           <Route path="/explore" element={<ExplorePage />} />
           <Route path="/friends" element={<FriendsPage />} />
+          <Route path="/messages" element={<MessagesPage />} />
+          <Route path="/messages/:conversationId" element={<MessagesPage />} />
           <Route path="/uploads" element={<Navigate to="/library/cloud" replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/profile" element={<ProfilePage />} />

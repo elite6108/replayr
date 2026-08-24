@@ -7,6 +7,7 @@ import { deleteCloudClip, deleteLocalClip, downloadUrlToFile, listLocalClips, re
 import type { CloudClip } from "../types/clip";
 import { joinPath, suggestedFileName, uniqueFileName } from "../utils/files";
 import { invokeErrorMessage } from "../utils/format";
+import { readApiJson } from "../utils/http";
 import { useAuthStore } from "./authStore";
 import { useToastStore } from "./toastStore";
 
@@ -238,9 +239,9 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       const response = await fetch(`${publicAppUrl()}/v1/clips/${clip.slug}`, {
         headers: { authorization: `Bearer ${token}` },
       });
-      const body = (await response.json()) as { playbackUrl?: string; error?: string };
-      if (!response.ok || !body.playbackUrl) {
-        throw new Error(body.error || "Could not get a download URL");
+      const body = await readApiJson<{ playbackUrl?: string }>(response, "Could not get a download URL");
+      if (!body.playbackUrl) {
+        throw new Error("Could not get a download URL");
       }
       const dest = await save({
         defaultPath: suggestedFileName(clip.title, "clip", "mp4"),
@@ -278,9 +279,9 @@ export const useCloudStore = create<CloudState>((set, get) => ({
           const response = await fetch(`${publicAppUrl()}/v1/clips/${clip.slug}`, {
             headers: { authorization: `Bearer ${token}` },
           });
-          const body = (await response.json()) as { playbackUrl?: string; error?: string };
-          if (!response.ok || !body.playbackUrl) {
-            throw new Error(body.error || "Could not get a download URL");
+          const body = await readApiJson<{ playbackUrl?: string }>(response, "Could not get a download URL");
+          if (!body.playbackUrl) {
+            throw new Error("Could not get a download URL");
           }
           const dest = joinPath(folder, uniqueFileName(used, suggestedFileName(clip.title, "clip", "mp4")));
           await downloadUrlToFile(body.playbackUrl, dest);

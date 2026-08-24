@@ -59,11 +59,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     alignItems: "center",
   },
-  primary: { backgroundColor: colors.accent, borderColor: colors.accent },
+  primary: {
+    backgroundColor: "#ffffff",
+    borderColor: "#ffffff",
+    borderRadius: 22,
+  },
   danger: { borderColor: colors.danger },
   disabled: { opacity: 0.5 },
   btnText: { color: colors.text, fontWeight: "600" },
-  primaryText: { color: "#0b0c0f" },
+  primaryText: { color: "#07080b" },
   field: { gap: 6 },
   label: { color: colors.muted, fontSize: 13 },
   input: {

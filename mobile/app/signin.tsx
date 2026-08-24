@@ -1,5 +1,12 @@
-import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useRef, useState } from "react";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -28,6 +35,11 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+
+  function revealField() {
+    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+  }
 
   async function startSocial(provider: SocialProvider) {
     setBusy(true);
@@ -83,7 +95,7 @@ export default function SignInScreen() {
 
   if (session === undefined) {
     return (
-      <View style={styles.page}>
+      <View style={[styles.flex, styles.page]}>
         <Text style={styles.muted}>Loading…</Text>
       </View>
     );
@@ -91,53 +103,68 @@ export default function SignInScreen() {
   if (session) return <Redirect href="/library" />;
 
   return (
-    <View style={styles.page}>
-      <Text style={styles.title}>{mode === "in" ? "Sign in" : "Create account"}</Text>
-      <Text style={styles.muted}>Same Replayr account as the Windows app. Clipping still happens on the PC.</Text>
-      <View style={styles.row}>
-        <Button label="Sign in" kind={mode === "in" ? "primary" : "default"} onPress={() => setMode("in")} />
-        <Button label="Create account" kind={mode === "up" ? "primary" : "default"} onPress={() => setMode("up")} />
-      </View>
-      <AppleSignInButton
-        disabled={busy}
-        onError={setError}
-        onBusy={(next) => {
-          setBusy(next);
-          if (next) {
-            setError(null);
-            setNotice(null);
-          }
-        }}
-      />
-      {PROVIDERS.map((provider) => (
-        <Button key={provider.id} label={provider.label} disabled={busy} onPress={() => void startSocial(provider.id)} />
-      ))}
-      <Text style={styles.muted}>or email</Text>
-      <Field
-        label="Email"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        autoComplete="email"
-      />
-      <Field
-        label="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        autoComplete={mode === "in" ? "current-password" : "new-password"}
-      />
-      <Notice tone="danger">{error}</Notice>
-      <Notice>{notice}</Notice>
-      <Button
-        label={busy ? "Working…" : mode === "in" ? "Sign in" : "Create account"}
-        kind="primary"
-        disabled={busy}
-        onPress={() => void onSubmit()}
-      />
-      <Button label="Back" onPress={() => router.back()} />
-    </View>
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
+    >
+      <ScrollView
+        ref={scrollRef}
+        style={styles.flex}
+        contentContainerStyle={styles.page}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
+      >
+        <Text style={styles.title}>{mode === "in" ? "Sign in" : "Create account"}</Text>
+        <Text style={styles.muted}>Same Replayr account as the Windows app. Clipping still happens on the PC.</Text>
+        <View style={styles.row}>
+          <Button label="Sign in" kind={mode === "in" ? "primary" : "default"} onPress={() => setMode("in")} />
+          <Button label="Create account" kind={mode === "up" ? "primary" : "default"} onPress={() => setMode("up")} />
+        </View>
+        <AppleSignInButton
+          disabled={busy}
+          onError={setError}
+          onBusy={(next) => {
+            setBusy(next);
+            if (next) {
+              setError(null);
+              setNotice(null);
+            }
+          }}
+        />
+        {PROVIDERS.map((provider) => (
+          <Button key={provider.id} label={provider.label} disabled={busy} onPress={() => void startSocial(provider.id)} />
+        ))}
+        <Text style={styles.muted}>or email</Text>
+        <Field
+          label="Email"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          autoComplete="email"
+          onFocus={revealField}
+        />
+        <Field
+          label="Password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          autoComplete={mode === "in" ? "current-password" : "new-password"}
+          onFocus={revealField}
+        />
+        <Notice tone="danger">{error}</Notice>
+        <Notice>{notice}</Notice>
+        <Button
+          label={busy ? "Working…" : mode === "in" ? "Sign in" : "Create account"}
+          kind="primary"
+          disabled={busy}
+          onPress={() => void onSubmit()}
+        />
+        <Button label="Back" onPress={() => router.back()} />
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -173,7 +200,8 @@ function oauthError(caught: unknown): string {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: colors.bg, padding: 16, gap: 12 },
+  flex: { flex: 1, backgroundColor: colors.bg },
+  page: { flexGrow: 1, backgroundColor: colors.bg, padding: 16, paddingBottom: 32, gap: 12 },
   title: { color: colors.text, fontSize: 28, fontWeight: "700" },
   muted: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   row: { flexDirection: "row", gap: 8 },

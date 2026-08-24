@@ -1,4 +1,5 @@
 import { publicApiUrl } from "../branding";
+import { readApiJson } from "../utils/http";
 
 export interface PublicGameClip {
   id: string;
@@ -21,13 +22,12 @@ export async function fetchPublicGameClips(slug: string): Promise<{ game: Public
   const response = await fetch(`${publicApiUrl()}/v1/games/${encodeURIComponent(slug)}/clips`, {
     headers: { accept: "application/json" },
   });
-  const body = (await response.json()) as {
+  const body = await readApiJson<{
     game?: { id: string; slug: string; name: string; publisher: string | null; cover_url: string | null };
     clips?: PublicGameClip[];
-    error?: string;
-  };
-  if (!response.ok || !body.game) {
-    throw new Error(body.error || "Could not load that game.");
+  }>(response, "Could not load that game.");
+  if (!body.game) {
+    throw new Error("Could not load that game.");
   }
   return {
     game: {

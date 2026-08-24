@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { SendClipSheet } from "./SendClipSheet";
 import {
   deleteClipComment,
   fetchClipComments,
@@ -32,6 +33,7 @@ export function ClipSocial({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
 
   useEffect(() => {
     setLiked(Boolean(likedProp));
@@ -53,8 +55,6 @@ export function ClipSocial({
       cancelled = true;
     };
   }, [slug, token, publicClip]);
-
-  if (!publicClip) return null;
 
   async function toggleLike() {
     if (!token) return;
@@ -105,50 +105,66 @@ export function ClipSocial({
   return (
     <section className="clip-social">
       <div className="clip-social-actions">
+        {publicClip ? (
+          token ? (
+            <button className={`btn ${liked ? "liked" : ""}`} type="button" onClick={() => void toggleLike()}>
+              {liked ? "Liked" : "Like"} · {formatCount(likeCount)}
+            </button>
+          ) : (
+            <Link className="btn" to="/signin">
+              Like · {formatCount(likeCount)}
+            </Link>
+          )
+        ) : null}
         {token ? (
-          <button className={`btn ${liked ? "liked" : ""}`} type="button" onClick={() => void toggleLike()}>
-            {liked ? "Liked" : "Like"} · {formatCount(likeCount)}
+          <button className="btn" type="button" onClick={() => setSendOpen(true)}>
+            Send
           </button>
         ) : (
           <Link className="btn" to="/signin">
-            Like · {formatCount(likeCount)}
+            Send
           </Link>
         )}
-        <span className="muted">{formatCount(commentCount)} comments</span>
+        {publicClip ? <span className="muted">{formatCount(commentCount)} comments</span> : null}
       </div>
       {error ? <p className="error">{error}</p> : null}
-      <ul className="comment-list">
-        {comments.map((comment) => (
-          <li key={comment.id}>
-            <strong>{formatHandle(comment.author)}</strong>
-            <span>{comment.body}</span>
-            {comment.canDelete ? (
-              <button className="btn ghost" type="button" onClick={() => void remove(comment)}>
-                Delete
+      {publicClip ? (
+        <>
+          <ul className="comment-list">
+            {comments.map((comment) => (
+              <li key={comment.id}>
+                <strong>{formatHandle(comment.author)}</strong>
+                <span>{comment.body}</span>
+                {comment.canDelete ? (
+                  <button className="btn ghost" type="button" onClick={() => void remove(comment)}>
+                    Delete
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {token ? (
+            <form className="comment-form" onSubmit={(event) => void submit(event)}>
+              <input
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                maxLength={500}
+                placeholder="Add a comment"
+                aria-label="Add a comment"
+              />
+              <button className="btn" type="submit" disabled={busy || !draft.trim()}>
+                {busy ? "Posting…" : "Comment"}
               </button>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-      {token ? (
-        <form className="comment-form" onSubmit={(event) => void submit(event)}>
-          <input
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            maxLength={500}
-            placeholder="Add a comment"
-            aria-label="Add a comment"
-          />
-          <button className="btn" type="submit" disabled={busy || !draft.trim()}>
-            {busy ? "Posting…" : "Comment"}
-          </button>
-        </form>
-      ) : (
-        <p className="muted">
-          <Link to="/signin">Sign in</Link> to like or comment. Share links stay <code>/c/…</code> — no username in the
-          URL.
-        </p>
-      )}
+            </form>
+          ) : (
+            <p className="muted">
+              <Link to="/signin">Sign in</Link> to like or comment. Share links stay <code>/c/…</code> — no username in the
+              URL.
+            </p>
+          )}
+        </>
+      ) : null}
+      {sendOpen ? <SendClipSheet slug={slug} onClose={() => setSendOpen(false)} /> : null}
     </section>
   );
 }

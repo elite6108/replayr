@@ -4,6 +4,7 @@ import { SiteHeader } from "./components/SiteHeader";
 import { RequireAuth } from "./components/RequireAuth";
 import { RequireAdmin } from "./components/RequireAdmin";
 import { AuthProvider } from "./lib/auth";
+import { SocialUnreadProvider } from "./lib/socialUnread";
 import { AccountPage } from "./pages/AccountPage";
 import { ClipPage } from "./pages/ClipPage";
 import { CreatorsPage } from "./pages/CreatorsPage";
@@ -15,7 +16,9 @@ import { GamesPage } from "./pages/GamesPage";
 import { HomePage } from "./pages/HomePage";
 import { LegalPage } from "./pages/LegalPage";
 import { LibraryPage } from "./pages/LibraryPage";
+import { MessagesPage } from "./pages/MessagesPage";
 import { PricingPage } from "./pages/PricingPage";
+import { UserProfilePage } from "./pages/UserProfilePage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { AuthDesktopPage } from "./pages/AuthDesktopPage";
 import { SignInPage } from "./pages/SignInPage";
@@ -30,7 +33,9 @@ import { AdminErrorsPage } from "./pages/admin/AdminErrorsPage";
 export function App() {
   return (
     <AuthProvider>
-      <AppShell />
+      <SocialUnreadProvider>
+        <AppShell />
+      </SocialUnreadProvider>
     </AuthProvider>
   );
 }
@@ -38,8 +43,9 @@ export function App() {
 function AppShell() {
   const location = useLocation();
   const admin = location.pathname.startsWith("/admin");
+  const messages = location.pathname.startsWith("/messages");
   return (
-      <div className={`site${admin ? " site-admin" : ""}`}>
+      <div className={`site${admin ? " site-admin" : ""}${messages ? " site-messages" : ""}`}>
         <SiteHeader />
         <Routes>
           <Route path="/" element={<HomePage />} />
@@ -71,6 +77,23 @@ function AppShell() {
             }
           />
           <Route
+            path="/messages"
+            element={
+              <RequireAuth>
+                <MessagesPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/messages/:id"
+            element={
+              <RequireAuth>
+                <MessagesPage />
+              </RequireAuth>
+            }
+          />
+          <Route path="/u/:username" element={<UserProfilePage />} />
+          <Route
             path="/account"
             element={
               <RequireAuth>
@@ -96,7 +119,7 @@ function AppShell() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-        {admin ? null : <SiteFooter />}
+        {admin || messages ? null : <SiteFooter />}
       </div>
   );
 }

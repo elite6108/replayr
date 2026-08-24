@@ -2,6 +2,7 @@ import { Stack, useRouter } from "expo-router";
 import * as Linking from "expo-linking";
 import { useEffect } from "react";
 import { AuthProvider } from "@/lib/auth";
+import { SocialUnreadProvider } from "@/lib/socialUnread";
 import { installMobileTelemetry } from "@/lib/telemetry";
 import { colors } from "@/lib/theme";
 
@@ -38,7 +39,8 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <Stack
+      <SocialUnreadProvider>
+        <Stack
         screenOptions={{
           headerTintColor: colors.accent,
           headerStyle: { backgroundColor: colors.raised },
@@ -50,8 +52,10 @@ export default function RootLayout() {
         <Stack.Screen name="c/[slug]" options={{ headerShown: false, animation: "fade" }} />
         <Stack.Screen name="games/[slug]" options={{ title: "Game" }} />
         <Stack.Screen name="friends" options={{ title: "Friends" }} />
+        <Stack.Screen name="messages/[id]" options={{ title: "Chat" }} />
         <Stack.Screen name="auth/callback" options={{ title: "Signing in" }} />
       </Stack>
+      </SocialUnreadProvider>
     </AuthProvider>
   );
 }

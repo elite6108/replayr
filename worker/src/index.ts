@@ -1,20 +1,63 @@
-import { AwsClient } from "aws4fetch";
 import { handleAdmin } from "./admin";
+import type { Env } from "./env";
 import { ingestClientError, recordWorkerError } from "./errors";
 import { cors, HttpError, json } from "./http";
+import {
+  anonymousAuthor,
+  loadAuthors,
+  loadSocial,
+  lookupPlaybackRaw,
+  objectUrl,
+  optionalUser,
+  ownedObjectKey,
+  presentPublicClips,
+  PUBLIC_CLIP_SELECT,
+  r2Client,
+  requireR2,
+  requireServiceRole,
+  requireUser,
+  rest,
+  restError,
+  serviceRest,
+  serviceRestCount,
+  signedOwnedUrl,
+  type AuthUser,
+  type PlaybackRow,
+  type PublicClipRow,
+} from "./shared";
+import { handleSocial, hasConversationClipGrant } from "./social";
 
-export interface Env {
-  CLIPS?: R2Bucket;
-  ASSETS?: { fetch: (request: Request) => Promise<Response> };
-  SUPABASE_URL: string;
-  SUPABASE_ANON_KEY: string;
-  SUPABASE_SERVICE_ROLE_KEY?: string;
-  R2_ACCOUNT_ID: string;
-  R2_ACCESS_KEY_ID: string;
-  R2_SECRET_ACCESS_KEY: string;
-  R2_BUCKET_NAME: string;
-  PUBLIC_APP_URL: string;
-}
+export type {
+  AddMembersBody,
+  ChatMessage,
+  ConversationResponse,
+  ConversationSummary,
+  ConversationsResponse,
+  CreateConversationBody,
+  CreateFriendRequestBody,
+  Friend,
+  FriendRequest,
+  FriendRequestsResponse,
+  FriendsResponse,
+  MessageClip,
+  MessagesResponse,
+  NotificationItem,
+  NotificationsResponse,
+  PostMessageBody,
+  PublicClipCard,
+  ReadNotificationsBody,
+  ReadNotificationsResponse,
+  Relationship,
+  SendClipBody,
+  SendClipResponse,
+  SocialUser,
+  FriendClipsResponse,
+  UserProfileResponse,
+  UserSuggestionsResponse,
+  UsersSearchResponse,
+} from "./social-types";
+
+export type { Env } from "./env";
 
 const PART_SIZE = 8 * 1024 * 1024;
 const SLUG_ALPHABET = "abcdefghijkmnopqrstuvwxyz23456789";
@@ -47,7 +90,7 @@ export default {
       return cors(new Response(null, { status: 204 }), request);
     }
     try {
-      return cors(await route(request, env, url), request);
+      return cors(await route(request, env, url, ctx), request);
     } catch (caught) {
       if (caught instanceof HttpError) {
         return cors(json({ error: caught.message }, caught.status), request);
@@ -59,13 +102,20 @@ export default {
   },
 };
 
-async function route(request: Request, env: Env, url: URL): Promise<Response> {
+async function route(
+  request: Request,
+  env: Env,
+  url: URL,
+  ctx: { waitUntil(task: Promise<unknown>): void },
+): Promise<Response> {
   if (request.method === "GET" && url.pathname === "/v1/health") {
     return json({
       ok: true,
       storage: Boolean(env.R2_BUCKET_NAME && env.R2_ACCESS_KEY_ID && env.R2_ACCOUNT_ID),
     });
   }
+  const social = await handleSocial(request, env, url);
+  if (social) return social;
   if (request.method === "GET" && url.pathname === "/v1/library") {
     return listLibrary(request, env);
   }
@@ -110,7 +160,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
     return deleteClip(request, env, clipItem[1]);
   }
   if (request.method === "GET" && clipItem?.[1]) {
-    return getPlayback(request, env, clipItem[1]);
+    return getPlayback(request, env, clipItem[1], ctx);
   }
   if (request.method === "POST" && url.pathname === "/v1/account/delete") {
     return deleteAccount(request, env);
@@ -146,6 +196,9 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
       const index = new URL("/index.html", request.url);
       return env.ASSETS.fetch(new Request(index, request));
     }
+  }
+  if (url.pathname.startsWith("/v1/")) {
+    return json({ error: "Not found." }, 404);
   }
   if (env.ASSETS && request.method === "GET") {
     return env.ASSETS.fetch(request);
@@ -539,34 +592,47 @@ async function listGameClips(request: Request, env: Env, slug: string): Promise<
 async function listPublicClips(request: Request, env: Env, url: URL): Promise<Response> {
   const rawLimit = Number(url.searchParams.get("limit"));
   const limit = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(48, Math.floor(rawLimit)) : 24;
-  const rows = await serviceRest<PublicClipRow[]>(
+  const trending = url.searchParams.get("sort") === "trending";
+  const rows = trending
+    ? await listTrendingPublicRows(env, limit)
+    : await serviceRest<PublicClipRow[]>(
+        env,
+        "GET",
+        `/clips?visibility=eq.public&status=eq.ready&${PUBLIC_CLIP_SELECT}&order=created_at.desc&limit=${limit}`,
+      );
+  return json({ clips: await presentPublicClips(request, env, rows) });
+}
+
+async function listTrendingPublicRows(env: Env, limit: number): Promise<PublicClipRow[]> {
+  const day = new Date().toISOString().slice(0, 10);
+  const daily = await serviceRest<{ clip_id: string; count: number }[]>(
     env,
     "GET",
-    `/clips?visibility=eq.public&status=eq.ready&select=id,user_id,title,slug,duration_ms,created_at,storage_key,thumbnail_key,like_count,comment_count,games(name,slug,cover_url)&order=created_at.desc&limit=${limit}`,
+    `/clip_daily_views?day=eq.${day}&select=clip_id,count&order=count.desc&limit=${limit}`,
   );
-  requireR2(env);
-  const viewer = await optionalUser(request, env);
-  const social = await loadSocial(env, rows, viewer?.id ?? null);
-  const clips = [];
-  for (const row of rows) {
-    const game = Array.isArray(row.games) ? row.games[0] : row.games;
-    const extra = social.get(row.id);
-    clips.push({
-      id: row.id,
-      title: row.title,
-      slug: row.slug,
-      durationMs: row.duration_ms,
-      createdAt: row.created_at,
-      thumbnailUrl: await signedOwnedUrl(env, row.user_id, row.thumbnail_key, "GET"),
-      playbackUrl: await signedOwnedUrl(env, row.user_id, row.storage_key, "GET"),
-      game: game ? { name: game.name, slug: game.slug, coverUrl: game.cover_url } : null,
-      author: extra?.author ?? anonymousAuthor(),
-      likeCount: extra?.likeCount ?? row.like_count ?? 0,
-      commentCount: extra?.commentCount ?? row.comment_count ?? 0,
-      liked: extra?.liked ?? false,
-    });
+  const rankedIds = daily.map((row) => row.clip_id);
+  const fromToday = rankedIds.length
+    ? await serviceRest<PublicClipRow[]>(
+        env,
+        "GET",
+        `/clips?id=in.(${rankedIds.join(",")})&visibility=eq.public&status=eq.ready&${PUBLIC_CLIP_SELECT}`,
+      )
+    : [];
+  const byId = new Map(fromToday.map((row) => [row.id, row]));
+  const ordered = rankedIds.map((id) => byId.get(id)).filter((row): row is PublicClipRow => Boolean(row));
+  if (ordered.length >= limit) return ordered.slice(0, limit);
+  const exclude = ordered.map((row) => row.id);
+  const filler = await serviceRest<PublicClipRow[]>(
+    env,
+    "GET",
+    `/clips?visibility=eq.public&status=eq.ready&${PUBLIC_CLIP_SELECT}&order=view_count.desc,created_at.desc&limit=${limit}`,
+  );
+  for (const row of filler) {
+    if (exclude.includes(row.id)) continue;
+    ordered.push(row);
+    if (ordered.length >= limit) break;
   }
-  return json({ clips });
+  return ordered;
 }
 
 async function downloadClip(request: Request, env: Env, slug: string): Promise<Response> {
@@ -601,7 +667,12 @@ function downloadFileName(title: string | null, slug: string) {
   return `${base || "clip"}.mp4`;
 }
 
-async function getPlayback(request: Request, env: Env, slug: string): Promise<Response> {
+async function getPlayback(
+  request: Request,
+  env: Env,
+  slug: string,
+  ctx: { waitUntil(task: Promise<unknown>): void },
+): Promise<Response> {
   const clip = await lookupPlayback(request, env, slug);
   if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) {
     return json({ error: "That clip is not available." }, 404);
@@ -612,6 +683,9 @@ async function getPlayback(request: Request, env: Env, slug: string): Promise<Re
     aws: { signQuery: true },
   });
   const viewer = await optionalUser(request, env);
+  if (clipAllowsSocial(clip) && viewer?.id !== clip.user_id) {
+    ctx.waitUntil(recordClipView(env, clip.id, request));
+  }
   const social = clipAllowsSocial(clip)
     ? await loadSocial(env, [clip], viewer?.id ?? null)
     : null;
@@ -724,70 +798,6 @@ async function requireShareableClip(env: Env, slug: string): Promise<PlaybackRow
   return clip;
 }
 
-async function lookupPlaybackRaw(env: Env, slug: string): Promise<PlaybackRow | null> {
-  if (!/^[a-z0-9]{6,16}$/.test(slug)) return null;
-  const rows = await serviceRest<PlaybackRow[]>(
-    env,
-    "GET",
-    `/clips?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,visibility,status,storage_key,thumbnail_key,like_count,comment_count`,
-  );
-  const clip = rows[0];
-  if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) return null;
-  return clip;
-}
-
-async function loadSocial(
-  env: Env,
-  rows: { id: string; user_id: string; like_count?: number; comment_count?: number }[],
-  viewerId: string | null,
-): Promise<Map<string, { author: ClipAuthor; likeCount: number; commentCount: number; liked: boolean }>> {
-  const result = new Map<string, { author: ClipAuthor; likeCount: number; commentCount: number; liked: boolean }>();
-  if (rows.length === 0) return result;
-  const authors = await loadAuthors(
-    env,
-    rows.map((row) => row.user_id),
-  );
-  const liked = viewerId ? await likedClipIds(env, viewerId, rows.map((row) => row.id)) : new Set<string>();
-  for (const row of rows) {
-    result.set(row.id, {
-      author: authors.get(row.user_id) ?? anonymousAuthor(),
-      likeCount: row.like_count ?? 0,
-      commentCount: row.comment_count ?? 0,
-      liked: liked.has(row.id),
-    });
-  }
-  return result;
-}
-
-async function loadAuthors(env: Env, userIds: string[]): Promise<Map<string, ClipAuthor>> {
-  const unique = [...new Set(userIds.filter(Boolean))];
-  const authors = new Map<string, ClipAuthor>();
-  if (unique.length === 0) return authors;
-  const rows = await serviceRest<ProfileRow[]>(
-    env,
-    "GET",
-    `/profiles?id=in.(${unique.join(",")})&select=id,username,display_name,avatar_url`,
-  );
-  for (const row of rows) {
-    authors.set(row.id, {
-      username: row.username,
-      displayName: row.display_name || row.username,
-      avatarUrl: row.avatar_url,
-    });
-  }
-  return authors;
-}
-
-async function likedClipIds(env: Env, userId: string, clipIds: string[]): Promise<Set<string>> {
-  if (clipIds.length === 0) return new Set();
-  const rows = await serviceRest<{ clip_id: string }[]>(
-    env,
-    "GET",
-    `/clip_likes?user_id=eq.${userId}&clip_id=in.(${clipIds.join(",")})&select=clip_id`,
-  );
-  return new Set(rows.map((row) => row.clip_id));
-}
-
 async function socialState(env: Env, clipId: string, userId: string, liked: boolean) {
   const counts = await clipCounts(env, clipId);
   return { liked, likeCount: counts.likeCount, commentCount: counts.commentCount };
@@ -805,8 +815,26 @@ async function clipCounts(env: Env, clipId: string) {
   };
 }
 
-function anonymousAuthor(): ClipAuthor {
-  return { username: null, displayName: "Player", avatarUrl: null };
+const recentViews = new Map<string, number>();
+
+async function recordClipView(env: Env, clipId: string, request: Request): Promise<void> {
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) return;
+  const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "local";
+  const key = `${ip}:${clipId}`;
+  const now = Date.now();
+  const last = recentViews.get(key) ?? 0;
+  if (now - last < 10 * 60 * 1000) return;
+  recentViews.set(key, now);
+  if (recentViews.size > 4000) {
+    for (const [entry, at] of recentViews) {
+      if (now - at > 10 * 60 * 1000) recentViews.delete(entry);
+    }
+  }
+  try {
+    await serviceRest(env, "POST", "/rpc/record_clip_view", { p_clip_id: clipId });
+  } catch {
+    recentViews.delete(key);
+  }
 }
 
 async function lookupPlayback(request: Request, env: Env, slug: string): Promise<PlaybackRow | null> {
@@ -815,25 +843,11 @@ async function lookupPlayback(request: Request, env: Env, slug: string): Promise
   if (clip.visibility === "public" || clip.visibility === "unlisted") return clip;
   if (clip.visibility === "private") {
     const user = await optionalUser(request, env);
-    if (user?.id === clip.user_id) return clip;
+    if (!user) return null;
+    if (user.id === clip.user_id) return clip;
+    if (await hasConversationClipGrant(env, clip.id, user.id)) return clip;
   }
   return null;
-}
-
-async function optionalUser(request: Request, env: Env): Promise<AuthUser | null> {
-  try {
-    if (!bearerToken(request)) return null;
-    return await requireUser(request, env);
-  } catch {
-    return null;
-  }
-}
-
-function bearerToken(request: Request): string | null {
-  const header = request.headers.get("authorization") || "";
-  if (!header.toLowerCase().startsWith("bearer ")) return null;
-  const token = header.slice(7).trim();
-  return token || null;
 }
 
 async function serveUpdaterManifest(request: Request, env: Env): Promise<Response> {
@@ -931,28 +945,6 @@ async function insertClip(env: Env, user: AuthUser, row: Record<string, unknown>
   throw new HttpError(500, "Could not allocate a clip URL.");
 }
 
-async function requireUser(request: Request, env: Env): Promise<AuthUser> {
-  const header = request.headers.get("authorization") || "";
-  const token = header.toLowerCase().startsWith("bearer ") ? header.slice(7) : "";
-  if (!token) {
-    throw new HttpError(401, "Sign in required.");
-  }
-  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
-    headers: {
-      authorization: `Bearer ${token}`,
-      apikey: env.SUPABASE_ANON_KEY,
-    },
-  });
-  if (!response.ok) {
-    throw new HttpError(401, "Session expired. Sign in again.");
-  }
-  const user = (await response.json()) as { id?: string };
-  if (!user.id) {
-    throw new HttpError(401, "Session expired. Sign in again.");
-  }
-  return { id: user.id, token };
-}
-
 async function lookupGame(env: Env, token: string, slug: string | null): Promise<string | null> {
   if (!slug) return null;
   const rows = await rest<{ id: string }[]>(
@@ -974,28 +966,6 @@ async function objectSize(env: Env, key: string): Promise<number | null> {
   const length = response.headers.get("content-length");
   const size = length ? Number(length) : NaN;
   return Number.isFinite(size) ? size : null;
-}
-
-function requireR2(env: Env) {
-  if (!env.R2_ACCOUNT_ID || !env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY || !env.R2_BUCKET_NAME) {
-    throw new HttpError(503, "Cloud storage is not configured on the Worker.");
-  }
-}
-
-function requireServiceRole(env: Env): string {
-  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new HttpError(503, "Cloud quota is not configured on the Worker.");
-  }
-  return env.SUPABASE_SERVICE_ROLE_KEY;
-}
-
-export function ownedObjectKey(userId: string, key: string | null | undefined): key is string {
-  return Boolean(
-    key &&
-      key.startsWith(`clips/${userId}/`) &&
-      !key.includes("..") &&
-      /^clips\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/(original\.mp4|thumb)$/i.test(key),
-  );
 }
 
 async function deleteOwnedObject(env: Env, userId: string, key: string | null | undefined) {
@@ -1054,104 +1024,6 @@ function quotaHttpError(caught: unknown): HttpError | null {
   return null;
 }
 
-async function signedOwnedUrl(
-  env: Env,
-  userId: string,
-  key: string | null | undefined,
-  method: "GET" | "PUT",
-  headers?: Record<string, string>,
-): Promise<string | null> {
-  if (!ownedObjectKey(userId, key)) return null;
-  return (await signObject(env, key, method, headers)).url;
-}
-
-async function serviceRestCount(env: Env, path: string): Promise<number> {
-  const key = requireServiceRole(env);
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
-    method: "GET",
-    headers: {
-      apikey: key,
-      authorization: `Bearer ${key}`,
-      prefer: "count=exact",
-      range: "0-0",
-    },
-  });
-  if (!response.ok) {
-    throw new HttpError(502, restError(await response.text()) || "Supabase request failed.");
-  }
-  const total = response.headers.get("content-range")?.split("/")[1];
-  return total && total !== "*" ? Number(total) : 0;
-}
-
-function r2Client(env: Env) {
-  return new AwsClient({
-    accessKeyId: env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    service: "s3",
-    region: "auto",
-  });
-}
-
-function objectUrl(env: Env, key: string) {
-  return `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET_NAME}/${key}`;
-}
-
-function signObject(env: Env, key: string, method: "GET" | "PUT", headers?: Record<string, string>) {
-  return r2Client(env).sign(`${objectUrl(env, key)}?X-Amz-Expires=3600`, {
-    method,
-    headers,
-    aws: { signQuery: true },
-  });
-}
-
-async function rest<T>(env: Env, token: string, method: string, path: string, body?: unknown): Promise<T> {
-  return restFetch<T>(env, env.SUPABASE_ANON_KEY, token, method, path, body);
-}
-
-async function serviceRest<T>(env: Env, method: string, path: string, body?: unknown): Promise<T> {
-  const key = requireServiceRole(env);
-  return restFetch<T>(env, key, key, method, path, body);
-}
-
-async function restFetch<T>(
-  env: Env,
-  apikey: string,
-  token: string,
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
-    method,
-    headers: {
-      apikey,
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-      prefer: method === "POST" && path.startsWith("/rpc/")
-        ? "return=representation"
-        : method === "POST" || method === "DELETE"
-          ? "return=minimal"
-          : "return=representation",
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new HttpError(response.status === 409 ? 409 : 502, restError(text) || "Supabase request failed.");
-  }
-  if (!text) return [] as T;
-  return JSON.parse(text) as T;
-}
-
-function restError(body: string): string {
-  try {
-    const value = JSON.parse(body) as { message?: string; hint?: string; details?: string };
-    return value.message || value.hint || value.details || body;
-  } catch {
-    return body;
-  }
-}
-
 function randomSlug() {
   const bytes = crypto.getRandomValues(new Uint8Array(10));
   return Array.from(bytes, (value) => SLUG_ALPHABET[value % SLUG_ALPHABET.length]).join("");
@@ -1201,12 +1073,6 @@ function shouldUpgradeToHttps(url: URL) {
   return url.protocol === "http:" && (url.hostname === "replayr.tv" || url.hostname === "www.replayr.tv");
 }
 
-
-interface AuthUser {
-  id: string;
-  token: string;
-}
-
 interface StorageRow {
   storage_used_bytes: number;
   storage_limit_bytes: number;
@@ -1248,52 +1114,9 @@ interface GameRow {
   cover_url: string | null;
 }
 
-interface PublicClipRow {
-  id: string;
-  user_id: string;
-  title: string | null;
-  slug: string;
-  duration_ms: number | null;
-  created_at: string;
-  storage_key: string | null;
-  thumbnail_key: string | null;
-  like_count?: number;
-  comment_count?: number;
-  games: { name: string; slug: string; cover_url: string | null } | { name: string; slug: string; cover_url: string | null }[] | null;
-}
-
-interface PlaybackRow {
-  id: string;
-  user_id: string;
-  slug: string;
-  title: string | null;
-  duration_ms: number | null;
-  width: number | null;
-  height: number | null;
-  visibility: string;
-  status: string;
-  storage_key: string | null;
-  thumbnail_key?: string | null;
-  like_count?: number;
-  comment_count?: number;
-}
-
-interface ProfileRow {
-  id: string;
-  username: string | null;
-  display_name: string | null;
-  avatar_url: string | null;
-}
-
 interface CommentRow {
   id: string;
   user_id: string;
   body: string;
   created_at: string;
-}
-
-interface ClipAuthor {
-  username: string | null;
-  displayName: string | null;
-  avatarUrl: string | null;
 }

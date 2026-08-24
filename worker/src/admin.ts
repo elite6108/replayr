@@ -1,6 +1,6 @@
 import { AwsClient } from "aws4fetch";
 import { listAdminErrors, openErrorCount, resolveAdminError } from "./errors";
-import { ownedObjectKey, type Env } from "./index";
+import { ownedObjectKey, type Env } from "./shared";
 import { HttpError, json } from "./http";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { GameCover } from "@/components/GameCover";
 import { Notice } from "@/components/ui";
 import { fetchGames, type CatalogGame } from "@/lib/api";
@@ -25,39 +26,41 @@ export default function GamesScreen() {
   }, [games, query]);
 
   return (
-    <FlatList
-      style={styles.page}
-      contentContainerStyle={styles.list}
-      data={visible}
-      keyExtractor={(game) => game.id}
-      numColumns={2}
-      columnWrapperStyle={styles.columns}
-      ListHeaderComponent={
-        <View style={styles.header}>
-          <Text style={styles.title}>Games</Text>
-          <Text style={styles.muted}>Public clips only. Unlisted uploads never appear here.</Text>
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search games"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
-          />
-          <Notice tone="danger">{error}</Notice>
-          {games.length === 0 && !error ? <Text style={styles.muted}>Loading games…</Text> : null}
-          {games.length > 0 && visible.length === 0 ? <Text style={styles.muted}>No games match that search.</Text> : null}
-        </View>
-      }
-      renderItem={({ item: game }) => (
-        <Pressable style={styles.card} onPress={() => router.push(`/games/${game.slug}`)}>
-          <GameCover name={game.name} coverUrl={game.coverUrl} />
-          <Text style={styles.name} numberOfLines={2}>
-            {game.name}
-          </Text>
-          {game.publisher ? <Text style={styles.muted}>{game.publisher}</Text> : null}
-        </Pressable>
-      )}
-    />
+    <SafeAreaView style={styles.page} edges={["top"]}>
+      <FlatList
+        style={styles.page}
+        contentContainerStyle={styles.list}
+        data={visible}
+        keyExtractor={(game) => game.id}
+        numColumns={2}
+        columnWrapperStyle={styles.columns}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <Text style={styles.title}>Games</Text>
+            <Text style={styles.muted}>Public clips only. Unlisted uploads never appear here.</Text>
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search games"
+              placeholderTextColor={colors.muted}
+              style={styles.input}
+            />
+            <Notice tone="danger">{error}</Notice>
+            {games.length === 0 && !error ? <Text style={styles.muted}>Loading games…</Text> : null}
+            {games.length > 0 && visible.length === 0 ? <Text style={styles.muted}>No games match that search.</Text> : null}
+          </View>
+        }
+        renderItem={({ item: game }) => (
+          <Pressable style={styles.card} onPress={() => router.push(`/games/${game.slug}`)}>
+            <GameCover name={game.name} coverUrl={game.coverUrl} />
+            <Text style={styles.name} numberOfLines={2}>
+              {game.name}
+            </Text>
+            {game.publisher ? <Text style={styles.muted}>{game.publisher}</Text> : null}
+          </Pressable>
+        )}
+      />
+    </SafeAreaView>
   );
 }
 

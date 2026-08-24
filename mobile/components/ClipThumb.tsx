@@ -7,13 +7,15 @@ export function ClipThumb({
   thumbnailUrl,
   square = false,
   wide = false,
+  radius,
 }: {
   title: string;
   thumbnailUrl: string | null;
   square?: boolean;
   wide?: boolean;
+  radius?: number;
 }) {
-  const shape = [styles.thumb, square && styles.square, wide && styles.wide];
+  const shape = [styles.thumb, square && styles.square, wide && styles.wide, radius != null && { borderRadius: radius }];
   if (thumbnailUrl) {
     return <Image source={{ uri: thumbnailUrl }} style={shape} contentFit="cover" />;
   }

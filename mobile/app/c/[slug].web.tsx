@@ -3,6 +3,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { CommentsSheet } from "@/components/CommentsSheet";
+import { SendClipSheet } from "@/components/SendClipSheet";
 import { PlayerTools } from "@/components/PlayerTools";
 import { TimelineBar } from "@/components/TimelineBar";
 import { clipAllowsSocial, fetchPlayback, setClipLiked, type PlaybackClip } from "@/lib/api";
@@ -21,6 +22,7 @@ export default function ClipScreen() {
   const [likeCount, setLikeCount] = useState(0);
   const [commentCount, setCommentCount] = useState(0);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -32,8 +34,8 @@ export default function ClipScreen() {
   }, []);
 
   useEffect(() => {
-    if (commentsOpen) videoRef.current?.pause();
-  }, [commentsOpen]);
+    if (commentsOpen || sendOpen) videoRef.current?.pause();
+  }, [commentsOpen, sendOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,6 +135,14 @@ export default function ClipScreen() {
           setCommentsOpen(true);
         }}
         onCopy={() => void copyClipUrl(clipShareUrl(clip.slug))}
+        onSend={() => {
+          if (!session?.access_token) {
+            router.push("/signin");
+            return;
+          }
+          videoRef.current?.pause();
+          setSendOpen(true);
+        }}
         onMore={() => void shareClipUrl(clipShareUrl(clip.slug)).catch(() => Alert.alert(clipShareUrl(clip.slug)))}
       />
       <CommentsSheet
@@ -142,6 +152,7 @@ export default function ClipScreen() {
         onClose={() => setCommentsOpen(false)}
         onCount={setCommentCount}
       />
+      <SendClipSheet slug={clip.slug} visible={sendOpen} onClose={() => setSendOpen(false)} />
     </View>
   );
 }

@@ -5,9 +5,10 @@ import { useAuthStore } from "../../stores/authStore";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { useRecordingStore } from "../../stores/recordingStore";
-import { IconAdmin, IconExplore, IconFriends, IconGames, IconHome, IconLibrary, IconLogo, IconProfile, IconRecord, IconSettings } from "../icons";
+import { IconAdmin, IconExplore, IconFriends, IconGames, IconHome, IconLibrary, IconLogo, IconMessages, IconProfile, IconRecord, IconSettings } from "../icons";
 import { isAdminUser } from "../../utils/admin";
 import { formatBytes } from "../../utils/format";
+import { useSocialUnreadStore } from "../../stores/socialUnreadStore";
 import { useUpdateStore } from "../../stores/updateStore";
 
 type Glyph = ComponentType<SVGProps<SVGSVGElement> & { size?: number }>;
@@ -19,6 +20,7 @@ const items: { to: string; label: string; icon: Glyph; end?: boolean; live?: boo
   { to: "/games", label: "Games", icon: IconGames },
   { to: "/record", label: "Record", icon: IconRecord, live: true },
   { to: "/friends", label: "Friends", icon: IconFriends },
+  { to: "/messages", label: "Messages", icon: IconMessages },
 ];
 
 export function NavRail() {
@@ -30,6 +32,8 @@ export function NavRail() {
   const used = storage?.storage_used_bytes ?? 0;
   const limit = storage?.storage_limit_bytes ?? 0;
   const updateReady = useUpdateStore((state) => state.status === "ready");
+  const friendsUnread = useSocialUnreadStore((state) => state.friendsUnread);
+  const messagesUnread = useSocialUnreadStore((state) => state.messagesUnread);
 
   return (
     <nav className="nav-rail" aria-label="Primary">
@@ -49,6 +53,8 @@ export function NavRail() {
             <span className="nav-icon">
               <Glyph size={18} />
               {item.live && (detected || recording) ? <span className="nav-live" /> : null}
+              {item.to === "/friends" && friendsUnread ? <span className="nav-unread" title="Unread" /> : null}
+              {item.to === "/messages" && messagesUnread ? <span className="nav-unread" title="Unread" /> : null}
             </span>
             <span>{item.label}</span>
           </NavLink>

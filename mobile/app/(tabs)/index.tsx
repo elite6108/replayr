@@ -1,28 +1,40 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import {
+  Alert,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Avatar } from "@/components/Avatar";
 import { ClipThumb } from "@/components/ClipThumb";
 import { CommentsSheet } from "@/components/CommentsSheet";
 import { GameCover } from "@/components/GameCover";
 import {
+  attachPublicClipCounts,
   fetchFavoriteGames,
+  fetchFriendClips,
   fetchGames,
-  fetchLibrary,
   fetchOwnProfile,
   fetchPublicClips,
   setClipLiked,
   type CatalogGame,
-  type ManagedClip,
   type PublicClipCard,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { formatCount, formatDurationMs, formatHandle } from "@/lib/format";
+import { formatCount, formatDurationMs, formatHandle, formatTimeAgo } from "@/lib/format";
 import { shareClipUrl } from "@/lib/media";
 import { clipShareUrl } from "@/lib/supabase";
-import { colors } from "@/lib/theme";
+import { colors, gameGlow } from "@/lib/theme";
+import { listContinueWatching, type WatchItem } from "@/lib/watchProgress";
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -30,33 +42,45 @@ export default function HomeScreen() {
   const { session } = useAuth();
   const token = session?.access_token;
   const userId = session?.user.id;
-  const cardWidth = Math.floor((width - 16 * 2 - 12) / 2);
-  const [mine, setMine] = useState<ManagedClip[]>([]);
+  const featuredWidth = Math.max(280, width - 32);
+  const [featured, setFeatured] = useState<PublicClipCard[]>([]);
+  const [featuredIndex, setFeaturedIndex] = useState(0);
+  const [continueWatching, setContinueWatching] = useState<WatchItem[]>([]);
+  const [friendClips, setFriendClips] = useState<PublicClipCard[] | null>(null);
   const [games, setGames] = useState<CatalogGame[]>([]);
   const [feed, setFeed] = useState<PublicClipCard[]>([]);
-  const [profile, setProfile] = useState<{ username: string | null; display_name: string | null; avatar_url: string | null } | null>(null);
+  const [profile, setProfile] = useState<{ username: string | null; display_name: string | null; avatar_url: string | null } | null>(
+    null,
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [commentSlug, setCommentSlug] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [publicClips, catalog] = await Promise.all([
-      fetchPublicClips(token).catch(() => [] as PublicClipCard[]),
+    const [trending, latest, catalog, history] = await Promise.all([
+      fetchPublicClips(token, { limit: 8, sort: "trending" }).catch(() => [] as PublicClipCard[]),
+      fetchPublicClips(token, { limit: 24 }).catch(() => [] as PublicClipCard[]),
       fetchGames().catch(() => [] as CatalogGame[]),
+      listContinueWatching().catch(() => [] as WatchItem[]),
     ]);
-    setFeed(publicClips);
+    const featuredIds = new Set(trending.map((clip) => clip.id));
+    setFeatured(trending);
+    setFeaturedIndex(0);
+    setFeed(latest.length > trending.length ? latest.filter((clip) => !featuredIds.has(clip.id)) : latest);
+    setContinueWatching(history);
     if (token && userId) {
-      const [library, favorites, own] = await Promise.all([
-        fetchLibrary(token, { page: 1, limit: 12 }).catch(() => ({ clips: [] })),
+      const [favorites, own, fromFriends] = await Promise.all([
         fetchFavoriteGames(userId).catch(() => [] as CatalogGame[]),
         fetchOwnProfile(userId).catch(() => null),
+        fetchFriendClips(token).catch(() => [] as PublicClipCard[]),
       ]);
-      setMine(library.clips.filter((clip) => clip.status === "ready"));
-      setGames(favorites.length > 0 ? favorites.slice(0, 8) : catalog.filter((game) => game.coverUrl).slice(0, 8));
+      const nextGames = favorites.length > 0 ? favorites.slice(0, 8) : catalog.filter((game) => game.coverUrl).slice(0, 8);
+      setGames(favorites.length > 0 ? nextGames : await attachPublicClipCounts(nextGames));
       setProfile(own);
+      setFriendClips(fromFriends);
     } else {
-      setMine([]);
-      setGames(catalog.filter((game) => game.coverUrl).slice(0, 8));
+      setGames(await attachPublicClipCounts(catalog.filter((game) => game.coverUrl).slice(0, 8)));
       setProfile(null);
+      setFriendClips([]);
     }
   }, [token, userId]);
 
@@ -64,35 +88,40 @@ export default function HomeScreen() {
     void load();
   }, [load]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void listContinueWatching().then(setContinueWatching).catch(() => undefined);
+    }, []),
+  );
+
   async function toggleLike(clip: PublicClipCard) {
     if (!token) {
       router.push("/signin");
       return;
     }
     const nextLiked = !clip.liked;
-    setFeed((current) =>
-      current.map((item) =>
-        item.id === clip.id
-          ? { ...item, liked: nextLiked, likeCount: Math.max(0, item.likeCount + (nextLiked ? 1 : -1)) }
-          : item,
-      ),
-    );
+    const patch = (item: PublicClipCard) =>
+      item.id === clip.id
+        ? { ...item, liked: nextLiked, likeCount: Math.max(0, item.likeCount + (nextLiked ? 1 : -1)) }
+        : item;
+    setFeed((current) => current.map(patch));
+    setFeatured((current) => current.map(patch));
     try {
       const result = await setClipLiked(clip.slug, nextLiked, token);
-      setFeed((current) =>
-        current.map((item) =>
-          item.id === clip.id ? { ...item, liked: result.liked, likeCount: result.likeCount } : item,
-        ),
-      );
+      const apply = (item: PublicClipCard) =>
+        item.id === clip.id ? { ...item, liked: result.liked, likeCount: result.likeCount } : item;
+      setFeed((current) => current.map(apply));
+      setFeatured((current) => current.map(apply));
     } catch {
-      setFeed((current) =>
-        current.map((item) =>
-          item.id === clip.id
-            ? { ...item, liked: clip.liked, likeCount: clip.likeCount }
-            : item,
-        ),
-      );
+      const revert = (item: PublicClipCard) =>
+        item.id === clip.id ? { ...item, liked: clip.liked, likeCount: clip.likeCount } : item;
+      setFeed((current) => current.map(revert));
+      setFeatured((current) => current.map(revert));
     }
+  }
+
+  function openClip(slug: string) {
+    router.push(`/c/${slug}`);
   }
 
   return (
@@ -112,92 +141,202 @@ export default function HomeScreen() {
         }
       >
         <View style={styles.header}>
-          <Text style={styles.brand}>Replayr</Text>
-          <Pressable onPress={() => router.push(session ? "/account" : "/signin")}>
-            <Avatar name={profile?.display_name || profile?.username || session?.user.email} uri={profile?.avatar_url} size={36} />
-          </Pressable>
+          <Text style={styles.brand}>
+            Replay<Text style={styles.brandAccent}>r</Text>
+          </Text>
+          <View style={styles.headerActions}>
+            <Pressable
+              style={styles.bell}
+              onPress={() => Alert.alert("Notifications", "You’re all caught up.")}
+              hitSlop={8}
+            >
+              <Ionicons name="notifications-outline" size={22} color={colors.text} />
+            </Pressable>
+            <Pressable onPress={() => router.push(session ? "/account" : "/signin")}>
+              <Avatar name={profile?.display_name || profile?.username || session?.user.email} uri={profile?.avatar_url} size={36} />
+            </Pressable>
+          </View>
         </View>
 
-        <Section title="My Latest Clips" action="See All" onAction={() => router.push("/library")}>
-          {session ? (
-            mine.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
-                {mine.map((clip) => (
-                  <Pressable key={clip.id} style={styles.latest} onPress={() => router.push(`/c/${clip.slug}?clipId=${clip.id}`)}>
-                    <View>
-                      <ClipThumb title={clip.title || "Clip"} thumbnailUrl={clip.thumbnailUrl} />
-                      <View style={styles.play}>
-                        <Ionicons name="play" size={16} color="#fff" />
-                      </View>
-                      {clip.durationMs ? <Text style={styles.duration}>{formatDurationMs(clip.durationMs)}</Text> : null}
-                    </View>
-                    <Text style={styles.cardTitle} numberOfLines={2}>
+        {featured.length > 0 ? (
+          <View style={styles.featuredBlock}>
+            <ScrollView
+              horizontal
+              pagingEnabled
+              decelerationRate="fast"
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+                const next = Math.round(event.nativeEvent.contentOffset.x / featuredWidth);
+                setFeaturedIndex(Math.max(0, Math.min(featured.length - 1, next)));
+              }}
+            >
+              {featured.map((clip) => (
+                <Pressable
+                  key={clip.id}
+                  style={[styles.featured, { width: featuredWidth }]}
+                  onPress={() => openClip(clip.slug)}
+                >
+                  <ClipThumb title={clip.title || "Clip"} thumbnailUrl={clip.thumbnailUrl} radius={22} />
+                  <View style={styles.featuredScrim} />
+                  <View style={styles.featuredBadge}>
+                    <Ionicons name="star" size={12} color="#fff" />
+                    <Text style={styles.featuredBadgeText}>FEATURED</Text>
+                  </View>
+                  <View style={styles.featuredCopy}>
+                    <Text style={styles.featuredTitle} numberOfLines={2}>
                       {clip.title || "Untitled clip"}
                     </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            ) : (
-              <Text style={styles.muted}>Clips you upload from Windows show up here.</Text>
-            )
-          ) : (
-            <Pressable onPress={() => router.push("/signin")}>
-              <Text style={styles.link}>Sign in to see your latest clips.</Text>
-            </Pressable>
-          )}
-        </Section>
+                    <Text style={styles.featuredSub} numberOfLines={1}>
+                      {clip.game?.name || "Today’s most watched"}
+                    </Text>
+                    <View style={styles.featuredAuthor}>
+                      <Avatar name={clip.author.displayName || clip.author.username} uri={clip.author.avatarUrl} size={20} />
+                      <Text style={styles.featuredHandle}>{formatHandle(clip.author)}</Text>
+                      {clip.author.verified ? <Ionicons name="checkmark-circle" size={14} color={colors.accent} /> : null}
+                    </View>
+                  </View>
+                  <View style={styles.featuredPlay}>
+                    <Ionicons name="play" size={22} color="#fff" />
+                  </View>
+                  {clip.durationMs ? <Text style={styles.duration}>{formatDurationMs(clip.durationMs)}</Text> : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+            <View style={styles.dots}>
+              {featured.map((clip, index) => (
+                <View key={clip.id} style={[styles.dot, index === featuredIndex && styles.dotActive]} />
+              ))}
+            </View>
+          </View>
+        ) : null}
 
-        {games.length > 0 ? (
-          <Section title="Favorite Games" action="Shortcut" onAction={() => router.push("/games")}>
+        {continueWatching.length > 0 ? (
+          <Section title="Continue Watching">
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
-              {games.map((game) => (
-                <Pressable key={game.id} style={styles.game} onPress={() => router.push(`/games/${game.slug}`)}>
-                  <GameCover name={game.name} coverUrl={game.coverUrl} round size={72} />
-                  <Text style={styles.gameName} numberOfLines={1}>
-                    {game.name}
+              {continueWatching.map((item) => (
+                <Pressable key={item.slug} style={styles.continueCard} onPress={() => openClip(item.slug)}>
+                  <View>
+                    <ClipThumb title={item.title || "Clip"} thumbnailUrl={item.thumbnailUrl} radius={12} />
+                    <View style={styles.playCenter}>
+                      <Ionicons name="play" size={16} color="#fff" />
+                    </View>
+                    {item.durationMs ? <Text style={styles.duration}>{formatDurationMs(item.durationMs)}</Text> : null}
+                  </View>
+                  <Text style={styles.continueTitle} numberOfLines={1}>
+                    {item.title || "Untitled clip"}
                   </Text>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${Math.round(item.progress * 100)}%` }]} />
+                  </View>
+                  <Text style={styles.progressLabel}>{Math.round(item.progress * 100)}% watched</Text>
                 </Pressable>
               ))}
             </ScrollView>
           </Section>
         ) : null}
 
+        <Section title="From friends">
+          {!token ? (
+            <Text style={styles.muted}>Add friends to see their clips here.</Text>
+          ) : friendClips === null ? (
+            <Text style={styles.muted}>Loading friends’ clips…</Text>
+          ) : friendClips.length === 0 ? (
+            <Pressable onPress={() => router.push(session ? "/friends" : "/signin")}>
+              <Text style={styles.muted}>Add friends to see their clips here.</Text>
+            </Pressable>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
+              {friendClips.map((clip) => (
+                <Pressable key={clip.id} style={styles.continueCard} onPress={() => openClip(clip.slug)}>
+                  <ClipThumb title={clip.title || "Clip"} thumbnailUrl={clip.thumbnailUrl} radius={12} />
+                  <Text style={styles.continueTitle} numberOfLines={1}>
+                    {clip.title || "Untitled clip"}
+                  </Text>
+                  <Text style={styles.gameCount} numberOfLines={1}>
+                    {formatHandle(clip.author)}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+        </Section>
+
+        <Section title="Favorite Games">
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
+            {games.map((game) => (
+              <Pressable key={game.id} style={styles.game} onPress={() => router.push(`/games/${game.slug}`)}>
+                <View style={[styles.gameRing, { shadowColor: gameGlow(game.slug), borderColor: gameGlow(game.slug) }]}>
+                  <GameCover name={game.name} coverUrl={game.coverUrl} round size={68} />
+                </View>
+                <Text style={styles.gameName} numberOfLines={1}>
+                  {game.name}
+                </Text>
+                <Text style={styles.gameCount}>
+                  {game.clipCount != null ? `${formatCount(game.clipCount)} clips` : "Public clips"}
+                </Text>
+              </Pressable>
+            ))}
+            <Pressable style={styles.game} onPress={() => router.push("/games")}>
+              <View style={styles.addGame}>
+                <Ionicons name="add" size={26} color={colors.muted} />
+              </View>
+              <Text style={styles.gameName}>Add Game</Text>
+              <Text style={styles.gameCount}>Browse</Text>
+            </Pressable>
+          </ScrollView>
+        </Section>
+
         <Section title="For You">
           {feed.length === 0 ? (
             <Text style={styles.muted}>When someone makes a clip public, it lands here. Unlisted links never appear.</Text>
           ) : (
-            <View style={styles.grid}>
+            <View style={styles.feed}>
               {feed.map((clip) => (
-                <View key={clip.id} style={[styles.feedCard, { width: cardWidth }]}>
-                  <View style={styles.feedHead}>
-                    <Avatar name={clip.author.displayName || clip.author.username} uri={clip.author.avatarUrl} size={22} />
-                    <Text style={styles.handle} numberOfLines={1}>
-                      {formatHandle(clip.author)}
-                    </Text>
-                  </View>
-                  <Text style={styles.feedTitle} numberOfLines={2}>
-                    {clip.title || "Untitled clip"}
-                  </Text>
-                  <Pressable onPress={() => router.push(`/c/${clip.slug}`)}>
-                    <ClipThumb title={clip.title || "Clip"} thumbnailUrl={clip.thumbnailUrl} />
+                <View key={clip.id} style={styles.feedCard}>
+                  <Pressable style={styles.feedThumb} onPress={() => openClip(clip.slug)}>
+                    <ClipThumb title={clip.title || "Clip"} thumbnailUrl={clip.thumbnailUrl} radius={12} />
                     <View style={styles.playCenter}>
-                      <Ionicons name="play" size={18} color="#fff" />
+                      <Ionicons name="play" size={16} color="#fff" />
                     </View>
                     {clip.durationMs ? <Text style={styles.duration}>{formatDurationMs(clip.durationMs)}</Text> : null}
                   </Pressable>
-                  <View style={styles.actions}>
-                    <Pressable style={styles.action} onPress={() => void toggleLike(clip)}>
-                      <Ionicons name={clip.liked ? "heart" : "heart-outline"} size={16} color={clip.liked ? colors.like : colors.text} />
-                      <Text style={styles.actionText}>{formatCount(clip.likeCount)}</Text>
+                  <View style={styles.feedBody}>
+                    <View style={styles.feedHead}>
+                      <Avatar name={clip.author.displayName || clip.author.username} uri={clip.author.avatarUrl} size={22} />
+                      <Text style={styles.handle} numberOfLines={1}>
+                        {formatHandle(clip.author)}
+                      </Text>
+                      {clip.author.verified ? <Ionicons name="checkmark-circle" size={14} color={colors.accent} /> : null}
+                      {clip.createdAt ? <Text style={styles.time}>{formatTimeAgo(clip.createdAt)}</Text> : null}
+                    </View>
+                    <Pressable onPress={() => openClip(clip.slug)}>
+                      <Text style={styles.feedTitle} numberOfLines={2}>
+                        {clip.title || "Untitled clip"}
+                      </Text>
+                      {clip.description ? (
+                        <Text style={styles.feedCopy} numberOfLines={2}>
+                          {clip.description}
+                        </Text>
+                      ) : null}
                     </Pressable>
-                    <Pressable style={styles.action} onPress={() => setCommentSlug(clip.slug)}>
-                      <Ionicons name="chatbubble-outline" size={15} color={colors.text} />
-                      <Text style={styles.actionText}>{formatCount(clip.commentCount)}</Text>
-                    </Pressable>
-                    <Pressable style={styles.action} onPress={() => void shareClipUrl(clipShareUrl(clip.slug))}>
-                      <Ionicons name="arrow-redo-outline" size={16} color={colors.text} />
-                      <Text style={styles.actionText}>Share</Text>
-                    </Pressable>
+                    {clip.game ? (
+                      <View style={styles.tags}>
+                        <Text style={styles.tag}>{clip.game.name}</Text>
+                      </View>
+                    ) : null}
+                    <View style={styles.actions}>
+                      <Pressable style={styles.action} onPress={() => void toggleLike(clip)}>
+                        <Ionicons name={clip.liked ? "heart" : "heart-outline"} size={16} color={clip.liked ? colors.like : colors.text} />
+                        <Text style={styles.actionText}>{formatCount(clip.likeCount)}</Text>
+                      </Pressable>
+                      <Pressable style={styles.action} onPress={() => setCommentSlug(clip.slug)}>
+                        <Ionicons name="chatbubble-outline" size={15} color={colors.text} />
+                        <Text style={styles.actionText}>{formatCount(clip.commentCount)}</Text>
+                      </Pressable>
+                      <Pressable style={styles.action} onPress={() => void shareClipUrl(clipShareUrl(clip.slug))}>
+                        <Ionicons name="arrow-redo-outline" size={16} color={colors.text} />
+                      </Pressable>
+                    </View>
                   </View>
                 </View>
               ))}
@@ -212,36 +351,19 @@ export default function HomeScreen() {
         onClose={() => setCommentSlug(null)}
         onCount={(count) => {
           if (!commentSlug) return;
-          setFeed((current) =>
-            current.map((item) => (item.slug === commentSlug ? { ...item, commentCount: count } : item)),
-          );
+          const apply = (item: PublicClipCard) => (item.slug === commentSlug ? { ...item, commentCount: count } : item);
+          setFeed((current) => current.map(apply));
+          setFeatured((current) => current.map(apply));
         }}
       />
     </SafeAreaView>
   );
 }
 
-function Section({
-  title,
-  action,
-  onAction,
-  children,
-}: {
-  title: string;
-  action?: string;
-  onAction?: () => void;
-  children: ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <View style={styles.section}>
-      <View style={styles.sectionHead}>
-        <Text style={styles.heading}>{title}</Text>
-        {action ? (
-          <Pressable onPress={onAction}>
-            <Text style={styles.link}>{action}</Text>
-          </Pressable>
-        ) : null}
-      </View>
+      <Text style={styles.heading}>{title}</Text>
       {children}
     </View>
   );
@@ -250,17 +372,71 @@ function Section({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   page: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: 16, gap: 22, paddingBottom: 40 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  brand: { color: colors.text, fontSize: 28, fontWeight: "800" },
+  content: { paddingHorizontal: 16, paddingBottom: 40, gap: 22 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 4 },
+  brand: { color: colors.text, fontSize: 30, fontWeight: "800", letterSpacing: -0.6 },
+  brandAccent: { color: colors.accent },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 12 },
+  bell: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  featuredBlock: { gap: 10 },
+  featured: { borderRadius: 22, overflow: "hidden", backgroundColor: colors.card },
+  featuredScrim: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 150,
+    backgroundColor: "#00000088",
+  },
+  featuredBadge: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.accent,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  featuredBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 0.4 },
+  featuredCopy: { position: "absolute", left: 14, right: 72, bottom: 14, gap: 4 },
+  featuredTitle: { color: "#fff", fontSize: 22, fontWeight: "800" },
+  featuredSub: { color: "#d7dde6", fontSize: 13 },
+  featuredAuthor: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
+  featuredHandle: { color: "#fff", fontWeight: "600", fontSize: 12 },
+  featuredPlay: {
+    position: "absolute",
+    right: 16,
+    top: "50%",
+    marginTop: -24,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#ffffff33",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dots: { flexDirection: "row", justifyContent: "center", gap: 6 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#2a3544" },
+  dotActive: { width: 18, backgroundColor: colors.accent },
   section: { gap: 12 },
-  sectionHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  heading: { color: colors.text, fontSize: 20, fontWeight: "700" },
-  link: { color: colors.accent, fontWeight: "600" },
+  heading: { color: colors.text, fontSize: 20, fontWeight: "800" },
   muted: { color: colors.muted, fontSize: 14, lineHeight: 20 },
-  rail: { gap: 12, paddingRight: 8 },
-  latest: { width: 168, gap: 8 },
-  cardTitle: { color: colors.text, fontWeight: "600" },
+  rail: { gap: 14, paddingRight: 8 },
+  continueCard: { width: 148, gap: 6 },
+  continueTitle: { color: colors.text, fontWeight: "700", fontSize: 13 },
+  progressTrack: { height: 3, borderRadius: 2, backgroundColor: "#243041", overflow: "hidden" },
+  progressFill: { height: "100%", backgroundColor: colors.accent },
+  progressLabel: { color: colors.muted, fontSize: 11 },
   duration: {
     position: "absolute",
     right: 8,
@@ -271,19 +447,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     overflow: "hidden",
     fontSize: 12,
-  },
-  play: {
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    marginLeft: -14,
-    marginTop: -14,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#00000088",
-    alignItems: "center",
-    justifyContent: "center",
   },
   playCenter: {
     position: "absolute",
@@ -298,14 +461,49 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  game: { width: 80, alignItems: "center", gap: 8 },
-  gameName: { color: colors.text, fontSize: 12, textAlign: "center" },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  feedCard: { backgroundColor: colors.card, borderRadius: 14, padding: 10, gap: 8 },
+  game: { width: 86, alignItems: "center", gap: 6 },
+  gameRing: {
+    borderWidth: 2,
+    borderRadius: 999,
+    padding: 2,
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  gameName: { color: colors.text, fontSize: 12, fontWeight: "700", textAlign: "center" },
+  gameCount: { color: colors.muted, fontSize: 11, textAlign: "center" },
+  addGame: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderColor: "#3a4658",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  feed: { gap: 14 },
+  feedCard: { flexDirection: "row", gap: 12, backgroundColor: colors.card, borderRadius: 16, padding: 10 },
+  feedThumb: { width: 118 },
+  feedBody: { flex: 1, gap: 6 },
   feedHead: { flexDirection: "row", alignItems: "center", gap: 6 },
-  handle: { color: colors.text, fontSize: 12, fontWeight: "600", flex: 1 },
-  feedTitle: { color: colors.text, fontWeight: "700", fontSize: 13 },
-  actions: { flexDirection: "row", alignItems: "center", gap: 10 },
+  handle: { color: colors.text, fontSize: 12, fontWeight: "700", flexShrink: 1 },
+  time: { color: colors.muted, fontSize: 11, marginLeft: "auto" },
+  feedTitle: { color: colors.text, fontWeight: "800", fontSize: 15 },
+  feedCopy: { color: colors.muted, fontSize: 12, lineHeight: 17 },
+  tags: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  tag: {
+    color: colors.accent,
+    borderColor: "#2a4d86",
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    fontSize: 11,
+    fontWeight: "700",
+    overflow: "hidden",
+  },
+  actions: { flexDirection: "row", alignItems: "center", gap: 14, marginTop: 2 },
   action: { flexDirection: "row", alignItems: "center", gap: 4 },
   actionText: { color: colors.text, fontSize: 12, fontWeight: "600" },
 });

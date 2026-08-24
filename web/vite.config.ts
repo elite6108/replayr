@@ -8,7 +8,17 @@ export default defineConfig({
   server: {
     port: 5174,
     proxy: {
-      "/v1": "http://127.0.0.1:8787",
+      "/v1": {
+        target: "http://127.0.0.1:8787",
+        configure(proxy) {
+          proxy.on("error", (_err, _req, res) => {
+            if ("writeHead" in res && !res.headersSent) {
+              res.writeHead(502, { "content-type": "application/json" });
+              res.end(JSON.stringify({ error: "Local API worker is not running on :8787." }));
+            }
+          });
+        },
+      },
     },
   },
 });

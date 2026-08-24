@@ -28,21 +28,26 @@ export function AudioSourceRow({
   const label = status?.status || copy;
 
   return (
-    <div className="stack audio-source">
+    <div className="audio-source">
       <label className="setting-row">
         <span className="setting-copy">
           {title}
           <small>{label}</small>
         </span>
-        <input
-          className="switch"
-          type="checkbox"
-          checked={enabled}
-          disabled={disabled}
-          onChange={(event) => onEnabled(event.target.checked)}
-        />
+        <span className="audio-source-controls">
+          <span className="audio-meter" aria-hidden="true">
+            <span style={{ width: `${Math.round(peak * 100)}%` }} />
+          </span>
+          <input
+            className="switch"
+            type="checkbox"
+            checked={enabled}
+            disabled={disabled}
+            onChange={(event) => onEnabled(event.target.checked)}
+          />
+        </span>
       </label>
-      {onGain ? (
+      {onGain && enabled ? (
         <div className="field">
           <label>{title} volume ({Math.round((gain ?? 1) * 100)}%)</label>
           <input
@@ -50,17 +55,14 @@ export function AudioSourceRow({
             min={0}
             max={200}
             step={1}
-            disabled={!enabled || disabled}
+            disabled={disabled}
             value={Math.round((gain ?? 1) * 100)}
             onChange={(event) => onGain(Number(event.target.value) / 100)}
           />
         </div>
       ) : null}
-      <div className="audio-meter" aria-hidden="true">
-        <span style={{ width: `${Math.round(peak * 100)}%` }} />
-      </div>
       {failed && onUseDesktop ? (
-        <button type="button" className="btn" onClick={onUseDesktop}>
+        <button type="button" className="btn sm" onClick={onUseDesktop}>
           Use Desktop Audio Instead
         </button>
       ) : null}

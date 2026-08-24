@@ -87,7 +87,7 @@ export function RecordPage() {
             >
               Mic
             </button>
-            <Link className="btn ghost" to="/settings">
+            <Link className="btn ghost" to="/settings?section=audio">
               Audio settings
             </Link>
           </div>

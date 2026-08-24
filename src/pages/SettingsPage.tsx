@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { publicAppUrl, publicSiteUrl, APP_NAME } from "../branding";
 import { PageHeader } from "../components/common/PageHeader";
@@ -13,9 +13,25 @@ import { MicrophoneControls } from "../components/settings/MicrophoneControls";
 import { addExtraAudioApp, getAudioStatus, listAudioSessions } from "../services/tauri";
 import type { AudioEngineStatus, AudioSession } from "../types/audio";
 import type { AppSettings, ExtraAudioApp } from "../types/settings";
-import { useUpdateStore } from "../stores/updateStore";
+import { useUpdateStore, type UpdateStatus } from "../stores/updateStore";
+
+const SECTIONS = [
+  { id: "general", label: "General" },
+  { id: "recording", label: "Recording" },
+  { id: "audio", label: "Audio" },
+  { id: "storage", label: "Storage" },
+  { id: "hotkeys", label: "Shortcuts" },
+] as const;
+
+type SettingsSection = (typeof SECTIONS)[number]["id"];
+
+function parseSection(value: string | null): SettingsSection {
+  return SECTIONS.some((item) => item.id === value) ? (value as SettingsSection) : "general";
+}
 
 export function SettingsPage() {
+  const [params, setParams] = useSearchParams();
+  const section = parseSection(params.get("section"));
   const settings = useSettingsStore((state) => state.settings);
   const update = useSettingsStore((state) => state.update);
   const catalog = useDetectionStore((state) => state.catalog);
@@ -35,6 +51,10 @@ export function SettingsPage() {
   const checkingUpdates = updateStatus === "checking";
   const downloadingUpdate = updateStatus === "downloading";
 
+  function setSection(next: SettingsSection) {
+    setParams(next === "general" ? {} : { section: next }, { replace: true });
+  }
+
   async function onChange<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     try {
       await update(key, value);
@@ -51,302 +71,445 @@ export function SettingsPage() {
     }
   }
 
+  const active = SECTIONS.find((item) => item.id === section) ?? SECTIONS[0];
+
   return (
     <>
-      <PageHeader title="Settings" subtitle="These values persist locally and are used when you start a recording." />
-      <div className="grid cols-2">
-        <section className="panel stack">
-          <h2>Application</h2>
-          <label className="setting-row">
-            <span>Close window to tray</span>
-            <input
-              className="switch"
-              type="checkbox"
-              checked={settings.closeToTray}
-              onChange={(event) => void onChange("closeToTray", event.target.checked)}
-            />
-          </label>
-          <label className="setting-row">
-            <span>Launch at Windows startup</span>
-            <input
-              className="switch"
-              type="checkbox"
-              checked={settings.launchAtStartup}
-              onChange={(event) => void onChange("launchAtStartup", event.target.checked)}
-            />
-          </label>
-          <label className="setting-row">
-            <span>Show {APP_NAME} on the desktop</span>
-            <input
-              className="switch"
-              type="checkbox"
-              checked={settings.desktopShortcut}
-              onChange={(event) => void onChange("desktopShortcut", event.target.checked)}
-            />
-          </label>
-        </section>
-
-        <section className="panel stack">
-          <h2>Updates</h2>
-          <div className="setting-row">
-            <span className="setting-copy">
-              Installed version
-              <small>{appVersion || "Unknown"}</small>
-            </span>
-          </div>
-          <p className="muted">{updateStatusLabel(updateStatus, availableVersion, downloadPercent, updateError)}</p>
-          {updateNotes && updateStatus === "ready" ? <p className="muted">{updateNotes}</p> : null}
-          <div className="row">
+      <PageHeader title="Settings" />
+      <div className="settings-shell">
+        <nav className="settings-nav" aria-label="Settings">
+          {SECTIONS.map((item) => (
             <button
+              key={item.id}
               type="button"
-              className="btn"
-              disabled={checkingUpdates || downloadingUpdate}
-              onClick={() => void checkForUpdates()}
+              className={item.id === section ? "active" : undefined}
+              onClick={() => setSection(item.id)}
             >
-              {checkingUpdates ? "Checking…" : "Check for updates"}
+              {item.label}
             </button>
-            {updateStatus === "ready" || downloadingUpdate ? (
-              <button
-                type="button"
-                className="btn primary"
-                disabled={downloadingUpdate}
-                onClick={() => void installAndRelaunch()}
-              >
-                {downloadingUpdate
-                  ? downloadPercent != null
-                    ? `Downloading ${downloadPercent}%`
-                    : "Downloading…"
-                  : "Restart to update"}
-              </button>
-            ) : null}
-          </div>
-        </section>
-
-        <section className="panel stack">
-          <h2>Legal</h2>
-          <p className="muted">Privacy and terms for Replayr on this PC, the website, and the phone apps.</p>
-          <div className="row">
-            <a className="btn" href={`${publicSiteUrl()}/privacy`} target="_blank" rel="noreferrer">
-              Privacy Policy
-            </a>
-            <a className="btn" href={`${publicSiteUrl()}/terms`} target="_blank" rel="noreferrer">
-              Terms of Service
-            </a>
-          </div>
-        </section>
-
-        <section className="panel stack">
-          <div className="panel-head">
-            <h2>Game catalog</h2>
-            <span className="badge">{catalog.length}</span>
-          </div>
-          <p className="muted">Detection matches running processes against this list.</p>
-          {detectionError ? <div className="error-text">{detectionError}</div> : null}
-          <ul className="catalog-list">
-            {catalog.slice(0, 8).map((game) => (
-              <li key={game.slug}>
-                <span>{game.name}</span>
-                {game.publisher ? <span className="muted">{game.publisher}</span> : null}
-              </li>
-            ))}
-          </ul>
-          {catalog.length > 8 ? <div className="muted">+{catalog.length - 8} more</div> : null}
-          <button
-            type="button"
-            className="btn"
-            disabled={catalogBusy}
-            onClick={() => {
-              setCatalogBusy(true);
-              void refreshCatalog()
-                .then(() => showToast("Game catalog updated"))
-                .catch((caught) => showToast(caught instanceof Error ? caught.message : "Could not refresh catalog"))
-                .finally(() => setCatalogBusy(false));
-            }}
-          >
-            Refresh from cloud
-          </button>
-        </section>
-
-        <section className="panel stack">
-          <h2>Cloud</h2>
-          <p className="muted">Sign-in uses Supabase. Uploads go to the Worker at this origin, then directly to R2.</p>
-          <code>{publicAppUrl()}</code>
-          <Link className="btn" to="/profile">
-            Account
-          </Link>
-        </section>
-
-        <section className="panel stack">
-          <h2>Recording</h2>
-          <p className="muted">Instant Replay keeps a rolling buffer. Start/stop still writes a full session file.</p>
-          <label className="setting-row">
-            <span>Instant Replay</span>
-            <input
-              className="switch"
-              type="checkbox"
-              checked={settings.instantReplayEnabled}
-              onChange={(event) => void onChange("instantReplayEnabled", event.target.checked)}
-            />
-          </label>
-          <div className="field">
-            <label htmlFor="replay-length">Replay length</label>
-            <select
-              id="replay-length"
-              value={settings.replayDurationSeconds}
-              onChange={(event) => void onChange("replayDurationSeconds", Number(event.target.value) as AppSettings["replayDurationSeconds"])}
-            >
-              <option value={15}>15 seconds</option>
-              <option value={30}>30 seconds</option>
-              <option value={45}>45 seconds</option>
-              <option value={60}>60 seconds</option>
-              <option value={90}>90 seconds</option>
-              <option value={120}>2 minutes</option>
-              <option value={180}>3 minutes</option>
-              <option value={300}>5 minutes</option>
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="resolution">Resolution</label>
-            <select
-              id="resolution"
-              value={settings.resolution}
-              onChange={(event) => void onChange("resolution", event.target.value as AppSettings["resolution"])}
-            >
-              <option value="native">Native</option>
-              <option value="1080p">1080p</option>
-              <option value="720p">720p</option>
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="fps">FPS</label>
-            <select
-              id="fps"
-              value={settings.fps}
-              onChange={(event) => void onChange("fps", Number(event.target.value) as AppSettings["fps"])}
-            >
-              <option value={30}>30</option>
-              <option value={60}>60</option>
-              <option value={120}>120</option>
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="bitrate">Bitrate</label>
-            <select
-              id="bitrate"
-              value={settings.bitrate}
-              onChange={(event) => void onChange("bitrate", event.target.value as AppSettings["bitrate"])}
-            >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="custom">Custom</option>
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="codec">Codec</label>
-            <select
-              id="codec"
-              value={settings.codec}
-              onChange={(event) => void onChange("codec", event.target.value as AppSettings["codec"])}
-            >
-              <option value="h264">H.264</option>
-              <option value="h265">H.265</option>
-              <option value="av1">AV1 when supported</option>
-            </select>
-          </div>
-        </section>
-
-        <AudioPanel settings={settings} update={update} showToast={showToast} />
-
-        <section className="panel stack">
-          <h2>Storage and uploads</h2>
-          <div className="field">
-            <label>Save location</label>
-            <div className="row">
-              <input readOnly value={settings.saveLocation || "Default Videos folder"} />
-              <button type="button" className="btn" onClick={() => void chooseSaveLocation()}>
-                Browse
-              </button>
-            </div>
-          </div>
-          <div className="field">
-            <label htmlFor="auto-upload">Automatically upload clips</label>
-            <select
-              id="auto-upload"
-              value={settings.autoUpload}
-              onChange={(event) => void onChange("autoUpload", event.target.value as AppSettings["autoUpload"])}
-            >
-              <option value="off">Off — keep clips on this PC only</option>
-              <option value="favorites">Favorites only</option>
-              <option value="all">All clips</option>
-            </select>
-            <div className="muted">Signed-in uploads go Desktop → R2. This PC still keeps the original file.</div>
-          </div>
-          <div className="field">
-            <label htmlFor="bandwidth">Upload bandwidth</label>
-            <select
-              id="bandwidth"
-              value={settings.uploadBandwidthLimit}
-              onChange={(event) => void onChange("uploadBandwidthLimit", event.target.value as AppSettings["uploadBandwidthLimit"])}
-            >
-              <option value="unlimited">Unlimited</option>
-              <option value="50">50 Mbps</option>
-              <option value="25">25 Mbps</option>
-              <option value="10">10 Mbps</option>
-              <option value="5">5 Mbps</option>
-              <option value="1">1 Mbps</option>
-              <option value="custom">Custom</option>
-            </select>
-          </div>
-          <label className="setting-row">
-            <span>Pause uploads while gaming</span>
-            <input
-              className="switch"
-              type="checkbox"
-              checked={settings.pauseUploadsWhileGaming}
-              onChange={(event) => void onChange("pauseUploadsWhileGaming", event.target.checked)}
-            />
-          </label>
-          <div className="field">
-            <label htmlFor="min-disk">Stop capture below</label>
-            <select
-              id="min-disk"
-              value={settings.minFreeDiskBytes}
-              onChange={(event) => void onChange("minFreeDiskBytes", Number(event.target.value))}
-            >
-              <option value={5 * 1024 * 1024 * 1024}>5 GB free</option>
-              <option value={10 * 1024 * 1024 * 1024}>10 GB free</option>
-              <option value={20 * 1024 * 1024 * 1024}>20 GB free</option>
-              <option value={50 * 1024 * 1024 * 1024}>50 GB free</option>
-            </select>
-          </div>
-        </section>
-
-        <section className="panel stack">
-          <h2>Hotkeys</h2>
-          <p className="muted">Save Replay, start/stop, and screenshot work while a game is focused.</p>
-          {HOTKEY_ACTIONS.map((action) => (
-            <div className="field" key={action}>
-              <label htmlFor={`hotkey-${action}`}>{HOTKEY_LABELS[action]}</label>
-              <input
-                id={`hotkey-${action}`}
-                value={settings.hotkeys[action]}
-                onChange={(event) => {
-                  const next = { ...settings.hotkeys, [action]: event.target.value };
-                  void onChange("hotkeys", next);
-                }}
-              />
-              <div className="muted">{displayHotkey(settings.hotkeys[action])}</div>
-              {conflicts[action] ? (
-                <span className="error-text">Conflicts with {HOTKEY_LABELS[conflicts[action]]}</span>
-              ) : null}
-            </div>
           ))}
-          <button type="button" className="btn" onClick={() => void onChange("hotkeys", { ...DEFAULT_HOTKEYS })}>
-            Reset defaults
-          </button>
+        </nav>
+        <section className="settings-pane">
+          <h2>{active.label}</h2>
+          {section === "general" ? (
+            <GeneralPane
+              settings={settings}
+              catalogCount={catalog.length}
+              catalogBusy={catalogBusy}
+              detectionError={detectionError}
+              appVersion={appVersion}
+              updateStatus={updateStatus}
+              availableVersion={availableVersion}
+              updateNotes={updateNotes}
+              downloadPercent={downloadPercent}
+              updateError={updateError}
+              checkingUpdates={checkingUpdates}
+              downloadingUpdate={downloadingUpdate}
+              onChange={onChange}
+              onCheckUpdates={() => void checkForUpdates()}
+              onInstall={() => void installAndRelaunch()}
+              onRefreshCatalog={() => {
+                setCatalogBusy(true);
+                void refreshCatalog()
+                  .then(() => showToast("Game catalog updated"))
+                  .catch((caught) => showToast(caught instanceof Error ? caught.message : "Could not refresh catalog"))
+                  .finally(() => setCatalogBusy(false));
+              }}
+            />
+          ) : null}
+          {section === "recording" ? (
+            <RecordingPane settings={settings} onChange={onChange} onBrowse={() => void chooseSaveLocation()} />
+          ) : null}
+          {section === "audio" ? <AudioPanel settings={settings} update={update} showToast={showToast} /> : null}
+          {section === "storage" ? (
+            <StoragePane settings={settings} onChange={onChange} onBrowse={() => void chooseSaveLocation()} />
+          ) : null}
+          {section === "hotkeys" ? (
+            <HotkeysPane settings={settings} conflicts={conflicts} onChange={onChange} />
+          ) : null}
         </section>
       </div>
+    </>
+  );
+}
+
+function GeneralPane({
+  settings,
+  catalogCount,
+  catalogBusy,
+  detectionError,
+  appVersion,
+  updateStatus,
+  availableVersion,
+  updateNotes,
+  downloadPercent,
+  updateError,
+  checkingUpdates,
+  downloadingUpdate,
+  onChange,
+  onCheckUpdates,
+  onInstall,
+  onRefreshCatalog,
+}: {
+  settings: AppSettings;
+  catalogCount: number;
+  catalogBusy: boolean;
+  detectionError: string | null;
+  appVersion: string;
+  updateStatus: UpdateStatus;
+  availableVersion: string | null;
+  updateNotes: string | null;
+  downloadPercent: number | null;
+  updateError: string | null;
+  checkingUpdates: boolean;
+  downloadingUpdate: boolean;
+  onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
+  onCheckUpdates: () => void;
+  onInstall: () => void;
+  onRefreshCatalog: () => void;
+}) {
+  return (
+    <>
+      <div className="settings-group">
+        <div className="settings-group-label">Application</div>
+        <label className="setting-row">
+          <span>Close window to tray</span>
+          <input
+            className="switch"
+            type="checkbox"
+            checked={settings.closeToTray}
+            onChange={(event) => void onChange("closeToTray", event.target.checked)}
+          />
+        </label>
+        <label className="setting-row">
+          <span>Launch at Windows startup</span>
+          <input
+            className="switch"
+            type="checkbox"
+            checked={settings.launchAtStartup}
+            onChange={(event) => void onChange("launchAtStartup", event.target.checked)}
+          />
+        </label>
+        <label className="setting-row">
+          <span>Show {APP_NAME} on the desktop</span>
+          <input
+            className="switch"
+            type="checkbox"
+            checked={settings.desktopShortcut}
+            onChange={(event) => void onChange("desktopShortcut", event.target.checked)}
+          />
+        </label>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group-label">Updates</div>
+        <div className="setting-row">
+          <span className="setting-copy">
+            Installed version
+            <small>{appVersion || "Unknown"}</small>
+          </span>
+          <span className="muted">{updateStatusLabel(updateStatus, availableVersion, downloadPercent, updateError)}</span>
+        </div>
+        {updateNotes && updateStatus === "ready" ? <p className="muted">{updateNotes}</p> : null}
+        <div className="row">
+          <button type="button" className="btn" disabled={checkingUpdates || downloadingUpdate} onClick={onCheckUpdates}>
+            {checkingUpdates ? "Checking…" : "Check for updates"}
+          </button>
+          {updateStatus === "ready" || downloadingUpdate ? (
+            <button type="button" className="btn primary" disabled={downloadingUpdate} onClick={onInstall}>
+              {downloadingUpdate
+                ? downloadPercent != null
+                  ? `Downloading ${downloadPercent}%`
+                  : "Downloading…"
+                : "Restart to update"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group-label">Legal</div>
+        <div className="setting-row">
+          <span>Privacy Policy</span>
+          <a className="settings-link" href={`${publicSiteUrl()}/privacy`} target="_blank" rel="noreferrer">
+            Open
+          </a>
+        </div>
+        <div className="setting-row">
+          <span>Terms of Service</span>
+          <a className="settings-link" href={`${publicSiteUrl()}/terms`} target="_blank" rel="noreferrer">
+            Open
+          </a>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group-label">Cloud</div>
+        <div className="setting-row">
+          <span className="setting-copy">
+            Origin
+            <small>{publicAppUrl()}</small>
+          </span>
+          <Link className="settings-link" to="/profile">
+            Account
+          </Link>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group-label">Game catalog</div>
+        <div className="setting-row">
+          <span className="setting-copy">
+            Detection titles
+            <small>
+              {catalogCount} {catalogCount === 1 ? "title" : "titles"}
+            </small>
+          </span>
+          <button type="button" className="btn sm" disabled={catalogBusy} onClick={onRefreshCatalog}>
+            {catalogBusy ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+        {detectionError ? <div className="error-text">{detectionError}</div> : null}
+      </div>
+    </>
+  );
+}
+
+function RecordingPane({
+  settings,
+  onChange,
+  onBrowse,
+}: {
+  settings: AppSettings;
+  onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
+  onBrowse: () => void;
+}) {
+  return (
+    <>
+      <p className="muted">Instant Replay keeps a rolling buffer. Start/stop still writes a full session file.</p>
+      <label className="setting-row">
+        <span>Instant Replay</span>
+        <input
+          className="switch"
+          type="checkbox"
+          checked={settings.instantReplayEnabled}
+          onChange={(event) => void onChange("instantReplayEnabled", event.target.checked)}
+        />
+      </label>
+      <div className="settings-fields">
+        <div className="field">
+          <label htmlFor="replay-length">Replay length</label>
+          <select
+            id="replay-length"
+            value={settings.replayDurationSeconds}
+            onChange={(event) => void onChange("replayDurationSeconds", Number(event.target.value) as AppSettings["replayDurationSeconds"])}
+          >
+            <option value={15}>15 seconds</option>
+            <option value={30}>30 seconds</option>
+            <option value={45}>45 seconds</option>
+            <option value={60}>60 seconds</option>
+            <option value={90}>90 seconds</option>
+            <option value={120}>2 minutes</option>
+            <option value={180}>3 minutes</option>
+            <option value={300}>5 minutes</option>
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="resolution">Resolution</label>
+          <select
+            id="resolution"
+            value={settings.resolution}
+            onChange={(event) => void onChange("resolution", event.target.value as AppSettings["resolution"])}
+          >
+            <option value="native">Native</option>
+            <option value="1080p">1080p</option>
+            <option value="720p">720p</option>
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="fps">FPS</label>
+          <select
+            id="fps"
+            value={settings.fps}
+            onChange={(event) => void onChange("fps", Number(event.target.value) as AppSettings["fps"])}
+          >
+            <option value={30}>30</option>
+            <option value={60}>60</option>
+            <option value={120}>120</option>
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="bitrate">Bitrate</label>
+          <select
+            id="bitrate"
+            value={settings.bitrate}
+            onChange={(event) => void onChange("bitrate", event.target.value as AppSettings["bitrate"])}
+          >
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="codec">Codec</label>
+          <select
+            id="codec"
+            value={settings.codec}
+            onChange={(event) => void onChange("codec", event.target.value as AppSettings["codec"])}
+          >
+            <option value="h264">H.264</option>
+            <option value="h265">H.265</option>
+            <option value="av1">AV1 when supported</option>
+          </select>
+        </div>
+      </div>
+      <LocalSaveLocation path={settings.saveLocation} onBrowse={onBrowse} />
+    </>
+  );
+}
+
+function LocalSaveLocation({ path, onBrowse }: { path: string; onBrowse: () => void }) {
+  const showToast = useToastStore((state) => state.show);
+
+  async function showFolder() {
+    if (!path) {
+      showToast("Choose a folder first.");
+      return;
+    }
+    try {
+      const { openPath } = await import("@tauri-apps/plugin-opener");
+      await openPath(path);
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : "Could not open that folder.");
+    }
+  }
+
+  return (
+    <div className="settings-group">
+      <div className="settings-group-label">Saved on this PC</div>
+      <p className="muted">Clips and session recordings write to this folder.</p>
+      <div className="field">
+        <label htmlFor="save-location">Folder</label>
+        <div className="row">
+          <input id="save-location" readOnly value={path || "Default Videos folder"} title={path} />
+          <button type="button" className="btn" onClick={onBrowse}>
+            Browse
+          </button>
+          <button type="button" className="btn" disabled={!path} onClick={() => void showFolder()}>
+            Show
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StoragePane({
+  settings,
+  onChange,
+  onBrowse,
+}: {
+  settings: AppSettings;
+  onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
+  onBrowse: () => void;
+}) {
+  return (
+    <>
+      <LocalSaveLocation path={settings.saveLocation} onBrowse={onBrowse} />
+      <div className="settings-fields">
+        <div className="field">
+          <label htmlFor="auto-upload">Automatically upload clips</label>
+          <select
+            id="auto-upload"
+            value={settings.autoUpload}
+            onChange={(event) => void onChange("autoUpload", event.target.value as AppSettings["autoUpload"])}
+          >
+            <option value="off">Off — keep clips on this PC only</option>
+            <option value="favorites">Favorites only</option>
+            <option value="all">All clips</option>
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="bandwidth">Upload bandwidth</label>
+          <select
+            id="bandwidth"
+            value={settings.uploadBandwidthLimit}
+            onChange={(event) => void onChange("uploadBandwidthLimit", event.target.value as AppSettings["uploadBandwidthLimit"])}
+          >
+            <option value="unlimited">Unlimited</option>
+            <option value="50">50 Mbps</option>
+            <option value="25">25 Mbps</option>
+            <option value="10">10 Mbps</option>
+            <option value="5">5 Mbps</option>
+            <option value="1">1 Mbps</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="min-disk">Stop capture below</label>
+          <select
+            id="min-disk"
+            value={settings.minFreeDiskBytes}
+            onChange={(event) => void onChange("minFreeDiskBytes", Number(event.target.value))}
+          >
+            <option value={5 * 1024 * 1024 * 1024}>5 GB free</option>
+            <option value={10 * 1024 * 1024 * 1024}>10 GB free</option>
+            <option value={20 * 1024 * 1024 * 1024}>20 GB free</option>
+            <option value={50 * 1024 * 1024 * 1024}>50 GB free</option>
+          </select>
+        </div>
+      </div>
+      <label className="setting-row">
+        <span>Pause uploads while gaming</span>
+        <input
+          className="switch"
+          type="checkbox"
+          checked={settings.pauseUploadsWhileGaming}
+          onChange={(event) => void onChange("pauseUploadsWhileGaming", event.target.checked)}
+        />
+      </label>
+      <p className="muted">Signed-in uploads go Desktop → R2. This PC still keeps the original file.</p>
+    </>
+  );
+}
+
+function HotkeysPane({
+  settings,
+  conflicts,
+  onChange,
+}: {
+  settings: AppSettings;
+  conflicts: Partial<Record<(typeof HOTKEY_ACTIONS)[number], (typeof HOTKEY_ACTIONS)[number]>>;
+  onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
+}) {
+  return (
+    <>
+      <p className="muted">These work while a game is focused.</p>
+      {HOTKEY_ACTIONS.map((action) => (
+        <div key={action}>
+          <label className="setting-row" htmlFor={`hotkey-${action}`}>
+            <span className="setting-copy">
+              {HOTKEY_LABELS[action]}
+              <small>{displayHotkey(settings.hotkeys[action])}</small>
+            </span>
+            <input
+              id={`hotkey-${action}`}
+              value={settings.hotkeys[action]}
+              onChange={(event) => {
+                const next = { ...settings.hotkeys, [action]: event.target.value };
+                void onChange("hotkeys", next);
+              }}
+            />
+          </label>
+          {conflicts[action] ? (
+            <span className="error-text">Conflicts with {HOTKEY_LABELS[conflicts[action]]}</span>
+          ) : null}
+        </div>
+      ))}
+      <button type="button" className="btn" onClick={() => void onChange("hotkeys", { ...DEFAULT_HOTKEYS })}>
+        Reset defaults
+      </button>
     </>
   );
 }
@@ -414,8 +577,7 @@ function AudioPanel({
   const extraRows = settings.extraApps;
 
   return (
-    <section className="panel stack">
-      <h2>Audio</h2>
+    <div className="stack">
       {isolatedOff ? (
         <p className="banner warning">
           Per-app capture needs Windows 10 version 2004 or later. Desktop and microphone still work. Replayr will not change your saved mix.
@@ -540,7 +702,7 @@ function AudioPanel({
       <p className="muted">
         Clips write one mixed AAC track. Turn Desktop off and leave Game, Discord, and Mic on to record those sources without Chrome or Spotify.
       </p>
-    </section>
+    </div>
   );
 }
 

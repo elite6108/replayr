@@ -105,7 +105,7 @@ DXGI Desktop Duplication is the fallback where exclusive fullscreen bypasses DWM
 Traits to implement later:
 
 - `CaptureEngine` — start/stop, target window or monitor, frames on a non-UI thread
-- `AudioCapture` — device selection, per-source gain, optional separate tracks. Advanced routing (process loopback, mixer, multi-track MP4): [AUDIO_ROUTING.md](./AUDIO_ROUTING.md).
+- `AudioCapture` — device selection, per-source gain, optional separate tracks. Advanced routing (process loopback, mixer, multi-track MP4): [AUDIO_ROUTING.md](./AUDIO_ROUTING.md). A/V clock contract (capture timestamps, encode thread owns MF, 1× leftover, paced PCM sidecars, remux encodes AAC once): [AUDIO_ROUTING.md §2.1](./AUDIO_ROUTING.md).
 - `VideoEncoder` — GPU textures in; `EncoderCapabilities { vendor, codec, avc, hevc, av1, max_resolution, hardware }`
 - `ReplayBuffer` — ~2s independently decodable segments, ring by duration. Scratch files live in app cache, not the clip save folder, and are deleted unless Save Clip remuxes them into a library file.
 - `RecordingSession` — manual start/stop to a single file

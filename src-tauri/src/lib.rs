@@ -4,6 +4,8 @@ mod audio_resolve;
 #[cfg(windows)]
 mod encode;
 #[cfg(windows)]
+mod encode_pump;
+#[cfg(windows)]
 mod export;
 #[cfg(windows)]
 mod thumb;

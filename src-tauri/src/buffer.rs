@@ -105,7 +105,7 @@ impl ReplayBuffer {
             }
             let dropped = self.segments.pop_front().expect("non-empty");
             if delete_files {
-                let _ = std::fs::remove_file(&dropped.path);
+                remove_segment_files(&dropped.path);
             }
         }
     }
@@ -113,21 +113,28 @@ impl ReplayBuffer {
     pub fn clear(&mut self, delete_files: bool) {
         while let Some(segment) = self.segments.pop_front() {
             if delete_files {
-                let _ = std::fs::remove_file(&segment.path);
+                remove_segment_files(&segment.path);
             }
         }
     }
 }
 
+fn remove_segment_files(path: &Path) {
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(path.with_extension("pcm"));
+}
+
 /// Delete scratch files that are not part of the live ring (or the file currently being written).
 pub fn sweep_dir(dir: &Path, keep: &[PathBuf]) {
-    let keep: HashSet<&Path> = keep.iter().map(PathBuf::as_path).collect();
+    let mut keep: HashSet<PathBuf> = keep.iter().cloned().collect();
+    let sidecars: Vec<PathBuf> = keep.iter().map(|path| path.with_extension("pcm")).collect();
+    keep.extend(sidecars);
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_file() && !keep.contains(path.as_path()) {
+        if path.is_file() && !keep.contains(&path) {
             let _ = std::fs::remove_file(path);
         }
     }

@@ -6,13 +6,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::buffer::{ReplayBuffer, Segment};
+use crate::buffer::ReplayBuffer;
 use crate::database::AppState;
 use crate::error::{AppError, AppResult};
 use crate::settings::{self, AppSettings};
 use crate::still::StillFrame;
-
-const SEGMENT_HNS: i64 = 20_000_000;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -100,6 +98,16 @@ impl Default for CaptureShared {
     }
 }
 
+impl CaptureShared {
+    pub fn notify_rotate(&self) {
+        let next = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Ok(mut tick) = self.tick.lock() {
+            *tick = next;
+        }
+        self.cv.notify_all();
+    }
+}
+
 pub struct RecordingState {
     inner: Mutex<Option<ActiveRecording>>,
     pub status: Mutex<RecordingStatus>,
@@ -154,13 +162,11 @@ mod windows_impl {
     use windows_capture::window::Window;
 
     pub struct WindowsSession {
-        encoder: Option<crate::encode::MfWriter>,
+        pump: crate::encode_pump::EncodePump,
         audio: Option<crate::audio::LoopbackCapture>,
-        encoder_audio: bool,
+        include_audio: bool,
         flags: SessionFlags,
-        segment_index: u64,
-        current_width: u32,
-        current_height: u32,
+        clock: Instant,
     }
 
     #[derive(Clone)]
@@ -190,25 +196,28 @@ mod windows_impl {
             } else {
                 None
             };
-            let encoder = match open_encoder(&flags.path, flags.width, flags.height, flags.fps, flags.bitrate, flags.include_audio)
-            {
-                Ok(encoder) => encoder,
-                Err(err) if flags.include_audio => {
-                    tracing::warn!("encoder with audio failed ({err}); retrying silent");
-                    audio = None;
-                    open_encoder(&flags.path, flags.width, flags.height, flags.fps, flags.bitrate, false)?
-                }
-                Err(err) => return Err(err),
-            };
-            let encoder_audio = encoder.has_audio();
+            let pump = crate::encode_pump::EncodePump::start(crate::encode_pump::EncodeSession {
+                path: flags.path.clone(),
+                dir: flags.dir.clone(),
+                width: flags.width,
+                height: flags.height,
+                bitrate: flags.bitrate,
+                fps: flags.fps,
+                include_audio: flags.include_audio,
+                segmented: flags.segmented,
+                min_free_disk_bytes: flags.min_free_disk_bytes,
+                shared: Arc::clone(&flags.shared),
+            })?;
+            let include_audio = pump.include_audio;
+            if !include_audio {
+                audio = None;
+            }
             Ok(Self {
-                encoder: Some(encoder),
+                pump,
                 audio,
-                encoder_audio,
-                current_width: flags.width,
-                current_height: flags.height,
+                include_audio,
                 flags,
-                segment_index: 0,
+                clock: Instant::now(),
             })
         }
 
@@ -236,18 +245,21 @@ mod windows_impl {
                     pitch,
                 });
             }
-            self.maybe_rotate()?;
-            let Some(encoder) = self.encoder.as_mut() else {
-                return Ok(());
-            };
-            encoder.write_bgra(&bytes, pitch, width, height)?;
-            if self.encoder_audio {
+            let capture_hns = (self.clock.elapsed().as_nanos() / 100) as i64;
+            let pcm = if self.include_audio {
                 let loopback = self.audio.as_ref().map(|audio| audio.take()).unwrap_or_default();
-                let pcm = self.flags.audio_runtime.mix_into(loopback);
-                if !pcm.is_empty() {
-                    encoder.write_pcm(&pcm)?;
-                }
-            }
+                self.flags.audio_runtime.mix_into(loopback)
+            } else {
+                Vec::new()
+            };
+            self.pump.push(crate::encode_pump::QueuedFrame {
+                bgra: bytes,
+                pitch,
+                width,
+                height,
+                capture_hns,
+                pcm,
+            });
             Ok(())
         }
 
@@ -257,97 +269,13 @@ mod windows_impl {
     }
 
     impl WindowsSession {
-        fn maybe_rotate(&mut self) -> Result<(), String> {
-            if !self.flags.segmented {
-                return Ok(());
-            }
-            let due = self
-                .encoder
-                .as_ref()
-                .map(|encoder| encoder.timestamp() >= SEGMENT_HNS)
-                .unwrap_or(false);
-            let requested = self.flags.shared.rotate.swap(false, Ordering::SeqCst);
-            if due || requested {
-                self.rotate()?;
-            }
-            Ok(())
-        }
-
-        fn rotate(&mut self) -> Result<(), String> {
-            self.finish_encoder(false)?;
-            match crate::disk::ensure_free_space(&self.flags.dir, self.flags.min_free_disk_bytes) {
-                Ok(_) => {}
-                Err(err) => {
-                    tracing::warn!("disk guard stopped the replay buffer: {err}");
-                    notify_rotate(&self.flags.shared);
-                    return Err(err.to_string());
-                }
-            }
-            self.segment_index += 1;
-            self.flags.path = self.flags.dir.join(format!("seg-{:06}.mp4", self.segment_index));
-            let encoder = open_encoder(
-                &self.flags.path,
-                self.flags.width,
-                self.flags.height,
-                self.flags.fps,
-                self.flags.bitrate,
-                self.encoder_audio,
-            )?;
-            self.encoder_audio = encoder.has_audio();
-            self.encoder = Some(encoder);
-            notify_rotate(&self.flags.shared);
-            self.sweep_scratch();
-            Ok(())
-        }
-
-        fn sweep_scratch(&self) {
-            let mut keep = self
-                .flags
-                .shared
-                .buffer
-                .lock()
-                .map(|buffer| buffer.paths())
-                .unwrap_or_default();
-            keep.push(self.flags.path.clone());
-            crate::buffer::sweep_dir(&self.flags.dir, &keep);
-        }
-
         fn finish_encoder(&mut self, drop_audio: bool) -> Result<(), String> {
             if drop_audio {
                 drop(self.audio.take());
             }
-            if let Some(encoder) = self.encoder.take() {
-                let duration_ms = (encoder.timestamp() / 10_000).max(0) as u64;
-                let path = self.flags.path.clone();
-                encoder.finish().map_err(|err| err.to_string())?;
-                if self.flags.segmented && duration_ms > 0 {
-                    if let Ok(mut buffer) = self.flags.shared.buffer.lock() {
-                        buffer.push(Segment {
-                            path,
-                            duration_ms,
-                            width: self.current_width,
-                            height: self.current_height,
-                            fps: self.flags.fps,
-                            pinned: false,
-                            locked: false,
-                        });
-                    }
-                    self.sweep_scratch();
-                }
-            }
-            if drop_audio {
-                tracing::info!("capture encoder finished");
-            }
+            self.pump.shutdown();
             Ok(())
         }
-    }
-
-    fn notify_rotate(shared: &CaptureShared) {
-        let next = shared.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        if let Ok(mut tick) = shared.tick.lock() {
-            *tick = next;
-        }
-        shared.cv.notify_all();
     }
 
     fn wait_for_rotate(shared: &CaptureShared, timeout: Duration) {
@@ -365,32 +293,6 @@ mod windows_impl {
     fn align16(value: u32, fallback: u32) -> u32 {
         let value = if value < 64 { fallback } else { value };
         (value.max(16) / 16) * 16
-    }
-
-    fn open_encoder(
-        path: &Path,
-        width: u32,
-        height: u32,
-        fps: u32,
-        bitrate: u32,
-        with_audio: bool,
-    ) -> Result<crate::encode::MfWriter, String> {
-        let fps = fps.min(60).max(24);
-        let attempts = [(width, height), (1920, 1080), (1280, 720)];
-        let mut last = String::from("Could not create the Media Foundation encoder.");
-        for (width, height) in attempts {
-            match crate::encode::MfWriter::new(path, width, height, fps, bitrate, with_audio) {
-                Ok(encoder) => {
-                    tracing::info!("MF encoder ready {width}x{height} @ {fps} audio={with_audio}");
-                    return Ok(encoder);
-                }
-                Err(err) => {
-                    last = err;
-                    tracing::warn!("MF encoder {width}x{height} audio={with_audio} failed: {last}");
-                }
-            }
-        }
-        Err(last)
     }
 
     fn capture_settings<T>(item: T, flags: SessionFlags) -> Settings<SessionFlags, T>

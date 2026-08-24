@@ -147,22 +147,23 @@ pub fn descendant_pids(primary: u32, processes: &[ProcessRef]) -> Vec<u32> {
 pub fn resolve_game_pids(
     snapshot: &DetectedGameSnapshot,
     processes: &[ProcessRef],
+    sessions: &[AudioSessionRef],
     catalog: &[GameRecord],
     self_pid: u32,
 ) -> GamePidSet {
     let Some(slug) = snapshot.slug.as_deref() else {
         return GamePidSet::empty();
     };
-    let Some(primary) = snapshot.pid.filter(|pid| *pid != 0) else {
+    let Some(snapshot_pid) = snapshot.pid.filter(|pid| *pid != 0) else {
         return GamePidSet::empty();
     };
     let Some(game) = catalog.iter().find(|item| item.slug == slug) else {
-        if is_excluded_pid(primary, processes, self_pid) {
+        if is_excluded_pid(snapshot_pid, processes, self_pid) {
             return GamePidSet::empty();
         }
         return GamePidSet {
-            primary: Some(primary),
-            include_pids: vec![primary],
+            primary: Some(snapshot_pid),
+            include_pids: vec![snapshot_pid],
         };
     };
 
@@ -179,6 +180,40 @@ pub fn resolve_game_pids(
         .map(|process| process.pid)
         .collect();
 
+    let session_pids: Vec<u32> = sessions
+        .iter()
+        .filter(|session| session.pid != 0 && !is_excluded_pid(session.pid, processes, self_pid))
+        .filter(|session| session_matches_game(session, game, processes))
+        .map(|session| session.pid)
+        .collect();
+
+    let non_launcher: Vec<u32> = matching
+        .iter()
+        .copied()
+        .filter(|pid| {
+            processes
+                .iter()
+                .find(|process| process.pid == *pid)
+                .map(|process| !is_catalog_launcher_name(&process.name))
+                .unwrap_or(true)
+        })
+        .collect();
+
+    let primary = session_pids
+        .iter()
+        .copied()
+        .find(|pid| matching.contains(pid))
+        .or_else(|| session_pids.first().copied())
+        .or_else(|| non_launcher.first().copied())
+        .or_else(|| {
+            (!is_excluded_pid(snapshot_pid, processes, self_pid)).then_some(snapshot_pid)
+        })
+        .or_else(|| matching.first().copied());
+
+    let Some(primary) = primary else {
+        return GamePidSet::empty();
+    };
+
     if is_excluded_pid(primary, processes, self_pid) && matching.is_empty() {
         return GamePidSet::empty();
     }
@@ -188,22 +223,25 @@ pub fn resolve_game_pids(
         .filter(|pid| !is_excluded_pid(*pid, processes, self_pid))
         .collect::<Vec<_>>();
 
-    let mut union = matching;
-    for pid in &tree {
-        if !union.contains(pid) {
-            union.push(*pid);
-        }
-    }
-    if !is_excluded_pid(primary, processes, self_pid) && !union.contains(&primary) {
-        union.insert(0, primary);
-    }
-
     let mut include_pids = Vec::new();
     if !is_excluded_pid(primary, processes, self_pid) {
         include_pids.push(primary);
     }
-    for pid in union {
+    let any_session_match = matching.iter().any(|pid| session_pids.contains(pid));
+    let any_game_exe = !non_launcher.is_empty();
+    for pid in matching {
         if pid == primary || tree.contains(&pid) {
+            continue;
+        }
+        let is_launcher = processes
+            .iter()
+            .find(|process| process.pid == pid)
+            .map(|process| is_catalog_launcher_name(&process.name))
+            .unwrap_or(false);
+        if is_launcher && (any_session_match || any_game_exe) && !session_pids.contains(&pid) {
+            continue;
+        }
+        if any_session_match && !session_pids.contains(&pid) {
             continue;
         }
         if !include_pids.contains(&pid) {
@@ -215,6 +253,28 @@ pub fn resolve_game_pids(
         primary: include_pids.first().copied(),
         include_pids,
     }
+}
+
+fn session_matches_game(
+    session: &AudioSessionRef,
+    game: &GameRecord,
+    processes: &[ProcessRef],
+) -> bool {
+    let names_match = game.process_names.iter().any(|pattern| {
+        process_name_matches(pattern, &session.exe) || process_name_matches(pattern, &session.display_name)
+    });
+    if names_match {
+        return true;
+    }
+    processes
+        .iter()
+        .find(|process| process.pid == session.pid)
+        .map(|process| {
+            game.process_names
+                .iter()
+                .any(|pattern| process_name_matches(pattern, &process.name))
+        })
+        .unwrap_or(false)
 }
 
 pub fn resolve_catalog_pid(
@@ -267,6 +327,11 @@ pub fn catalog_for_exe(exe: &str) -> Option<&'static CatalogApp> {
     CATALOG_APPS
         .iter()
         .find(|app| catalog_matches(app, exe))
+}
+
+fn is_catalog_launcher_name(name: &str) -> bool {
+    let stem = normalize_process_name(name).trim_end_matches(".exe").to_string();
+    stem.starts_with("play") || stem.contains("launcher") || stem.contains("bootstrap")
 }
 
 fn is_unlisted_launcher(process: &ProcessRef, catalog_names: &[String]) -> bool {
@@ -330,7 +395,7 @@ mod tests {
 
     #[test]
     fn empty_when_no_game() {
-        let set = resolve_game_pids(&DetectedGameSnapshot::empty(), &[], &[], 1);
+        let set = resolve_game_pids(&DetectedGameSnapshot::empty(), &[], &[], &[], 1);
         assert!(set.is_empty());
     }
 
@@ -346,6 +411,7 @@ mod tests {
         let set = resolve_game_pids(
             &snapshot("demo", 10),
             &processes,
+            &[],
             &[game("demo", &["game.exe"])],
             99,
         );
@@ -367,6 +433,7 @@ mod tests {
         let set = resolve_game_pids(
             &snapshot("valorant", 10),
             &processes,
+            &[],
             &[game(
                 "valorant",
                 &["VALORANT-Win64-Shipping.exe", "VALORANT.exe"],
@@ -389,6 +456,7 @@ mod tests {
         let set = resolve_game_pids(
             &snapshot("demo", 8),
             &processes,
+            &[],
             &[game("demo", &["game.exe"])],
             8,
         );
@@ -403,6 +471,65 @@ mod tests {
         assert!(catalog_matches(&DISCORD, "DiscordCanary.exe"));
         assert!(catalog_matches(&DISCORD, "DiscordDevelopment.exe"));
         assert!(!catalog_matches(&DISCORD, "chrome.exe"));
+    }
+
+    #[test]
+    fn prefers_session_owning_game_over_launcher() {
+        let processes = vec![
+            process(10, 1, "PlayGTAV.exe"),
+            process(20, 1, "GTA5.exe"),
+        ];
+        let sessions = vec![AudioSessionRef {
+            pid: 20,
+            exe: "GTA5.exe".into(),
+            display_name: "Grand Theft Auto V".into(),
+        }];
+        let set = resolve_game_pids(
+            &snapshot("gta-v", 10),
+            &processes,
+            &sessions,
+            &[game(
+                "gta-v",
+                &[
+                    "GTA5.exe",
+                    "GTA5_Enhanced.exe",
+                    "GTAV.exe",
+                    "PlayGTAV.exe",
+                    "*GTAProcess.exe",
+                ],
+            )],
+            99,
+        );
+        assert_eq!(set.primary, Some(20));
+        assert_eq!(set.include_pids.first().copied(), Some(20));
+        assert!(!set.include_pids.contains(&10));
+    }
+
+    #[test]
+    fn prefers_game_exe_over_launcher_without_session() {
+        let processes = vec![
+            process(10, 1, "PlayGTAV.exe"),
+            process(20, 1, "GTA5.exe"),
+        ];
+        let set = resolve_game_pids(
+            &snapshot("gta-v", 10),
+            &processes,
+            &[],
+            &[game(
+                "gta-v",
+                &[
+                    "GTA5.exe",
+                    "GTA5_Enhanced.exe",
+                    "GTAV.exe",
+                    "PlayGTAV.exe",
+                    "*GTAProcess.exe",
+                ],
+            )],
+            99,
+        );
+        assert_eq!(set.primary, Some(20));
+        assert_eq!(set.include_pids.first().copied(), Some(20));
+        assert!(!set.include_pids.contains(&10));
     }
 
     #[test]

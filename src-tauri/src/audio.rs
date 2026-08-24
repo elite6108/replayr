@@ -103,10 +103,13 @@ pub struct DetectedExtraApp {
     pub added: bool,
 }
 
+const ISOLATED_RESTART_BACKOFF: Duration = Duration::from_secs(2);
+
 struct IsolatedClient {
     key: String,
     gain: f32,
     capture: ProcessLoopbackCapture,
+    started_at: Instant,
 }
 
 #[derive(Clone)]
@@ -337,6 +340,15 @@ impl AudioRuntime {
         mixed
     }
 
+    pub fn discard_pending(&self) {
+        let _ = self.take_isolated();
+        if let Ok(slot) = self.inner.mic.lock() {
+            if let Some(mic) = slot.as_ref() {
+                let _ = MicCapture::take(mic);
+            }
+        }
+    }
+
     fn sync_isolated(
         &self,
         settings: &AppSettings,
@@ -365,10 +377,22 @@ impl AudioRuntime {
         let self_pid = std::process::id();
 
         let game_pids = if settings.game_audio_enabled && supported {
-            resolve_game_pids(&snapshot, &processes, &catalog, self_pid)
+            resolve_game_pids(&snapshot, &processes, &session_refs, &catalog, self_pid)
         } else {
             crate::audio_resolve::GamePidSet::empty()
         };
+        if settings.game_audio_enabled && supported && !game_pids.is_empty() {
+            tracing::debug!(
+                "game audio primary={:?} include={:?} sessions={}",
+                game_pids.primary,
+                game_pids.include_pids,
+                sessions
+                    .iter()
+                    .map(|session| format!("{}:{}", session.pid, session.exe))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
         let discord_pid = if settings.discord_audio_enabled && supported {
             resolve_catalog_pid(&DISCORD, &processes, &session_refs, self_pid)
         } else {
@@ -405,10 +429,18 @@ impl AudioRuntime {
         }
 
         if let Ok(mut clients) = self.inner.isolated.lock() {
-            clients.retain(|client| desired.iter().any(|plan| plan.key == client.key));
+            clients.retain(|client| {
+                let still_wanted = desired.iter().any(|plan| plan.key == client.key);
+                if !still_wanted {
+                    return false;
+                }
+                !(client.capture.failed() && client.started_at.elapsed() >= ISOLATED_RESTART_BACKOFF)
+            });
             for plan in &desired {
                 if let Some(existing) = clients.iter_mut().find(|client| client.key == plan.key) {
-                    existing.gain = plan.gain;
+                    if !existing.capture.failed() {
+                        existing.gain = plan.gain;
+                    }
                     continue;
                 }
                 if let Some(capture) = ProcessLoopbackCapture::start(plan.pid) {
@@ -416,6 +448,7 @@ impl AudioRuntime {
                         key: plan.key.clone(),
                         gain: plan.gain,
                         capture,
+                        started_at: Instant::now(),
                     });
                 }
             }
@@ -868,8 +901,8 @@ pub fn mix_pcm(loopback: &[u8], mic: &[u8], gain: f32) -> Vec<u8> {
     let mut mixed = vec![0i16; len];
     mixed[..loop_samples.len()].copy_from_slice(&loop_samples);
     for (index, sample) in mic_samples.iter().enumerate() {
-        let scaled = (*sample as f32 * gain).round() as i32;
-        mixed[index] = (i32::from(mixed[index]) + scaled).clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+        let scaled = *sample as f32 * gain;
+        mixed[index] = soft_clip_i16(mixed[index] as f32 + scaled);
     }
     i16_to_bytes(&mixed)
 }
@@ -881,9 +914,7 @@ fn scale_pcm(pcm: &[u8], gain: f32) -> Vec<u8> {
     let scaled: Vec<i16> = pcm_i16(pcm)
         .into_iter()
         .map(|sample| {
-            (sample as f32 * gain)
-                .round()
-                .clamp(i16::MIN as f32, i16::MAX as f32) as i16
+            soft_clip_i16(sample as f32 * gain)
         })
         .collect();
     i16_to_bytes(&scaled)
@@ -1017,7 +1048,10 @@ fn append_pcm(buffer: &Mutex<Vec<u8>>, bytes: impl IntoIterator<Item = u8>) {
         guard.extend(bytes);
         if guard.len() > MAX_BUFFER {
             let overflow = guard.len() - MAX_BUFFER;
-            guard.drain(..overflow);
+            let overflow = overflow - (overflow % FRAME_BYTES);
+            if overflow > 0 {
+                guard.drain(..overflow);
+            }
         }
     }
 }
@@ -1032,6 +1066,14 @@ fn pcm_i16(pcm: &[u8]) -> Vec<i16> {
         .chunks_exact(2)
         .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
         .collect()
+}
+
+fn soft_clip_i16(sample: f32) -> i16 {
+    let x = sample / 32768.0;
+    let y = x / (1.0 + x.abs() * 0.35);
+    (y * 32767.0)
+        .round()
+        .clamp(i16::MIN as f32, i16::MAX as f32) as i16
 }
 
 fn i16_to_bytes(samples: &[i16]) -> Vec<u8> {

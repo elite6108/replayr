@@ -130,16 +130,23 @@ const DEFAULT_PREFS: NotificationPrefs = {
 const EXPO_PUSH_TOKEN = /^ExponentPushToken\[[\w-]+\]$/;
 const PUSH_TOKEN_MAX = 512;
 
-export async function handleSocial(request: Request, env: Env, url: URL): Promise<Response | null> {
+export type WaitUntil = (task: Promise<unknown>) => void;
+
+export async function handleSocial(
+  request: Request,
+  env: Env,
+  url: URL,
+  waitUntil?: WaitUntil,
+): Promise<Response | null> {
   const path = url.pathname;
   const method = request.method;
 
   if (path === "/v1/friends" && method === "GET") return listFriends(request, env);
   if (path === "/v1/friends/requests" && method === "GET") return listFriendRequests(request, env);
-  if (path === "/v1/friends/requests" && method === "POST") return createFriendRequest(request, env);
+  if (path === "/v1/friends/requests" && method === "POST") return createFriendRequest(request, env, waitUntil);
 
   const accept = path.match(/^\/v1\/friends\/requests\/([^/]+)\/accept$/);
-  if (accept?.[1] && method === "POST") return acceptFriendRequest(request, env, accept[1]);
+  if (accept?.[1] && method === "POST") return acceptFriendRequest(request, env, accept[1], waitUntil);
   const decline = path.match(/^\/v1\/friends\/requests\/([^/]+)\/decline$/);
   if (decline?.[1] && method === "POST") return declineFriendRequest(request, env, decline[1]);
   const cancel = path.match(/^\/v1\/friends\/requests\/([^/]+)$/);
@@ -156,14 +163,14 @@ export async function handleSocial(request: Request, env: Env, url: URL): Promis
   if (profile?.[1] && method === "GET") return getUserProfile(request, env, profile[1]);
 
   if (path === "/v1/conversations" && method === "GET") return listConversations(request, env);
-  if (path === "/v1/conversations" && method === "POST") return createConversation(request, env);
+  if (path === "/v1/conversations" && method === "POST") return createConversation(request, env, waitUntil);
 
   const convMessages = path.match(/^\/v1\/conversations\/([^/]+)\/messages$/);
   if (convMessages?.[1] && method === "GET") return listMessages(request, env, url, convMessages[1]);
-  if (convMessages?.[1] && method === "POST") return postMessage(request, env, convMessages[1]);
+  if (convMessages?.[1] && method === "POST") return postMessage(request, env, convMessages[1], waitUntil);
 
   const convMembers = path.match(/^\/v1\/conversations\/([^/]+)\/members$/);
-  if (convMembers?.[1] && method === "POST") return addMembers(request, env, convMembers[1]);
+  if (convMembers?.[1] && method === "POST") return addMembers(request, env, convMembers[1], waitUntil);
   if (convMembers?.[1] && method === "DELETE") return leaveConversation(request, env, convMembers[1]);
 
   const convItem = path.match(/^\/v1\/conversations\/([^/]+)$/);
@@ -175,7 +182,7 @@ export async function handleSocial(request: Request, env: Env, url: URL): Promis
   if (path === "/v1/clips/friends" && method === "GET") return listFriendClips(request, env, url);
 
   const send = path.match(/^\/v1\/clips\/([^/]+)\/send$/);
-  if (send?.[1] && method === "POST") return sendClip(request, env, send[1]);
+  if (send?.[1] && method === "POST") return sendClip(request, env, send[1], waitUntil);
 
   if (path === "/v1/notifications" && method === "GET") return listNotifications(request, env, url);
   if (path === "/v1/notifications/read" && method === "POST") return readNotifications(request, env);
@@ -195,8 +202,9 @@ export async function notifyClipActivity(
     actor_id: string;
     clip_id: string;
   },
+  waitUntil?: WaitUntil,
 ): Promise<void> {
-  await insertNotifications(env, [row]);
+  await insertNotifications(env, [row], waitUntil);
 }
 
 export async function hasConversationClipGrant(env: Env, clipId: string, userId: string): Promise<boolean> {
@@ -263,7 +271,7 @@ async function listFriendRequests(request: Request, env: Env): Promise<Response>
   return json({ incoming, outgoing });
 }
 
-async function createFriendRequest(request: Request, env: Env): Promise<Response> {
+async function createFriendRequest(request: Request, env: Env, waitUntil?: WaitUntil): Promise<Response> {
   const user = await requireUser(request, env);
   const body = await readJson(request);
   const target = await resolveTargetUser(env, body);
@@ -296,14 +304,18 @@ async function createFriendRequest(request: Request, env: Env): Promise<Response
     requested_by: user.id,
     status: "pending",
   });
-  await insertNotifications(env, [
-    {
-      user_id: target.id,
-      kind: "friend_request",
-      actor_id: user.id,
-      friendship_id: id,
-    },
-  ]);
+  await insertNotifications(
+    env,
+    [
+      {
+        user_id: target.id,
+        kind: "friend_request",
+        actor_id: user.id,
+        friendship_id: id,
+      },
+    ],
+    waitUntil,
+  );
   const me = (await loadSocialUsers(env, [user.id])).get(user.id);
   if (!me) throw new HttpError(500, "Could not load your profile.");
   return json({
@@ -316,7 +328,7 @@ async function createFriendRequest(request: Request, env: Env): Promise<Response
   });
 }
 
-async function acceptFriendRequest(request: Request, env: Env, requestId: string): Promise<Response> {
+async function acceptFriendRequest(request: Request, env: Env, requestId: string, waitUntil?: WaitUntil): Promise<Response> {
   const user = await requireUser(request, env);
   const row = await requireFriendship(env, requestId);
   if (row.status !== "pending") throw new HttpError(404, "That friend request was not found.");
@@ -324,14 +336,18 @@ async function acceptFriendRequest(request: Request, env: Env, requestId: string
     throw new HttpError(403, "You can only accept a request sent to you.");
   }
   await serviceRest(env, "PATCH", `/friendships?id=eq.${row.id}`, { status: "accepted", blocked_by: null });
-  await insertNotifications(env, [
-    {
-      user_id: row.requested_by,
-      kind: "friend_accept",
-      actor_id: user.id,
-      friendship_id: row.id,
-    },
-  ]);
+  await insertNotifications(
+    env,
+    [
+      {
+        user_id: row.requested_by,
+        kind: "friend_accept",
+        actor_id: user.id,
+        friendship_id: row.id,
+      },
+    ],
+    waitUntil,
+  );
   const otherId = otherUser(row, user.id);
   const people = await loadSocialUsers(env, [otherId]);
   const friend = people.get(otherId);
@@ -599,7 +615,7 @@ async function listConversations(request: Request, env: Env): Promise<Response> 
   return json({ conversations: presented });
 }
 
-async function createConversation(request: Request, env: Env): Promise<Response> {
+async function createConversation(request: Request, env: Env, waitUntil?: WaitUntil): Promise<Response> {
   const user = await requireUser(request, env);
   const body = await readJson(request);
   const type = body.type;
@@ -651,12 +667,13 @@ async function createConversation(request: Request, env: Env): Promise<Response>
       actor_id: user.id,
       conversation_id: conversationId,
     })),
+    waitUntil,
   );
   const conversation = await loadConversation(env, conversationId);
   return json({ conversation: await presentConversationOrThrow(env, user.id, conversation) });
 }
 
-async function addMembers(request: Request, env: Env, conversationId: string): Promise<Response> {
+async function addMembers(request: Request, env: Env, conversationId: string, waitUntil?: WaitUntil): Promise<Response> {
   const user = await requireUser(request, env);
   const conversation = await requireMemberConversation(env, user.id, conversationId);
   if (conversation.type !== "group") {
@@ -688,6 +705,7 @@ async function addMembers(request: Request, env: Env, conversationId: string): P
       actor_id: user.id,
       conversation_id: conversationId,
     })),
+    waitUntil,
   );
   const updated = await loadConversation(env, conversationId);
   return json({ conversation: await presentConversationOrThrow(env, user.id, updated) });
@@ -745,7 +763,7 @@ async function listMessages(request: Request, env: Env, url: URL, conversationId
   return json({ messages });
 }
 
-async function postMessage(request: Request, env: Env, conversationId: string): Promise<Response> {
+async function postMessage(request: Request, env: Env, conversationId: string, waitUntil?: WaitUntil): Promise<Response> {
   const user = await requireUser(request, env);
   await loadVisibleConversation(request, env, conversationId);
   const body = await readJson(request);
@@ -786,11 +804,12 @@ async function postMessage(request: Request, env: Env, conversationId: string): 
         conversation_id: conversationId,
         message_id: messageId,
       })),
+    waitUntil,
   );
   return json({ message });
 }
 
-async function sendClip(request: Request, env: Env, slug: string): Promise<Response> {
+async function sendClip(request: Request, env: Env, slug: string, waitUntil?: WaitUntil): Promise<Response> {
   const user = await requireUser(request, env);
   const body = await readJson(request);
   const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
@@ -827,6 +846,7 @@ async function sendClip(request: Request, env: Env, slug: string): Promise<Respo
         conversation_id: conversationId,
         message_id: messageId,
       })),
+    waitUntil,
   );
   return json({ message, conversationId });
 }
@@ -1217,6 +1237,7 @@ async function insertNotifications(
     message_id?: string | null;
     clip_id?: string | null;
   }>,
+  waitUntil?: WaitUntil,
 ) {
   const payload = rows
     .filter((row) => row.user_id && row.user_id !== row.actor_id)
@@ -1232,11 +1253,9 @@ async function insertNotifications(
     }));
   if (payload.length === 0) return;
   await serviceRest(env, "POST", "/notifications", payload);
-  try {
-    await sendExpoPushes(env, payload);
-  } catch {
-    // Inbox rows already landed; never fail the user-facing action on push.
-  }
+  const task = sendExpoPushes(env, payload).catch(() => undefined);
+  if (waitUntil) waitUntil(task);
+  else await task;
 }
 
 async function getNotificationPrefs(request: Request, env: Env): Promise<Response> {

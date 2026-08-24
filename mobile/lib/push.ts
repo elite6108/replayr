@@ -9,6 +9,7 @@ import { threadHref } from "./api.messages";
 
 const ENABLED_KEY = "replayr_push_enabled";
 const TOKEN_KEY = "replayr_push_token";
+const PROMPTED_KEY = "replayr_push_prompted";
 const PROJECT_ID = "90989ccf-3954-4736-b4e6-8602e8f7d1a0";
 
 Notifications.setNotificationHandler({
@@ -54,8 +55,17 @@ export async function openSystemNotificationSettings(): Promise<void> {
 }
 
 export async function syncPushForSession(accessToken: string): Promise<PushPermission> {
-  const permission = await getPushPermission();
+  let permission = await getPushPermission();
   const enabled = await isPushEnabledLocally();
+  const prompted = await SecureStore.getItemAsync(PROMPTED_KEY);
+  if (!prompted && permission === "undetermined" && enabled) {
+    permission = await requestPushPermission();
+    await SecureStore.setItemAsync(PROMPTED_KEY, "1");
+    if (permission !== "granted") {
+      await setPushEnabledLocally(false);
+      return permission;
+    }
+  }
   if (permission !== "granted" || !enabled) return permission;
   await ensureAndroidChannel();
   const token = await getExpoToken();
@@ -67,6 +77,7 @@ export async function syncPushForSession(accessToken: string): Promise<PushPermi
 
 export async function enablePush(accessToken: string): Promise<PushPermission> {
   const permission = await requestPushPermission();
+  await SecureStore.setItemAsync(PROMPTED_KEY, "1");
   if (permission !== "granted") {
     await setPushEnabledLocally(false);
     return permission;

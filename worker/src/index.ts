@@ -118,7 +118,7 @@ async function route(
       storage: Boolean(env.R2_BUCKET_NAME && env.R2_ACCESS_KEY_ID && env.R2_ACCOUNT_ID),
     });
   }
-  const social = await handleSocial(request, env, url);
+  const social = await handleSocial(request, env, url, (task) => ctx.waitUntil(task));
   if (social) return social;
   if (request.method === "GET" && url.pathname === "/v1/library") {
     return listLibrary(request, env);
@@ -150,11 +150,11 @@ async function route(
     return listClipComments(request, env, comments[1]);
   }
   if (comments?.[1] && request.method === "POST") {
-    return addClipComment(request, env, comments[1]);
+    return addClipComment(request, env, comments[1], ctx);
   }
   const like = url.pathname.match(/^\/v1\/clips\/([^/]+)\/like$/);
   if (like?.[1] && request.method === "POST") {
-    return likeClip(request, env, like[1]);
+    return likeClip(request, env, like[1], ctx);
   }
   if (like?.[1] && request.method === "DELETE") {
     return unlikeClip(request, env, like[1]);
@@ -712,7 +712,12 @@ async function getPlayback(
   });
 }
 
-async function likeClip(request: Request, env: Env, slug: string): Promise<Response> {
+async function likeClip(
+  request: Request,
+  env: Env,
+  slug: string,
+  ctx: { waitUntil(task: Promise<unknown>): void },
+): Promise<Response> {
   const user = await requireUser(request, env);
   const clip = await requireShareableClip(env, slug);
   let firstLike = true;
@@ -723,12 +728,16 @@ async function likeClip(request: Request, env: Env, slug: string): Promise<Respo
     firstLike = false;
   }
   if (firstLike) {
-    await notifyClipActivity(env, {
-      user_id: clip.user_id,
-      kind: "clip_like",
-      actor_id: user.id,
-      clip_id: clip.id,
-    });
+    await notifyClipActivity(
+      env,
+      {
+        user_id: clip.user_id,
+        kind: "clip_like",
+        actor_id: user.id,
+        clip_id: clip.id,
+      },
+      (task) => ctx.waitUntil(task),
+    );
   }
   return json(await socialState(env, clip.id, user.id, true));
 }
@@ -764,7 +773,12 @@ async function listClipComments(request: Request, env: Env, slug: string): Promi
   });
 }
 
-async function addClipComment(request: Request, env: Env, slug: string): Promise<Response> {
+async function addClipComment(
+  request: Request,
+  env: Env,
+  slug: string,
+  ctx: { waitUntil(task: Promise<unknown>): void },
+): Promise<Response> {
   const user = await requireUser(request, env);
   const clip = await requireShareableClip(env, slug);
   const payload = (await request.json().catch(() => ({}))) as { body?: unknown };
@@ -773,12 +787,16 @@ async function addClipComment(request: Request, env: Env, slug: string): Promise
     throw new HttpError(400, "Comments must be 1–500 characters.");
   }
   await serviceRest(env, "POST", "/clip_comments", { clip_id: clip.id, user_id: user.id, body });
-  await notifyClipActivity(env, {
-    user_id: clip.user_id,
-    kind: "clip_comment",
-    actor_id: user.id,
-    clip_id: clip.id,
-  });
+  await notifyClipActivity(
+    env,
+    {
+      user_id: clip.user_id,
+      kind: "clip_comment",
+      actor_id: user.id,
+      clip_id: clip.id,
+    },
+    (task) => ctx.waitUntil(task),
+  );
   const listed = await listClipComments(request, env, slug);
   const data = (await listed.json()) as { comments: unknown[] };
   const counts = await clipCounts(env, clip.id);

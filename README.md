@@ -191,7 +191,7 @@ npm run web:dev
 
 Local site: `http://127.0.0.1:5174`. Worker: `http://127.0.0.1:8787`. Vite proxies `/v1` to the Worker.
 
-Mobile: `npm run mobile:start` (Expo). Same three public env values with the `EXPO_PUBLIC_` prefix.
+Mobile: `npm run mobile:start` (Expo). Same three public env values with the `EXPO_PUBLIC_` prefix. TestFlight: [mobile/README.md](mobile/README.md#publish-to-testflight).
 
 ## Admin
 
@@ -333,6 +333,7 @@ npm run tauri:dev
 | `npm run web:deploy` | Build `web/` and deploy the Worker + assets (production `PUBLIC_APP_URL`). |
 | `npm run typecheck` | Desktop TypeScript. |
 | `npm run mobile:start` | Expo. |
+| `npx eas-cli build --platform ios --profile production --auto-submit` | From `mobile/`. Builds iOS and submits to TestFlight. See [mobile/README.md](mobile/README.md#publish-to-testflight). |
 
 ```bash
 cd src-tauri

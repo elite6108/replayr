@@ -19,7 +19,8 @@
       ],
       "infoPlist": {
         "NSPhotoLibraryAddUsageDescription": "Replayr saves clips you download to your photo library.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
     "android": {
@@ -40,7 +41,8 @@
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "intentFilters": [
         {
@@ -86,6 +88,13 @@
       "expo-image",
       "expo-apple-authentication",
       "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "color": "#7fd0ef",
+          "defaultChannel": "default"
+        }
+      ],
       [
         "expo-media-library",
         {

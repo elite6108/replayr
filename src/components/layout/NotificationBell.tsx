@@ -23,6 +23,8 @@ function copyFor(item: NotificationItem) {
   if (item.kind === "friend_request") return `${name} sent a friend request`;
   if (item.kind === "friend_accept") return `${name} accepted your request`;
   if (item.kind === "group_invite") return `${name} invited you to a group`;
+  if (item.kind === "clip_like") return `${name} liked your clip`;
+  if (item.kind === "clip_comment") return `${name} commented on your clip`;
   return `${name} sent you a message`;
 }
 
@@ -131,6 +133,10 @@ export function NotificationBell() {
     }
     if ((item.kind === "message" || item.kind === "group_invite") && item.conversationId) {
       navigate(`/messages/${item.conversationId}`);
+      return;
+    }
+    if ((item.kind === "clip_like" || item.kind === "clip_comment") && item.clipSlug) {
+      navigate(`/c/${item.clipSlug}`);
     }
   }
 

@@ -1,7 +1,9 @@
 import { Stack, useRouter } from "expo-router";
 import * as Linking from "expo-linking";
-import { useEffect } from "react";
-import { AuthProvider } from "@/lib/auth";
+import * as Notifications from "expo-notifications";
+import { useEffect, useRef } from "react";
+import { AuthProvider, useAuth } from "@/lib/auth";
+import { routeFromPushData, syncPushForSession } from "@/lib/push";
 import { SocialUnreadProvider } from "@/lib/socialUnread";
 import { installMobileTelemetry } from "@/lib/telemetry";
 import { colors } from "@/lib/theme";
@@ -40,6 +42,7 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <SocialUnreadProvider>
+        <PushBridge />
         <Stack
         screenOptions={{
           headerTintColor: colors.accent,
@@ -60,4 +63,29 @@ export default function RootLayout() {
       </SocialUnreadProvider>
     </AuthProvider>
   );
+}
+
+function PushBridge() {
+  const router = useRouter();
+  const { session } = useAuth();
+  const handledResponse = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+    void syncPushForSession(session.access_token).catch(() => undefined);
+  }, [session?.access_token]);
+
+  useEffect(() => {
+    function open(response: Notifications.NotificationResponse | null) {
+      const id = response?.notification.request.identifier;
+      if (!response || !id || handledResponse.current === id) return;
+      handledResponse.current = id;
+      routeFromPushData(response.notification.request.content.data, (href) => router.push(href));
+    }
+    const sub = Notifications.addNotificationResponseReceivedListener(open);
+    void Notifications.getLastNotificationResponseAsync().then(open);
+    return () => sub.remove();
+  }, [router]);
+
+  return null;
 }

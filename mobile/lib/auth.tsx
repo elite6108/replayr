@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { unregisterCurrentPushToken } from "./push";
 import { getSupabase, supabaseConfigured } from "./supabase";
 
 interface AuthValue {
@@ -39,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       signOut: async () => {
         if (!supabaseConfigured()) return;
+        await unregisterCurrentPushToken(session?.access_token);
         await getSupabase().auth.signOut();
         setSession(null);
       },

@@ -32,7 +32,9 @@ export function useSocialUnreadSync() {
           (row.kind === "friend_request" ||
             row.kind === "friend_accept" ||
             row.kind === "message" ||
-            row.kind === "group_invite") &&
+            row.kind === "group_invite" ||
+            row.kind === "clip_like" ||
+            row.kind === "clip_comment") &&
           row.actor_id !== userId
         ) {
           noteNotification();

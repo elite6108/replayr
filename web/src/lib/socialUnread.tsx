@@ -25,7 +25,14 @@ const UnreadContext = createContext<UnreadValue>({
 });
 
 function isBellKind(kind?: string) {
-  return kind === "friend_request" || kind === "friend_accept" || kind === "message" || kind === "group_invite";
+  return (
+    kind === "friend_request" ||
+    kind === "friend_accept" ||
+    kind === "message" ||
+    kind === "group_invite" ||
+    kind === "clip_like" ||
+    kind === "clip_comment"
+  );
 }
 
 export function SocialUnreadProvider({ children }: { children: ReactNode }) {

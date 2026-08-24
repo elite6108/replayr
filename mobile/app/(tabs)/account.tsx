@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Linking from "expo-linking";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -7,9 +7,22 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Avatar } from "@/components/Avatar";
 import { Button, Notice } from "@/components/ui";
 import { deleteAccount } from "@/lib/api";
-import { fetchFriends } from "@/lib/api.friends";
+import {
+  fetchFriends,
+  fetchNotificationPrefs,
+  patchNotificationPrefs,
+  type NotificationPrefs,
+} from "@/lib/api.friends";
 import { useAuth } from "@/lib/auth";
 import { formatBytes } from "@/lib/format";
+import {
+  disablePush,
+  enablePush,
+  getPushPermission,
+  isPushEnabledLocally,
+  openSystemNotificationSettings,
+  type PushPermission,
+} from "@/lib/push";
 import { useSocialUnread } from "@/lib/socialUnread";
 import { getSupabase } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
@@ -37,6 +50,10 @@ export default function AccountScreen() {
   const [friendCount, setFriendCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
+  const [pushPermission, setPushPermission] = useState<PushPermission>("undetermined");
+  const [pushOn, setPushOn] = useState(true);
+  const [prefsBusy, setPrefsBusy] = useState<keyof NotificationPrefs | "push" | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -65,11 +82,19 @@ export default function AccountScreen() {
     useCallback(() => {
       if (!token) {
         setFriendCount(null);
+        setPrefs(null);
         return;
       }
       void fetchFriends(token)
         .then((friends) => setFriendCount(friends.length))
         .catch(() => undefined);
+      void fetchNotificationPrefs(token)
+        .then(setPrefs)
+        .catch(() => undefined);
+      void Promise.all([getPushPermission(), isPushEnabledLocally()]).then(([permission, enabled]) => {
+        setPushPermission(permission);
+        setPushOn(permission === "granted" && enabled);
+      });
     }, [token]),
   );
 
@@ -104,6 +129,46 @@ export default function AccountScreen() {
       setError(caught instanceof Error ? caught.message : "Could not delete this account.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onTogglePush(next: boolean) {
+    if (!token) return;
+    setPrefsBusy("push");
+    setError(null);
+    try {
+      if (next) {
+        const permission = await enablePush(token);
+        setPushPermission(permission);
+        setPushOn(permission === "granted");
+        if (permission === "denied") {
+          setError("Notifications are off for Replayr. Enable them in Settings.");
+        }
+      } else {
+        await disablePush(token);
+        setPushOn(false);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not update push notifications.");
+    } finally {
+      setPrefsBusy(null);
+    }
+  }
+
+  async function onTogglePref(key: keyof NotificationPrefs, next: boolean) {
+    if (!token || !prefs) return;
+    const previous = prefs;
+    setPrefs({ ...prefs, [key]: next });
+    setPrefsBusy(key);
+    setError(null);
+    try {
+      const saved = await patchNotificationPrefs(token, { [key]: next });
+      setPrefs(saved);
+    } catch (caught) {
+      setPrefs(previous);
+      setError(caught instanceof Error ? caught.message : "Could not save notification settings.");
+    } finally {
+      setPrefsBusy(null);
     }
   }
 
@@ -174,6 +239,58 @@ export default function AccountScreen() {
             subtitle={friendsSubtitle}
             pip={friendsUnread}
             onPress={() => router.push("/friends")}
+            last
+          />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardLabel}>Notifications</Text>
+          {pushPermission === "denied" ? (
+            <SettingsRow
+              icon="notifications-off-outline"
+              title="Push is off"
+              subtitle="Allow Replayr in iOS Settings to get alerts on this phone."
+              onPress={() => void openSystemNotificationSettings()}
+            />
+          ) : (
+            <ToggleRow
+              icon="phone-portrait-outline"
+              title={Platform.OS === "ios" ? "Push on this iPhone" : "Push on this phone"}
+              subtitle="Alerts when you’re not in the app."
+              value={pushOn}
+              disabled={prefsBusy === "push"}
+              onValueChange={(value) => void onTogglePush(value)}
+            />
+          )}
+          <ToggleRow
+            icon="person-add-outline"
+            title="Friend requests"
+            subtitle="When someone adds you, and when they accept."
+            value={prefs?.friendRequests ?? true}
+            disabled={!prefs || prefsBusy === "friendRequests"}
+            onValueChange={(value) => void onTogglePref("friendRequests", value)}
+          />
+          <ToggleRow
+            icon="heart-outline"
+            title="Likes on your clips"
+            value={prefs?.likes ?? true}
+            disabled={!prefs || prefsBusy === "likes"}
+            onValueChange={(value) => void onTogglePref("likes", value)}
+          />
+          <ToggleRow
+            icon="chatbubble-outline"
+            title="Comments"
+            value={prefs?.comments ?? true}
+            disabled={!prefs || prefsBusy === "comments"}
+            onValueChange={(value) => void onTogglePref("comments", value)}
+          />
+          <ToggleRow
+            icon="mail-outline"
+            title="Direct messages"
+            value={prefs?.messages ?? true}
+            disabled={!prefs || prefsBusy === "messages"}
+            onValueChange={(value) => void onTogglePref("messages", value)}
+            last
           />
         </View>
 
@@ -249,6 +366,44 @@ function SettingsRow({
       {pip ? <View style={styles.pip} /> : null}
       <Ionicons name="chevron-forward" size={18} color={colors.muted} />
     </Pressable>
+  );
+}
+
+function ToggleRow({
+  icon,
+  title,
+  subtitle,
+  value,
+  onValueChange,
+  disabled,
+  last,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle?: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  disabled?: boolean;
+  last?: boolean;
+}) {
+  return (
+    <View style={[styles.row, last && styles.rowLast]}>
+      <View style={styles.iconWrap}>
+        <Ionicons name={icon} size={18} color={colors.text} />
+      </View>
+      <View style={styles.copy}>
+        <Text style={styles.rowTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.muted}>{subtitle}</Text> : null}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        disabled={disabled}
+        trackColor={{ false: colors.raised, true: colors.accent }}
+        thumbColor="#f2f4f7"
+        ios_backgroundColor={colors.raised}
+      />
+    </View>
   );
 }
 

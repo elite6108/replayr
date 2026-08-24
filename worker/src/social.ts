@@ -21,6 +21,7 @@ import type {
   FriendshipStatus,
   MessageClip,
   NotificationKind,
+  NotificationPrefs,
   Relationship,
   SocialUser,
 } from "./social-types";
@@ -105,9 +106,29 @@ type NotificationRow = {
   friendship_id: string | null;
   conversation_id: string | null;
   message_id: string | null;
+  clip_id: string | null;
   read_at: string | null;
   created_at: string;
+  clips?: { slug: string } | { slug: string }[] | null;
 };
+
+type PrefsRow = {
+  user_id: string;
+  friend_requests: boolean;
+  likes: boolean;
+  comments: boolean;
+  messages: boolean;
+};
+
+const DEFAULT_PREFS: NotificationPrefs = {
+  friendRequests: true,
+  likes: true,
+  comments: true,
+  messages: true,
+};
+
+const EXPO_PUSH_TOKEN = /^ExponentPushToken\[[\w-]+\]$/;
+const PUSH_TOKEN_MAX = 512;
 
 export async function handleSocial(request: Request, env: Env, url: URL): Promise<Response | null> {
   const path = url.pathname;
@@ -158,8 +179,24 @@ export async function handleSocial(request: Request, env: Env, url: URL): Promis
 
   if (path === "/v1/notifications" && method === "GET") return listNotifications(request, env, url);
   if (path === "/v1/notifications/read" && method === "POST") return readNotifications(request, env);
+  if (path === "/v1/notification-prefs" && method === "GET") return getNotificationPrefs(request, env);
+  if (path === "/v1/notification-prefs" && method === "PATCH") return patchNotificationPrefs(request, env);
+  if (path === "/v1/push-tokens" && method === "POST") return registerPushToken(request, env);
+  if (path === "/v1/push-tokens" && method === "DELETE") return unregisterPushToken(request, env);
 
   return null;
+}
+
+export async function notifyClipActivity(
+  env: Env,
+  row: {
+    user_id: string;
+    kind: "clip_like" | "clip_comment";
+    actor_id: string;
+    clip_id: string;
+  },
+): Promise<void> {
+  await insertNotifications(env, [row]);
 }
 
 export async function hasConversationClipGrant(env: Env, clipId: string, userId: string): Promise<boolean> {
@@ -801,7 +838,7 @@ async function listNotifications(request: Request, env: Env, url: URL): Promise<
   const rows = await serviceRest<NotificationRow[]>(
     env,
     "GET",
-    `/notifications?user_id=eq.${user.id}&select=id,user_id,kind,actor_id,friendship_id,conversation_id,message_id,read_at,created_at&order=created_at.desc&limit=${limit}`,
+    `/notifications?user_id=eq.${user.id}&select=id,user_id,kind,actor_id,friendship_id,conversation_id,message_id,clip_id,read_at,created_at,clips(slug)&order=created_at.desc&limit=${limit}`,
   );
   const actors = await loadSocialUsers(
     env,
@@ -817,6 +854,8 @@ async function listNotifications(request: Request, env: Env, url: URL): Promise<
       friendshipId: row.friendship_id,
       conversationId: row.conversation_id,
       messageId: row.message_id,
+      clipId: row.clip_id,
+      clipSlug: firstRel(row.clips)?.slug ?? null,
     })),
   });
 }
@@ -1176,6 +1215,7 @@ async function insertNotifications(
     friendship_id?: string | null;
     conversation_id?: string | null;
     message_id?: string | null;
+    clip_id?: string | null;
   }>,
 ) {
   const payload = rows
@@ -1188,9 +1228,244 @@ async function insertNotifications(
       friendship_id: row.friendship_id ?? null,
       conversation_id: row.conversation_id ?? null,
       message_id: row.message_id ?? null,
+      clip_id: row.clip_id ?? null,
     }));
   if (payload.length === 0) return;
   await serviceRest(env, "POST", "/notifications", payload);
+  try {
+    await sendExpoPushes(env, payload);
+  } catch {
+    // Inbox rows already landed; never fail the user-facing action on push.
+  }
+}
+
+async function getNotificationPrefs(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  return json(await loadPrefs(env, user.id));
+}
+
+async function patchNotificationPrefs(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const body = await readJson(request);
+  const current = await loadPrefs(env, user.id);
+  const next: NotificationPrefs = {
+    friendRequests: boolOr(body.friendRequests, current.friendRequests),
+    likes: boolOr(body.likes, current.likes),
+    comments: boolOr(body.comments, current.comments),
+    messages: boolOr(body.messages, current.messages),
+  };
+  await serviceRest(
+    env,
+    "POST",
+    "/notification_prefs?on_conflict=user_id",
+    {
+      user_id: user.id,
+      friend_requests: next.friendRequests,
+      likes: next.likes,
+      comments: next.comments,
+      messages: next.messages,
+    },
+    "resolution=merge-duplicates,return=minimal",
+  );
+  return json(next);
+}
+
+async function registerPushToken(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const body = await readJson(request);
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  if (!isPushToken(token)) throw new HttpError(400, "That push token is not valid.");
+  const platform = body.platform === "android" ? "android" : "ios";
+  await serviceRest(
+    env,
+    "POST",
+    "/push_tokens?on_conflict=token",
+    { user_id: user.id, token, platform },
+    "resolution=merge-duplicates,return=minimal",
+  );
+  return json({ ok: true });
+}
+
+async function unregisterPushToken(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const body = await readJson(request);
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  if (!isPushToken(token)) throw new HttpError(400, "That push token is not valid.");
+  await serviceRest(
+    env,
+    "DELETE",
+    `/push_tokens?user_id=eq.${user.id}&token=eq.${quoteFilter(token)}`,
+  );
+  return json({ ok: true });
+}
+
+async function loadPrefs(env: Env, userId: string): Promise<NotificationPrefs> {
+  const rows = await serviceRest<PrefsRow[]>(
+    env,
+    "GET",
+    `/notification_prefs?user_id=eq.${userId}&select=user_id,friend_requests,likes,comments,messages`,
+  );
+  const row = rows[0];
+  if (!row) return { ...DEFAULT_PREFS };
+  return {
+    friendRequests: row.friend_requests,
+    likes: row.likes,
+    comments: row.comments,
+    messages: row.messages,
+  };
+}
+
+function prefForKind(kind: NotificationKind, prefs: NotificationPrefs) {
+  if (kind === "friend_request" || kind === "friend_accept") return prefs.friendRequests;
+  if (kind === "clip_like") return prefs.likes;
+  if (kind === "clip_comment") return prefs.comments;
+  return prefs.messages;
+}
+
+async function sendExpoPushes(
+  env: Env,
+  rows: Array<{
+    user_id: string;
+    kind: NotificationKind;
+    actor_id: string | null;
+    conversation_id: string | null;
+    clip_id: string | null;
+  }>,
+) {
+  const userIds = [...new Set(rows.map((row) => row.user_id))];
+  if (userIds.length === 0) return;
+  const [tokenRows, prefRows, actors, clips] = await Promise.all([
+    serviceRest<{ user_id: string; token: string }[]>(
+      env,
+      "GET",
+      `/push_tokens?user_id=in.(${userIds.join(",")})&select=user_id,token`,
+    ),
+    serviceRest<PrefsRow[]>(
+      env,
+      "GET",
+      `/notification_prefs?user_id=in.(${userIds.join(",")})&select=user_id,friend_requests,likes,comments,messages`,
+    ),
+    loadSocialUsers(
+      env,
+      rows.map((row) => row.actor_id).filter((id): id is string => Boolean(id)),
+    ),
+    loadClipSlugs(
+      env,
+      rows.map((row) => row.clip_id).filter((id): id is string => Boolean(id)),
+    ),
+  ]);
+  const prefsByUser = new Map(prefRows.map((row) => [row.user_id, row]));
+  const tokensByUser = new Map<string, string[]>();
+  for (const row of tokenRows) {
+    const current = tokensByUser.get(row.user_id) ?? [];
+    current.push(row.token);
+    tokensByUser.set(row.user_id, current);
+  }
+  const messages: Array<{
+    to: string;
+    title: string;
+    body: string;
+    sound: "default";
+    data: Record<string, string>;
+  }> = [];
+  for (const row of rows) {
+    const tokens = tokensByUser.get(row.user_id);
+    if (!tokens?.length) continue;
+    const prefRow = prefsByUser.get(row.user_id);
+    const prefs: NotificationPrefs = prefRow
+      ? {
+          friendRequests: prefRow.friend_requests,
+          likes: prefRow.likes,
+          comments: prefRow.comments,
+          messages: prefRow.messages,
+        }
+      : DEFAULT_PREFS;
+    if (!prefForKind(row.kind, prefs)) continue;
+    const actor = row.actor_id ? actors.get(row.actor_id) ?? null : null;
+    const body = pushCopy(row.kind, actor);
+    const data: Record<string, string> = { kind: row.kind };
+    if (row.conversation_id) data.conversationId = row.conversation_id;
+    const slug = row.clip_id ? clips.get(row.clip_id) : undefined;
+    if (slug) data.clipSlug = slug;
+    if (actor?.username) data.username = actor.username;
+    for (const token of tokens) {
+      messages.push({ to: token, title: "Replayr", body, sound: "default", data });
+    }
+  }
+  if (messages.length === 0) return;
+  for (const group of chunk(messages, 100)) {
+    const response = await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        "accept-encoding": "gzip, deflate",
+      },
+      body: JSON.stringify(group),
+    });
+    if (!response.ok) continue;
+    const payload = (await response.json().catch(() => null)) as {
+      data?: Array<{ status?: string; details?: { error?: string }; message?: string }>;
+    } | null;
+    const stale: string[] = [];
+    for (const [index, ticket] of (payload?.data ?? []).entries()) {
+      if (ticket?.status === "error" && ticket.details?.error === "DeviceNotRegistered") {
+        const token = group[index]?.to;
+        if (token) stale.push(token);
+      }
+    }
+    if (stale.length > 0) {
+      await serviceRest(env, "DELETE", `/push_tokens?token=in.(${stale.map(quoteFilter).join(",")})`).catch(
+        () => undefined,
+      );
+    }
+  }
+}
+
+async function loadClipSlugs(env: Env, ids: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  const slugs = new Map<string, string>();
+  if (unique.length === 0) return slugs;
+  const rows = await serviceRest<{ id: string; slug: string }[]>(
+    env,
+    "GET",
+    `/clips?id=in.(${unique.join(",")})&select=id,slug`,
+  );
+  for (const row of rows) slugs.set(row.id, row.slug);
+  return slugs;
+}
+
+function pushCopy(kind: NotificationKind, actor: SocialUser | null) {
+  const name = actor?.displayName || actor?.username || "Someone";
+  if (kind === "friend_request") return `${name} sent you a friend request`;
+  if (kind === "friend_accept") return `${name} accepted your friend request`;
+  if (kind === "clip_like") return `${name} liked your clip`;
+  if (kind === "clip_comment") return `${name} commented on your clip`;
+  if (kind === "group_invite") return `${name} invited you to a group`;
+  return `${name} sent you a message`;
+}
+
+function isPushToken(token: string) {
+  return token.length >= 16 && token.length <= PUSH_TOKEN_MAX && (EXPO_PUSH_TOKEN.test(token) || !/\s/.test(token));
+}
+
+function quoteFilter(value: string) {
+  return `"${value.replace(/"/g, '\\"')}"`;
+}
+
+function boolOr(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function firstRel<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const groups: T[][] = [];
+  for (let i = 0; i < items.length; i += size) groups.push(items.slice(i, i + size));
+  return groups;
 }
 
 function toSocialUser(row: ProfileRow): SocialUser {

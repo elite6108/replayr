@@ -25,7 +25,7 @@ import {
   type PlaybackRow,
   type PublicClipRow,
 } from "./shared";
-import { handleSocial, hasConversationClipGrant } from "./social";
+import { handleSocial, hasConversationClipGrant, notifyClipActivity } from "./social";
 
 export type {
   AddMembersBody,
@@ -42,9 +42,13 @@ export type {
   MessageClip,
   MessagesResponse,
   NotificationItem,
+  NotificationPrefs,
+  NotificationPrefsResponse,
   NotificationsResponse,
+  PatchNotificationPrefsBody,
   PostMessageBody,
   PublicClipCard,
+  PushTokenBody,
   ReadNotificationsBody,
   ReadNotificationsResponse,
   Relationship,
@@ -711,10 +715,20 @@ async function getPlayback(
 async function likeClip(request: Request, env: Env, slug: string): Promise<Response> {
   const user = await requireUser(request, env);
   const clip = await requireShareableClip(env, slug);
+  let firstLike = true;
   try {
     await serviceRest(env, "POST", "/clip_likes", { clip_id: clip.id, user_id: user.id });
   } catch (caught) {
     if (!(caught instanceof HttpError) || caught.status !== 409) throw caught;
+    firstLike = false;
+  }
+  if (firstLike) {
+    await notifyClipActivity(env, {
+      user_id: clip.user_id,
+      kind: "clip_like",
+      actor_id: user.id,
+      clip_id: clip.id,
+    });
   }
   return json(await socialState(env, clip.id, user.id, true));
 }
@@ -759,6 +773,12 @@ async function addClipComment(request: Request, env: Env, slug: string): Promise
     throw new HttpError(400, "Comments must be 1–500 characters.");
   }
   await serviceRest(env, "POST", "/clip_comments", { clip_id: clip.id, user_id: user.id, body });
+  await notifyClipActivity(env, {
+    user_id: clip.user_id,
+    kind: "clip_comment",
+    actor_id: user.id,
+    clip_id: clip.id,
+  });
   const listed = await listClipComments(request, env, slug);
   const data = (await listed.json()) as { comments: unknown[] };
   const counts = await clipCounts(env, clip.id);

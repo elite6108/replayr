@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { deleteAccount } from "../lib/api";
 import { isAdminSession } from "../lib/admin";
+import { fetchNotificationPrefs, patchNotificationPrefs, type NotificationPrefs } from "../lib/api.messages";
 import { useAuth } from "../lib/auth";
 import { formatBytes } from "../lib/format";
 import { getSupabase } from "../lib/supabase";
@@ -24,6 +25,7 @@ export function AccountPage() {
   const [quota, setQuota] = useState<Quota | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -44,9 +46,40 @@ export function AccountPage() {
     };
   }, [userId]);
 
+  useEffect(() => {
+    if (!session?.access_token) {
+      setPrefs(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchNotificationPrefs(session.access_token)
+      .then((next) => {
+        if (!cancelled) setPrefs(next);
+      })
+      .catch((caught) => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not load notification settings.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.access_token]);
+
   const used = quota?.storage_used_bytes ?? 0;
   const limit = quota?.storage_limit_bytes ?? 0;
-  const percent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const percent = limit > 0 ? Math.min(100, roundPercent(used, limit)) : 0;
+
+  async function onTogglePref(key: keyof NotificationPrefs, next: boolean) {
+    if (!session?.access_token || !prefs) return;
+    const previous = prefs;
+    setPrefs({ ...prefs, [key]: next });
+    setError(null);
+    try {
+      setPrefs(await patchNotificationPrefs(session.access_token, { [key]: next }));
+    } catch (caught) {
+      setPrefs(previous);
+      setError(caught instanceof Error ? caught.message : "Could not save notification settings.");
+    }
+  }
 
   return (
     <main className="page narrow">
@@ -72,6 +105,35 @@ export function AccountPage() {
           </p>
         </div>
       ) : null}
+      <section className="pref-card" aria-labelledby="notification-prefs">
+        <h2 id="notification-prefs">Notifications</h2>
+        <p className="muted">These control phone alerts. The in-app bell still shows activity.</p>
+        <PrefToggle
+          title="Friend requests"
+          subtitle="When someone adds you, and when they accept."
+          checked={prefs?.friendRequests ?? true}
+          disabled={!prefs || !session?.access_token}
+          onChange={(value) => void onTogglePref("friendRequests", value)}
+        />
+        <PrefToggle
+          title="Likes on your clips"
+          checked={prefs?.likes ?? true}
+          disabled={!prefs || !session?.access_token}
+          onChange={(value) => void onTogglePref("likes", value)}
+        />
+        <PrefToggle
+          title="Comments"
+          checked={prefs?.comments ?? true}
+          disabled={!prefs || !session?.access_token}
+          onChange={(value) => void onTogglePref("comments", value)}
+        />
+        <PrefToggle
+          title="Direct messages"
+          checked={prefs?.messages ?? true}
+          disabled={!prefs || !session?.access_token}
+          onChange={(value) => void onTogglePref("messages", value)}
+        />
+      </section>
       <div className="row">
         {isAdminSession(session) ? (
           <Link className="btn primary" to="/admin">
@@ -111,5 +173,33 @@ export function AccountPage() {
         </button>
       </div>
     </main>
+  );
+}
+
+function roundPercent(used: number, limit: number) {
+  return Math.round((used / limit) * 100);
+}
+
+function PrefToggle({
+  title,
+  subtitle,
+  checked,
+  disabled,
+  onChange,
+}: {
+  title: string;
+  subtitle?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="pref-row">
+      <span>
+        <strong>{title}</strong>
+        {subtitle ? <span className="muted">{subtitle}</span> : null}
+      </span>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
+    </label>
   );
 }

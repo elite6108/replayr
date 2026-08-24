@@ -10,7 +10,13 @@ import { personName } from "./api.friends";
 
 export type ConversationType = "dm" | "group";
 export type ConversationRole = "owner" | "member";
-export type NotificationKind = "friend_request" | "friend_accept" | "message" | "group_invite";
+export type NotificationKind =
+  | "friend_request"
+  | "friend_accept"
+  | "message"
+  | "group_invite"
+  | "clip_like"
+  | "clip_comment";
 
 export type MessageClip = {
   id: string;
@@ -91,6 +97,15 @@ export type NotificationItem = {
   friendshipId: string | null;
   conversationId: string | null;
   messageId: string | null;
+  clipId: string | null;
+  clipSlug: string | null;
+};
+
+export type NotificationPrefs = {
+  friendRequests: boolean;
+  likes: boolean;
+  comments: boolean;
+  messages: boolean;
 };
 
 export type NotificationsResponse = {
@@ -237,4 +252,21 @@ export async function readNotifications(accessToken: string, ids?: string[]): Pr
     body: JSON.stringify(ids ? { ids } : {}),
   });
   await readJson<ReadNotificationsResponse>(response, "Could not mark notifications read.");
+}
+
+export async function fetchNotificationPrefs(accessToken: string): Promise<NotificationPrefs> {
+  const response = await fetch(apiUrl("/v1/notification-prefs"), { headers: authHeaders(accessToken) });
+  return readJson<NotificationPrefs>(response, "Could not load notification settings.");
+}
+
+export async function patchNotificationPrefs(
+  accessToken: string,
+  body: Partial<NotificationPrefs>,
+): Promise<NotificationPrefs> {
+  const response = await fetch(apiUrl("/v1/notification-prefs"), {
+    method: "PATCH",
+    headers: { ...authHeaders(accessToken), "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return readJson<NotificationPrefs>(response, "Could not save notification settings.");
 }

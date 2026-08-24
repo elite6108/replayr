@@ -882,6 +882,51 @@ textarea {
   margin: 0;
 }
 
+.pref-card {
+  margin: 24px 0 8px;
+  padding: 18px 18px 8px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+}
+
+.pref-card h2 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+}
+
+.pref-card > .muted {
+  margin: 0 0 12px;
+}
+
+.pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.pref-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pref-row strong {
+  font-weight: 650;
+}
+
+.pref-row input {
+  width: 42px;
+  height: 24px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
 .empty-bubble {
   text-align: center;
   padding: 48px 24px;

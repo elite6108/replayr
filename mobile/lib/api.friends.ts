@@ -3,7 +3,13 @@ import { apiUrl } from "./supabase";
 
 export type FriendshipStatus = "pending" | "accepted" | "blocked";
 export type Relationship = "none" | "outgoing" | "incoming" | "friends" | "blocked";
-export type NotificationKind = "friend_request" | "friend_accept" | "message" | "group_invite";
+export type NotificationKind =
+  | "friend_request"
+  | "friend_accept"
+  | "message"
+  | "group_invite"
+  | "clip_like"
+  | "clip_comment";
 
 export type SocialUser = {
   id: string;
@@ -93,6 +99,15 @@ export type NotificationItem = {
   friendshipId: string | null;
   conversationId: string | null;
   messageId: string | null;
+  clipId: string | null;
+  clipSlug: string | null;
+};
+
+export type NotificationPrefs = {
+  friendRequests: boolean;
+  likes: boolean;
+  comments: boolean;
+  messages: boolean;
 };
 
 export type NotificationsResponse = {
@@ -226,4 +241,42 @@ export async function readNotifications(accessToken: string, ids?: string[]): Pr
     body: JSON.stringify(ids ? { ids } : {}),
   });
   await readApiJson<ReadNotificationsResponse>(response, "Could not mark notifications read.");
+}
+
+export async function fetchNotificationPrefs(accessToken: string): Promise<NotificationPrefs> {
+  const response = await fetch(apiUrl("/v1/notification-prefs"), { headers: authHeaders(accessToken) });
+  return readApiJson<NotificationPrefs>(response, "Could not load notification settings.");
+}
+
+export async function patchNotificationPrefs(
+  accessToken: string,
+  body: Partial<NotificationPrefs>,
+): Promise<NotificationPrefs> {
+  const response = await fetch(apiUrl("/v1/notification-prefs"), {
+    method: "PATCH",
+    headers: { ...authHeaders(accessToken), "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return readApiJson<NotificationPrefs>(response, "Could not save notification settings.");
+}
+
+export async function registerPushToken(
+  accessToken: string,
+  body: { token: string; platform: "ios" | "android" },
+): Promise<void> {
+  const response = await fetch(apiUrl("/v1/push-tokens"), {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  await readApiJson<{ ok?: boolean }>(response, "Could not enable push notifications.");
+}
+
+export async function unregisterPushToken(accessToken: string, token: string): Promise<void> {
+  const response = await fetch(apiUrl("/v1/push-tokens"), {
+    method: "DELETE",
+    headers: { ...authHeaders(accessToken), "content-type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  await readApiJson<{ ok?: boolean }>(response, "Could not disable push notifications.");
 }

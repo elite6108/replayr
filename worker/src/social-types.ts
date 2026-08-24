@@ -7,7 +7,13 @@
 export type FriendshipStatus = "pending" | "accepted" | "blocked";
 export type ConversationType = "dm" | "group";
 export type ConversationRole = "owner" | "member";
-export type NotificationKind = "friend_request" | "friend_accept" | "message" | "group_invite";
+export type NotificationKind =
+  | "friend_request"
+  | "friend_accept"
+  | "message"
+  | "group_invite"
+  | "clip_like"
+  | "clip_comment";
 export type Relationship = "none" | "outgoing" | "incoming" | "friends" | "blocked";
 
 export type SocialUser = {
@@ -168,6 +174,24 @@ export type NotificationItem = {
   friendshipId: string | null;
   conversationId: string | null;
   messageId: string | null;
+  clipId: string | null;
+  clipSlug: string | null;
+};
+
+export type NotificationPrefs = {
+  friendRequests: boolean;
+  likes: boolean;
+  comments: boolean;
+  messages: boolean;
+};
+
+export type NotificationPrefsResponse = NotificationPrefs;
+
+export type PatchNotificationPrefsBody = Partial<NotificationPrefs>;
+
+export type PushTokenBody = {
+  token: string;
+  platform?: "ios" | "android";
 };
 
 export type NotificationsResponse = {

@@ -22,6 +22,6 @@ async function parseJsonBody<T>(response: Response, fallback: string): Promise<T
   try {
     return JSON.parse(trimmed) as T & { error?: string };
   } catch {
-    throw new Error(fallback);
+    throw new Error(response.ok ? fallback : `${fallback} (${response.status})`);
   }
 }

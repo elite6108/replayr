@@ -21,6 +21,9 @@ import {
   serviceRest,
   serviceRestCount,
   signedOwnedUrl,
+  WATERMARK_RENDER_VERSION,
+  watermarkDownloadReady,
+  watermarkedObjectKey,
   type AuthUser,
   type PlaybackRow,
   type PublicClipRow,
@@ -80,6 +83,15 @@ interface CompleteBody {
   parts?: { partNumber: number; etag: string }[];
 }
 
+interface WatermarkStatusBody {
+  status?: string;
+  error?: string | null;
+}
+
+interface WatermarkUploadBody {
+  size?: number;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: { waitUntil(task: Promise<unknown>): void }): Promise<Response> {
     const url = new URL(request.url);
@@ -135,6 +147,21 @@ async function route(
   const complete = url.pathname.match(/^\/v1\/clips\/([^/]+)\/complete$/);
   if (request.method === "POST" && complete?.[1]) {
     return completeUpload(request, env, complete[1]);
+  }
+  if (request.method === "GET" && url.pathname === "/v1/clips/watermark/pending") {
+    return listPendingWatermarks(request, env);
+  }
+  const watermarkStatus = url.pathname.match(/^\/v1\/clips\/([^/]+)\/watermark\/status$/);
+  if (request.method === "POST" && watermarkStatus?.[1]) {
+    return reportWatermarkStatus(request, env, watermarkStatus[1]);
+  }
+  const watermarkUploads = url.pathname.match(/^\/v1\/clips\/([^/]+)\/watermark\/uploads$/);
+  if (request.method === "POST" && watermarkUploads?.[1]) {
+    return createWatermarkUpload(request, env, watermarkUploads[1]);
+  }
+  const watermarkComplete = url.pathname.match(/^\/v1\/clips\/([^/]+)\/watermark\/complete$/);
+  if (request.method === "POST" && watermarkComplete?.[1]) {
+    return completeWatermarkUpload(request, env, watermarkComplete[1]);
   }
   const download = url.pathname.match(/^\/v1\/clips\/([^/]+)\/download$/);
   if (request.method === "GET" && download?.[1]) {
@@ -241,7 +268,7 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
   });
   const openSessions = await serviceRestCount(
     env,
-    `/upload_sessions?user_id=eq.${user.id}&status=eq.uploading&expires_at=gt.${new Date().toISOString()}&select=id`,
+    `/upload_sessions?user_id=eq.${user.id}&purpose=eq.original&status=eq.uploading&expires_at=gt.${new Date().toISOString()}&select=id`,
   );
   if (openSessions >= 5) {
     return json({ error: "Finish or wait for an existing upload before starting another." }, 429);
@@ -316,6 +343,7 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
       expected_size_bytes: size,
       declared_content_type: CONTENT_TYPE,
       status: "uploading",
+      purpose: "original",
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     });
   } catch (caught) {
@@ -345,7 +373,7 @@ async function completeUpload(request: Request, env: Env, clipId: string): Promi
   const clips = await serviceRest<ClipRow[]>(
     env,
     "GET",
-    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,status`,
+    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,status,watermark`,
   );
   const clip = clips[0];
   if (!clip) {
@@ -357,6 +385,7 @@ async function completeUpload(request: Request, env: Env, clipId: string): Promi
       slug: clip.slug,
       status: "ready",
       shareUrl: `${publicShareOrigin(env)}/c/${clip.slug}`,
+      watermark: watermarkCompletionInfo(clip.watermark),
     });
   }
   if (clip.status !== "uploading") {
@@ -388,7 +417,7 @@ async function completeUpload(request: Request, env: Env, clipId: string): Promi
   const sessions = await serviceRest<{ expected_size_bytes: number }[]>(
     env,
     "GET",
-    `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&select=expected_size_bytes`,
+    `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&purpose=eq.original&select=expected_size_bytes`,
   );
   const expected = Number(sessions[0]?.expected_size_bytes ?? NaN);
   const size = await objectSize(env, clip.storage_key);
@@ -396,17 +425,22 @@ async function completeUpload(request: Request, env: Env, clipId: string): Promi
     await deleteOwnedObject(env, user.id, clip.storage_key);
     await releaseReservedBytes(env, user.id, expected);
     await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, { status: "failed" });
-    await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`, {
+    await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&purpose=eq.original`, {
       status: "aborted",
     });
     return json({ error: "Uploaded object was not found in cloud storage." }, 400);
   }
 
+  // The clip is shareable as soon as the clean original lands. The watermarked
+  // derivative renders in the background on the uploader's PC; "pending" tells
+  // the download endpoint to answer "preparing" instead of serving clean bytes.
+  const requiresWatermark = clip.watermark !== false;
   await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, {
     status: "ready",
     file_size_bytes: size,
+    ...(requiresWatermark ? { watermark_status: "pending" } : {}),
   });
-  await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`, {
+  await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&purpose=eq.original`, {
     status: "completed",
   });
 
@@ -415,7 +449,233 @@ async function completeUpload(request: Request, env: Env, clipId: string): Promi
     slug: clip.slug,
     status: "ready",
     shareUrl: `${publicShareOrigin(env)}/c/${clip.slug}`,
+    watermark: watermarkCompletionInfo(clip.watermark),
   });
+}
+
+function watermarkCompletionInfo(watermark: boolean | undefined) {
+  const required = watermark !== false;
+  return { required, renderVersion: required ? WATERMARK_RENDER_VERSION : null };
+}
+
+const WATERMARK_CLIP_SELECT =
+  "select=id,user_id,slug,storage_key,status,file_size_bytes,watermark,watermark_status,watermarked_key,watermark_render_version";
+
+/** Extra headroom over the original size before a derivative upload is rejected. */
+const WATERMARK_SIZE_SLACK = 64 * 1024 * 1024;
+
+async function requireWatermarkClip(env: Env, user: AuthUser, clipId: string): Promise<ClipRow> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clipId)) {
+    throw new HttpError(400, "Clip id is invalid.");
+  }
+  const clips = await serviceRest<ClipRow[]>(
+    env,
+    "GET",
+    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&${WATERMARK_CLIP_SELECT}`,
+  );
+  const clip = clips[0];
+  if (!clip || clip.status !== "ready") {
+    throw new HttpError(404, "That cloud clip was not found.");
+  }
+  if (clip.watermark === false) {
+    throw new HttpError(400, "This clip does not require a watermarked download.");
+  }
+  return clip;
+}
+
+function watermarkVariantSizeCap(clip: ClipRow): number {
+  const original = Number(clip.file_size_bytes ?? 0);
+  return (original > 0 ? original * 2 : 0) + WATERMARK_SIZE_SLACK;
+}
+
+async function reportWatermarkStatus(request: Request, env: Env, clipId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  const body = (await request.json().catch(() => ({}))) as WatermarkStatusBody;
+  const status = body.status;
+  if (status !== "rendering" && status !== "failed") {
+    return json({ error: "Watermark status must be rendering or failed." }, 400);
+  }
+  const clip = await requireWatermarkClip(env, user, clipId);
+  if (watermarkDownloadReady(clip)) {
+    // Never regress a verified derivative; the client should skip its work.
+    return json({ clipId, watermarkStatus: "ready", renderVersion: WATERMARK_RENDER_VERSION });
+  }
+  await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, {
+    watermark_status: status,
+  });
+  return json({ clipId, watermarkStatus: status, renderVersion: WATERMARK_RENDER_VERSION });
+}
+
+async function createWatermarkUpload(request: Request, env: Env, clipId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  requireR2(env);
+  await releaseExpiredUploads(env, user.id);
+  const body = (await request.json()) as WatermarkUploadBody;
+  const clip = await requireWatermarkClip(env, user, clipId);
+
+  // Reuse an existing valid derivative instead of rendering the clip again.
+  if (watermarkDownloadReady(clip) && ownedObjectKey(user.id, clip.watermarked_key)) {
+    const existing = await objectSize(env, clip.watermarked_key);
+    if (existing != null && existing > 0) {
+      return json({ clipId, alreadyReady: true, renderVersion: WATERMARK_RENDER_VERSION });
+    }
+  }
+
+  const size = Number(body.size ?? 0);
+  if (!Number.isFinite(size) || size <= 0) {
+    return json({ error: "Watermarked file size is required." }, 400);
+  }
+  if (size > watermarkVariantSizeCap(clip)) {
+    return json({ error: "Watermarked file is unexpectedly large." }, 400);
+  }
+
+  // Drop any stale derivative session before starting over.
+  const stale = await serviceRest<SessionRow[]>(
+    env,
+    "GET",
+    `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&purpose=eq.watermark&select=storage_key,multipart_upload_id`,
+  );
+  for (const session of stale) {
+    await abortMultipart(env, session.storage_key, session.multipart_upload_id);
+  }
+  await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&purpose=eq.watermark`);
+
+  const key = watermarkedObjectKey(user.id, clipId);
+  const aws = r2Client(env);
+  const endpoint = objectUrl(env, key);
+  const signHeaders = { "content-type": CONTENT_TYPE };
+  let uploadId: string | null = null;
+  const parts: { partNumber: number; url: string }[] = [];
+
+  if (size > PART_SIZE) {
+    const started = await aws.fetch(`${endpoint}?uploads`, { method: "POST" });
+    const xml = await started.text();
+    if (!started.ok) {
+      return json({ error: `Could not start multipart upload: ${xml}` }, 502);
+    }
+    uploadId = xml.match(/<UploadId>([^<]+)<\/UploadId>/)?.[1] ?? null;
+    if (!uploadId) {
+      return json({ error: "R2 did not return an upload id." }, 502);
+    }
+    const count = Math.ceil(size / PART_SIZE);
+    for (let partNumber = 1; partNumber <= count; partNumber += 1) {
+      const signed = await aws.sign(
+        `${endpoint}?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId)}`,
+        { method: "PUT", headers: signHeaders, aws: { signQuery: true } },
+      );
+      parts.push({ partNumber, url: signed.url });
+    }
+  } else {
+    const signed = await aws.sign(endpoint, { method: "PUT", headers: signHeaders, aws: { signQuery: true } });
+    parts.push({ partNumber: 1, url: signed.url });
+  }
+
+  // Derivatives are platform-imposed, so no quota bytes are reserved for them.
+  await serviceRest(env, "POST", "/upload_sessions", {
+    clip_id: clipId,
+    user_id: user.id,
+    storage_key: key,
+    multipart_upload_id: uploadId,
+    expected_size_bytes: size,
+    declared_content_type: CONTENT_TYPE,
+    status: "uploading",
+    purpose: "watermark",
+    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  });
+  await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, {
+    watermark_status: "uploading",
+  });
+
+  return json({
+    clipId,
+    key,
+    uploadId,
+    partSize: PART_SIZE,
+    parts,
+    renderVersion: WATERMARK_RENDER_VERSION,
+  });
+}
+
+async function completeWatermarkUpload(request: Request, env: Env, clipId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  requireR2(env);
+  const body = (await request.json()) as CompleteBody;
+  const clip = await requireWatermarkClip(env, user, clipId);
+
+  const sessions = await serviceRest<SessionRow[]>(
+    env,
+    "GET",
+    `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&purpose=eq.watermark&select=storage_key,multipart_upload_id,expected_size_bytes`,
+  );
+  const session = sessions[0];
+  const key = watermarkedObjectKey(user.id, clipId);
+  if (!session || session.storage_key !== key) {
+    return json({ error: "Watermark upload was not found." }, 404);
+  }
+
+  if (body.uploadId && body.parts?.length) {
+    const xml = [
+      "<CompleteMultipartUpload>",
+      ...body.parts
+        .sort((a, b) => a.partNumber - b.partNumber)
+        .map((part) => `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>"${part.etag.replaceAll('"', "")}"</ETag></Part>`),
+      "</CompleteMultipartUpload>",
+    ].join("");
+    const done = await r2Client(env).fetch(`${objectUrl(env, key)}?uploadId=${encodeURIComponent(body.uploadId)}`, {
+      method: "POST",
+      headers: { "content-type": "application/xml" },
+      body: xml,
+    });
+    if (!done.ok) {
+      return json({ error: `Could not finish multipart upload: ${await done.text()}` }, 502);
+    }
+  }
+
+  const expected = Number(session.expected_size_bytes ?? NaN);
+  const size = await objectSize(env, key);
+  if (size == null || size <= 0 || !Number.isFinite(expected) || size !== expected || size > watermarkVariantSizeCap(clip)) {
+    await deleteOwnedObject(env, user.id, key);
+    await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&purpose=eq.watermark`);
+    await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, {
+      watermark_status: "failed",
+    });
+    return json({ error: "Watermarked object was not found in cloud storage." }, 400);
+  }
+
+  // Only now is the derivative marked ready: render and upload fully succeeded.
+  await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, {
+    watermarked_key: key,
+    watermark_render_version: WATERMARK_RENDER_VERSION,
+    watermark_status: "ready",
+  });
+  await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&purpose=eq.watermark`, {
+    status: "completed",
+  });
+
+  // Clean up a derivative rendered with an older WATERMARK_RENDER_VERSION.
+  if (clip.watermarked_key && clip.watermarked_key !== key) {
+    await deleteOwnedObject(env, user.id, clip.watermarked_key);
+  }
+
+  return json({ clipId, watermarkStatus: "ready", renderVersion: WATERMARK_RENDER_VERSION });
+}
+
+async function listPendingWatermarks(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const rows = await serviceRest<ClipRow[]>(
+    env,
+    "GET",
+    `/clips?user_id=eq.${user.id}&status=eq.ready&watermark=eq.true&${WATERMARK_CLIP_SELECT}&order=created_at.desc&limit=200`,
+  );
+  const clips = rows
+    .filter((row) => !watermarkDownloadReady(row))
+    .map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      watermarkStatus: row.watermark_status ?? "pending",
+      renderVersion: row.watermark_render_version ?? null,
+    }));
+  return json({ renderVersion: WATERMARK_RENDER_VERSION, clips });
 }
 
 async function deleteClip(request: Request, env: Env, clipId: string): Promise<Response> {
@@ -426,7 +686,7 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
   const clips = await serviceRest<ClipRow[]>(
     env,
     "GET",
-    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,thumbnail_key,status,file_size_bytes`,
+    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,thumbnail_key,watermarked_key,status,file_size_bytes`,
   );
   const clip = clips[0];
   if (!clip || clip.status === "deleted") {
@@ -438,13 +698,14 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
       ? await serviceRest<{ expected_size_bytes: number }[]>(
           env,
           "GET",
-          `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&select=expected_size_bytes`,
+          `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&purpose=eq.original&select=expected_size_bytes`,
         )
       : [];
 
-  if (clip.storage_key || clip.thumbnail_key) requireR2(env);
+  if (clip.storage_key || clip.thumbnail_key || clip.watermarked_key) requireR2(env);
   await deleteOwnedObject(env, user.id, clip.storage_key);
   await deleteOwnedObject(env, user.id, clip.thumbnail_key);
+  await deleteOwnedObject(env, user.id, clip.watermarked_key);
 
   if (clip.status === "ready" && clip.file_size_bytes && clip.file_size_bytes > 0) {
     await releaseReservedBytes(env, user.id, clip.file_size_bytes);
@@ -456,6 +717,8 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
     status: "deleted",
     storage_key: null,
     thumbnail_key: null,
+    watermarked_key: null,
+    watermark_status: null,
   });
   await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`);
 
@@ -472,7 +735,7 @@ async function deleteAccount(request: Request, env: Env): Promise<Response> {
     const clips = await serviceRest<ClipRow[]>(
       env,
       "GET",
-      `/clips?user_id=eq.${user.id}&status=neq.deleted&select=id,user_id,storage_key,thumbnail_key,status,file_size_bytes&limit=100&offset=${offset}`,
+      `/clips?user_id=eq.${user.id}&status=neq.deleted&select=id,user_id,storage_key,thumbnail_key,watermarked_key,status,file_size_bytes&limit=100&offset=${offset}`,
     );
     if (clips.length === 0) break;
     const uploadingIds = clips.filter((clip) => clip.status === "uploading").map((clip) => clip.id);
@@ -481,13 +744,14 @@ async function deleteAccount(request: Request, env: Env): Promise<Response> {
       const sessions = await serviceRest<{ clip_id: string; expected_size_bytes: number }[]>(
         env,
         "GET",
-        `/upload_sessions?user_id=eq.${user.id}&clip_id=in.(${uploadingIds.join(",")})&select=clip_id,expected_size_bytes`,
+        `/upload_sessions?user_id=eq.${user.id}&purpose=eq.original&clip_id=in.(${uploadingIds.join(",")})&select=clip_id,expected_size_bytes`,
       );
       for (const session of sessions) reserved.set(session.clip_id, session.expected_size_bytes);
     }
     for (const clip of clips) {
       await deleteOwnedObject(env, user.id, clip.storage_key);
       await deleteOwnedObject(env, user.id, clip.thumbnail_key);
+      await deleteOwnedObject(env, user.id, clip.watermarked_key);
       if (clip.status === "ready" && clip.file_size_bytes && clip.file_size_bytes > 0) {
         await releaseReservedBytes(env, user.id, clip.file_size_bytes);
       } else if (clip.status === "uploading") {
@@ -524,7 +788,7 @@ async function listLibrary(request: Request, env: Env): Promise<Response> {
   const rows = await serviceRest<LibraryRow[]>(
     env,
     "GET",
-    `/clips?${filter}&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key,watermark&order=created_at.desc&limit=${limit}&offset=${offset}`,
+    `/clips?${filter}&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key,watermark,watermark_status,watermarked_key,watermark_render_version&order=created_at.desc&limit=${limit}&offset=${offset}`,
   );
   requireR2(env);
   const clips = [];
@@ -548,6 +812,8 @@ async function listLibrary(request: Request, env: Env): Promise<Response> {
           ? await signedOwnedUrl(env, user.id, row.storage_key, "GET")
           : null,
       watermark: row.watermark !== false,
+      watermarkStatus: row.watermark_status ?? null,
+      downloadReady: watermarkDownloadReady(row),
     });
   }
   return json({ clips, total, page, limit });
@@ -570,7 +836,7 @@ async function listGameClips(request: Request, env: Env, slug: string): Promise<
   const rows = await serviceRest<LibraryRow[]>(
     env,
     "GET",
-    `/clips?game_id=eq.${game.id}&visibility=eq.public&status=eq.ready&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key,like_count,comment_count,watermark&order=created_at.desc&limit=48`,
+    `/clips?game_id=eq.${game.id}&visibility=eq.public&status=eq.ready&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key,like_count,comment_count,watermark,watermark_status,watermarked_key,watermark_render_version&order=created_at.desc&limit=48`,
   );
   requireR2(env);
   const viewer = await optionalUser(request, env);
@@ -596,6 +862,7 @@ async function listGameClips(request: Request, env: Env, slug: string): Promise<
       commentCount: extra?.commentCount ?? row.comment_count ?? 0,
       liked: extra?.liked ?? false,
       watermark: row.watermark !== false,
+      downloadReady: watermarkDownloadReady(row),
     });
   }
   return json({ game, clips });
@@ -652,8 +919,27 @@ async function downloadClip(request: Request, env: Env, slug: string): Promise<R
   if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) {
     return json({ error: "That clip is not available." }, 404);
   }
+
+  // Watermark-flagged clips download only from the burned-in derivative. Until
+  // it is rendered at the current version, answer "preparing" — the clean
+  // original is never served from this endpoint for flagged clips.
+  let downloadKey = clip.storage_key;
+  if (clip.watermark !== false) {
+    if (!watermarkDownloadReady(clip) || !ownedObjectKey(clip.user_id, clip.watermarked_key)) {
+      return json(
+        {
+          status: "preparing",
+          watermarkStatus: clip.watermark_status ?? "pending",
+          error: "This download is still being prepared. Try again shortly.",
+        },
+        202,
+      );
+    }
+    downloadKey = clip.watermarked_key;
+  }
+
   requireR2(env);
-  const signed = await r2Client(env).sign(`${objectUrl(env, clip.storage_key)}?X-Amz-Expires=3600`, {
+  const signed = await r2Client(env).sign(`${objectUrl(env, downloadKey)}?X-Amz-Expires=3600`, {
     method: "GET",
     aws: { signQuery: true },
   });
@@ -718,6 +1004,7 @@ async function getPlayback(
     commentCount: extra?.commentCount ?? clip.comment_count ?? 0,
     liked: extra?.liked ?? false,
     watermark: clip.watermark !== false,
+    downloadReady: watermarkDownloadReady(clip),
   });
 }
 
@@ -988,15 +1275,34 @@ async function deleteOwnedObject(env: Env, userId: string, key: string | null | 
 }
 
 async function releaseExpiredUploads(env: Env, userId: string) {
+  const now = new Date().toISOString();
   const expired = await serviceRest<{ clip_id: string; expected_size_bytes: number }[]>(
     env,
     "GET",
-    `/upload_sessions?user_id=eq.${userId}&status=eq.uploading&expires_at=lt.${new Date().toISOString()}&select=clip_id,expected_size_bytes`,
+    `/upload_sessions?user_id=eq.${userId}&purpose=eq.original&status=eq.uploading&expires_at=lt.${now}&select=clip_id,expected_size_bytes`,
   );
   for (const session of expired) {
     await releaseReservedBytes(env, userId, Number(session.expected_size_bytes));
     await failClip(env, userId, session.clip_id);
-    await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${session.clip_id}&user_id=eq.${userId}`);
+    await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${session.clip_id}&user_id=eq.${userId}&purpose=eq.original`);
+  }
+
+  // Expired derivative uploads never reserved quota and never fail the clip;
+  // the derivative just goes back to "failed" until the desktop retries.
+  const expiredWatermarks = await serviceRest<SessionRow[]>(
+    env,
+    "GET",
+    `/upload_sessions?user_id=eq.${userId}&purpose=eq.watermark&status=eq.uploading&expires_at=lt.${now}&select=clip_id,storage_key,multipart_upload_id`,
+  );
+  for (const session of expiredWatermarks) {
+    await abortMultipart(env, session.storage_key, session.multipart_upload_id);
+    await serviceRest(
+      env,
+      "PATCH",
+      `/clips?id=eq.${session.clip_id}&user_id=eq.${userId}&watermark_status=eq.uploading`,
+      { watermark_status: "failed" },
+    );
+    await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${session.clip_id}&user_id=eq.${userId}&purpose=eq.watermark`);
   }
 }
 
@@ -1093,12 +1399,23 @@ interface StorageRow {
 
 interface ClipRow {
   id: string;
-  user_id?: string;
+  user_id: string;
   slug: string;
   storage_key: string | null;
   thumbnail_key?: string | null;
   status: string;
   file_size_bytes?: number | null;
+  watermark?: boolean;
+  watermark_status?: string | null;
+  watermarked_key?: string | null;
+  watermark_render_version?: number | null;
+}
+
+interface SessionRow {
+  clip_id?: string;
+  storage_key: string;
+  multipart_upload_id: string | null;
+  expected_size_bytes?: number | null;
 }
 
 interface LibraryRow {
@@ -1118,6 +1435,9 @@ interface LibraryRow {
   like_count?: number;
   comment_count?: number;
   watermark?: boolean;
+  watermark_status?: string | null;
+  watermarked_key?: string | null;
+  watermark_render_version?: number | null;
 }
 
 interface GameRow {

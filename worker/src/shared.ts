@@ -4,8 +4,36 @@ import { HttpError } from "./http";
 
 export type { AuthUser, Env } from "./env";
 
+/**
+ * Version of the burned-in watermark render (logo, opacity, size, placement).
+ * Bumping this invalidates every existing watermarked derivative: downloads of
+ * flagged clips return "preparing" again and the desktop app re-renders and
+ * re-uploads watermarked-v{N}.mp4 the next time the uploader is online.
+ */
+export const WATERMARK_RENDER_VERSION = 1;
+
+export function watermarkedObjectKey(userId: string, clipId: string) {
+  return `clips/${userId}/${clipId}/watermarked-v${WATERMARK_RENDER_VERSION}.mp4`;
+}
+
+/** True when a flagged clip has a verified derivative at the current render version. */
+export function watermarkDownloadReady(clip: {
+  user_id: string;
+  watermark?: boolean;
+  watermark_status?: string | null;
+  watermarked_key?: string | null;
+  watermark_render_version?: number | null;
+}): boolean {
+  if (clip.watermark === false) return true;
+  return (
+    clip.watermark_status === "ready" &&
+    clip.watermark_render_version === WATERMARK_RENDER_VERSION &&
+    ownedObjectKey(clip.user_id, clip.watermarked_key)
+  );
+}
+
 export const PUBLIC_CLIP_SELECT =
-  "select=id,user_id,title,description,slug,duration_ms,created_at,view_count,storage_key,thumbnail_key,like_count,comment_count,watermark,games(name,slug,cover_url)";
+  "select=id,user_id,title,description,slug,duration_ms,created_at,view_count,storage_key,thumbnail_key,like_count,comment_count,watermark,watermark_status,watermarked_key,watermark_render_version,games(name,slug,cover_url)";
 
 export interface PublicClipRow {
   id: string;
@@ -21,6 +49,9 @@ export interface PublicClipRow {
   like_count?: number;
   comment_count?: number;
   watermark?: boolean;
+  watermark_status?: string | null;
+  watermarked_key?: string | null;
+  watermark_render_version?: number | null;
   games:
     | { name: string; slug: string; cover_url: string | null }
     | { name: string; slug: string; cover_url: string | null }[]
@@ -42,6 +73,9 @@ export interface PlaybackRow {
   like_count?: number;
   comment_count?: number;
   watermark?: boolean;
+  watermark_status?: string | null;
+  watermarked_key?: string | null;
+  watermark_render_version?: number | null;
 }
 
 interface ProfileRow {
@@ -102,7 +136,7 @@ export function ownedObjectKey(userId: string, key: string | null | undefined): 
     key &&
       key.startsWith(`clips/${userId}/`) &&
       !key.includes("..") &&
-      /^clips\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/(original\.mp4|thumb)$/i.test(key),
+      /^clips\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/(original\.mp4|thumb|watermarked-v\d+\.mp4)$/i.test(key),
   );
 }
 
@@ -231,7 +265,7 @@ export async function lookupPlaybackRaw(env: Env, slug: string): Promise<Playbac
   const rows = await serviceRest<PlaybackRow[]>(
     env,
     "GET",
-    `/clips?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,visibility,status,storage_key,thumbnail_key,like_count,comment_count,watermark`,
+    `/clips?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,visibility,status,storage_key,thumbnail_key,like_count,comment_count,watermark,watermark_status,watermarked_key,watermark_render_version`,
   );
   const clip = rows[0];
   if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) return null;
@@ -262,6 +296,7 @@ export async function presentPublicClips(request: Request, env: Env, rows: Publi
       commentCount: extra?.commentCount ?? row.comment_count ?? 0,
       liked: extra?.liked ?? false,
       watermark: row.watermark !== false,
+      downloadReady: watermarkDownloadReady(row),
     });
   }
   return clips;

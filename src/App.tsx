@@ -27,6 +27,7 @@ import { useCloudStore } from "./stores/cloudStore";
 import { useUpdateStore } from "./stores/updateStore";
 import { APP_NAME } from "./branding";
 import { useSocialUnreadSync } from "./hooks/useSocialUnreadSync";
+import { useWatermarkJobsSync } from "./hooks/useWatermarkJobsSync";
 
 export default function App() {
   const loaded = useSettingsStore((state) => state.loaded);
@@ -44,6 +45,7 @@ export default function App() {
   const loadBilling = useBillingStore((state) => state.load);
   const refreshCloud = useCloudStore((state) => state.refresh);
   useSocialUnreadSync();
+  useWatermarkJobsSync();
 
   useEffect(() => {
     void loadSettings();

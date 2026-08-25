@@ -468,6 +468,24 @@ pub async fn delete_cloud_clip(
 }
 
 #[tauri::command]
+pub async fn sync_watermark_jobs(app: AppHandle, access_token: String, api_base: String) -> AppResult<usize> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::watermark_upload::sync_jobs(&app, &access_token, &api_base)
+    })
+    .await
+    .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+#[tauri::command]
+pub async fn process_watermark_jobs(app: AppHandle, access_token: String, api_base: String) -> AppResult<usize> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::watermark_upload::process_jobs(&app, &access_token, &api_base)
+    })
+    .await
+    .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+#[tauri::command]
 pub fn create_desktop_shortcut(app: AppHandle) -> AppResult<()> {
     shortcut::create(&app)
 }

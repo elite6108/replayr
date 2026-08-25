@@ -33,6 +33,7 @@ export interface PlaybackClip {
   commentCount?: number;
   liked?: boolean;
   watermark?: boolean;
+  downloadReady?: boolean;
 }
 
 export interface ManagedClip {
@@ -290,10 +291,14 @@ export async function fetchGameClips(
   };
 }
 
+export const DOWNLOAD_PREPARING_MESSAGE =
+  "This download is still being prepared with its watermark. Try again shortly.";
+
 export async function downloadClipBytes(slug: string, accessToken?: string | null): Promise<ArrayBuffer> {
   const headers: HeadersInit = { accept: "application/octet-stream, application/json" };
   if (accessToken) headers.authorization = `Bearer ${accessToken}`;
   const response = await fetch(apiUrl(`/v1/clips/${slug}/download`), { headers });
+  if (response.status === 202) throw new Error(DOWNLOAD_PREPARING_MESSAGE);
   if (!response.ok) throw new Error(await readApiError(response, "Could not download that clip."));
   return response.arrayBuffer();
 }

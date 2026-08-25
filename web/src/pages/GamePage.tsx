@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { ClipThumb } from "../components/ClipThumb";
 import { GameCover } from "../components/GameCover";
-import { downloadCloudClip } from "../lib/api";
+import { downloadCloudClip, DownloadPreparingError } from "../lib/api";
 import { fetchGameClips, type CatalogGame, type PublicGameClip } from "../lib/games";
 import { useAuth } from "../lib/auth";
 import { formatCount, formatDurationMs, formatHandle } from "../lib/format";
@@ -14,6 +14,18 @@ export function GamePage() {
   const [game, setGame] = useState<CatalogGame | null>(null);
   const [clips, setClips] = useState<PublicGameClip[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  function download(clip: PublicGameClip) {
+    setNotice(null);
+    void downloadCloudClip(clip.slug, clip.title).catch((caught) => {
+      if (caught instanceof DownloadPreparingError) {
+        setNotice(caught.message);
+      } else {
+        setNotice(caught instanceof Error ? caught.message : "Could not download that clip.");
+      }
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +60,7 @@ export function GamePage() {
         <Link to="/games">All games</Link>
       </p>
       {error ? <p className="error">{error}</p> : null}
+      {notice ? <p className="muted">{notice}</p> : null}
       {game ? (
         <div className="game-hero">
           <div className="game-hero-cover">
@@ -92,9 +105,10 @@ export function GamePage() {
                   <button
                     className="btn"
                     type="button"
-                    onClick={() => void downloadCloudClip(clip.slug, clip.title).catch(() => undefined)}
+                    title={clip.downloadReady === false ? "The watermarked download is still being prepared." : undefined}
+                    onClick={() => download(clip)}
                   >
-                    Download
+                    {clip.downloadReady === false ? "Preparing…" : "Download"}
                   </button>
                 </div>
               </article>

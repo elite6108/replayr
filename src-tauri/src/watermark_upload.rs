@@ -136,6 +136,14 @@ pub fn sync_jobs(app: &AppHandle, access_token: &str, api_base: &str) -> AppResu
             continue;
         }
         enqueue(&conn, &clip.id, &local_id, render_version)?;
+        // The Worker says this derivative is still needed, so a locally
+        // finished job is stale; jobs actively rendering/uploading are left alone.
+        conn.execute(
+            "UPDATE watermark_queue
+             SET status = 'pending', attempts = 0, next_attempt_at = 0, updated_at = datetime('now')
+             WHERE cloud_clip_id = ?1 AND status IN ('completed', 'failed')",
+            [&clip.id],
+        )?;
         queued += 1;
     }
     Ok(queued)
@@ -355,7 +363,9 @@ fn start_watermark_upload(
         .map_err(map_reqwest)?;
     let http_status = response.status().as_u16();
     let text = response.text().map_err(map_reqwest)?;
-    if http_status == 404 {
+    // 404: clip deleted. 400: the clip no longer requires a watermark (or the
+    // render is unusable) — retrying the same file cannot fix either.
+    if http_status == 404 || http_status == 400 {
         return Ok(SessionResult::ClipGone);
     }
     if !(200..300).contains(&http_status) {

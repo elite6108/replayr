@@ -2,7 +2,15 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Seo } from "../components/Seo";
 import { ClipThumb } from "../components/ClipThumb";
 import { PlayerVideo } from "../components/ReplayrWatermark";
-import { deleteCloudClip, downloadCloudClip, fetchLibrary, fetchPlayback, type ManagedClip, type PlaybackClip } from "../lib/api";
+import {
+  deleteCloudClip,
+  downloadCloudClip,
+  DownloadPreparingError,
+  fetchLibrary,
+  fetchPlayback,
+  type ManagedClip,
+  type PlaybackClip,
+} from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { formatBytes, formatClipDate, formatDurationMs } from "../lib/format";
 import { clipShareUrl, getSupabase } from "../lib/supabase";
@@ -139,7 +147,11 @@ export function LibraryPage() {
       await downloadCloudClip(clip.slug, clip.title, token);
       setNotice("Download started");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not download that clip.");
+      if (caught instanceof DownloadPreparingError) {
+        setNotice(caught.message);
+      } else {
+        setError(caught instanceof Error ? caught.message : "Could not download that clip.");
+      }
     } finally {
       setBusy(false);
     }
@@ -230,11 +242,28 @@ export function LibraryPage() {
     if (!token || chosen.length === 0) return;
     setBusy(true);
     setError(null);
+    let started = 0;
+    let preparing = 0;
     try {
       for (const clip of chosen) {
-        await downloadCloudClip(clip.slug, clip.title, token);
+        try {
+          await downloadCloudClip(clip.slug, clip.title, token);
+          started += 1;
+        } catch (caught) {
+          if (caught instanceof DownloadPreparingError) {
+            preparing += 1;
+          } else {
+            throw caught;
+          }
+        }
       }
-      setNotice(chosen.length === 1 ? "Download started" : `${chosen.length} downloads started`);
+      setNotice(
+        preparing > 0
+          ? `${started} download${started === 1 ? "" : "s"} started · ${preparing} still preparing with a watermark — try again shortly`
+          : started === 1
+            ? "Download started"
+            : `${started} downloads started`,
+      );
       setSelectedIds([]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not download those clips.");
@@ -420,9 +449,10 @@ export function LibraryPage() {
                       className="btn"
                       type="button"
                       disabled={busy || clip.status !== "ready"}
+                      title={clip.downloadReady === false ? "The watermarked download is still being prepared." : undefined}
                       onClick={() => void download(clip)}
                     >
-                      Download
+                      {clip.downloadReady === false ? "Preparing…" : "Download"}
                     </button>
                     <button className="btn danger" type="button" disabled={busy} onClick={() => void remove(clip)}>
                       Delete

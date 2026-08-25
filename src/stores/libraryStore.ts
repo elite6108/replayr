@@ -18,6 +18,7 @@ import { joinPath, suggestedFileName, uniqueFileName } from "../utils/files";
 import { invokeErrorMessage, isVideoPath } from "../utils/format";
 import { useAuthStore } from "./authStore";
 import { useCloudStore } from "./cloudStore";
+import { useRecordingStore } from "./recordingStore";
 import { useSettingsStore } from "./settingsStore";
 import { useToastStore } from "./toastStore";
 
@@ -51,6 +52,8 @@ interface LibraryState {
 
 let listening = false;
 const uploadsInFlight = new Map<string, Promise<void>>();
+const pendingAutoUploads = new Set<string>();
+let pauseToastShown = false;
 
 function patchClip(clips: LocalClip[], next: LocalClip) {
   return clips.map((clip) => (clip.localId === next.localId ? next : clip));
@@ -78,6 +81,44 @@ function shouldAutoUpload(clip: LocalClip | undefined): boolean {
   return true;
 }
 
+function isGaming(): boolean {
+  const { status, replay } = useRecordingStore.getState();
+  if (status.active) return true;
+  if (!replay.active) return false;
+  const target = (replay.target || "").trim();
+  if (!target) return false;
+  return !/^(display|window)$/i.test(target);
+}
+
+function shouldPauseUploads(): boolean {
+  return useSettingsStore.getState().settings.pauseUploadsWhileGaming && isGaming();
+}
+
+function enqueueOrUpload(localId: string, clip: LocalClip | undefined) {
+  if (!shouldAutoUpload(clip)) return;
+  if (shouldPauseUploads()) {
+    pendingAutoUploads.add(localId);
+    if (!pauseToastShown) {
+      pauseToastShown = true;
+      useToastStore.getState().show("Upload paused while gaming");
+    }
+    return;
+  }
+  useToastStore.getState().show("Uploading to cloud…");
+  void useLibraryStore.getState().upload(localId);
+}
+
+function flushPausedUploads() {
+  if (shouldPauseUploads()) return;
+  pauseToastShown = false;
+  const ids = [...pendingAutoUploads];
+  pendingAutoUploads.clear();
+  for (const localId of ids) {
+    const clip = useLibraryStore.getState().clips.find((item) => item.localId === localId);
+    enqueueOrUpload(localId, clip);
+  }
+}
+
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   clips: [],
   playingId: null,
@@ -95,14 +136,22 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
           const localId = event.payload.localId;
           if (!localId) return;
           const clip = get().clips.find((item) => item.localId === localId);
-          if (shouldAutoUpload(clip)) {
-            useToastStore.getState().show("Uploading to cloud…");
-            await get().upload(localId);
-          }
+          enqueueOrUpload(localId, clip);
         })();
       });
       await listen("cloud-upload", () => {
         void get().refresh();
+      });
+      await listen("recording-status", () => {
+        flushPausedUploads();
+      });
+      await listen("replay-status", () => {
+        flushPausedUploads();
+      });
+      useSettingsStore.subscribe((state, prev) => {
+        if (prev.settings.pauseUploadsWhileGaming && !state.settings.pauseUploadsWhileGaming) {
+          flushPausedUploads();
+        }
       });
     }
   },
@@ -146,8 +195,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     try {
       const next = await setLocalClipFavorite(localId, value);
       set({ clips: patchClip(get().clips, next) });
-      if (value && shouldAutoUpload(next)) {
-        void get().upload(localId);
+      if (value) {
+        enqueueOrUpload(localId, next);
       }
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not update favorite"));

@@ -26,10 +26,49 @@ interface RecordingState {
 
 let listening = false;
 let tick: number | null = null;
+let replayClock: number | null = null;
 
-function setTick(active: boolean, refresh: () => void) {
+function startedAtMs(startedAt: string | null): number | null {
+  if (!startedAt) return null;
+  const secs = Number(startedAt);
+  if (Number.isFinite(secs) && secs > 1_000_000_000) return secs * 1000;
+  const parsed = Date.parse(startedAt);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function liveRecording(status: RecordingStatus): RecordingStatus {
+  if (!status.active) return status;
+  const start = startedAtMs(status.startedAt);
+  if (start == null) return status;
+  return { ...status, durationMs: Math.max(0, Date.now() - start) };
+}
+
+function applyReplay(replay: ReplayStatus): ReplayStatus {
+  if (!replay.active) {
+    replayClock = null;
+    return replay;
+  }
+  replayClock = Date.now() - Math.max(0, replay.bufferedMs);
+  return replay;
+}
+
+function tickReplay(replay: ReplayStatus): ReplayStatus {
+  if (!replay.active || replayClock == null) return replay;
+  return {
+    ...replay,
+    bufferedMs: Math.min(replay.durationMs, Math.max(0, Date.now() - replayClock)),
+  };
+}
+
+function setClockTick(active: boolean) {
   if (active && tick == null) {
-    tick = window.setInterval(refresh, 500);
+    tick = window.setInterval(() => {
+      const { status, replay } = useRecordingStore.getState();
+      useRecordingStore.setState({
+        status: liveRecording(status),
+        replay: tickReplay(replay),
+      });
+    }, 1000);
   }
   if (!active && tick != null) {
     window.clearInterval(tick);
@@ -45,28 +84,22 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
   initialize: async () => {
     try {
       const [status, replay] = await Promise.all([getRecordingStatus(), getReplayStatus()]);
-      set({ status, replay });
-      setTick(status.active || replay.active, () => {
-        void Promise.all([getRecordingStatus(), getReplayStatus()]).then(([status, replay]) => set({ status, replay }));
-      });
+      set({ status: liveRecording(status), replay: applyReplay(replay) });
+      setClockTick(status.active || replay.active);
     } catch {
       set({ status: IDLE_RECORDING, replay: IDLE_REPLAY });
     }
     if (!listening) {
       listening = true;
       await listen<RecordingStatus>("recording-status", (event) => {
-        set({ status: event.payload, busy: false });
-        const replayActive = useRecordingStore.getState().replay.active;
-        setTick(event.payload.active || replayActive, () => {
-          void Promise.all([getRecordingStatus(), getReplayStatus()]).then(([status, replay]) => set({ status, replay }));
-        });
+        const status = liveRecording(event.payload);
+        set({ status, busy: false });
+        setClockTick(status.active || useRecordingStore.getState().replay.active);
       });
       await listen<ReplayStatus>("replay-status", (event) => {
-        set({ replay: event.payload });
-        const recordingActive = useRecordingStore.getState().status.active;
-        setTick(event.payload.active || recordingActive, () => {
-          void Promise.all([getRecordingStatus(), getReplayStatus()]).then(([status, replay]) => set({ status, replay }));
-        });
+        const replay = applyReplay(event.payload);
+        set({ replay });
+        setClockTick(replay.active || useRecordingStore.getState().status.active);
       });
       await listen<{ path: string; kind: string }>("local-clip-saved", (event) => {
         const kind = event.payload.kind === "clip" ? "Clip saved" : event.payload.kind === "screenshot" ? "Screenshot saved" : "Recording saved";
@@ -87,11 +120,9 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
     if (get().busy || get().status.active) return;
     set({ busy: true });
     try {
-      const status = await startRecording();
+      const status = liveRecording(await startRecording());
       set({ status, busy: false });
-      setTick(true, () => {
-        void Promise.all([getRecordingStatus(), getReplayStatus()]).then(([status, replay]) => set({ status, replay }));
-      });
+      setClockTick(true);
     } catch (caught) {
       set({ busy: false });
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not start recording"));
@@ -103,9 +134,7 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
     try {
       const status = await stopRecording();
       set({ status, busy: false, libraryEpoch: get().libraryEpoch + 1 });
-      setTick(get().replay.active, () => {
-        void Promise.all([getRecordingStatus(), getReplayStatus()]).then(([status, replay]) => set({ status, replay }));
-      });
+      setClockTick(get().replay.active);
       useToastStore.getState().show("Saved recording");
     } catch (caught) {
       set({ busy: false });

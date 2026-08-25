@@ -1,3 +1,5 @@
+use std::fs::OpenOptions;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tauri::Manager;
@@ -30,6 +32,14 @@ fn wide_path(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain(std::iter::once(0)).collect()
 }
 
+struct RemovePath(PathBuf);
+
+impl Drop for RemovePath {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 pub fn concat_mp4s(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
     if inputs.is_empty() {
         return Err("Replay buffer is empty.".into());
@@ -55,7 +65,22 @@ pub fn concat_mp4s(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
     let writer = open_writer(output, &video_type, if has_audio { WriterAudio::StitchedAac } else { WriterAudio::None })?;
     let fallback = frame_duration_hns(&video_type);
     let mut video_time = 0_i64;
-    let mut pcm = Vec::new();
+    let pcm_tmp = output.with_extension("concat.pcm");
+    let mut pcm_file = if has_audio {
+        Some(
+            OpenOptions::new()
+                .create(true)
+                .read(true)
+                .write(true)
+                .truncate(true)
+                .open(&pcm_tmp)
+                .map_err(|err| format!("Could not stage audio: {err}"))?,
+        )
+    } else {
+        None
+    };
+    let _pcm_guard = has_audio.then(|| RemovePath(pcm_tmp.clone()));
+    let mut pcm_len = 0_u64;
 
     for path in inputs {
         let reader = open_reader(path)?;
@@ -70,7 +95,7 @@ pub fn concat_mp4s(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
             None,
         )?;
         drop(reader);
-        if has_audio {
+        if let Some(pcm_file) = pcm_file.as_mut() {
             let video_added = video_time.saturating_sub(video_before);
             let (mut chunk, from_sidecar) = load_segment_pcm(path);
             if from_sidecar {
@@ -86,19 +111,22 @@ pub fn concat_mp4s(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
                         pcm_bytes_to_ms(drift)
                     );
                 }
-                append_pcm(&mut pcm, &chunk);
+                append_pcm_file(pcm_file, &mut pcm_len, &chunk)?;
             } else {
                 if chunk.is_empty() {
                     chunk = vec![0u8; hns_to_pcm_bytes(video_added)];
                 }
-                append_crossfade(&mut pcm, &chunk);
+                append_crossfade_file(pcm_file, &mut pcm_len, &chunk)?;
             }
         }
     }
 
-    if has_audio {
-        fit_pcm_to_video(&mut pcm, video_time);
-        write_stitched_aac(&writer, 1, &pcm)?;
+    if let Some(pcm_file) = pcm_file.as_mut() {
+        fit_pcm_file(pcm_file, &mut pcm_len, video_time)?;
+        pcm_file
+            .seek(SeekFrom::Start(0))
+            .map_err(|err| format!("Could not rewind audio: {err}"))?;
+        write_stitched_aac(&writer, 1, pcm_file)?;
     }
 
     unsafe {
@@ -235,6 +263,7 @@ pub fn write_vertical_mp4(
         SHORT_BITRATE,
         has_audio,
         None,
+        false,
     )?;
 
     let reader = crate::thumb::open_rgb_reader(input)?;
@@ -320,7 +349,7 @@ pub fn write_watermarked_mp4(input: &Path, output: &Path, fps: u32) -> Result<i6
     let height = first.height.max(16);
     let fps = fps.clamp(24, 60);
     let bitrate = ((width as u64 * height as u64 * u64::from(fps)) / 6).clamp(4_000_000, 25_000_000) as u32;
-    let mut writer = crate::encode::MfWriter::new(output, width, height, fps, bitrate, has_audio, None)?;
+    let mut writer = crate::encode::MfWriter::new(output, width, height, fps, bitrate, has_audio, None, false)?;
     let mut frame = first;
     crate::still::composite_watermark(&mut frame);
     writer.write_bgra(&frame.bgra, frame.pitch, frame.width, frame.height, 0, true)?;
@@ -615,39 +644,53 @@ fn decode_audio_pcm(path: &Path) -> Result<Vec<u8>, String> {
     Ok(pcm)
 }
 
-fn append_pcm(dest: &mut Vec<u8>, next: &[u8]) {
+fn append_pcm_file(file: &mut std::fs::File, dest_len: &mut u64, next: &[u8]) -> Result<(), String> {
     let next_len = next.len() - (next.len() % PCM_ALIGN);
-    dest.extend_from_slice(&next[..next_len]);
+    if next_len == 0 {
+        return Ok(());
+    }
+    file.write_all(&next[..next_len])
+        .map_err(|err| format!("Could not write audio: {err}"))?;
+    *dest_len += next_len as u64;
+    Ok(())
 }
 
-fn append_crossfade(dest: &mut Vec<u8>, next: &[u8]) {
+fn append_crossfade_file(file: &mut std::fs::File, dest_len: &mut u64, next: &[u8]) -> Result<(), String> {
     let next_len = next.len() - (next.len() % PCM_ALIGN);
-    if dest.is_empty() || next_len == 0 {
-        dest.extend_from_slice(&next[..next_len]);
-        return;
+    if *dest_len == 0 || next_len == 0 {
+        return append_pcm_file(file, dest_len, next);
     }
     let fade = JOIN_FADE_BYTES
-        .min(dest.len())
+        .min(*dest_len as usize)
         .min(next_len);
     let fade = fade - (fade % PCM_ALIGN);
     if fade == 0 {
-        dest.extend_from_slice(&next[..next_len]);
-        return;
+        return append_pcm_file(file, dest_len, next);
     }
-    let dest_at = dest.len() - fade;
+    file.seek(SeekFrom::End(-(fade as i64)))
+        .map_err(|err| format!("Could not join audio: {err}"))?;
+    let mut dest_fade = vec![0u8; fade];
+    file.read_exact(&mut dest_fade)
+        .map_err(|err| format!("Could not join audio: {err}"))?;
     let frames = fade / PCM_ALIGN;
     for index in 0..frames {
         let t = (index + 1) as f32 / (frames + 1) as f32;
         for channel in 0..2 {
             let offset = index * PCM_ALIGN + channel * 2;
-            let previous = i16::from_le_bytes([dest[dest_at + offset], dest[dest_at + offset + 1]]) as f32;
+            let previous = i16::from_le_bytes([dest_fade[offset], dest_fade[offset + 1]]) as f32;
             let incoming = i16::from_le_bytes([next[offset], next[offset + 1]]) as f32;
             let mixed = previous * (1.0 - t) + incoming * t;
-            dest[dest_at + offset..dest_at + offset + 2]
-                .copy_from_slice(&(mixed.round() as i16).to_le_bytes());
+            dest_fade[offset..offset + 2].copy_from_slice(&(mixed.round() as i16).to_le_bytes());
         }
     }
-    dest.extend_from_slice(&next[fade..next_len]);
+    file.seek(SeekFrom::End(-(fade as i64)))
+        .map_err(|err| format!("Could not join audio: {err}"))?;
+    file.write_all(&dest_fade)
+        .map_err(|err| format!("Could not write audio: {err}"))?;
+    file.write_all(&next[fade..next_len])
+        .map_err(|err| format!("Could not write audio: {err}"))?;
+    *dest_len += (next_len - fade) as u64;
+    Ok(())
 }
 
 fn hns_to_pcm_bytes(hns: i64) -> usize {
@@ -670,23 +713,57 @@ fn fit_pcm_to_video(pcm: &mut Vec<u8>, video_hns: i64) -> i64 {
     drift
 }
 
+fn fit_pcm_file(file: &mut std::fs::File, len: &mut u64, video_hns: i64) -> Result<i64, String> {
+    let want = hns_to_pcm_bytes(video_hns) as u64;
+    let drift = *len as i64 - want as i64;
+    if *len > want {
+        file.set_len(want)
+            .map_err(|err| format!("Could not trim audio: {err}"))?;
+        *len = want;
+    } else if *len < want {
+        file.seek(SeekFrom::End(0))
+            .map_err(|err| format!("Could not pad audio: {err}"))?;
+        let zeros = [0u8; 8192];
+        let mut remain = want - *len;
+        while remain > 0 {
+            let n = remain.min(zeros.len() as u64) as usize;
+            file.write_all(&zeros[..n])
+                .map_err(|err| format!("Could not pad audio: {err}"))?;
+            remain -= n as u64;
+        }
+        *len = want;
+    }
+    Ok(drift)
+}
+
 fn pcm_bytes_to_ms(bytes: i64) -> i64 {
     bytes * 1000 / i64::from(PCM_BYTES_PER_SEC)
 }
 
-fn write_stitched_aac(writer: &IMFSinkWriter, stream: u32, pcm: &[u8]) -> Result<(), String> {
+fn write_stitched_aac(writer: &IMFSinkWriter, stream: u32, mut pcm: impl Read) -> Result<(), String> {
     let mut time = 0_i64;
-    let mut offset = 0;
-    while offset < pcm.len() {
-        let remaining = pcm.len() - offset;
-        let copy = remaining.min(AAC_CHUNK_BYTES);
+    let mut leftover = Vec::new();
+    let mut buf = [0u8; AAC_CHUNK_BYTES];
+    loop {
+        while leftover.len() < AAC_CHUNK_BYTES {
+            let n = pcm.read(&mut buf).map_err(|err| err.to_string())?;
+            if n == 0 {
+                break;
+            }
+            leftover.extend_from_slice(&buf[..n]);
+        }
+        if leftover.is_empty() {
+            break;
+        }
+        let copy = leftover.len().min(AAC_CHUNK_BYTES);
         let copy = copy - (copy % PCM_ALIGN);
         if copy == 0 {
             break;
         }
         // Short last frames make the AAC MFT click. Pad to a full 1024-sample frame.
         let mut frame = vec![0u8; AAC_CHUNK_BYTES];
-        frame[..copy].copy_from_slice(&pcm[offset..offset + copy]);
+        frame[..copy].copy_from_slice(&leftover[..copy]);
+        leftover.drain(..copy);
         let duration = (AAC_CHUNK_BYTES as i64) * 10_000_000 / i64::from(PCM_BYTES_PER_SEC);
         unsafe {
             let media_buffer = MFCreateMemoryBuffer(AAC_CHUNK_BYTES as u32).map_err(|err| err.to_string())?;
@@ -712,7 +789,9 @@ fn write_stitched_aac(writer: &IMFSinkWriter, stream: u32, pcm: &[u8]) -> Result
                 .map_err(|err| format!("Could not write stitched audio: {err}"))?;
         }
         time += duration;
-        offset += copy;
+        if leftover.is_empty() && copy < AAC_CHUNK_BYTES {
+            break;
+        }
     }
     Ok(())
 }
@@ -856,6 +935,32 @@ pub fn watermarked_temp(source: &Path, fps: u32) -> Result<PathBuf, String> {
         "{}.watermark.mp4",
         source.file_stem().and_then(|name| name.to_str()).unwrap_or("clip")
     ));
+    if watermark_temp_reusable(source, &dest) {
+        tracing::info!("reusing watermarked clip {}", dest.display());
+        return Ok(dest);
+    }
     write_watermarked_mp4(source, &dest, fps)?;
     Ok(dest)
+}
+
+fn watermark_temp_reusable(source: &Path, dest: &Path) -> bool {
+    let Ok(src) = source.metadata() else {
+        return false;
+    };
+    let Ok(dst) = dest.metadata() else {
+        return false;
+    };
+    if dst.len() < 64 * 1024 {
+        return false;
+    }
+    let newer = match (src.modified().ok(), dst.modified().ok()) {
+        (Some(src_mtime), Some(dst_mtime)) => dst_mtime >= src_mtime,
+        _ => false,
+    };
+    if !newer {
+        return false;
+    }
+    let src_len = src.len().max(1);
+    let dst_len = dst.len();
+    dst_len >= src_len / 4 && dst_len <= src_len.saturating_mul(4)
 }

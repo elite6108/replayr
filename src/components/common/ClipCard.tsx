@@ -91,7 +91,7 @@ export function ClipCard({
       ) : null}
       <button type="button" className="clip-open" onClick={() => onPlay(clip)}>
         <div className="clip-thumb">
-          {thumb ? <img src={convertFileSrc(thumb)} alt="" /> : <IconPlay size={22} />}
+          {thumb ? <img src={convertFileSrc(thumb)} alt="" loading="lazy" /> : <IconPlay size={22} />}
           <span className="clip-play" aria-hidden="true">
             <span>
               <IconPlay size={18} />

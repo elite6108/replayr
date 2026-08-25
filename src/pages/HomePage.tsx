@@ -116,7 +116,7 @@ export function HomePage() {
           >
             {feed.slice(0, 8).map((clip) => (
               <Link key={clip.id} className="feed-home-card" to="/explore">
-                {clip.thumbnailUrl ? <img src={clip.thumbnailUrl} alt="" /> : <div className="feed-thumb-empty" />}
+                {clip.thumbnailUrl ? <img src={clip.thumbnailUrl} alt="" loading="lazy" /> : <div className="feed-thumb-empty" />}
                 <strong>{clip.title || "Untitled clip"}</strong>
                 <span className="muted">
                   {formatHandle(clip.author)} · {formatCount(clip.likeCount)} likes

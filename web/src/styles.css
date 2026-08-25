@@ -880,10 +880,10 @@ textarea {
   position: absolute;
   right: max(8px, 2cqmin);
   bottom: max(8px, 2cqmin);
-  width: clamp(88px, 16cqmin, 168px);
+  width: clamp(120px, 24cqmin, 260px);
   height: auto;
-  max-width: 22%;
-  max-height: 10%;
+  max-width: 28%;
+  max-height: 14%;
   object-fit: contain;
   background: none;
   pointer-events: none;

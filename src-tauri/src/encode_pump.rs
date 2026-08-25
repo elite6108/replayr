@@ -14,7 +14,7 @@ use crate::capture::CaptureShared;
 use crate::encode::MfWriter;
 
 const SEGMENT_HNS: i64 = 20_000_000;
-const QUEUE_CAP: usize = 30;
+const QUEUE_CAP: usize = 8;
 const START_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct QueuedFrame {
@@ -402,7 +402,7 @@ fn open_encoder(
     let attempts = [(width, height), (1920, 1080), (1280, 720)];
     let mut last = String::from("Could not create the Media Foundation encoder.");
     for (width, height) in attempts {
-        match MfWriter::new(path, width, height, fps, bitrate, with_audio, pcm_path) {
+        match MfWriter::new(path, width, height, fps, bitrate, with_audio, pcm_path, true) {
             Ok(encoder) => {
                 tracing::info!(
                     "MF encoder ready {width}x{height} @ {fps} aac={with_audio} pcm={}",

@@ -168,6 +168,7 @@ mod windows_impl {
         audio: Option<crate::audio::LoopbackCapture>,
         flags: SessionFlags,
         clock: Instant,
+        last_still_at: Instant,
     }
 
     #[derive(Clone)]
@@ -183,6 +184,7 @@ mod windows_impl {
         pub min_free_disk_bytes: u64,
         pub shared: Arc<CaptureShared>,
         pub audio_runtime: crate::audio::AudioRuntime,
+        pub resolution: String,
     }
 
     impl GraphicsCaptureApiHandler for WindowsSession {
@@ -225,6 +227,9 @@ mod windows_impl {
                 audio,
                 flags,
                 clock,
+                last_still_at: Instant::now()
+                    .checked_sub(Duration::from_millis(500))
+                    .unwrap_or_else(Instant::now),
             })
         }
 
@@ -244,20 +249,30 @@ mod windows_impl {
                 (pixels.as_raw_buffer().to_vec(), pixels.row_pitch())
             };
             drop(pixels);
-            if let Ok(mut still) = self.flags.shared.last_still.lock() {
-                *still = Some(StillFrame {
-                    bgra: bytes.clone(),
-                    width,
-                    height,
-                    pitch,
-                });
+            let mut frame = StillFrame {
+                bgra: bytes,
+                width,
+                height,
+                pitch,
+            };
+            // Only downscale when Settings asked for 720p/1080p and the source is
+            // actually larger. Native (and 1080p-on-1080p) stay as captured; the
+            // encoder already crops the 16-pixel alignment sliver (1080→1072).
+            if needs_resolution_scale(frame.width, frame.height, &self.flags.resolution) {
+                frame = crate::still::scale_bgra_to(frame, self.flags.width, self.flags.height);
+            }
+            if self.last_still_at.elapsed() >= Duration::from_millis(500) {
+                self.last_still_at = Instant::now();
+                if let Ok(mut still) = self.flags.shared.last_still.lock() {
+                    *still = Some(frame.clone());
+                }
             }
             let capture_hns = (self.clock.elapsed().as_nanos() / 100) as i64;
             self.pump.push(crate::encode_pump::QueuedFrame {
-                bgra: bytes,
-                pitch,
-                width,
-                height,
+                bgra: frame.bgra,
+                pitch: frame.pitch,
+                width: frame.width,
+                height: frame.height,
                 capture_hns,
             });
             Ok(())
@@ -294,6 +309,35 @@ mod windows_impl {
     fn align16(value: u32, fallback: u32) -> u32 {
         let value = if value < 64 { fallback } else { value };
         (value.max(16) / 16) * 16
+    }
+
+    fn resolution_box(resolution: &str) -> Option<(u32, u32)> {
+        match resolution {
+            "720p" => Some((1280, 720)),
+            "1080p" => Some((1920, 1080)),
+            _ => None,
+        }
+    }
+
+    fn needs_resolution_scale(src_w: u32, src_h: u32, resolution: &str) -> bool {
+        resolution_box(resolution).is_some_and(|(max_w, max_h)| src_w > max_w || src_h > max_h)
+    }
+
+    fn encode_size(src_w: u32, src_h: u32, resolution: &str) -> (u32, u32) {
+        let src_w = src_w.max(16);
+        let src_h = src_h.max(16);
+        let native_w = align16(src_w, 1920);
+        let native_h = align16(src_h, 1080);
+        let Some((max_w, max_h)) = resolution_box(resolution) else {
+            return (native_w, native_h);
+        };
+        if native_w <= max_w && native_h <= max_h {
+            return (native_w, native_h);
+        }
+        let scale = (max_w as f64 / native_w as f64).min(max_h as f64 / native_h as f64);
+        let width = align16(((native_w as f64) * scale).round() as u32, 16).max(16);
+        let height = align16(((native_h as f64) * scale).round() as u32, 16).max(16);
+        (width, height)
     }
 
     fn capture_settings<T>(item: T, flags: SessionFlags) -> Settings<SessionFlags, T>
@@ -553,10 +597,12 @@ mod windows_impl {
             output.clone()
         };
         tracing::info!(
-            "starting capture pid={pid:?} segmented={segmented} session={session} fps={fps} path={}",
+            "starting capture pid={pid:?} segmented={segmented} session={session} fps={fps} resolution={} path={}",
+            settings.resolution,
             first_path.display()
         );
 
+        let resolution = settings.resolution.clone();
         let make_flags = |width: u32, height: u32| SessionFlags {
             path: first_path.clone(),
             dir: buffer_dir.clone(),
@@ -569,6 +615,7 @@ mod windows_impl {
             min_free_disk_bytes: settings.min_free_disk_bytes,
             shared: state.shared.clone(),
             audio_runtime: audio_runtime.clone(),
+            resolution: resolution.clone(),
         };
 
         let mut last_error = None;
@@ -576,8 +623,11 @@ mod windows_impl {
 
         if let Some(pid) = pid.filter(|id| *id != 0) {
             if let Some(window) = window_for_pid(pid) {
-                let width = align16(window.width().unwrap_or(1920).max(0) as u32, 1920);
-                let height = align16(window.height().unwrap_or(1080).max(0) as u32, 1080);
+                let (width, height) = encode_size(
+                    window.width().unwrap_or(1920).max(0) as u32,
+                    window.height().unwrap_or(1080).max(0) as u32,
+                    &resolution,
+                );
                 let monitor = window.monitor();
                 match begin(window, make_flags(width, height)) {
                     Ok(control) => {
@@ -592,8 +642,11 @@ mod windows_impl {
                         tracing::warn!("window capture failed: {err}");
                         last_error = Some(err);
                         if let Some(monitor) = monitor {
-                            let width = align16(monitor.width().unwrap_or(1920), 1920);
-                            let height = align16(monitor.height().unwrap_or(1080), 1080);
+                            let (width, height) = encode_size(
+                                monitor.width().unwrap_or(1920),
+                                monitor.height().unwrap_or(1080),
+                                &resolution,
+                            );
                             match begin(monitor, make_flags(width, height)) {
                                 Ok(control) => {
                                     started = Some(("Display".into(), control, width, height));
@@ -623,6 +676,7 @@ mod windows_impl {
                 }
             }
         };
+        tracing::info!("capture encode size {width}x{height}");
 
         if segmented && session {
             if let Ok(mut buffer) = state.shared.buffer.lock() {
@@ -665,8 +719,11 @@ mod windows_impl {
         flags: SessionFlags,
     ) -> AppResult<(String, windows_capture::capture::CaptureControl<WindowsSession, String>, u32, u32)> {
         let monitor = Monitor::primary().map_err(|err| AppError::Message(err.to_string()))?;
-        let width = align16(monitor.width().unwrap_or(1920), 1920);
-        let height = align16(monitor.height().unwrap_or(1080), 1080);
+        let (width, height) = encode_size(
+            monitor.width().unwrap_or(1920),
+            monitor.height().unwrap_or(1080),
+            &flags.resolution,
+        );
         let mut flags = flags;
         flags.width = width;
         flags.height = height;

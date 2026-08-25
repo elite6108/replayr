@@ -165,7 +165,7 @@ pub fn composite_watermark(frame: &mut StillFrame) {
     }
     let short = frame.width.min(frame.height) as usize;
     let margin = (short / 40).max(12);
-    let mark_w = (frame.width as usize * 14 / 100).clamp(72, 200);
+    let mark_w = (frame.width as usize * 20 / 100).clamp(110, 320);
     let mark_h = (mark_w * logo.height as usize / logo.width as usize).max(1);
     if mark_w + margin >= frame.width as usize || mark_h + margin >= frame.height as usize {
         return;
@@ -191,12 +191,18 @@ fn blit_logo(frame: &mut StillFrame, origin_x: usize, origin_y: usize, mark_w: u
             if alpha < 16 {
                 continue;
             }
+            let b = logo.rgba[i + 2];
+            let g = logo.rgba[i + 1];
+            let r = logo.rgba[i];
+            if r < 18 && g < 18 && b < 18 {
+                continue;
+            }
             blend_pixel(
                 frame,
                 pitch,
                 origin_x + dx,
                 origin_y + dy,
-                [logo.rgba[i + 2], logo.rgba[i + 1], logo.rgba[i], alpha],
+                [b, g, r, alpha],
             );
         }
     }
@@ -245,6 +251,68 @@ pub fn scale_bgra(frame: &StillFrame, max_width: u32) -> StillFrame {
     }
 }
 
+/// Nearest-neighbor scale to an exact size. Returns `frame` unchanged when it already matches.
+pub fn scale_bgra_to(frame: StillFrame, width: u32, height: u32) -> StillFrame {
+    let width = width.max(1);
+    let height = height.max(1);
+    if frame.width == width && frame.height == height {
+        return frame;
+    }
+    if frame.width == 0 || frame.height == 0 {
+        return StillFrame {
+            bgra: vec![0_u8; (width * height * 4) as usize],
+            width,
+            height,
+            pitch: width * 4,
+        };
+    }
+    let dst_pitch = width * 4;
+    let mut bgra = vec![0_u8; (dst_pitch * height) as usize];
+    let x_step = if frame.width % width == 0 {
+        frame.width / width
+    } else {
+        0
+    };
+    let y_step = if frame.height % height == 0 {
+        frame.height / height
+    } else {
+        0
+    };
+    if x_step >= 1 && y_step >= 1 {
+        for y in 0..height {
+            let src_row = (y * y_step * frame.pitch) as usize;
+            let dst_row = (y * dst_pitch) as usize;
+            for x in 0..width {
+                let src = src_row + (x * x_step * 4) as usize;
+                let dst = dst_row + (x * 4) as usize;
+                if src + 4 <= frame.bgra.len() && dst + 4 <= bgra.len() {
+                    bgra[dst..dst + 4].copy_from_slice(&frame.bgra[src..src + 4]);
+                }
+            }
+        }
+    } else {
+        let xs: Vec<u32> = (0..width).map(|x| x * frame.width / width).collect();
+        for y in 0..height {
+            let src_y = y * frame.height / height;
+            let src_row = (src_y * frame.pitch) as usize;
+            let dst_row = (y * dst_pitch) as usize;
+            for (x, src_x) in xs.iter().enumerate() {
+                let src = src_row + (*src_x * 4) as usize;
+                let dst = dst_row + x * 4;
+                if src + 4 <= frame.bgra.len() && dst + 4 <= bgra.len() {
+                    bgra[dst..dst + 4].copy_from_slice(&frame.bgra[src..src + 4]);
+                }
+            }
+        }
+    }
+    StillFrame {
+        bgra,
+        width,
+        height,
+        pitch: dst_pitch,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,6 +335,10 @@ mod tests {
         let scaled = scale_bgra(&frame, 1);
         assert_eq!(scaled.width, 1);
         assert_eq!(scaled.height, 1);
+        let sized = scale_bgra_to(frame, 4, 4);
+        assert_eq!(sized.width, 4);
+        assert_eq!(sized.height, 4);
+        assert_eq!(sized.bgra.len(), 64);
     }
 
     #[test]

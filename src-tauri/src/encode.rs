@@ -209,6 +209,7 @@ impl MfWriter {
         bitrate: u32,
         with_audio: bool,
         pcm_path: Option<&Path>,
+        live: bool,
     ) -> Result<Self, String> {
         ensure_mf()?;
         if let Some(parent) = path.parent() {
@@ -227,9 +228,14 @@ impl MfWriter {
             attrs
                 .SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)
                 .map_err(|err| err.to_string())?;
-            attrs
-                .SetUINT32(&MF_SINK_WRITER_DISABLE_THROTTLING, 1)
-                .map_err(|err| err.to_string())?;
+            if live {
+                // Live capture must not block WGC. Offline re-encodes (watermark,
+                // editor export) leave throttling on so MF cannot queue the whole
+                // clip as uncompressed RGB.
+                attrs
+                    .SetUINT32(&MF_SINK_WRITER_DISABLE_THROTTLING, 1)
+                    .map_err(|err| err.to_string())?;
+            }
 
             let writer = MFCreateSinkWriterFromURL(PCWSTR(wide.as_ptr()), None, Some(&attrs))
                 .map_err(|err| format!("Could not create the MP4 writer: {err}"))?;

@@ -13,10 +13,16 @@ pub fn share_file(app: &AppHandle, file_path: &str) -> AppResult<String> {
     }
     #[cfg(windows)]
     {
-        if show_share_ui(app, path).is_ok() {
+        let watermarked = if crate::export::should_watermark_exports(app) && path.extension().and_then(|value| value.to_str()) == Some("mp4") {
+            crate::export::watermarked_temp(path, 60).ok()
+        } else {
+            None
+        };
+        let share_path = watermarked.as_deref().unwrap_or(path);
+        if show_share_ui(app, share_path).is_ok() {
             return Ok("share".into());
         }
-        if copy_file_drop(path).is_ok() {
+        if copy_file_drop(share_path).is_ok() {
             return Ok("clipboard".into());
         }
         library::reveal(file_path)?;

@@ -5,10 +5,12 @@ import { clipShareUrl } from "../branding";
 import { GameCover } from "../components/common/GameCover";
 import { EmptyState } from "../components/common/EmptyState";
 import { PageHeader } from "../components/common/PageHeader";
+import { PlayerVideo } from "../components/common/ReplayrWatermark";
 import { IconGames, IconPlay } from "../components/icons";
 import { fetchPublicGameClips, type PublicGame, type PublicGameClip } from "../services/games";
 import { downloadUrlToFile } from "../services/tauri";
 import { useDetectionStore } from "../stores/detectionStore";
+import { useBillingStore } from "../stores/billingStore";
 import { useToastStore } from "../stores/toastStore";
 import { suggestedFileName } from "../utils/files";
 import { formatDuration, invokeErrorMessage } from "../utils/format";
@@ -16,6 +18,7 @@ import { formatDuration, invokeErrorMessage } from "../utils/format";
 export function GamePage() {
   const { slug = "" } = useParams();
   const catalog = useDetectionStore((state) => state.catalog);
+  const watermark = useBillingStore((state) => state.status?.watermark ?? true);
   const localGame = catalog.find((game) => game.slug === slug);
   const [game, setGame] = useState<PublicGame | null>(
     localGame
@@ -165,7 +168,9 @@ export function GamePage() {
           <button type="button" className="player-backdrop" aria-label="Close player" onClick={() => setPlaying(null)} />
           <section className="player-card">
             <div className="player-stage">
-              <video src={playing.playbackUrl} controls autoPlay />
+              <PlayerVideo showWatermark={watermark}>
+                <video src={playing.playbackUrl} controls autoPlay />
+              </PlayerVideo>
             </div>
             <div className="player-side">
               <h2>{playing.title || "Untitled clip"}</h2>

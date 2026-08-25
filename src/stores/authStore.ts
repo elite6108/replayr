@@ -78,6 +78,12 @@ function attachAuthListeners(
   if (!deepLinkListening) {
     deepLinkListening = true;
     void listenForOAuthReturn((url) => {
+      if (url.startsWith("replayr://billing")) {
+        void import("./billingStore").then(({ useBillingStore }) =>
+          useBillingStore.getState().load(get().session?.access_token ?? null),
+        );
+        return;
+      }
       void get().completeOAuthFromUrl(url);
     });
   }

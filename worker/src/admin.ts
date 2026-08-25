@@ -1,4 +1,5 @@
 import { AwsClient } from "aws4fetch";
+import { applyPlan, stripeForm } from "./billing";
 import { listAdminErrors, openErrorCount, resolveAdminError } from "./errors";
 import { ownedObjectKey, type Env } from "./shared";
 import { HttpError, json } from "./http";
@@ -49,6 +50,10 @@ interface PlanRow {
   id: string;
   slug: string;
   storage_limit_bytes: number;
+  max_clip_duration_ms?: number | null;
+  max_upload_quality?: string | null;
+  watermark?: boolean;
+  ads?: boolean;
 }
 
 interface ClipRow {
@@ -86,8 +91,21 @@ export async function handleAdmin(request: Request, env: Env, url: URL): Promise
   if (request.method === "GET" && path === "/v1/admin/overview") {
     return overview(env, actor);
   }
+  if (request.method === "GET" && path === "/v1/admin/billing") {
+    return billingOverview(env, actor);
+  }
+  if (request.method === "GET" && path === "/v1/admin/settings") {
+    return getSettings(env, actor);
+  }
+  if (request.method === "PATCH" && path === "/v1/admin/settings") {
+    return patchSettings(request, env, actor);
+  }
   if (request.method === "GET" && path === "/v1/admin/plans") {
     return listPlans(env, actor);
+  }
+  const planItem = path.match(/^\/v1\/admin\/plans\/([^/]+)$/);
+  if (request.method === "PATCH" && planItem?.[1]) {
+    return patchPlan(request, env, actor, planItem[1]);
   }
   if (request.method === "GET" && path === "/v1/admin/users") {
     return listUsers(env, actor, url);
@@ -95,6 +113,10 @@ export async function handleAdmin(request: Request, env: Env, url: URL): Promise
   const userItem = path.match(/^\/v1\/admin\/users\/([^/]+)$/);
   if (request.method === "PATCH" && userItem?.[1]) {
     return patchUser(request, env, actor, userItem[1]);
+  }
+  const userBilling = path.match(/^\/v1\/admin\/users\/([^/]+)\/billing$/);
+  if (request.method === "POST" && userBilling?.[1]) {
+    return userBillingAction(request, env, actor, userBilling[1]);
   }
   if (request.method === "GET" && path === "/v1/admin/clips") {
     return listClips(env, actor, url);
@@ -183,6 +205,12 @@ async function overview(env: Env, actor: AdminActor): Promise<Response> {
     pendingCreatorApps: pendingApps,
     openErrors: errors.open,
     errors24h: errors.last24h,
+    premiumCount: await restCount(
+      env,
+      actor,
+      "/user_storage?select=user_id,plans!inner(slug)&plans.slug=in.(pro,pro_plus)",
+    ),
+    pastDueCount: await restCount(env, actor, "/billing_subscriptions?status=eq.past_due&select=user_id"),
   });
 }
 
@@ -191,14 +219,212 @@ async function listPlans(env: Env, actor: AdminActor): Promise<Response> {
     env,
     actor,
     "GET",
-    "/plans?select=slug,storage_limit_bytes&order=storage_limit_bytes.asc",
+    "/plans?select=slug,storage_limit_bytes,max_clip_duration_ms,max_upload_quality,watermark,ads&order=storage_limit_bytes.asc",
   );
   return json({
     plans: plans.map((plan) => ({
       slug: plan.slug,
       storageLimitBytes: plan.storage_limit_bytes,
+      maxClipDurationMs: plan.max_clip_duration_ms ?? null,
+      maxUploadQuality: plan.max_upload_quality ?? null,
+      watermark: Boolean(plan.watermark),
+      ads: Boolean(plan.ads),
     })),
   });
+}
+
+async function billingOverview(env: Env, actor: AdminActor): Promise<Response> {
+  const [subs, grants, events, settings] = await Promise.all([
+    serviceRest<{ status: string; stripe_price_id: string | null; cancel_at_period_end: boolean }[]>(
+      env,
+      actor,
+      "GET",
+      "/billing_subscriptions?select=status,stripe_price_id,cancel_at_period_end",
+    ),
+    restCount(env, actor, "/billing_grants?revoked_at=is.null&select=id"),
+    serviceRest<
+      { id: string; type: string; user_id: string | null; ok: boolean; error: string | null; created_at: string }[]
+    >(env, actor, "GET", "/stripe_events?select=id,type,user_id,ok,error,created_at&order=created_at.desc&limit=30"),
+    serviceRest<{ watermark_enabled: boolean; ads_enabled: boolean }[]>(
+      env,
+      actor,
+      "GET",
+      "/app_settings?id=eq.1&select=watermark_enabled,ads_enabled",
+    ),
+  ]);
+  const monthly = env.STRIPE_PRICE_PREMIUM_MONTHLY;
+  const yearly = env.STRIPE_PRICE_PREMIUM_YEARLY;
+  let mrrCents = 0;
+  let premium = 0;
+  let trialing = 0;
+  let pastDue = 0;
+  let canceling = 0;
+  for (const sub of subs) {
+    if (sub.status === "trialing") trialing += 1;
+    if (sub.status === "past_due") pastDue += 1;
+    if (sub.status === "active" || sub.status === "trialing" || sub.status === "past_due") {
+      premium += 1;
+      if (sub.cancel_at_period_end) canceling += 1;
+      if (yearly && sub.stripe_price_id === yearly) mrrCents += 399;
+      else if (monthly && sub.stripe_price_id === monthly) mrrCents += 499;
+      else mrrCents += 499;
+    }
+  }
+  const usedRows = await serviceRest<{ storage_used_bytes: number }[]>(
+    env,
+    actor,
+    "GET",
+    "/user_storage?select=storage_used_bytes",
+  );
+  const usedBytes = usedRows.reduce((sum, row) => sum + Number(row.storage_used_bytes || 0), 0);
+  return json({
+    premium,
+    trialing,
+    pastDue,
+    complimentary: grants,
+    canceling,
+    estimatedMrr: mrrCents / 100,
+    storageRiskUsd: Math.round((usedBytes / (1024 ** 3)) * 0.015 * 100) / 100,
+    settings: settings[0] ?? { watermark_enabled: true, ads_enabled: true },
+    events: events.map((event) => ({
+      id: event.id,
+      type: event.type,
+      userId: event.user_id,
+      ok: event.ok,
+      error: event.error,
+      createdAt: event.created_at,
+    })),
+  });
+}
+
+async function getSettings(env: Env, actor: AdminActor): Promise<Response> {
+  const rows = await serviceRest<{ watermark_enabled: boolean; ads_enabled: boolean }[]>(
+    env,
+    actor,
+    "GET",
+    "/app_settings?id=eq.1&select=watermark_enabled,ads_enabled",
+  );
+  return json(rows[0] ?? { watermark_enabled: true, ads_enabled: true });
+}
+
+async function patchSettings(request: Request, env: Env, actor: AdminActor): Promise<Response> {
+  const body = (await request.json()) as { watermarkEnabled?: boolean; adsEnabled?: boolean };
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (typeof body.watermarkEnabled === "boolean") patch.watermark_enabled = body.watermarkEnabled;
+  if (typeof body.adsEnabled === "boolean") patch.ads_enabled = body.adsEnabled;
+  await serviceRest(env, actor, "PATCH", "/app_settings?id=eq.1", patch);
+  return getSettings(env, actor);
+}
+
+async function patchPlan(request: Request, env: Env, actor: AdminActor, slug: string): Promise<Response> {
+  if (!PLAN_SLUGS.has(slug)) throw new HttpError(400, "Unknown plan.");
+  const body = (await request.json()) as {
+    storageLimitBytes?: number;
+    maxClipDurationMs?: number | null;
+    maxUploadQuality?: string | null;
+    watermark?: boolean;
+    ads?: boolean;
+  };
+  const patch: Record<string, unknown> = {};
+  if (body.storageLimitBytes != null) {
+    const limit = Number(body.storageLimitBytes);
+    if (!Number.isFinite(limit) || limit < 0 || limit > 5 * 1024 ** 4) {
+      throw new HttpError(400, "Storage limit is invalid.");
+    }
+    patch.storage_limit_bytes = Math.floor(limit);
+  }
+  if (body.maxClipDurationMs !== undefined) {
+    patch.max_clip_duration_ms =
+      body.maxClipDurationMs == null ? null : Math.max(0, Math.floor(Number(body.maxClipDurationMs)));
+  }
+  if (body.maxUploadQuality !== undefined) patch.max_upload_quality = body.maxUploadQuality;
+  if (typeof body.watermark === "boolean") patch.watermark = body.watermark;
+  if (typeof body.ads === "boolean") patch.ads = body.ads;
+  if (!Object.keys(patch).length) throw new HttpError(400, "Nothing to update.");
+  await serviceRest(env, actor, "PATCH", `/plans?slug=eq.${encodeURIComponent(slug)}`, patch);
+  return listPlans(env, actor);
+}
+
+async function userBillingAction(request: Request, env: Env, actor: AdminActor, userId: string): Promise<Response> {
+  if (!UUID.test(userId)) throw new HttpError(400, "User id is invalid.");
+  const body = (await request.json()) as {
+    action?: string;
+    planSlug?: string;
+    days?: number;
+    reason?: string;
+  };
+  const action = body.action || "";
+  if (action === "grant") {
+    const slug = body.planSlug && PLAN_SLUGS.has(body.planSlug) ? body.planSlug : "pro";
+    if (slug === "free") return forceFree(env, actor, userId);
+    const days = Number(body.days);
+    const expiresAt =
+      Number.isFinite(days) && days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
+    await applyPlan(env, userId, slug, true);
+    await serviceRest(env, actor, "POST", "/billing_grants", {
+      user_id: userId,
+      plan_slug: slug,
+      reason: (body.reason || "Admin grant").slice(0, 200),
+      granted_by: actor.id,
+      expires_at: expiresAt,
+    });
+    return json({ ok: true });
+  }
+  if (action === "revoke") {
+    return forceFree(env, actor, userId);
+  }
+  if (action === "cancel" || action === "extend_trial") {
+    const subs = await serviceRest<{ stripe_subscription_id: string }[]>(
+      env,
+      actor,
+      "GET",
+      `/billing_subscriptions?user_id=eq.${userId}&select=stripe_subscription_id`,
+    );
+    const subId = subs[0]?.stripe_subscription_id;
+    if (!subId) throw new HttpError(400, "That account has no Stripe subscription.");
+    if (action === "cancel") {
+      await stripeForm(env, "POST", `/v1/subscriptions/${subId}`, { cancel_at_period_end: "true" });
+    } else {
+      const days = Math.max(1, Math.floor(Number(body.days) || 7));
+      const trialEnd = Math.floor(Date.now() / 1000) + days * 86400;
+      await stripeForm(env, "POST", `/v1/subscriptions/${subId}`, { trial_end: String(trialEnd) });
+    }
+    return json({ ok: true });
+  }
+  throw new HttpError(400, "Unknown billing action.");
+}
+
+async function revokeGrants(env: Env, actor: AdminActor, userId: string): Promise<void> {
+  await serviceRest(env, actor, "PATCH", `/billing_grants?user_id=eq.${userId}&revoked_at=is.null`, {
+    revoked_at: new Date().toISOString(),
+  });
+}
+
+async function forceFree(env: Env, actor: AdminActor, userId: string): Promise<Response> {
+  await revokeGrants(env, actor, userId);
+  await applyPlan(env, userId, "free", true);
+  const subs = await serviceRest<{ stripe_subscription_id: string }[]>(
+    env,
+    actor,
+    "GET",
+    `/billing_subscriptions?user_id=eq.${userId}&select=stripe_subscription_id`,
+  );
+  const subId = subs[0]?.stripe_subscription_id;
+  if (subId && env.STRIPE_SECRET_KEY) {
+    try {
+      await stripeForm(env, "DELETE", `/v1/subscriptions/${subId}`);
+    } catch {
+      /* local Free still applies if Stripe is unreachable */
+    }
+  }
+  if (subs[0]) {
+    await serviceRest(env, actor, "PATCH", `/billing_subscriptions?user_id=eq.${userId}`, {
+      status: "canceled",
+      cancel_at_period_end: false,
+      updated_at: new Date().toISOString(),
+    });
+  }
+  return json({ ok: true });
 }
 
 async function listUsers(env: Env, actor: AdminActor, url: URL): Promise<Response> {
@@ -265,16 +491,20 @@ async function patchUser(request: Request, env: Env, actor: AdminActor, userId: 
 
   if (body.planSlug) {
     if (!PLAN_SLUGS.has(body.planSlug)) throw new HttpError(400, "Unknown plan.");
-    const plans = await serviceRest<PlanRow[]>(
-      env,
-      actor,
-      "GET",
-      `/plans?slug=eq.${encodeURIComponent(body.planSlug)}&select=id,slug,storage_limit_bytes`,
-    );
-    const plan = plans[0];
-    if (!plan) throw new HttpError(400, "Unknown plan.");
-    patch.plan_id = plan.id;
-    patch.storage_limit_bytes = plan.storage_limit_bytes;
+    if (body.planSlug === "free") {
+      await forceFree(env, actor, userId);
+    } else {
+      await applyPlan(env, userId, body.planSlug, true);
+      await serviceRest(env, actor, "POST", "/billing_grants", {
+        user_id: userId,
+        plan_slug: body.planSlug,
+        reason: "Admin plan change",
+        granted_by: actor.id,
+      });
+    }
+    if (body.storageLimitBytes == null) {
+      return json({ userId, ok: true });
+    }
   }
 
   if (body.storageLimitBytes != null) {
@@ -653,11 +883,16 @@ type AdminUserRow = {
   createdAt: string | null;
   isVerified: boolean;
   role: "admin" | null;
+  stripeStatus: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  stripeCustomerId: string | null;
+  complimentary: boolean;
 };
 
 async function hydrateUsers(env: Env, actor: AdminActor, authUsers: AuthAdminUser[]): Promise<AdminUserRow[]> {
   const ids = authUsers.map((user) => user.id);
-  const [profiles, storageRows, clipCountById] = await Promise.all([
+  const [profiles, storageRows, clipCountById, subs, customers, grants] = await Promise.all([
     ids.length
       ? serviceRest<ProfileRow[]>(
           env,
@@ -675,12 +910,47 @@ async function hydrateUsers(env: Env, actor: AdminActor, authUsers: AuthAdminUse
         )
       : Promise.resolve([] as StorageRow[]),
     clipCountsForUsers(env, actor, ids),
+    ids.length
+      ? serviceRest<
+          {
+            user_id: string;
+            status: string;
+            current_period_end: string | null;
+            cancel_at_period_end: boolean;
+          }[]
+        >(
+          env,
+          actor,
+          "GET",
+          `/billing_subscriptions?user_id=in.(${ids.join(",")})&select=user_id,status,current_period_end,cancel_at_period_end`,
+        )
+      : Promise.resolve([]),
+    ids.length
+      ? serviceRest<{ user_id: string; stripe_customer_id: string }[]>(
+          env,
+          actor,
+          "GET",
+          `/billing_customers?user_id=in.(${ids.join(",")})&select=user_id,stripe_customer_id`,
+        )
+      : Promise.resolve([]),
+    ids.length
+      ? serviceRest<{ user_id: string }[]>(
+          env,
+          actor,
+          "GET",
+          `/billing_grants?user_id=in.(${ids.join(",")})&revoked_at=is.null&select=user_id`,
+        )
+      : Promise.resolve([]),
   ]);
   const profileById = new Map(profiles.map((row) => [row.id, row]));
   const storageById = new Map(storageRows.map((row) => [row.user_id, row]));
+  const subById = new Map(subs.map((row) => [row.user_id, row]));
+  const customerById = new Map(customers.map((row) => [row.user_id, row.stripe_customer_id]));
+  const grantIds = new Set(grants.map((row) => row.user_id));
   return authUsers.map((user) => {
     const profile = profileById.get(user.id);
     const storage = storageById.get(user.id);
+    const sub = subById.get(user.id);
     return {
       id: user.id,
       email: user.email ?? null,
@@ -694,6 +964,11 @@ async function hydrateUsers(env: Env, actor: AdminActor, authUsers: AuthAdminUse
       createdAt: user.created_at ?? null,
       isVerified: Boolean(profile?.is_verified),
       role: user.app_metadata?.role === "admin" ? "admin" : null,
+      stripeStatus: sub?.status ?? null,
+      currentPeriodEnd: sub?.current_period_end ?? null,
+      cancelAtPeriodEnd: Boolean(sub?.cancel_at_period_end),
+      stripeCustomerId: customerById.get(user.id) ?? null,
+      complimentary: grantIds.has(user.id),
     };
   });
 }

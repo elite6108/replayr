@@ -30,3 +30,10 @@ run_worker_first = ["/v1/*", "/releases/latest.json"]
 # R2_ACCESS_KEY_ID
 # R2_SECRET_ACCESS_KEY
 # R2_BUCKET_NAME
+# STRIPE_SECRET_KEY
+# STRIPE_WEBHOOK_SECRET
+# STRIPE_PRICE_PREMIUM_MONTHLY
+# STRIPE_PRICE_PREMIUM_YEARLY
+# Create prices: npm run setup-stripe --prefix worker
+# Webhook: https://www.replayr.tv/v1/billing/webhook
+# Events: checkout.session.completed, customer.subscription.*, invoice.paid, invoice.payment_failed

@@ -528,7 +528,50 @@ a {
 .pricing-card .price {
   font-size: 2rem;
   font-weight: 700;
-  margin: 0 0 12px;
+  margin: 0;
+}
+
+.pricing-cadence {
+  margin: 4px 0 14px;
+}
+
+.pricing-interval {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.pricing-interval button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 10px;
+  padding: 10px 8px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+}
+
+.pricing-interval button span {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #7fd0ef;
+}
+
+.pricing-interval button.active {
+  background: linear-gradient(135deg, #4bb8e0, #7fd0ef);
+  color: #081018;
+}
+
+.pricing-interval button.active span {
+  color: #0b2a38;
 }
 
 .pricing-card ul,
@@ -812,6 +855,47 @@ textarea {
 
 .player-stage {
   padding: 12px;
+  position: relative;
+}
+
+.player-video-wrap {
+  position: relative;
+  display: grid;
+  width: 100%;
+}
+
+.player-video-wrap .player {
+  width: 100%;
+  display: block;
+}
+
+.player-video-mark {
+  position: absolute;
+  inset: 0;
+  container-type: size;
+  pointer-events: none;
+}
+
+.player-video-mark .clip-watermark {
+  position: absolute;
+  right: max(8px, 2cqmin);
+  bottom: max(8px, 2cqmin);
+  width: clamp(88px, 16cqmin, 168px);
+  height: auto;
+  max-width: 22%;
+  max-height: 10%;
+  object-fit: contain;
+  background: none;
+  pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.75));
+}
+
+.house-ad {
+  margin: 16px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
 }
 
 .player {

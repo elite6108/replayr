@@ -1,3 +1,10 @@
+export function planLabel(slug: string): string {
+  if (slug === "pro_plus") return "Pro+";
+  if (slug === "pro") return "Premium";
+  if (slug === "free") return "Free";
+  return slug;
+}
+
 export function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null || bytes <= 0) return "0 B";
   if (bytes < 1024) return `${bytes} B`;

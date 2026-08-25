@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import type { ComponentType, SVGProps } from "react";
 import { APP_NAME } from "../../branding";
 import { useAuthStore } from "../../stores/authStore";
+import { useBillingStore } from "../../stores/billingStore";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { useRecordingStore } from "../../stores/recordingStore";
@@ -32,6 +33,7 @@ export function NavRail() {
   const admin = isAdminUser(useAuthStore((state) => state.user), useAuthStore((state) => state.session?.access_token));
   const used = storage?.storage_used_bytes ?? 0;
   const limit = storage?.storage_limit_bytes ?? 0;
+  const premium = useBillingStore((state) => state.status?.premium);
   const updateReady = useUpdateStore((state) => state.status === "ready");
   const friendsUnread = useSocialUnreadStore((state) => state.friendsUnread);
   const messagesUnread = useSocialUnreadStore((state) => state.messagesUnread);
@@ -82,10 +84,12 @@ export function NavRail() {
         </span>
         <span>Account</span>
       </NavLink>
-      <div className="nav-storage">
+      <NavLink to="/profile" className="nav-storage">
         <strong>{storage ? formatBytes(used) : `${clips.length} clips`}</strong>
-        {storage ? `${formatBytes(limit)} cloud` : "On this PC"}
-      </div>
+        {storage
+          ? `${formatBytes(limit)} cloud${limit > 0 && used / limit >= 0.8 && !premium ? " · Upgrade" : ""}`
+          : "On this PC"}
+      </NavLink>
     </nav>
   );
 }

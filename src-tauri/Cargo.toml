@@ -1,6 +1,6 @@
 [package]
 name = "replay"
-version = "0.1.11"
+version = "0.1.12"
 description = "Project Replay desktop application"
 authors = ["Project Replay"]
 edition = "2021"
@@ -22,6 +22,7 @@ tauri-plugin-global-shortcut = "2"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+png = "0.17"
 rusqlite = { version = "0.32", features = ["bundled"] }
 thiserror = "2"
 tracing = "0.1"

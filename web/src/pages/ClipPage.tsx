@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { ClipSocial } from "../components/ClipSocial";
 import { SendClipSheet } from "../components/SendClipSheet";
 import { Seo } from "../components/Seo";
+import { PlayerVideo } from "../components/ReplayrWatermark";
 import { downloadCloudClip, fetchPlayback, type PlaybackClip } from "../lib/api";
+import { fetchBillingStatus, type BillingStatus } from "../lib/billing";
 import { useAuth } from "../lib/auth";
 import { formatHandle } from "../lib/format";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
@@ -14,6 +16,7 @@ export function ClipPage() {
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
   const { session } = useAuth();
 
   useEffect(() => {
@@ -33,6 +36,14 @@ export function ClipPage() {
       cancelled = true;
     };
   }, [slug]);
+
+  useEffect(() => {
+    if (!session?.access_token) {
+      setBilling(null);
+      return;
+    }
+    void fetchBillingStatus(session.access_token).then(setBilling).catch(() => undefined);
+  }, [session?.access_token]);
 
   const hidden = !clip || clip.visibility !== "public";
   const title = error ? "Clip unavailable" : clip ? `${clip.title || "Untitled clip"} · Replayr` : "Clip · Replayr";
@@ -90,8 +101,19 @@ export function ClipPage() {
             ) : null}
           </div>
           <div className="player-stage">
-            <video className="player" src={clip.playbackUrl} controls playsInline autoPlay />
+            <PlayerVideo showWatermark={billing?.watermark !== false}>
+              <video className="player" src={clip.playbackUrl} controls playsInline autoPlay />
+            </PlayerVideo>
           </div>
+          {!session || billing?.ads ? (
+            <aside className="house-ad">
+              <strong>Replayr Premium</strong>
+              <p className="muted">Remove the watermark and upload original quality for $4.99/mo.</p>
+              <Link className="btn primary" to="/pricing">
+                Upgrade
+              </Link>
+            </aside>
+          ) : null}
           <ClipSocial
             slug={clip.slug}
             publicClip={clip.visibility === "public" || clip.visibility === "unlisted"}

@@ -14,9 +14,14 @@ import { addExtraAudioApp, getAudioStatus, listAudioSessions } from "../services
 import type { AudioEngineStatus, AudioSession } from "../types/audio";
 import type { AppSettings, ExtraAudioApp } from "../types/settings";
 import { useUpdateStore, type UpdateStatus } from "../stores/updateStore";
+import { useAuthStore } from "../stores/authStore";
+import { useBillingStore } from "../stores/billingStore";
+import { startCheckout, startPortal, type BillingStatus } from "../services/billing";
+import { planLabel } from "../utils/format";
 
 const SECTIONS = [
   { id: "general", label: "General" },
+  { id: "account", label: "Account" },
   { id: "recording", label: "Recording" },
   { id: "audio", label: "Audio" },
   { id: "storage", label: "Storage" },
@@ -50,6 +55,8 @@ export function SettingsPage() {
   const installAndRelaunch = useUpdateStore((state) => state.installAndRelaunch);
   const checkingUpdates = updateStatus === "checking";
   const downloadingUpdate = updateStatus === "downloading";
+  const session = useAuthStore((state) => state.session);
+  const billing = useBillingStore((state) => state.status);
 
   function setSection(next: SettingsSection) {
     setParams(next === "general" ? {} : { section: next }, { replace: true });
@@ -117,6 +124,13 @@ export function SettingsPage() {
               }}
             />
           ) : null}
+          {section === "account" ? (
+            <AccountPane
+              session={session}
+              billing={billing}
+              showToast={showToast}
+            />
+          ) : null}
           {section === "recording" ? (
             <RecordingPane settings={settings} onChange={onChange} onBrowse={() => void chooseSaveLocation()} />
           ) : null}
@@ -130,6 +144,71 @@ export function SettingsPage() {
         </section>
       </div>
     </>
+  );
+}
+
+function AccountPane({
+  session,
+  billing,
+  showToast,
+}: {
+  session: { access_token: string } | null;
+  billing: BillingStatus | null;
+  showToast: (message: string) => void;
+}) {
+  const token = session?.access_token ?? "";
+  return (
+    <div className="settings-group">
+      <div className="settings-group-label">Replayr Premium</div>
+      <div className="setting-row">
+        <span className="setting-copy">
+          {billing ? planLabel(billing.plan) : "Free"}
+          <small>
+            {billing?.premium
+              ? billing.cancelAtPeriodEnd
+                ? "Cancels at period end"
+                : "100 GB · original uploads · no watermark"
+              : "$4.99/mo · 100 GB, original uploads, no watermark"}
+          </small>
+        </span>
+        {billing?.premium ? (
+          <button
+            type="button"
+            className="btn sm"
+            disabled={!token}
+            onClick={() => {
+              void startPortal(token, "replayr://billing?status=portal")
+                .then((url) => import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)))
+                .catch((caught: unknown) => showToast(caught instanceof Error ? caught.message : "Could not open billing."));
+            }}
+          >
+            Manage
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn sm primary"
+            disabled={!token}
+            onClick={() => {
+              void startCheckout(token, "month", { successUrl: "replayr://billing?status=success" })
+                .then((url) => import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)))
+                .catch((caught: unknown) => showToast(caught instanceof Error ? caught.message : "Could not start checkout."));
+            }}
+          >
+            Upgrade
+          </button>
+        )}
+      </div>
+      <div className="setting-row">
+        <span className="setting-copy">
+          Profile
+          <small>Username, display name, and quota</small>
+        </span>
+        <Link className="settings-link" to="/profile">
+          Open
+        </Link>
+      </div>
+    </div>
   );
 }
 
@@ -252,6 +331,15 @@ function GeneralPane({
           </span>
           <Link className="settings-link" to="/profile">
             Account
+          </Link>
+        </div>
+        <div className="setting-row">
+          <span className="setting-copy">
+            Replayr Premium
+            <small>$4.99/mo · 100 GB, original uploads, no watermark</small>
+          </span>
+          <Link className="settings-link" to="/profile">
+            Upgrade
           </Link>
         </div>
       </div>

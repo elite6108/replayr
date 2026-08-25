@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { PageHeader } from "../components/common/PageHeader";
+import { PlayerVideo } from "../components/common/ReplayrWatermark";
 import { SocialAvatar } from "../components/common/SocialAvatar";
 import { clipShareUrl } from "../branding";
 import {
@@ -14,6 +15,7 @@ import {
 import { createConversation } from "../services/api.messages";
 import type { FriendRequest, PublicClipCard, UserProfileResponse } from "../services/social-types";
 import { useAuthStore } from "../stores/authStore";
+import { useBillingStore } from "../stores/billingStore";
 import { formatCount, formatDuration, formatHandle } from "../utils/format";
 
 export function UserProfilePage() {
@@ -21,6 +23,7 @@ export function UserProfilePage() {
   const navigate = useNavigate();
   const token = useAuthStore((state) => state.session?.access_token);
   const myId = useAuthStore((state) => state.user?.id);
+  const watermark = useBillingStore((state) => state.status?.watermark ?? true);
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
   const [incoming, setIncoming] = useState<FriendRequest[]>([]);
   const [outgoing, setOutgoing] = useState<FriendRequest[]>([]);
@@ -208,7 +211,9 @@ export function UserProfilePage() {
           <section className="player-card">
             <div className="player-stage">
               {openClip.playbackUrl ? (
-                <video src={openClip.playbackUrl} controls autoPlay />
+                <PlayerVideo showWatermark={watermark}>
+                  <video src={openClip.playbackUrl} controls autoPlay />
+                </PlayerVideo>
               ) : (
                 <p className="muted">Playback is unavailable.</p>
               )}

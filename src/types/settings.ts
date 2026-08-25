@@ -51,6 +51,7 @@ export interface AppSettings {
   onboardingCompleted: boolean;
   desktopShortcut: boolean;
   desktopShortcutPrompted: boolean;
+  watermarkExports: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -85,4 +86,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   onboardingCompleted: false,
   desktopShortcut: false,
   desktopShortcutPrompted: false,
+  watermarkExports: true,
 };

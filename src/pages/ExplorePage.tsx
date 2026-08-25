@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { PageHeader } from "../components/common/PageHeader";
+import { PlayerVideo } from "../components/common/ReplayrWatermark";
 import { SendClipSheet } from "../components/common/SendClipSheet";
 import { clipShareUrl } from "../branding";
 import {
@@ -14,12 +15,14 @@ import {
   type PublicFeedClip,
 } from "../services/social";
 import { useAuthStore } from "../stores/authStore";
+import { useBillingStore } from "../stores/billingStore";
 import { useToastStore } from "../stores/toastStore";
 import { formatCount, formatDuration, formatHandle } from "../utils/format";
 
 export function ExplorePage() {
   const token = useAuthStore((state) => state.session?.access_token);
   const signedIn = Boolean(useAuthStore((state) => state.user));
+  const showAd = useBillingStore((state) => state.status?.ads !== false);
   const showToast = useToastStore((state) => state.show);
   const [clips, setClips] = useState<PublicFeedClip[]>([]);
   const [friendClips, setFriendClips] = useState<PublicFeedClip[] | null>(null);
@@ -92,6 +95,15 @@ export function ExplorePage() {
   return (
     <>
       <PageHeader title="Explore" subtitle="Public clips only. Unlisted links never show up here." />
+      {showAd ? (
+        <aside className="house-ad">
+          <strong>Replayr Premium — $4.99/mo</strong>
+          <p className="muted">100 GB, original-quality uploads, and no Replayr.tv watermark.</p>
+          <Link className="btn primary" to="/profile">
+            Upgrade
+          </Link>
+        </aside>
+      ) : null}
       <section className="discover-rail">
         <div className="panel-head">
           <h2>From friends</h2>
@@ -181,6 +193,7 @@ function PublicClipPanel({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
+  const watermark = useBillingStore((state) => state.status?.watermark ?? true);
 
   useEffect(() => {
     let cancelled = false;
@@ -217,7 +230,9 @@ function PublicClipPanel({
       <section className="player-card">
         <div className="player-stage">
           {clip.playbackUrl ? (
-            <video src={clip.playbackUrl} controls autoPlay />
+            <PlayerVideo showWatermark={watermark}>
+              <video src={clip.playbackUrl} controls autoPlay />
+            </PlayerVideo>
           ) : (
             <p className="muted">Playback is unavailable.</p>
           )}

@@ -24,6 +24,7 @@ import {
   fetchFavoriteGames,
   fetchFriendClips,
   fetchGames,
+  fetchBillingStatus,
   fetchOwnProfile,
   fetchPublicClips,
   setClipLiked,
@@ -57,6 +58,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [commentSlug, setCommentSlug] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [showAd, setShowAd] = useState(true);
   const { notificationsUnread } = useSocialUnread();
 
   const load = useCallback(async () => {
@@ -91,6 +93,16 @@ export default function HomeScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!token) {
+      setShowAd(true);
+      return;
+    }
+    void fetchBillingStatus(token)
+      .then((status) => setShowAd(status.ads))
+      .catch(() => setShowAd(true));
+  }, [token]);
 
   useFocusEffect(
     useCallback(() => {
@@ -174,6 +186,13 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         </View>
+
+        {showAd ? (
+          <Pressable style={styles.houseAd} onPress={() => router.push("/account")}>
+            <Text style={styles.houseAdTitle}>Replayr Premium — $4.99/mo</Text>
+            <Text style={styles.houseAdCopy}>100 GB, original uploads, and no Replayr.tv watermark.</Text>
+          </Pressable>
+        ) : null}
 
         {featured.length > 0 ? (
           <View style={styles.featuredBlock}>
@@ -416,6 +435,14 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: colors.accent,
   },
+  houseAd: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 14,
+    gap: 4,
+  },
+  houseAdTitle: { color: colors.text, fontSize: 15, fontWeight: "700" },
+  houseAdCopy: { color: colors.muted, fontSize: 13 },
   featuredBlock: { gap: 10 },
   featured: { borderRadius: 22, overflow: "hidden", backgroundColor: colors.card },
   featuredScrim: {

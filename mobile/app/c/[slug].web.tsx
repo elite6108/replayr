@@ -3,10 +3,11 @@ import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { CommentsSheet } from "@/components/CommentsSheet";
-import { SendClipSheet } from "@/components/SendClipSheet";
 import { PlayerTools } from "@/components/PlayerTools";
+import { PlayerVideoFrame, ReplayrWatermark } from "@/components/ReplayrWatermark";
+import { SendClipSheet } from "@/components/SendClipSheet";
 import { TimelineBar } from "@/components/TimelineBar";
-import { clipAllowsSocial, fetchPlayback, setClipLiked, type PlaybackClip } from "@/lib/api";
+import { clipAllowsSocial, fetchBillingStatus, fetchPlayback, setClipLiked, type PlaybackClip } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatHandle } from "@/lib/format";
 import { copyClipUrl, shareClipUrl } from "@/lib/media";
@@ -25,6 +26,8 @@ export default function ClipScreen() {
   const [sendOpen, setSendOpen] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [watermark, setWatermark] = useState(true);
+  const [showAd, setShowAd] = useState(true);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -51,6 +54,19 @@ export default function ClipScreen() {
       .catch((caught) => {
         if (!cancelled) setLoadError(caught instanceof Error ? caught.message : "Clip unavailable");
       });
+    if (session?.access_token) {
+      void fetchBillingStatus(session.access_token)
+        .then((status) => {
+          if (!cancelled) {
+            setWatermark(status.watermark);
+            setShowAd(status.ads);
+          }
+        })
+        .catch(() => undefined);
+    } else {
+      setWatermark(true);
+      setShowAd(true);
+    }
     return () => {
       cancelled = true;
     };
@@ -67,22 +83,31 @@ export default function ClipScreen() {
 
   return (
     <View style={styles.stage}>
-      {createElement("video", {
-        key: clip.playbackUrl,
-        ref: (node: HTMLVideoElement | null) => {
-          videoRef.current = node;
-        },
-        src: clip.playbackUrl,
-        poster: clip.thumbnailUrl || undefined,
-        autoPlay: true,
-        loop: true,
-        playsInline: true,
-        onTimeUpdate: (event: { currentTarget: HTMLVideoElement }) => {
-          setCurrent(event.currentTarget.currentTime);
-          if (event.currentTarget.duration) setDuration(event.currentTarget.duration);
-        },
-        style: { width: "100%", height: "100%", backgroundColor: "#000", objectFit: "contain" },
-      })}
+      <PlayerVideoFrame width={clip.width} height={clip.height}>
+        {createElement("video", {
+          key: clip.playbackUrl,
+          ref: (node: HTMLVideoElement | null) => {
+            videoRef.current = node;
+          },
+          src: clip.playbackUrl,
+          poster: clip.thumbnailUrl || undefined,
+          autoPlay: true,
+          loop: true,
+          playsInline: true,
+          onTimeUpdate: (event: { currentTarget: HTMLVideoElement }) => {
+            setCurrent(event.currentTarget.currentTime);
+            if (event.currentTarget.duration) setDuration(event.currentTarget.duration);
+          },
+          style: { width: "100%", height: "100%", backgroundColor: "#000", objectFit: "contain" },
+        })}
+        <ReplayrWatermark show={watermark} />
+      </PlayerVideoFrame>
+      {showAd ? (
+        <Pressable style={styles.houseAd} onPress={() => router.push("/account")}>
+          <Text style={styles.houseAdTitle}>Replayr Premium — $4.99/mo</Text>
+          <Text style={styles.houseAdCopy}>Remove the watermark · original quality</Text>
+        </Pressable>
+      ) : null}
       <Pressable
         style={styles.back}
         onPress={() => {
@@ -164,4 +189,16 @@ const styles = StyleSheet.create({
   title: { color: "#fff", fontSize: 18, fontWeight: "700" },
   muted: { color: "#c8c8c8", fontSize: 13, textTransform: "capitalize" },
   center: { flex: 1, backgroundColor: "#000", padding: 24, justifyContent: "center", gap: 8 },
+  houseAd: {
+    position: "absolute",
+    left: 16,
+    right: 80,
+    top: 64,
+    backgroundColor: "rgba(12,14,20,0.82)",
+    borderRadius: 10,
+    padding: 10,
+    gap: 2,
+  },
+  houseAdTitle: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  houseAdCopy: { color: "#c8c8c8", fontSize: 12 },
 });

@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 import { clipShareUrl, publicApiUrl, publicAppUrl, publicSiteUrl } from "../branding";
 import { PageHeader } from "../components/common/PageHeader";
 import {
+  adminBillingAction,
   deleteAdminClip,
   fetchAdminClips,
   fetchAdminCreators,
@@ -23,10 +24,11 @@ import {
   type AdminUserRow,
 } from "../services/admin";
 import { useAuthStore } from "../stores/authStore";
+import { useBillingStore } from "../stores/billingStore";
 import { isAdminSession } from "../utils/admin";
 import { formatBytes, formatClipDate, formatDuration, planLabel } from "../utils/format";
 
-type Tab = "overview" | "users" | "clips" | "storage" | "creators" | "errors";
+type Tab = "overview" | "users" | "clips" | "storage" | "creators" | "errors" | "billing";
 
 function consoleUrl() {
   try {
@@ -67,6 +69,7 @@ export function AdminPage() {
             ["storage", "Storage"],
             ["creators", "Creators"],
             ["errors", "Errors"],
+            ["billing", "Billing"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -87,6 +90,20 @@ export function AdminPage() {
       {tab === "storage" ? <StoragePane token={token} /> : null}
       {tab === "creators" ? <CreatorsPane token={token} /> : null}
       {tab === "errors" ? <ErrorsPane token={token} /> : null}
+      {tab === "billing" ? (
+        <section className="panel stack">
+          <p className="muted">Grant plans, comps, and Stripe events live in the website console.</p>
+          <button
+            className="btn primary"
+            type="button"
+            onClick={() => {
+              void import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(`${consoleUrl()}/billing`));
+            }}
+          >
+            Open billing console
+          </button>
+        </section>
+      ) : null}
     </>
   );
 }
@@ -117,6 +134,8 @@ function OverviewPane({ token }: { token: string }) {
         <Stat label="Clips today" value={data?.clipsToday} />
         <Stat label="Cloud used" value={data ? formatBytes(data.storageUsedBytes) : undefined} />
         <Stat label="Pending creators" value={data?.pendingCreatorApps} />
+        <Stat label="Premium" value={data?.premiumCount} />
+        <Stat label="Past due" value={data?.pastDueCount} />
         <Stat label="Open errors" value={data?.openErrors} />
         <Stat label="Errors / 24h" value={data?.errors24h} />
       </div>
@@ -146,10 +165,15 @@ function Stat({ label, value }: { label: string; value?: number | string }) {
 }
 
 function UsersPane({ token }: { token: string }) {
+  const selfId = useAuthStore((state) => state.user?.id);
+  const refreshBilling = useBillingStore((state) => state.load);
   const [query, setQuery] = useState("");
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [plans, setPlans] = useState<AdminPlan[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const slugs = plans.length ? plans.map((plan) => plan.slug) : ["free", "pro", "pro_plus"];
 
   async function load(next = query) {
     try {
@@ -170,8 +194,45 @@ function UsersPane({ token }: { token: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  async function afterChange(userId: string) {
+    await load();
+    if (userId === selfId) {
+      await refreshBilling(token);
+      await useAuthStore.getState().refreshProfile();
+    }
+  }
+
+  async function setFree(user: AdminUserRow) {
+    const who = user.email || user.username || "this account";
+    if (!window.confirm(`Put ${who} on Free now? This removes comps and cancels any Stripe subscription.`)) return;
+    setBusyId(user.id);
+    try {
+      await adminBillingAction(token, user.id, { action: "revoke" });
+      await afterChange(user.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not move that account to Free.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function givePremium(user: AdminUserRow, slug: "pro" | "pro_plus" = "pro") {
+    const who = user.email || user.username || "this account";
+    if (!window.confirm(`Give ${who} ${planLabel(slug)}?`)) return;
+    setBusyId(user.id);
+    try {
+      await adminBillingAction(token, user.id, { action: "grant", planSlug: slug, reason: "Admin grant" });
+      await afterChange(user.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not grant Premium.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <section className="stack">
+      <p className="muted">Search your email, then Give Premium or Set to Free. That also works on your own account.</p>
       <form
         className="row"
         onSubmit={(event) => {
@@ -193,39 +254,71 @@ function UsersPane({ token }: { token: string }) {
               <th>Plan</th>
               <th>Storage</th>
               <th>Clips</th>
-              <th>Last sign-in</th>
+              <th>Access</th>
             </tr>
           </thead>
           <tbody>
-            {users.map((user) => (
-              <tr key={user.id}>
-                <td>
-                  {user.email || user.username || user.id}
-                  {user.username ? <span className="muted"> @{user.username}</span> : null}
-                </td>
-                <td>
-                  <select
-                    value={user.planSlug}
-                    onChange={(event) => {
-                      const planSlug = event.target.value;
-                      if (!window.confirm(`Move this account to ${planLabel(planSlug)}?`)) return;
-                      void updateAdminUser(token, user.id, { planSlug }).then(() => load());
-                    }}
-                  >
-                    {plans.map((plan) => (
-                      <option key={plan.slug} value={plan.slug}>
-                        {planLabel(plan.slug)}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  {formatBytes(user.storageUsedBytes)} / {formatBytes(user.storageLimitBytes)}
-                </td>
-                <td>{user.clipCount}</td>
-                <td>{user.lastSignInAt ? formatClipDate(user.lastSignInAt) : "Never"}</td>
-              </tr>
-            ))}
+            {users.map((user) => {
+              const busy = busyId === user.id;
+              const you = user.id === selfId;
+              return (
+                <tr key={user.id}>
+                  <td>
+                    {user.email || user.username || user.id}
+                    {you ? <span className="muted"> · you</span> : null}
+                    {user.username ? <span className="muted"> @{user.username}</span> : null}
+                  </td>
+                  <td>
+                    {planLabel(user.planSlug)}
+                    {user.complimentary ? <span className="muted"> · comp</span> : null}
+                    {user.stripeStatus ? <span className="muted"> · {user.stripeStatus}</span> : null}
+                  </td>
+                  <td>
+                    {formatBytes(user.storageUsedBytes)} / {formatBytes(user.storageLimitBytes)}
+                  </td>
+                  <td>{user.clipCount}</td>
+                  <td className="row">
+                    {user.planSlug === "pro" || user.planSlug === "pro_plus" ? (
+                      <button className="btn" type="button" disabled={busy} onClick={() => void setFree(user)}>
+                        Set to Free
+                      </button>
+                    ) : (
+                      <button className="btn primary" type="button" disabled={busy} onClick={() => void givePremium(user)}>
+                        Give Premium
+                      </button>
+                    )}
+                    {user.planSlug !== "pro_plus" ? (
+                      <button className="btn" type="button" disabled={busy} onClick={() => void givePremium(user, "pro_plus")}>
+                        Give Pro+
+                      </button>
+                    ) : null}
+                    <select
+                      value={user.planSlug}
+                      disabled={busy}
+                      aria-label={`Plan for ${user.email || user.username || "user"}`}
+                      onChange={(event) => {
+                        const planSlug = event.target.value;
+                        if (planSlug === user.planSlug) return;
+                        if (!window.confirm(`Move this account to ${planLabel(planSlug)}?`)) return;
+                        setBusyId(user.id);
+                        void updateAdminUser(token, user.id, { planSlug })
+                          .then(() => afterChange(user.id))
+                          .catch((caught: unknown) => {
+                            setError(caught instanceof Error ? caught.message : "Could not update plan.");
+                          })
+                          .finally(() => setBusyId(null));
+                      }}
+                    >
+                      {slugs.map((plan) => (
+                        <option key={plan} value={plan}>
+                          {planLabel(plan)}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

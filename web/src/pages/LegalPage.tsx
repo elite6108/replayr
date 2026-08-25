@@ -232,8 +232,12 @@ function TermsBody() {
 
       <h2>8. Cloud storage and plans</h2>
       <p>
-        Free accounts have a cloud quota. Pro plans may be offered later; there is no checkout in the product today.
-        Local files on your PC are not billed against cloud quota. We may change limits with notice on the site.
+        Free accounts include 5 GB of cloud storage, 20-minute 1080p/60 fps uploads, a Replayr.tv watermark on shared
+        and uploaded copies, and house upgrade ads on the website and mobile app. Replayr Premium is $4.99 per month or
+        $47.88 per year, with a 7-day trial that requires a card. Premium includes 100 GB, original-quality uploads,
+        no watermark, and no ads. You can cancel in the Stripe Customer Portal; access continues until the end of the
+        paid period. Local files on this PC are not billed against cloud quota. We may change limits with notice on
+        the site.
       </p>
 
       <h2>9. Disclaimers</h2>

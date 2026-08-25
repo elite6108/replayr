@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ClipThumb } from "../components/ClipThumb";
 import { Seo } from "../components/Seo";
+import { fetchBillingStatus } from "../lib/billing";
 import { useAuth } from "../lib/auth";
 import { formatCount, formatDurationMs, formatHandle } from "../lib/format";
 import { fetchFriendClips, fetchPublicClips, type PublicClipCard } from "../lib/games";
@@ -11,6 +12,7 @@ export function ExplorePage() {
   const [clips, setClips] = useState<PublicClipCard[]>([]);
   const [friendClips, setFriendClips] = useState<PublicClipCard[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showAd, setShowAd] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +47,16 @@ export function ExplorePage() {
     };
   }, [session?.access_token]);
 
+  useEffect(() => {
+    if (!session?.access_token) {
+      setShowAd(true);
+      return;
+    }
+    void fetchBillingStatus(session.access_token)
+      .then((status) => setShowAd(status.ads))
+      .catch(() => setShowAd(true));
+  }, [session?.access_token]);
+
   return (
     <main className="page">
       <Seo
@@ -53,6 +65,15 @@ export function ExplorePage() {
       />
       <h1>For You</h1>
       <p className="muted">Public clips only. Unlisted links never show up here, and share URLs stay /c/…</p>
+      {showAd ? (
+        <aside className="house-ad">
+          <strong>Replayr Premium — $4.99/mo</strong>
+          <p className="muted">100 GB, original-quality uploads, and no Replayr.tv watermark.</p>
+          <Link className="btn primary" to="/pricing">
+            See Premium
+          </Link>
+        </aside>
+      ) : null}
       <section className="discover-rail">
         <h2>From friends</h2>
         {!session ? (

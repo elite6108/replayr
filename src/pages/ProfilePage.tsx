@@ -1,11 +1,14 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AuthCard } from "../components/common/AuthCard";
+import { publicSiteUrl } from "../branding";
 import { PageHeader } from "../components/common/PageHeader";
+import { startCheckout, startPortal } from "../services/billing";
 import { useAuthStore } from "../stores/authStore";
+import { useBillingStore } from "../stores/billingStore";
 import { useToastStore } from "../stores/toastStore";
 import { isAdminSession } from "../utils/admin";
-import { formatBytes, initials } from "../utils/format";
+import { formatBytes, initials, planLabel } from "../utils/format";
 import { validateUsername } from "../utils/username";
 
 export function ProfilePage() {
@@ -14,6 +17,7 @@ export function ProfilePage() {
   const session = useAuthStore((state) => state.session);
   const profile = useAuthStore((state) => state.profile);
   const storage = useAuthStore((state) => state.storage);
+  const billing = useBillingStore((state) => state.status);
   const signOut = useAuthStore((state) => state.signOut);
   const saveProfile = useAuthStore((state) => state.saveProfile);
   const showToast = useToastStore((state) => state.show);
@@ -101,10 +105,42 @@ export function ProfilePage() {
         {storage ? (
           <>
             <div className="muted">
-              {formatBytes(used)} / {formatBytes(limit)} cloud storage
+              {planLabel(billing?.plan || "free")} · {formatBytes(used)} / {formatBytes(limit)} cloud storage
             </div>
             <div className="meter" aria-label="Cloud storage used">
               <span style={{ width: `${pct}%` }} />
+            </div>
+            <div className="row">
+              {billing?.premium ? (
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => {
+                    if (!session?.access_token) return;
+                    void startPortal(session.access_token, "replayr://billing?status=portal")
+                      .then((url) => import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)))
+                      .catch((caught: unknown) => showToast(caught instanceof Error ? caught.message : "Could not open billing."));
+                  }}
+                >
+                  Manage billing
+                </button>
+              ) : (
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={() => {
+                    if (!session?.access_token) return;
+                    void startCheckout(session.access_token, "month", {
+                      successUrl: "replayr://billing?status=success",
+                      cancelUrl: `${publicSiteUrl()}/pricing`,
+                    })
+                      .then((url) => import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)))
+                      .catch((caught: unknown) => showToast(caught instanceof Error ? caught.message : "Could not start checkout."));
+                  }}
+                >
+                  Upgrade to Premium — $4.99/mo
+                </button>
+              )}
             </div>
           </>
         ) : null}

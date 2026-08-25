@@ -6,10 +6,11 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Avatar } from "@/components/Avatar";
 import { Button, Notice } from "@/components/ui";
-import { deleteAccount } from "@/lib/api";
+import { deleteAccount, fetchBillingStatus, type BillingStatus } from "@/lib/api";
 import { fetchFriends } from "@/lib/api.friends";
 import { useAuth } from "@/lib/auth";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, planLabel } from "@/lib/format";
+import { publicShareUrl } from "@/lib/supabase";
 import { useSocialUnread } from "@/lib/socialUnread";
 import { getSupabase } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
@@ -34,6 +35,7 @@ export default function AccountScreen() {
   const { friendsUnread } = useSocialUnread();
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [friendCount, setFriendCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -55,11 +57,15 @@ export default function AccountScreen() {
       if (profileResult.error) setError(profileResult.error.message);
       else setProfile(profileResult.data as ProfileRow | null);
       if (!quotaResult.error && quotaResult.data) setQuota(quotaResult.data as Quota);
+      if (session?.access_token) {
+        const next = await fetchBillingStatus(session.access_token).catch(() => null);
+        if (!cancelled && next) setBilling(next);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, session?.access_token]);
 
   useFocusEffect(
     useCallback(() => {
@@ -157,7 +163,7 @@ export default function AccountScreen() {
 
         {quota ? (
           <View style={styles.card}>
-            <Text style={styles.cardLabel}>Cloud storage</Text>
+            <Text style={styles.cardLabel}>{planLabel(billing?.plan || "free")} · Cloud storage</Text>
             <View style={styles.bar}>
               <View style={[styles.fill, { width: `${percent}%` }]} />
             </View>
@@ -166,6 +172,16 @@ export default function AccountScreen() {
             </Text>
           </View>
         ) : null}
+
+        <View style={styles.card}>
+          <SettingsRow
+            icon="card-outline"
+            title={billing?.premium ? "Manage Premium" : "Replayr Premium — $4.99/mo"}
+            subtitle={billing?.premium ? "Open billing on replayr.tv" : "100 GB, original uploads, no watermark"}
+            onPress={() => void Linking.openURL(`${publicShareUrl()}/account`)}
+            last
+          />
+        </View>
 
         <View style={styles.card}>
           <SettingsRow

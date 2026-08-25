@@ -18,6 +18,7 @@ import { EditorPage } from "./pages/EditorPage";
 import { MicDisconnectToasts } from "./components/layout/MicDisconnectToasts";
 import { ToastRegion } from "./components/common/ToastRegion";
 import { useAuthStore } from "./stores/authStore";
+import { useBillingStore } from "./stores/billingStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useDetectionStore } from "./stores/detectionStore";
 import { useRecordingStore } from "./stores/recordingStore";
@@ -39,6 +40,8 @@ export default function App() {
   const initializeCloud = useCloudStore((state) => state.initialize);
   const initializeUpdates = useUpdateStore((state) => state.initialize);
   const userId = useAuthStore((state) => state.user?.id);
+  const accessToken = useAuthStore((state) => state.session?.access_token ?? null);
+  const loadBilling = useBillingStore((state) => state.load);
   const refreshCloud = useCloudStore((state) => state.refresh);
   useSocialUnreadSync();
 
@@ -63,11 +66,15 @@ export default function App() {
 
   useEffect(() => {
     void refreshCloud();
-  }, [userId, refreshCloud]);
+    void loadBilling(accessToken);
+  }, [userId, accessToken, refreshCloud, loadBilling]);
 
   useEffect(() => {
     function onVisible() {
-      if (document.visibilityState === "visible") void refreshCloud();
+      if (document.visibilityState === "visible") {
+        void refreshCloud();
+        void loadBilling(useAuthStore.getState().session?.access_token ?? null);
+      }
     }
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);

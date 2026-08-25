@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use tauri::Manager;
 
 use windows::core::{GUID, PCWSTR};
 use windows::Win32::Media::MediaFoundation::{
@@ -291,6 +292,69 @@ pub fn write_vertical_mp4(
         written_ms,
         frames,
         started.elapsed().as_millis()
+    );
+    Ok(written_ms)
+}
+
+/// Re-encodes `input` with a Replayr.tv watermark. The source file is not modified.
+pub fn write_watermarked_mp4(input: &Path, output: &Path, fps: u32) -> Result<i64, String> {
+    if !input.exists() {
+        return Err("That clip is no longer on disk.".into());
+    }
+    if input == output {
+        return Err("Watermark output cannot replace the original file.".into());
+    }
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    unsafe {
+        MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|err| err.to_string())?;
+    }
+    let pcm = decode_audio_pcm(input).unwrap_or_default();
+    let has_audio = !pcm.is_empty();
+    let reader = crate::thumb::open_rgb_reader(input)?;
+    let Some((first, _, duration)) = crate::thumb::read_rgb_sample(&reader)? else {
+        return Err("That clip has no video.".into());
+    };
+    let width = first.width.max(16);
+    let height = first.height.max(16);
+    let fps = fps.clamp(24, 60);
+    let bitrate = ((width as u64 * height as u64 * u64::from(fps)) / 6).clamp(4_000_000, 25_000_000) as u32;
+    let mut writer = crate::encode::MfWriter::new(output, width, height, fps, bitrate, has_audio, None)?;
+    let mut frame = first;
+    crate::still::composite_watermark(&mut frame);
+    writer.write_bgra(&frame.bgra, frame.pitch, frame.width, frame.height, 0, true)?;
+    let mut clock = duration.max(1);
+    let mut frames = 1_u32;
+    loop {
+        let Some((mut next, _, next_duration)) = crate::thumb::read_rgb_sample(&reader)? else {
+            break;
+        };
+        crate::still::composite_watermark(&mut next);
+        writer.write_bgra(&next.bgra, next.pitch, next.width, next.height, clock, false)?;
+        clock += next_duration.max(1);
+        frames += 1;
+    }
+    drop(reader);
+    if frames == 0 {
+        return Err("That clip has no video.".into());
+    }
+    let video_hns = writer.timestamp();
+    if has_audio {
+        let mut audio = pcm;
+        let _ = fit_pcm_to_video(&mut audio, video_hns);
+        writer.write_pcm_closing(&audio)?;
+    } else {
+        let _ = writer.write_pcm_closing(&[]);
+    }
+    let written_ms = (writer.timestamp() / 10_000).max(0);
+    writer.finish()?;
+    tracing::info!(
+        "watermarked {} -> {} ({} ms, {} frames)",
+        input.display(),
+        output.display(),
+        written_ms,
+        frames
     );
     Ok(written_ms)
 }
@@ -775,4 +839,23 @@ fn copy_stream_until(
         *timeline = out_time + duration;
     }
     Ok(())
+}
+
+pub fn should_watermark_exports(app: &tauri::AppHandle) -> bool {
+    let state = app.state::<crate::database::AppState>();
+    let Ok(db) = state.db.lock() else {
+        return true;
+    };
+    crate::settings::load(&db)
+        .map(|item| item.watermark_exports)
+        .unwrap_or(true)
+}
+
+pub fn watermarked_temp(source: &Path, fps: u32) -> Result<PathBuf, String> {
+    let dest = source.with_file_name(format!(
+        "{}.watermark.mp4",
+        source.file_stem().and_then(|name| name.to_str()).unwrap_or("clip")
+    ));
+    write_watermarked_mp4(source, &dest, fps)?;
+    Ok(dest)
 }

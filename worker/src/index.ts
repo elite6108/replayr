@@ -25,6 +25,7 @@ import {
   type PlaybackRow,
   type PublicClipRow,
 } from "./shared";
+import { assertUploadAllowed, handleBilling } from "./billing";
 import { handleSocial, hasConversationClipGrant } from "./social";
 
 export type {
@@ -114,6 +115,8 @@ async function route(
       storage: Boolean(env.R2_BUCKET_NAME && env.R2_ACCESS_KEY_ID && env.R2_ACCOUNT_ID),
     });
   }
+  const billing = await handleBilling(request, env, url);
+  if (billing) return billing;
   const social = await handleSocial(request, env, url);
   if (social) return social;
   if (request.method === "GET" && url.pathname === "/v1/library") {
@@ -228,8 +231,14 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
     return json({ error: "No storage plan is attached to this account." }, 403);
   }
   if (quota.storage_used_bytes + size > quota.storage_limit_bytes) {
-    return json({ error: "This clip would exceed your cloud storage limit." }, 403);
+    return json({ error: "This clip would exceed your cloud storage limit. Upgrade to Premium for 100 GB." }, 403);
   }
+  await assertUploadAllowed(env, user.id, {
+    durationMs: body.durationMs,
+    width: body.width,
+    height: body.height,
+    fps: body.fps,
+  });
   const openSessions = await serviceRestCount(
     env,
     `/upload_sessions?user_id=eq.${user.id}&status=eq.uploading&expires_at=gt.${new Date().toISOString()}&select=id`,

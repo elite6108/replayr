@@ -88,6 +88,9 @@ pub struct AppSettings {
     pub desktop_shortcut: bool,
     #[serde(default)]
     pub desktop_shortcut_prompted: bool,
+    /// When true, share / export / upload copies get a Replayr.tv watermark.
+    #[serde(default = "default_true")]
+    pub watermark_exports: bool,
 }
 
 impl Default for AppSettings {
@@ -124,6 +127,7 @@ impl Default for AppSettings {
             onboarding_completed: false,
             desktop_shortcut: false,
             desktop_shortcut_prompted: false,
+            watermark_exports: true,
         }
     }
 }

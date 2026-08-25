@@ -12,6 +12,8 @@ export interface AdminOverview {
   pendingCreatorApps: number;
   openErrors?: number;
   errors24h?: number;
+  premiumCount?: number;
+  pastDueCount?: number;
 }
 
 export interface AdminErrorRow {
@@ -46,6 +48,8 @@ export interface AdminUserRow {
   createdAt: string | null;
   isVerified: boolean;
   role: string | null;
+  stripeStatus?: string | null;
+  complimentary?: boolean;
 }
 
 export interface AdminClipRow {
@@ -119,6 +123,17 @@ export function updateAdminUser(
   return adminFetch<{ ok: boolean }>(`/v1/admin/users/${userId}`, token, {
     method: "PATCH",
     body: JSON.stringify(patch),
+  });
+}
+
+export function adminBillingAction(
+  token: string,
+  userId: string,
+  body: { action: "grant" | "revoke" | "cancel" | "extend_trial"; planSlug?: string; days?: number; reason?: string },
+) {
+  return adminFetch<{ ok: boolean }>(`/v1/admin/users/${userId}/billing`, token, {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 

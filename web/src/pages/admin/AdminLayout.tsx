@@ -4,6 +4,7 @@ import { Seo } from "../../components/Seo";
 const links = [
   { to: "/admin", label: "Overview", end: true },
   { to: "/admin/users", label: "Users" },
+  { to: "/admin/billing", label: "Billing" },
   { to: "/admin/clips", label: "Clips" },
   { to: "/admin/storage", label: "Storage" },
   { to: "/admin/creators", label: "Creators" },

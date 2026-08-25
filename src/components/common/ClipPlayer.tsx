@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { SendClipSheet } from "./SendClipSheet";
+import { PlayerVideo } from "./ReplayrWatermark";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { useCloudStore } from "../../stores/cloudStore";
 import { useAuthStore } from "../../stores/authStore";
+import { useBillingStore } from "../../stores/billingStore";
 import { formatBytes, formatClipDate, formatDuration, isVideoPath } from "../../utils/format";
 
 export function ClipPlayer() {
@@ -18,6 +20,7 @@ export function ClipPlayer() {
   const reveal = useLibraryStore((state) => state.reveal);
   const upload = useLibraryStore((state) => state.upload);
   const user = useAuthStore((state) => state.user);
+  const watermark = useBillingStore((state) => state.status?.watermark ?? true);
   const cloudClips = useCloudStore((state) => state.clips);
   const navigate = useNavigate();
   const clip = clips.find((item) => item.localId === playingId) ?? null;
@@ -53,7 +56,9 @@ export function ClipPlayer() {
       <section className="player-card">
         <div className="player-stage">
           {video ? (
-            <video src={media} controls autoPlay />
+            <PlayerVideo showWatermark={watermark}>
+              <video src={media} controls autoPlay />
+            </PlayerVideo>
           ) : (
             <img src={media} alt={clip.title || "Screenshot"} />
           )}

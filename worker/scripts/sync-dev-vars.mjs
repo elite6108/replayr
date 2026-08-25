@@ -12,6 +12,7 @@ const accountId =
   env.R2_ACCOUNT_ID ||
   (env.R2_ENDPOINT?.match(/^https:\/\/([a-f0-9]{32})\.r2\.cloudflarestorage\.com/i)?.[1] ?? "");
 
+const existing = parseEnv(join(root, "worker", ".dev.vars"));
 const vars = {
   SUPABASE_URL: env.VITE_SUPABASE_URL || env.SUPABASE_URL || "",
   SUPABASE_ANON_KEY: env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || "",
@@ -21,6 +22,15 @@ const vars = {
   R2_BUCKET_NAME: env.R2_BUCKET_NAME || "",
   PUBLIC_APP_URL: "http://127.0.0.1:8787",
 };
+for (const key of [
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
+  "STRIPE_PRICE_PREMIUM_MONTHLY",
+  "STRIPE_PRICE_PREMIUM_YEARLY",
+]) {
+  const value = env[key] || existing[key];
+  if (value) vars[key] = value;
+}
 if (env.SUPABASE_SERVICE_ROLE_KEY) {
   vars.SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
 } else {

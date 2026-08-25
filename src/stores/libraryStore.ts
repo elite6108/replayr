@@ -252,7 +252,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       await useAuthStore.getState().refreshProfile();
       useToastStore.getState().show("Uploaded to cloud");
     } catch (caught) {
-      useToastStore.getState().show(invokeErrorMessage(caught, "Upload failed"));
+      const message = invokeErrorMessage(caught, "Upload failed");
+      useToastStore.getState().show(message.includes("Premium") ? `${message} Open Account to upgrade.` : message);
       await get().refresh();
     }
     })();

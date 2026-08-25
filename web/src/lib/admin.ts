@@ -37,6 +37,8 @@ export interface AdminOverview {
   pendingCreatorApps: number;
   openErrors: number;
   errors24h: number;
+  premiumCount?: number;
+  pastDueCount?: number;
 }
 
 export interface AdminErrorRow {
@@ -56,6 +58,10 @@ export interface AdminErrorRow {
 export interface AdminPlan {
   slug: string;
   storageLimitBytes: number;
+  maxClipDurationMs?: number | null;
+  maxUploadQuality?: string | null;
+  watermark?: boolean;
+  ads?: boolean;
 }
 
 export interface AdminUserRow {
@@ -71,6 +77,11 @@ export interface AdminUserRow {
   createdAt: string | null;
   isVerified: boolean;
   role: string | null;
+  stripeStatus?: string | null;
+  currentPeriodEnd?: string | null;
+  cancelAtPeriodEnd?: boolean;
+  stripeCustomerId?: string | null;
+  complimentary?: boolean;
 }
 
 export interface AdminClipRow {
@@ -220,6 +231,55 @@ export function resolveAdminError(token: string, fingerprint: string, resolved =
   return adminFetch<{ ok: boolean }>(`/v1/admin/errors/${fingerprint}`, token, {
     method: "PATCH",
     body: JSON.stringify({ resolved }),
+  });
+}
+
+export function fetchAdminBilling(token: string) {
+  return adminFetch<{
+    premium: number;
+    trialing: number;
+    pastDue: number;
+    complimentary: number;
+    canceling: number;
+    estimatedMrr: number;
+    storageRiskUsd: number;
+    settings: { watermark_enabled: boolean; ads_enabled: boolean };
+    events: { id: string; type: string; userId: string | null; ok: boolean; error: string | null; createdAt: string }[];
+  }>("/v1/admin/billing", token);
+}
+
+export function updateAdminSettings(token: string, patch: { watermarkEnabled?: boolean; adsEnabled?: boolean }) {
+  return adminFetch<{ watermark_enabled: boolean; ads_enabled: boolean }>("/v1/admin/settings", token, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function updateAdminPlan(
+  token: string,
+  slug: string,
+  patch: {
+    storageLimitBytes?: number;
+    maxClipDurationMs?: number | null;
+    maxUploadQuality?: string | null;
+    watermark?: boolean;
+    ads?: boolean;
+  },
+) {
+  return adminFetch<{ plans: AdminPlan[] }>(`/v1/admin/plans/${slug}`, token, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function adminBillingAction(
+  token: string,
+  userId: string,
+  body: { action: "grant" | "revoke" | "cancel" | "extend_trial"; planSlug?: string; days?: number; reason?: string },
+) {
+  return adminFetch<{ ok: boolean }>(`/v1/admin/users/${userId}/billing`, token, {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 

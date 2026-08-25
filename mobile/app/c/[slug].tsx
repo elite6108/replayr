@@ -5,10 +5,18 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView, type VideoPlayer } from "expo-video";
 import { PlayerTools } from "@/components/PlayerTools";
+import { PlayerVideoFrame, ReplayrWatermark } from "@/components/ReplayrWatermark";
 import { TimelineBar } from "@/components/TimelineBar";
 import { CommentsSheet } from "@/components/CommentsSheet";
 import { SendClipSheet } from "@/components/SendClipSheet";
-import { clipAllowsSocial, deleteCloudClip, fetchPlayback, setClipLiked, type PlaybackClip } from "@/lib/api";
+import {
+  clipAllowsSocial,
+  deleteCloudClip,
+  fetchBillingStatus,
+  fetchPlayback,
+  setClipLiked,
+  type PlaybackClip,
+} from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatHandle } from "@/lib/format";
 import { copyClipUrl, saveClipToPhotos, shareClipUrl } from "@/lib/media";
@@ -36,6 +44,8 @@ export default function ClipScreen() {
   const { session } = useAuth();
   const [clip, setClip] = useState<PlaybackClip | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [watermark, setWatermark] = useState(true);
+  const [showAd, setShowAd] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +58,19 @@ export default function ClipScreen() {
       .catch((caught) => {
         if (!cancelled) setLoadError(caught instanceof Error ? caught.message : "Clip unavailable");
       });
+    if (session?.access_token) {
+      void fetchBillingStatus(session.access_token)
+        .then((status) => {
+          if (!cancelled) {
+            setWatermark(status.watermark);
+            setShowAd(status.ads);
+          }
+        })
+        .catch(() => undefined);
+    } else {
+      setWatermark(true);
+      setShowAd(true);
+    }
     return () => {
       cancelled = true;
     };
@@ -78,6 +101,8 @@ export default function ClipScreen() {
       token={session?.access_token}
       userId={session?.user.id}
       onBack={() => router.back()}
+      watermark={watermark}
+      showAd={showAd}
     />
   );
 }
@@ -88,12 +113,16 @@ function ReadyPlayer({
   token,
   userId,
   onBack,
+  watermark,
+  showAd,
 }: {
   clip: PlaybackClip;
   clipId?: string;
   token?: string;
   userId?: string;
   onBack: () => void;
+  watermark: boolean;
+  showAd: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const fallbackDuration = (clip.durationMs ?? 0) / 1000;
@@ -236,14 +265,23 @@ function ReadyPlayer({
 
   return (
     <View style={styles.stage}>
-      <VideoView
-        player={player}
-        style={[styles.video, commentsOpen && styles.videoHidden]}
-        nativeControls={false}
-        contentFit="contain"
-        pointerEvents="none"
-      />
+      <PlayerVideoFrame width={clip.width} height={clip.height}>
+        <VideoView
+          player={player}
+          style={[styles.video, commentsOpen && styles.videoHidden]}
+          nativeControls={false}
+          contentFit="contain"
+          pointerEvents="none"
+        />
+        <ReplayrWatermark show={watermark} />
+      </PlayerVideoFrame>
       <Pressable style={styles.tap} onPress={togglePlayback} />
+      {showAd ? (
+        <Pressable style={styles.houseAd} onPress={() => router.push("/account")}>
+          <Text style={styles.houseAdTitle}>Replayr Premium — $4.99/mo</Text>
+          <Text style={styles.houseAdCopy}>Remove the watermark · original quality</Text>
+        </Pressable>
+      ) : null}
       <View style={styles.hud} pointerEvents="box-none">
         <Pressable
           style={[styles.back, { top: insets.top + 8 }]}
@@ -327,7 +365,7 @@ function ReadyPlayer({
 
 const styles = StyleSheet.create({
   stage: { flex: 1, backgroundColor: "#000" },
-  video: { flex: 1, backgroundColor: "#000" },
+  video: { width: "100%", height: "100%", backgroundColor: "#000" },
   videoHidden: { opacity: 0 },
   tap: { ...StyleSheet.absoluteFill },
   hud: { ...StyleSheet.absoluteFill, zIndex: 2, elevation: 2 },
@@ -336,4 +374,17 @@ const styles = StyleSheet.create({
   title: { color: "#fff", fontSize: 18, fontWeight: "700" },
   muted: { color: "#c8c8c8", fontSize: 13, textTransform: "capitalize" },
   center: { flex: 1, backgroundColor: "#000", padding: 24, justifyContent: "center", gap: 8 },
+  houseAd: {
+    position: "absolute",
+    left: 16,
+    right: 80,
+    top: 64,
+    backgroundColor: "rgba(12,14,20,0.82)",
+    borderRadius: 10,
+    padding: 10,
+    zIndex: 3,
+    gap: 2,
+  },
+  houseAdTitle: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  houseAdCopy: { color: "#c8c8c8", fontSize: 12 },
 });

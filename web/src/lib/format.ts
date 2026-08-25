@@ -39,7 +39,7 @@ export function formatClipCap(ms: number | null | undefined): string {
 
 export function planLabel(slug: string): string {
   if (slug === "pro_plus") return "Pro+";
-  if (slug === "pro") return "Pro";
+  if (slug === "pro") return "Premium";
   if (slug === "free") return "Free";
   return slug;
 }

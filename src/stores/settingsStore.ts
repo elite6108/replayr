@@ -49,6 +49,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     discordAudioGain: typeof settings.discordAudioGain === "number" ? settings.discordAudioGain : DEFAULT_SETTINGS.discordAudioGain,
     extraApps: Array.isArray(settings.extraApps) ? settings.extraApps : DEFAULT_SETTINGS.extraApps,
     hotkeys: { ...DEFAULT_SETTINGS.hotkeys, ...settings.hotkeys },
+    watermarkExports: settings.watermarkExports ?? DEFAULT_SETTINGS.watermarkExports,
   };
 }
 

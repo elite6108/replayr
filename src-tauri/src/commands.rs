@@ -417,13 +417,20 @@ pub fn share_local_clip(app: AppHandle, file_path: String) -> AppResult<String> 
 }
 
 #[tauri::command]
-pub fn export_local_clip(source: String, dest: String) -> AppResult<()> {
+pub fn export_local_clip(app: AppHandle, source: String, dest: String) -> AppResult<()> {
+    let src = std::path::Path::new(&source);
+    if crate::export::should_watermark_exports(&app)
+        && src.extension().and_then(|value| value.to_str()).unwrap_or("").eq_ignore_ascii_case("mp4")
+    {
+        crate::export::write_watermarked_mp4(src, std::path::Path::new(&dest), 60).map_err(AppError::Message)?;
+        return Ok(());
+    }
     library::export_copy(&source, &dest)
 }
 
 #[tauri::command]
-pub fn download_url_to_file(url: String, dest: String) -> AppResult<()> {
-    crate::upload::download_url_to_file(&url, &dest)
+pub fn download_url_to_file(app: AppHandle, url: String, dest: String) -> AppResult<()> {
+    crate::upload::download_url_to_file(&app, &url, &dest)
 }
 
 #[tauri::command]

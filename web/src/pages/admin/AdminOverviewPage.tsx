@@ -11,6 +11,8 @@ const cards: { key: keyof AdminOverview; label: string; to: string; format?: (va
   { key: "clipsToday", label: "Clips today", to: "/admin/clips" },
   { key: "storageUsedBytes", label: "Cloud storage used", to: "/admin/storage", format: formatBytes },
   { key: "pendingCreatorApps", label: "Pending creators", to: "/admin/creators" },
+  { key: "premiumCount", label: "Premium accounts", to: "/admin/billing" },
+  { key: "pastDueCount", label: "Past due", to: "/admin/billing" },
   { key: "openErrors", label: "Open errors", to: "/admin/errors" },
   { key: "errors24h", label: "Error groups / 24h", to: "/admin/errors" },
 ];
@@ -53,7 +55,7 @@ export function AdminOverviewPage() {
             <strong>
               {data
                 ? card.format
-                  ? card.format(data[card.key])
+                  ? card.format(Number(data[card.key] ?? 0))
                   : Number(data[card.key] ?? 0).toLocaleString()
                 : "—"}
             </strong>

@@ -85,6 +85,25 @@ pub fn upload_local_clip(
         return Err(AppError::Message("That file is no longer on disk.".into()));
     }
 
+    let watermarked = {
+        let db = app.state::<AppState>();
+        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        crate::settings::load(&conn)
+            .map(|item| item.watermark_exports)
+            .unwrap_or(true)
+    };
+    let upload_path = if watermarked {
+        match crate::export::watermarked_temp(path, clip.fps.unwrap_or(60).clamp(24, 60) as u32) {
+            Ok(next) => next,
+            Err(err) => {
+                fail(app, local_id, &err)?;
+                return Err(AppError::Message(err));
+            }
+        }
+    } else {
+        path.to_path_buf()
+    };
+    let path = upload_path.as_path();
     let file_size = std::fs::metadata(path)?.len();
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(300))
@@ -342,7 +361,7 @@ pub fn delete_cloud_clip(
     Ok(())
 }
 
-pub fn download_url_to_file(url: &str, dest: &str) -> AppResult<()> {
+pub fn download_url_to_file(app: &AppHandle, url: &str, dest: &str) -> AppResult<()> {
     if !url.starts_with("https://") && !url.starts_with("http://127.0.0.1") && !url.starts_with("http://localhost") {
         return Err(AppError::Message("Download URL is not allowed.".into()));
     }
@@ -361,9 +380,45 @@ pub fn download_url_to_file(url: &str, dest: &str) -> AppResult<()> {
         )));
     }
     let bytes = response.bytes().map_err(map_reqwest)?;
-    if let Some(parent) = Path::new(dest).parent() {
+    let dest_path = Path::new(dest);
+    if let Some(parent) = dest_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+
+    #[cfg(windows)]
+    {
+        let watermark = crate::export::should_watermark_exports(app)
+            && dest_path
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or("")
+                .eq_ignore_ascii_case("mp4");
+        if watermark {
+            let stem = dest_path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or("clip");
+            let temp = dest_path.with_file_name(format!(
+                "{}.replayr-dl-{}.mp4",
+                stem,
+                std::process::id()
+            ));
+            if let Err(err) = std::fs::write(&temp, &bytes) {
+                let _ = std::fs::remove_file(&temp);
+                return Err(err.into());
+            }
+            let result = crate::export::write_watermarked_mp4(&temp, dest_path, 60);
+            let _ = std::fs::remove_file(&temp);
+            if let Err(err) = result {
+                let _ = std::fs::remove_file(dest_path);
+                return Err(AppError::Message(err));
+            }
+            return Ok(());
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = app;
+
     std::fs::write(dest, bytes)?;
     Ok(())
 }

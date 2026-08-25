@@ -218,6 +218,7 @@ a {
   font-size: 11px;
   line-height: 1.3;
   color: var(--text-muted);
+  text-decoration: none;
 }
 
 .nav-storage strong {
@@ -1667,6 +1668,7 @@ img.avatar {
 }
 
 .player-stage {
+  position: relative;
   min-height: 240px;
   background: #000;
   border-radius: 16px;
@@ -1675,11 +1677,63 @@ img.avatar {
   place-items: center;
 }
 
+.player-video-wrap {
+  position: relative;
+  display: grid;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: center;
+}
+
+.player-video-wrap > video {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100vh - 96px);
+  background: #000;
+}
+
+.player-video-mark {
+  position: absolute;
+  inset: 0;
+  container-type: size;
+  pointer-events: none;
+}
+
+.player-video-mark .clip-watermark {
+  position: absolute;
+  right: max(8px, 2cqmin);
+  bottom: max(8px, 2cqmin);
+  width: clamp(88px, 16cqmin, 168px);
+  height: auto;
+  max-width: 22%;
+  max-height: 10%;
+  object-fit: contain;
+  background: none;
+  pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.75));
+}
+
+.house-ad {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
 .player-stage video,
-.player-stage img {
+.player-stage > img {
   width: 100%;
   max-height: calc(100vh - 96px);
   background: #000;
+}
+
+.player-stage .player-video-wrap > video {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100vh - 96px);
 }
 
 .player-side {

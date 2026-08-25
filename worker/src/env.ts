@@ -9,6 +9,10 @@ export interface Env {
   R2_SECRET_ACCESS_KEY: string;
   R2_BUCKET_NAME: string;
   PUBLIC_APP_URL: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_PRICE_PREMIUM_MONTHLY?: string;
+  STRIPE_PRICE_PREMIUM_YEARLY?: string;
 }
 
 export interface AuthUser {

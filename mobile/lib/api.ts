@@ -297,6 +297,23 @@ export async function downloadClipBytes(slug: string, accessToken?: string | nul
   return response.arrayBuffer();
 }
 
+export interface BillingStatus {
+  plan: string;
+  status: string;
+  premium: boolean;
+  watermark: boolean;
+  ads: boolean;
+  storageUsedBytes: number;
+  storageLimitBytes: number;
+}
+
+export async function fetchBillingStatus(accessToken: string): Promise<BillingStatus> {
+  const response = await fetch(apiUrl("/v1/billing/status"), {
+    headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
+  });
+  return readApiJson<BillingStatus>(response, "Could not load billing.");
+}
+
 export async function deleteAccount(accessToken: string): Promise<void> {
   const response = await fetch(apiUrl("/v1/account/delete"), {
     method: "POST",

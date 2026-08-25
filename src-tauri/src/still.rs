@@ -1,6 +1,7 @@
 use std::fs::File;
-use std::io::Write;
+use std::io::{Cursor, Write};
 use std::path::Path;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
 pub struct StillFrame {
@@ -112,6 +113,111 @@ pub fn crop_and_scale_9x16(frame: &StillFrame, pan: f32, out_width: u32, out_hei
     }
 }
 
+struct WatermarkLogo {
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+}
+
+fn watermark_logo() -> Option<&'static WatermarkLogo> {
+    static LOGO: OnceLock<Option<WatermarkLogo>> = OnceLock::new();
+    LOGO.get_or_init(load_watermark_logo).as_ref()
+}
+
+fn load_watermark_logo() -> Option<WatermarkLogo> {
+    decode_watermark_png(include_bytes!("../assets/replayr-watermark.png"))
+}
+
+fn decode_watermark_png(bytes: &[u8]) -> Option<WatermarkLogo> {
+    let mut decoder = png::Decoder::new(Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).ok()?;
+    let src = &buf[..info.buffer_size()];
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => src.to_vec(),
+        png::ColorType::Rgb => src.chunks_exact(3).flat_map(|px| [px[0], px[1], px[2], 255]).collect(),
+        png::ColorType::Grayscale => src.iter().flat_map(|v| [*v, *v, *v, 255]).collect(),
+        png::ColorType::GrayscaleAlpha => src.chunks_exact(2).flat_map(|px| [px[0], px[0], px[0], px[1]]).collect(),
+        png::ColorType::Indexed => return None,
+    };
+    if rgba.len() < (info.width as usize).saturating_mul(info.height as usize).saturating_mul(4) {
+        return None;
+    }
+    Some(WatermarkLogo {
+        width: info.width,
+        height: info.height,
+        rgba,
+    })
+}
+
+/// Bottom-right Replayr logo. Leaves the source buffer owned.
+pub fn composite_watermark(frame: &mut StillFrame) {
+    if frame.width < 64 || frame.height < 32 {
+        return;
+    }
+    let Some(logo) = watermark_logo() else {
+        return;
+    };
+    if logo.width == 0 || logo.height == 0 {
+        return;
+    }
+    let short = frame.width.min(frame.height) as usize;
+    let margin = (short / 40).max(12);
+    let mark_w = (frame.width as usize * 14 / 100).clamp(72, 200);
+    let mark_h = (mark_w * logo.height as usize / logo.width as usize).max(1);
+    if mark_w + margin >= frame.width as usize || mark_h + margin >= frame.height as usize {
+        return;
+    }
+    let origin_x = frame.width as usize - mark_w - margin;
+    let origin_y = frame.height as usize - mark_h - margin;
+    blit_logo(frame, origin_x, origin_y, mark_w, mark_h, logo);
+}
+
+fn blit_logo(frame: &mut StillFrame, origin_x: usize, origin_y: usize, mark_w: usize, mark_h: usize, logo: &WatermarkLogo) {
+    let pitch = frame.pitch as usize;
+    let src_w = logo.width as usize;
+    let src_h = logo.height as usize;
+    for dy in 0..mark_h {
+        let sy = dy * src_h / mark_h;
+        for dx in 0..mark_w {
+            let sx = dx * src_w / mark_w;
+            let i = (sy * src_w + sx) * 4;
+            if i + 3 >= logo.rgba.len() {
+                continue;
+            }
+            let alpha = logo.rgba[i + 3];
+            if alpha < 16 {
+                continue;
+            }
+            blend_pixel(
+                frame,
+                pitch,
+                origin_x + dx,
+                origin_y + dy,
+                [logo.rgba[i + 2], logo.rgba[i + 1], logo.rgba[i], alpha],
+            );
+        }
+    }
+}
+
+fn blend_pixel(frame: &mut StillFrame, pitch: usize, x: usize, y: usize, color: [u8; 4]) {
+    if x >= frame.width as usize || y >= frame.height as usize {
+        return;
+    }
+    let i = y * pitch + x * 4;
+    if i + 3 >= frame.bgra.len() {
+        return;
+    }
+    let alpha = u16::from(color[3]);
+    let inv = 255 - alpha;
+    frame.bgra[i] = ((u16::from(color[0]) * alpha + u16::from(frame.bgra[i]) * inv) / 255) as u8;
+    frame.bgra[i + 1] = ((u16::from(color[1]) * alpha + u16::from(frame.bgra[i + 1]) * inv) / 255) as u8;
+    frame.bgra[i + 2] = ((u16::from(color[2]) * alpha + u16::from(frame.bgra[i + 2]) * inv) / 255) as u8;
+    frame.bgra[i + 3] = 255;
+}
+
 pub fn scale_bgra(frame: &StillFrame, max_width: u32) -> StillFrame {
     if frame.width == 0 || frame.height == 0 || frame.width <= max_width {
         return frame.clone();
@@ -179,5 +285,35 @@ mod tests {
     #[test]
     fn already_vertical_is_used_whole() {
         assert_eq!(crop_window_9x16(1080, 1920, 0.5), (0, 0, 1080, 1920));
+    }
+
+    #[test]
+    fn watermark_logo_decodes() {
+        let logo = load_watermark_logo().expect("watermark png");
+        assert!(logo.width > 100);
+        assert!(logo.height > 40);
+        assert_eq!(logo.rgba.len(), logo.width as usize * logo.height as usize * 4);
+    }
+
+    #[test]
+    fn watermark_lands_bottom_right() {
+        let mut frame = StillFrame {
+            bgra: vec![0; 320 * 180 * 4],
+            width: 320,
+            height: 180,
+            pitch: 1280,
+        };
+        composite_watermark(&mut frame);
+        assert_eq!(&frame.bgra[0..4], &[0, 0, 0, 0]);
+        let mut marked = 0_u32;
+        for y in 90..180 {
+            for x in 160..320 {
+                let i = (y * 320 + x) * 4;
+                if frame.bgra[i] != 0 || frame.bgra[i + 1] != 0 || frame.bgra[i + 2] != 0 {
+                    marked += 1;
+                }
+            }
+        }
+        assert!(marked > 80, "expected logo pixels in the bottom-right, got {marked}");
     }
 }

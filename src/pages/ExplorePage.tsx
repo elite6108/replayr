@@ -193,7 +193,6 @@ function PublicClipPanel({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
-  const watermark = useBillingStore((state) => state.status?.watermark ?? true);
 
   useEffect(() => {
     let cancelled = false;
@@ -230,7 +229,7 @@ function PublicClipPanel({
       <section className="player-card">
         <div className="player-stage">
           {clip.playbackUrl ? (
-            <PlayerVideo showWatermark={watermark}>
+            <PlayerVideo showWatermark={clip.watermark !== false}>
               <video src={clip.playbackUrl} controls autoPlay />
             </PlayerVideo>
           ) : (

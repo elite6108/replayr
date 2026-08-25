@@ -77,6 +77,7 @@ export type PublicClipCard = {
   likeCount: number;
   commentCount: number;
   liked: boolean;
+  watermark?: boolean;
 };
 
 export type UserProfileResponse = {

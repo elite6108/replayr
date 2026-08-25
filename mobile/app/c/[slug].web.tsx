@@ -26,7 +26,6 @@ export default function ClipScreen() {
   const [sendOpen, setSendOpen] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [watermark, setWatermark] = useState(true);
   const [showAd, setShowAd] = useState(true);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -57,14 +56,10 @@ export default function ClipScreen() {
     if (session?.access_token) {
       void fetchBillingStatus(session.access_token)
         .then((status) => {
-          if (!cancelled) {
-            setWatermark(status.watermark);
-            setShowAd(status.ads);
-          }
+          if (!cancelled) setShowAd(status.ads);
         })
         .catch(() => undefined);
     } else {
-      setWatermark(true);
       setShowAd(true);
     }
     return () => {
@@ -100,7 +95,7 @@ export default function ClipScreen() {
           },
           style: { width: "100%", height: "100%", backgroundColor: "#000", objectFit: "contain" },
         })}
-        <ReplayrWatermark show={watermark} />
+        <ReplayrWatermark show={clip.watermark !== false} />
       </PlayerVideoFrame>
       {showAd ? (
         <Pressable style={styles.houseAd} onPress={() => router.push("/account")}>

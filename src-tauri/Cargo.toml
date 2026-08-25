@@ -65,3 +65,11 @@ wasapi = "0.19"
 
 [dev-dependencies]
 tempfile = "3"
+
+# The capture and watermark paths run per-pixel loops, which are unusably slow
+# at opt-level 0. Dependencies get full optimisation since they rarely rebuild.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

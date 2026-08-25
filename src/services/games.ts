@@ -8,6 +8,7 @@ export interface PublicGameClip {
   durationMs: number | null;
   thumbnailUrl: string | null;
   playbackUrl: string | null;
+  watermark?: boolean;
 }
 
 export interface PublicGame {

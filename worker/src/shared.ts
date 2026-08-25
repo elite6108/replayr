@@ -5,7 +5,7 @@ import { HttpError } from "./http";
 export type { AuthUser, Env } from "./env";
 
 export const PUBLIC_CLIP_SELECT =
-  "select=id,user_id,title,description,slug,duration_ms,created_at,view_count,storage_key,thumbnail_key,like_count,comment_count,games(name,slug,cover_url)";
+  "select=id,user_id,title,description,slug,duration_ms,created_at,view_count,storage_key,thumbnail_key,like_count,comment_count,watermark,games(name,slug,cover_url)";
 
 export interface PublicClipRow {
   id: string;
@@ -20,6 +20,7 @@ export interface PublicClipRow {
   thumbnail_key: string | null;
   like_count?: number;
   comment_count?: number;
+  watermark?: boolean;
   games:
     | { name: string; slug: string; cover_url: string | null }
     | { name: string; slug: string; cover_url: string | null }[]
@@ -40,6 +41,7 @@ export interface PlaybackRow {
   thumbnail_key?: string | null;
   like_count?: number;
   comment_count?: number;
+  watermark?: boolean;
 }
 
 interface ProfileRow {
@@ -229,7 +231,7 @@ export async function lookupPlaybackRaw(env: Env, slug: string): Promise<Playbac
   const rows = await serviceRest<PlaybackRow[]>(
     env,
     "GET",
-    `/clips?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,visibility,status,storage_key,thumbnail_key,like_count,comment_count`,
+    `/clips?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,visibility,status,storage_key,thumbnail_key,like_count,comment_count,watermark`,
   );
   const clip = rows[0];
   if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) return null;
@@ -259,6 +261,7 @@ export async function presentPublicClips(request: Request, env: Env, rows: Publi
       likeCount: extra?.likeCount ?? row.like_count ?? 0,
       commentCount: extra?.commentCount ?? row.comment_count ?? 0,
       liked: extra?.liked ?? false,
+      watermark: row.watermark !== false,
     });
   }
   return clips;

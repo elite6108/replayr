@@ -44,7 +44,6 @@ export default function ClipScreen() {
   const { session } = useAuth();
   const [clip, setClip] = useState<PlaybackClip | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [watermark, setWatermark] = useState(true);
   const [showAd, setShowAd] = useState(true);
 
   useEffect(() => {
@@ -61,14 +60,10 @@ export default function ClipScreen() {
     if (session?.access_token) {
       void fetchBillingStatus(session.access_token)
         .then((status) => {
-          if (!cancelled) {
-            setWatermark(status.watermark);
-            setShowAd(status.ads);
-          }
+          if (!cancelled) setShowAd(status.ads);
         })
         .catch(() => undefined);
     } else {
-      setWatermark(true);
       setShowAd(true);
     }
     return () => {
@@ -101,7 +96,6 @@ export default function ClipScreen() {
       token={session?.access_token}
       userId={session?.user.id}
       onBack={() => router.back()}
-      watermark={watermark}
       showAd={showAd}
     />
   );
@@ -113,7 +107,6 @@ function ReadyPlayer({
   token,
   userId,
   onBack,
-  watermark,
   showAd,
 }: {
   clip: PlaybackClip;
@@ -121,7 +114,6 @@ function ReadyPlayer({
   token?: string;
   userId?: string;
   onBack: () => void;
-  watermark: boolean;
   showAd: boolean;
 }) {
   const insets = useSafeAreaInsets();
@@ -273,7 +265,7 @@ function ReadyPlayer({
           contentFit="contain"
           pointerEvents="none"
         />
-        <ReplayrWatermark show={watermark} />
+        <ReplayrWatermark show={clip.watermark !== false} />
       </PlayerVideoFrame>
       <Pressable style={styles.tap} onPress={togglePlayback} />
       {showAd ? (

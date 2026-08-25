@@ -402,7 +402,17 @@ fn open_encoder(
     let attempts = [(width, height), (1920, 1080), (1280, 720)];
     let mut last = String::from("Could not create the Media Foundation encoder.");
     for (width, height) in attempts {
-        match MfWriter::new(path, width, height, fps, bitrate, with_audio, pcm_path, true) {
+        match MfWriter::new(
+            path,
+            width,
+            height,
+            fps,
+            bitrate,
+            with_audio,
+            pcm_path,
+            true,
+            crate::encode::VideoInput::Bgra,
+        ) {
             Ok(encoder) => {
                 tracing::info!(
                     "MF encoder ready {width}x{height} @ {fps} aac={with_audio} pcm={}",

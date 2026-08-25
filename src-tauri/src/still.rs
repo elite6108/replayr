@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Cursor, Write};
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Debug, Clone)]
 pub struct StillFrame {
@@ -152,26 +153,35 @@ fn decode_watermark_png(bytes: &[u8]) -> Option<WatermarkLogo> {
     })
 }
 
+/// Where the bottom-right logo lands for a frame of this size, as
+/// `(origin_x, origin_y, mark_w, mark_h)`.
+fn watermark_box(width: u32, height: u32, logo: &WatermarkLogo) -> Option<(usize, usize, usize, usize)> {
+    if width < 64 || height < 32 || logo.width == 0 || logo.height == 0 {
+        return None;
+    }
+    let short = width.min(height) as usize;
+    let margin = (short / 40).max(12);
+    let mark_w = (width as usize * 20 / 100).clamp(110, 320);
+    let mark_h = (mark_w * logo.height as usize / logo.width as usize).max(1);
+    if mark_w + margin >= width as usize || mark_h + margin >= height as usize {
+        return None;
+    }
+    Some((
+        width as usize - mark_w - margin,
+        height as usize - mark_h - margin,
+        mark_w,
+        mark_h,
+    ))
+}
+
 /// Bottom-right Replayr logo. Leaves the source buffer owned.
 pub fn composite_watermark(frame: &mut StillFrame) {
-    if frame.width < 64 || frame.height < 32 {
-        return;
-    }
     let Some(logo) = watermark_logo() else {
         return;
     };
-    if logo.width == 0 || logo.height == 0 {
+    let Some((origin_x, origin_y, mark_w, mark_h)) = watermark_box(frame.width, frame.height, logo) else {
         return;
-    }
-    let short = frame.width.min(frame.height) as usize;
-    let margin = (short / 40).max(12);
-    let mark_w = (frame.width as usize * 20 / 100).clamp(110, 320);
-    let mark_h = (mark_w * logo.height as usize / logo.width as usize).max(1);
-    if mark_w + margin >= frame.width as usize || mark_h + margin >= frame.height as usize {
-        return;
-    }
-    let origin_x = frame.width as usize - mark_w - margin;
-    let origin_y = frame.height as usize - mark_h - margin;
+    };
     blit_logo(frame, origin_x, origin_y, mark_w, mark_h, logo);
 }
 
@@ -204,6 +214,172 @@ fn blit_logo(frame: &mut StillFrame, origin_x: usize, origin_y: usize, mark_w: u
                 origin_y + dy,
                 [b, g, r, alpha],
             );
+        }
+    }
+}
+
+/// The logo pre-converted to NV12 space at one output size: full-resolution
+/// luma plus alpha, and half-resolution chroma with the alpha averaged over
+/// each 2x2 block. Rasterising once per size keeps the per-frame work down to
+/// two small alpha blends.
+struct Nv12Logo {
+    mark_w: usize,
+    mark_h: usize,
+    luma: Vec<u8>,
+    luma_alpha: Vec<u8>,
+    chroma_u: Vec<u8>,
+    chroma_v: Vec<u8>,
+    chroma_alpha: Vec<u8>,
+}
+
+/// BT.709 limited range, which is what an H.264 clip decodes to.
+fn rgb_to_ycbcr(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
+    let (r, g, b) = (i32::from(r), i32::from(g), i32::from(b));
+    let y = ((47 * r + 157 * g + 16 * b) >> 8) + 16;
+    let u = ((-26 * r - 87 * g + 112 * b) >> 8) + 128;
+    let v = ((112 * r - 102 * g - 10 * b) >> 8) + 128;
+    (
+        y.clamp(0, 255) as u8,
+        u.clamp(0, 255) as u8,
+        v.clamp(0, 255) as u8,
+    )
+}
+
+fn nv12_logo(mark_w: usize, mark_h: usize, logo: &WatermarkLogo) -> Arc<Nv12Logo> {
+    static CACHE: OnceLock<Mutex<HashMap<(usize, usize), Arc<Nv12Logo>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(map) = cache.lock() {
+        if let Some(found) = map.get(&(mark_w, mark_h)) {
+            return Arc::clone(found);
+        }
+    }
+    let built = Arc::new(rasterize_nv12_logo(mark_w, mark_h, logo));
+    if let Ok(mut map) = cache.lock() {
+        map.insert((mark_w, mark_h), Arc::clone(&built));
+    }
+    built
+}
+
+fn rasterize_nv12_logo(mark_w: usize, mark_h: usize, logo: &WatermarkLogo) -> Nv12Logo {
+    let src_w = logo.width as usize;
+    let src_h = logo.height as usize;
+    let mut luma = vec![0_u8; mark_w * mark_h];
+    let mut luma_alpha = vec![0_u8; mark_w * mark_h];
+    let mut u_full = vec![128_u8; mark_w * mark_h];
+    let mut v_full = vec![128_u8; mark_w * mark_h];
+    for dy in 0..mark_h {
+        let sy = dy * src_h / mark_h;
+        for dx in 0..mark_w {
+            let sx = dx * src_w / mark_w;
+            let i = (sy * src_w + sx) * 4;
+            if i + 3 >= logo.rgba.len() {
+                continue;
+            }
+            let alpha = logo.rgba[i + 3];
+            let (r, g, b) = (logo.rgba[i], logo.rgba[i + 1], logo.rgba[i + 2]);
+            // Match the BGRA blit: near-transparent and near-black pixels are
+            // treated as background so the mark stays a clean glyph.
+            if alpha < 16 || (r < 18 && g < 18 && b < 18) {
+                continue;
+            }
+            let (y, u, v) = rgb_to_ycbcr(r, g, b);
+            let at = dy * mark_w + dx;
+            luma[at] = y;
+            luma_alpha[at] = alpha;
+            u_full[at] = u;
+            v_full[at] = v;
+        }
+    }
+
+    let cw = mark_w / 2;
+    let ch = mark_h / 2;
+    let mut chroma_u = vec![128_u8; cw * ch];
+    let mut chroma_v = vec![128_u8; cw * ch];
+    let mut chroma_alpha = vec![0_u8; cw * ch];
+    for cy in 0..ch {
+        for cx in 0..cw {
+            let mut sum_u = 0_u32;
+            let mut sum_v = 0_u32;
+            let mut sum_a = 0_u32;
+            for (dy, dx) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+                let at = (cy * 2 + dy) * mark_w + (cx * 2 + dx);
+                sum_u += u32::from(u_full[at]);
+                sum_v += u32::from(v_full[at]);
+                sum_a += u32::from(luma_alpha[at]);
+            }
+            let at = cy * cw + cx;
+            chroma_u[at] = (sum_u / 4) as u8;
+            chroma_v[at] = (sum_v / 4) as u8;
+            chroma_alpha[at] = (sum_a / 4) as u8;
+        }
+    }
+
+    Nv12Logo {
+        mark_w,
+        mark_h,
+        luma,
+        luma_alpha,
+        chroma_u,
+        chroma_v,
+        chroma_alpha,
+    }
+}
+
+/// Bottom-right Replayr logo blended straight into an NV12 frame: `planes` is a
+/// full-height luma plane followed by a half-height interleaved chroma plane,
+/// both `pitch` bytes per row.
+pub fn composite_watermark_nv12(planes: &mut [u8], pitch: usize, width: u32, height: u32) {
+    let Some(logo) = watermark_logo() else {
+        return;
+    };
+    let Some((origin_x, origin_y, mark_w, mark_h)) = watermark_box(width, height, logo) else {
+        return;
+    };
+    // Chroma is subsampled 2x2, so the mark has to start and end on an even
+    // pixel for its chroma grid to line up with the frame's.
+    let origin_x = origin_x & !1;
+    let origin_y = origin_y & !1;
+    let mark_w = mark_w & !1;
+    let mark_h = mark_h & !1;
+    if mark_w == 0 || mark_h == 0 {
+        return;
+    }
+    let height = height as usize;
+    let chroma_base = pitch * height;
+    if planes.len() < chroma_base + pitch * (height / 2) {
+        return;
+    }
+    let mark = nv12_logo(mark_w, mark_h, logo);
+
+    for dy in 0..mark.mark_h {
+        let row = (origin_y + dy) * pitch;
+        for dx in 0..mark.mark_w {
+            let at = dy * mark.mark_w + dx;
+            let alpha = u32::from(mark.luma_alpha[at]);
+            if alpha == 0 {
+                continue;
+            }
+            let target = row + origin_x + dx;
+            let under = u32::from(planes[target]);
+            planes[target] = ((u32::from(mark.luma[at]) * alpha + under * (255 - alpha)) / 255) as u8;
+        }
+    }
+
+    let cw = mark.mark_w / 2;
+    for cy in 0..mark.mark_h / 2 {
+        let row = chroma_base + (origin_y / 2 + cy) * pitch;
+        for cx in 0..cw {
+            let at = cy * cw + cx;
+            let alpha = u32::from(mark.chroma_alpha[at]);
+            if alpha == 0 {
+                continue;
+            }
+            let target = row + (origin_x / 2 + cx) * 2;
+            let under_u = u32::from(planes[target]);
+            let under_v = u32::from(planes[target + 1]);
+            planes[target] = ((u32::from(mark.chroma_u[at]) * alpha + under_u * (255 - alpha)) / 255) as u8;
+            planes[target + 1] =
+                ((u32::from(mark.chroma_v[at]) * alpha + under_v * (255 - alpha)) / 255) as u8;
         }
     }
 }

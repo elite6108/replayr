@@ -9,6 +9,7 @@ import {
   exportLocalClip,
   listLocalClips,
   renameLocalClip,
+  resetStaleUploads,
   revealLocalClip,
   setLocalClipFavorite,
   uploadLocalClip,
@@ -127,7 +128,17 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   loaded: false,
   error: null,
   initialize: async () => {
+    let interrupted: string[] = [];
+    try {
+      interrupted = await resetStaleUploads();
+    } catch {
+      interrupted = [];
+    }
     await get().refresh();
+    for (const localId of interrupted) {
+      const clip = get().clips.find((item) => item.localId === localId);
+      enqueueOrUpload(localId, clip);
+    }
     if (!listening) {
       listening = true;
       await listen<{ localId?: string; path: string; kind: string }>("local-clip-saved", (event) => {

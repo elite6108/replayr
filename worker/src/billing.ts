@@ -125,7 +125,7 @@ export async function assertUploadAllowed(
   env: Env,
   userId: string,
   body: { durationMs?: number | null; width?: number | null; height?: number | null; fps?: number | null },
-): Promise<void> {
+): Promise<BillingStatus> {
   const status = await loadStatus(env, userId);
   if (status.maxClipDurationMs != null && body.durationMs != null && body.durationMs > status.maxClipDurationMs) {
     throw new HttpError(
@@ -143,6 +143,7 @@ export async function assertUploadAllowed(
       throw new HttpError(403, "Free cloud uploads are limited to 60 fps. Upgrade to Premium for high frame rates.");
     }
   }
+  return status;
 }
 
 async function checkout(request: Request, env: Env): Promise<Response> {

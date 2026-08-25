@@ -31,6 +31,7 @@ export interface PlaybackClip {
   likeCount?: number;
   commentCount?: number;
   liked?: boolean;
+  watermark?: boolean;
 }
 
 export interface ManagedClip {
@@ -46,6 +47,7 @@ export interface ManagedClip {
   createdAt: string;
   thumbnailUrl: string | null;
   playbackUrl: string | null;
+  watermark?: boolean;
 }
 
 export interface LibraryPage {

@@ -9,7 +9,8 @@ use windows::core::PCWSTR;
 use windows::Win32::Media::MediaFoundation::{
     IMFMediaType, IMFSample, IMFSinkWriter, MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer,
     MFCreateSample, MFCreateSinkWriterFromURL, MFMediaType_Audio, MFMediaType_Video, MFStartup,
-    MFAudioFormat_AAC, MFAudioFormat_PCM, MFVideoFormat_H264, MFVideoFormat_RGB32, MFVideoInterlace_Progressive,
+    MFAudioFormat_AAC, MFAudioFormat_PCM, MFVideoFormat_H264, MFVideoFormat_NV12, MFVideoFormat_RGB32,
+    MFVideoInterlace_Progressive,
     MF_MT_AAC_AUDIO_PROFILE_LEVEL_INDICATION, MF_MT_AAC_PAYLOAD_TYPE, MF_MT_AUDIO_AVG_BYTES_PER_SECOND,
     MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_BLOCK_ALIGNMENT, MF_MT_AUDIO_NUM_CHANNELS,
     MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
@@ -25,6 +26,15 @@ const AUDIO_BITS: u32 = 16;
 const AUDIO_ALIGN: usize = (AUDIO_CHANNELS * (AUDIO_BITS / 8)) as usize;
 const AAC_FRAME_BYTES: usize = 1024 * AUDIO_ALIGN;
 const JOIN_FADE_FRAMES: usize = 240;
+
+/// Pixel format the caller feeds the writer. Live capture hands over BGRA
+/// straight from WGC; offline re-encodes stay in NV12 so Media Foundation never
+/// has to colour-convert on the way in or on the way to the H.264 encoder.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum VideoInput {
+    Bgra,
+    Nv12,
+}
 
 pub struct MfWriter {
     writer: IMFSinkWriter,
@@ -97,14 +107,22 @@ fn video_output_type(width: u32, height: u32, fps: u32, bitrate: u32) -> Result<
     }
 }
 
-fn video_input_type(width: u32, height: u32, fps: u32) -> Result<IMFMediaType, String> {
+fn video_input_type(width: u32, height: u32, fps: u32, input: VideoInput) -> Result<IMFMediaType, String> {
+    let subtype = match input {
+        VideoInput::Bgra => MFVideoFormat_RGB32,
+        VideoInput::Nv12 => MFVideoFormat_NV12,
+    };
+    let stride = match input {
+        VideoInput::Bgra => width * 4,
+        VideoInput::Nv12 => width,
+    };
     unsafe {
         let media_type = MFCreateMediaType().map_err(|err| err.to_string())?;
         media_type
             .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
             .map_err(|err| err.to_string())?;
         media_type
-            .SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)
+            .SetGUID(&MF_MT_SUBTYPE, &subtype)
             .map_err(|err| err.to_string())?;
         media_type
             .SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)
@@ -119,7 +137,7 @@ fn video_input_type(width: u32, height: u32, fps: u32) -> Result<IMFMediaType, S
             .SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, pack(1, 1))
             .map_err(|err| err.to_string())?;
         media_type
-            .SetUINT32(&MF_MT_DEFAULT_STRIDE, width * 4)
+            .SetUINT32(&MF_MT_DEFAULT_STRIDE, stride)
             .map_err(|err| err.to_string())?;
         Ok(media_type)
     }
@@ -210,6 +228,7 @@ impl MfWriter {
         with_audio: bool,
         pcm_path: Option<&Path>,
         live: bool,
+        input: VideoInput,
     ) -> Result<Self, String> {
         ensure_mf()?;
         if let Some(parent) = path.parent() {
@@ -217,8 +236,13 @@ impl MfWriter {
         }
 
         let fps = fps.clamp(24, 60);
-        let width = width.max(16);
-        let height = height.max(16);
+        let mut width = width.max(16);
+        let mut height = height.max(16);
+        if input == VideoInput::Nv12 {
+            // NV12 subsamples chroma 2x2, so both dimensions have to be even.
+            width &= !1;
+            height &= !1;
+        }
         let wide = wide_path(path);
 
         unsafe {
@@ -244,10 +268,10 @@ impl MfWriter {
             let video_stream = writer
                 .AddStream(&video_out)
                 .map_err(|err| format!("Could not add the H.264 stream: {err}"))?;
-            let video_in = video_input_type(width, height, fps)?;
+            let video_in = video_input_type(width, height, fps, input)?;
             writer
                 .SetInputMediaType(video_stream, &video_in, None)
-                .map_err(|err| format!("Could not set the RGB input type: {err}"))?;
+                .map_err(|err| format!("Could not set the video input type: {err}"))?;
 
             let audio_stream = if with_audio {
                 match configure_audio(&writer) {
@@ -336,7 +360,11 @@ impl MfWriter {
                 return Err("Media Foundation returned an empty video buffer.".into());
             }
             let dest = std::slice::from_raw_parts_mut(data, buffer_size);
-            dest.fill(0);
+            // Only clear when the source leaves part of the frame untouched;
+            // a full-frame copy overwrites every byte anyway.
+            if copy_width < dst_pitch || copy_height < self.height as usize {
+                dest.fill(0);
+            }
             for y in 0..copy_height {
                 let src_offset = y * src_pitch;
                 let dst_offset = y * dst_pitch;
@@ -345,6 +373,78 @@ impl MfWriter {
                 }
                 dest[dst_offset..dst_offset + copy_width]
                     .copy_from_slice(&pixels[src_offset..src_offset + copy_width]);
+            }
+            media_buffer.Unlock().map_err(|err| err.to_string())?;
+            media_buffer
+                .SetCurrentLength(buffer_size as u32)
+                .map_err(|err| err.to_string())?;
+
+            let time = self.video_time;
+            let duration = self.preview_duration(capture_hns);
+            let keyframe = self.first_video || force_keyframe;
+            let sample = make_sample(media_buffer, time, duration, keyframe)?;
+            self.first_video = false;
+            self.last_capture_hns = Some(capture_hns);
+            self.writer
+                .WriteSample(self.video_stream, &sample)
+                .map_err(|err| err.to_string())?;
+            self.video_time = time + duration;
+        }
+        Ok(())
+    }
+
+    /// Writes one NV12 frame: a full-height luma plane followed by a
+    /// half-height interleaved chroma plane, both using `row_pitch`.
+    pub fn write_nv12(
+        &mut self,
+        planes: &[u8],
+        row_pitch: u32,
+        src_height: u32,
+        capture_hns: i64,
+        force_keyframe: bool,
+    ) -> Result<(), String> {
+        let dst_pitch = self.width as usize;
+        let dst_height = self.height as usize;
+        let src_pitch = row_pitch as usize;
+        let copy_width = dst_pitch.min(src_pitch);
+        let copy_height = dst_height.min(src_height as usize);
+        let buffer_size = dst_pitch * dst_height * 3 / 2;
+        let src_chroma = src_pitch * src_height as usize;
+        let dst_chroma = dst_pitch * dst_height;
+
+        unsafe {
+            let media_buffer = MFCreateMemoryBuffer(buffer_size as u32).map_err(|err| err.to_string())?;
+            let mut data = std::ptr::null_mut();
+            media_buffer
+                .Lock(&mut data, None, None)
+                .map_err(|err| err.to_string())?;
+            if data.is_null() {
+                return Err("Media Foundation returned an empty video buffer.".into());
+            }
+            let dest = std::slice::from_raw_parts_mut(data, buffer_size);
+            if copy_width < dst_pitch || copy_height < dst_height {
+                // Neutral grey rather than zero: NV12 chroma is centred on 128,
+                // so a zeroed border would come out bright green.
+                dest[..dst_chroma].fill(0);
+                dest[dst_chroma..].fill(128);
+            }
+            for y in 0..copy_height {
+                let src_offset = y * src_pitch;
+                let dst_offset = y * dst_pitch;
+                if src_offset + copy_width > planes.len() {
+                    break;
+                }
+                dest[dst_offset..dst_offset + copy_width]
+                    .copy_from_slice(&planes[src_offset..src_offset + copy_width]);
+            }
+            for y in 0..copy_height / 2 {
+                let src_offset = src_chroma + y * src_pitch;
+                let dst_offset = dst_chroma + y * dst_pitch;
+                if src_offset + copy_width > planes.len() {
+                    break;
+                }
+                dest[dst_offset..dst_offset + copy_width]
+                    .copy_from_slice(&planes[src_offset..src_offset + copy_width]);
             }
             media_buffer.Unlock().map_err(|err| err.to_string())?;
             media_buffer

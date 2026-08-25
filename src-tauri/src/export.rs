@@ -16,6 +16,7 @@ use windows::Win32::Media::MediaFoundation::{
     MF_SOURCE_READER_FIRST_VIDEO_STREAM, MFSTARTUP_FULL, MF_VERSION,
 };
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
+use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
 /// Pass encoded samples through. Video remux stays converter-free. Audio joins are decoded to PCM.
 const MF_READWRITE_DISABLE_CONVERTERS: GUID = GUID::from_u128(0x98d5b065_1374_4847_8d5d_31520fee7156);
@@ -264,6 +265,7 @@ pub fn write_vertical_mp4(
         has_audio,
         None,
         false,
+        crate::encode::VideoInput::Bgra,
     )?;
 
     let reader = crate::thumb::open_rgb_reader(input)?;
@@ -341,6 +343,164 @@ pub fn write_watermarked_mp4(input: &Path, output: &Path, fps: u32) -> Result<i6
     }
     let pcm = decode_audio_pcm(input).unwrap_or_default();
     let has_audio = !pcm.is_empty();
+    match crate::thumb::open_nv12_reader(input) {
+        Ok(reader) => watermark_nv12(reader, input, output, fps, pcm, has_audio),
+        Err(err) => {
+            tracing::warn!(
+                "NV12 decode unavailable for {} ({err}); falling back to the RGB32 watermark path",
+                input.display()
+            );
+            watermark_rgb32(input, output, fps, pcm, has_audio)
+        }
+    }
+}
+
+/// One decoded frame in flight between the decode and encode threads.
+struct WatermarkFrame {
+    planes: Vec<u8>,
+    /// Visible frame size. `pitch` is the row stride, which can be padded wider.
+    width: u32,
+    height: u32,
+    pitch: u32,
+    duration: i64,
+}
+
+/// Frames allowed to sit between the decode and encode threads. Four 1080p NV12
+/// frames is about 12 MB, which buys the two stages enough slack to overlap
+/// without letting Media Foundation hoard the clip in memory.
+const WATERMARK_QUEUE_CAP: usize = 4;
+
+/// Decodes to NV12, stamps the logo, and re-encodes without ever touching RGB.
+///
+/// Decode and encode run on separate threads over a bounded queue. A single
+/// thread would serialise them, because the sink writer is throttled and
+/// `WriteSample` blocks until the encoder accepts the frame.
+fn watermark_nv12(
+    reader: windows::Win32::Media::MediaFoundation::IMFSourceReader,
+    input: &Path,
+    output: &Path,
+    fps: u32,
+    pcm: Vec<u8>,
+    has_audio: bool,
+) -> Result<i64, String> {
+    let fps = fps.clamp(24, 60);
+    let (frames_tx, frames_rx) = std::sync::mpsc::sync_channel::<WatermarkFrame>(WATERMARK_QUEUE_CAP);
+    let (spare_tx, spare_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let dest = output.to_path_buf();
+
+    let encoder = std::thread::Builder::new()
+        .name("watermark-encode".into())
+        .spawn(move || -> Result<(i64, u32), String> {
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            }
+            let mut writer: Option<crate::encode::MfWriter> = None;
+            let mut clock = 0_i64;
+            let mut frames = 0_u32;
+            while let Ok(frame) = frames_rx.recv() {
+                let writer = match writer {
+                    Some(ref mut writer) => writer,
+                    None => {
+                        let bitrate = ((u64::from(frame.width) * u64::from(frame.height) * u64::from(fps)) / 6)
+                            .clamp(4_000_000, 25_000_000)
+                            as u32;
+                        writer.insert(crate::encode::MfWriter::new(
+                            &dest,
+                            frame.width,
+                            frame.height,
+                            fps,
+                            bitrate,
+                            has_audio,
+                            None,
+                            false,
+                            crate::encode::VideoInput::Nv12,
+                        )?)
+                    }
+                };
+                writer.write_nv12(&frame.planes, frame.pitch, frame.height, clock, frames == 0)?;
+                clock += frame.duration.max(1);
+                frames += 1;
+                let _ = spare_tx.send(frame.planes);
+            }
+            let Some(mut writer) = writer else {
+                return Err("That clip has no video.".into());
+            };
+            if has_audio {
+                let mut audio = pcm;
+                let _ = fit_pcm_to_video(&mut audio, writer.timestamp());
+                writer.write_pcm_closing(&audio)?;
+            } else {
+                let _ = writer.write_pcm_closing(&[]);
+            }
+            let written_ms = (writer.timestamp() / 10_000).max(0);
+            writer.finish()?;
+            Ok((written_ms, frames))
+        })
+        .map_err(|err| format!("Could not start the watermark encoder: {err}"))?;
+
+    let mut decoded = 0_u32;
+    let mut decode_error = None;
+    loop {
+        let mut planes = spare_rx.try_recv().unwrap_or_default();
+        match crate::thumb::read_nv12_sample(&reader, &mut planes) {
+            Ok(Some(info)) => {
+                crate::still::composite_watermark_nv12(
+                    &mut planes,
+                    info.pitch as usize,
+                    info.width,
+                    info.height,
+                );
+                decoded += 1;
+                let queued = WatermarkFrame {
+                    planes,
+                    width: info.width,
+                    height: info.height,
+                    pitch: info.pitch,
+                    duration: info.duration,
+                };
+                // A send failure means the encoder stopped; join reports why.
+                if frames_tx.send(queued).is_err() {
+                    break;
+                }
+            }
+            Ok(None) => break,
+            Err(err) => {
+                decode_error = Some(err);
+                break;
+            }
+        }
+    }
+    drop(frames_tx);
+    drop(reader);
+
+    let (written_ms, frames) = encoder
+        .join()
+        .map_err(|_| "The watermark encoder stopped unexpectedly.".to_string())??;
+    if let Some(err) = decode_error {
+        return Err(err);
+    }
+    if frames == 0 {
+        return Err("That clip has no video.".into());
+    }
+    tracing::info!(
+        "watermarked {} -> {} ({} ms, {} frames, {} decoded, nv12)",
+        input.display(),
+        output.display(),
+        written_ms,
+        frames,
+        decoded
+    );
+    Ok(written_ms)
+}
+
+/// Fallback for sources whose decoder will not hand back NV12.
+fn watermark_rgb32(
+    input: &Path,
+    output: &Path,
+    fps: u32,
+    pcm: Vec<u8>,
+    has_audio: bool,
+) -> Result<i64, String> {
     let reader = crate::thumb::open_rgb_reader(input)?;
     let Some((first, _, duration)) = crate::thumb::read_rgb_sample(&reader)? else {
         return Err("That clip has no video.".into());
@@ -349,7 +509,17 @@ pub fn write_watermarked_mp4(input: &Path, output: &Path, fps: u32) -> Result<i6
     let height = first.height.max(16);
     let fps = fps.clamp(24, 60);
     let bitrate = ((width as u64 * height as u64 * u64::from(fps)) / 6).clamp(4_000_000, 25_000_000) as u32;
-    let mut writer = crate::encode::MfWriter::new(output, width, height, fps, bitrate, has_audio, None, false)?;
+    let mut writer = crate::encode::MfWriter::new(
+        output,
+        width,
+        height,
+        fps,
+        bitrate,
+        has_audio,
+        None,
+        false,
+        crate::encode::VideoInput::Bgra,
+    )?;
     let mut frame = first;
     crate::still::composite_watermark(&mut frame);
     writer.write_bgra(&frame.bgra, frame.pitch, frame.width, frame.height, 0, true)?;
@@ -379,7 +549,7 @@ pub fn write_watermarked_mp4(input: &Path, output: &Path, fps: u32) -> Result<i6
     let written_ms = (writer.timestamp() / 10_000).max(0);
     writer.finish()?;
     tracing::info!(
-        "watermarked {} -> {} ({} ms, {} frames)",
+        "watermarked {} -> {} ({} ms, {} frames, rgb32)",
         input.display(),
         output.display(),
         written_ms,

@@ -245,6 +245,33 @@ pub fn set_cloud(
     get(conn, local_id)
 }
 
+/// Clears in-flight upload rows left behind when the app crashed mid-watermark.
+/// Returns the local ids that can be retried.
+pub fn reset_stale_uploads(conn: &Connection) -> AppResult<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT local_id FROM local_clips
+         WHERE upload_status IN ('queued', 'preparing', 'uploading', 'processing')",
+    )?;
+    let ids: Vec<String> = stmt
+        .query_map([], |row| row.get(0))?
+        .filter_map(|row| row.ok())
+        .collect();
+    if ids.is_empty() {
+        return Ok(ids);
+    }
+    conn.execute(
+        "UPDATE local_clips SET upload_status = 'local', cloud_clip_id = NULL
+         WHERE upload_status IN ('queued', 'preparing', 'uploading', 'processing')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE upload_queue SET status = 'local', last_error = 'Upload interrupted', updated_at = datetime('now')
+         WHERE status IN ('queued', 'preparing', 'uploading', 'processing')",
+        [],
+    )?;
+    Ok(ids)
+}
+
 pub fn clear_cloud_link(conn: &Connection, cloud_clip_id: &str) -> AppResult<()> {
     conn.execute(
         "UPDATE local_clips SET upload_status = 'local', cloud_clip_id = NULL WHERE cloud_clip_id = ?1",
@@ -440,6 +467,20 @@ mod tests {
             )
             .unwrap();
         assert_eq!(status, "completed");
+    }
+
+    #[test]
+    fn reset_stale_uploads_clears_in_flight() {
+        let dir = tempdir().unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+        seed(&conn, "clip-3", "Stuck");
+        set_cloud(&conn, "clip-3", "uploading", Some("cloud-pending"), None).unwrap();
+        let ids = reset_stale_uploads(&conn).unwrap();
+        assert_eq!(ids, vec!["clip-3".to_string()]);
+        let clip = get(&conn, "clip-3").unwrap();
+        assert_eq!(clip.upload_status, "local");
+        assert_eq!(clip.cloud_clip_id, None);
     }
 
     #[test]

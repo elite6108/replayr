@@ -85,25 +85,8 @@ pub fn upload_local_clip(
         return Err(AppError::Message("That file is no longer on disk.".into()));
     }
 
-    let watermarked = {
-        let db = app.state::<AppState>();
-        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
-        crate::settings::load(&conn)
-            .map(|item| item.watermark_exports)
-            .unwrap_or(true)
-    };
-    let upload_path = if watermarked {
-        match crate::export::watermarked_temp(path, clip.fps.unwrap_or(60).clamp(24, 60) as u32) {
-            Ok(next) => next,
-            Err(err) => {
-                fail(app, local_id, &err)?;
-                return Err(AppError::Message(err));
-            }
-        }
-    } else {
-        path.to_path_buf()
-    };
-    let path = upload_path.as_path();
+    // Clips upload as recorded. The watermark is drawn by the players from the
+    // per-clip flag the API stamps at upload time, and burned in only on export.
     let file_size = std::fs::metadata(path)?.len();
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(300))

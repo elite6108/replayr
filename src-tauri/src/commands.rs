@@ -389,6 +389,12 @@ pub fn list_local_clips(state: State<AppState>, limit: Option<i64>) -> AppResult
 }
 
 #[tauri::command]
+pub fn reset_stale_uploads(state: State<AppState>) -> AppResult<Vec<String>> {
+    let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    library::reset_stale_uploads(&conn)
+}
+
+#[tauri::command]
 pub fn rename_local_clip(state: State<AppState>, local_id: String, title: String) -> AppResult<LocalClipDto> {
     let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
     library::rename(&conn, &local_id, &title)

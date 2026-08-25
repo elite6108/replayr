@@ -19,6 +19,7 @@ export interface PublicFeedClip {
   likeCount: number;
   commentCount: number;
   liked: boolean;
+  watermark?: boolean;
 }
 
 export interface ClipComment {

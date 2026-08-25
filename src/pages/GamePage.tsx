@@ -10,7 +10,6 @@ import { IconGames, IconPlay } from "../components/icons";
 import { fetchPublicGameClips, type PublicGame, type PublicGameClip } from "../services/games";
 import { downloadUrlToFile } from "../services/tauri";
 import { useDetectionStore } from "../stores/detectionStore";
-import { useBillingStore } from "../stores/billingStore";
 import { useToastStore } from "../stores/toastStore";
 import { suggestedFileName } from "../utils/files";
 import { formatDuration, invokeErrorMessage } from "../utils/format";
@@ -18,7 +17,6 @@ import { formatDuration, invokeErrorMessage } from "../utils/format";
 export function GamePage() {
   const { slug = "" } = useParams();
   const catalog = useDetectionStore((state) => state.catalog);
-  const watermark = useBillingStore((state) => state.status?.watermark ?? true);
   const localGame = catalog.find((game) => game.slug === slug);
   const [game, setGame] = useState<PublicGame | null>(
     localGame
@@ -168,7 +166,7 @@ export function GamePage() {
           <button type="button" className="player-backdrop" aria-label="Close player" onClick={() => setPlaying(null)} />
           <section className="player-card">
             <div className="player-stage">
-              <PlayerVideo showWatermark={watermark}>
+              <PlayerVideo showWatermark={playing.watermark !== false}>
                 <video src={playing.playbackUrl} controls autoPlay />
               </PlayerVideo>
             </div>

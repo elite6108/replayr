@@ -3,7 +3,6 @@ import { Seo } from "../components/Seo";
 import { ClipThumb } from "../components/ClipThumb";
 import { PlayerVideo } from "../components/ReplayrWatermark";
 import { deleteCloudClip, downloadCloudClip, fetchLibrary, fetchPlayback, type ManagedClip, type PlaybackClip } from "../lib/api";
-import { fetchBillingStatus } from "../lib/billing";
 import { useAuth } from "../lib/auth";
 import { formatBytes, formatClipDate, formatDurationMs } from "../lib/format";
 import { clipShareUrl, getSupabase } from "../lib/supabase";
@@ -33,7 +32,6 @@ export function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [playBusy, setPlayBusy] = useState(false);
-  const [watermark, setWatermark] = useState(true);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<HTMLElement | null>(null);
   const loadingMoreRef = useRef(false);
@@ -42,16 +40,6 @@ export function LibraryPage() {
 
   clipsLengthRef.current = clips.length;
   totalRef.current = total;
-
-  useEffect(() => {
-    if (!token) {
-      setWatermark(true);
-      return;
-    }
-    void fetchBillingStatus(token)
-      .then((status) => setWatermark(status.watermark))
-      .catch(() => setWatermark(true));
-  }, [token]);
 
   useEffect(() => {
     if (!userId || !token) return;
@@ -298,7 +286,7 @@ export function LibraryPage() {
             </section>
           ) : playing ? (
             <section className="player-stage" ref={playerRef}>
-              <PlayerVideo showWatermark={watermark}>
+              <PlayerVideo showWatermark={playing.watermark !== false}>
                 <video className="player" key={playing.playbackUrl} src={playing.playbackUrl} poster={playing.thumbnailUrl || undefined} controls playsInline autoPlay />
               </PlayerVideo>
               <div className="player-meta">

@@ -101,7 +101,7 @@ export function ClipPage() {
             ) : null}
           </div>
           <div className="player-stage">
-            <PlayerVideo showWatermark={billing?.watermark !== false}>
+            <PlayerVideo showWatermark={clip.watermark !== false}>
               <video className="player" src={clip.playbackUrl} controls playsInline autoPlay />
             </PlayerVideo>
           </div>

@@ -4,7 +4,8 @@ use std::time::UNIX_EPOCH;
 use windows::core::{GUID, PCWSTR};
 use windows::Win32::Media::MediaFoundation::{
     IMFMediaType, IMFSample, IMFSourceReader, MFCreateAttributes, MFCreateMediaType, MFCreateSourceReaderFromURL,
-    MFStartup, MFMediaType_Video, MFVideoFormat_ARGB32, MFVideoFormat_RGB32, MFVideoInterlace_Progressive,
+    MFStartup, MFMediaType_Video, MFVideoFormat_ARGB32, MFVideoFormat_NV12, MFVideoFormat_RGB32,
+    MFVideoInterlace_Progressive,
     MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE,
     MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READERF_ENDOFSTREAM,
     MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MFSTARTUP_FULL,
@@ -165,12 +166,18 @@ fn seek_reader(reader: &IMFSourceReader, position_hns: i64) -> Result<(), String
 }
 
 fn open_reader(path: &Path, hardware: bool) -> Result<IMFSourceReader, String> {
+    open_reader_with(path, hardware, true)
+}
+
+fn open_reader_with(path: &Path, hardware: bool, video_processing: bool) -> Result<IMFSourceReader, String> {
     let wide = wide_path(path);
     unsafe {
         let mut attrs = None;
         MFCreateAttributes(&mut attrs, 2).map_err(|err| err.to_string())?;
         if let Some(attrs) = attrs.as_ref() {
-            let _ = attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1);
+            if video_processing {
+                let _ = attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1);
+            }
             if hardware {
                 let _ = attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1);
             }
@@ -195,6 +202,129 @@ pub(crate) fn open_rgb_reader(path: &Path) -> Result<IMFSourceReader, String> {
 
 pub(crate) fn seek_hns(reader: &IMFSourceReader, position_hns: i64) -> Result<(), String> {
     seek_reader(reader, position_hns)
+}
+
+/// Opens a reader that hands back NV12 frames straight from the decoder.
+///
+/// H.264 decodes to NV12 natively, so leaving advanced video processing off
+/// keeps Media Foundation from inserting a video processor. That skips a
+/// full-frame colour conversion per frame and hands back 1.5 bytes per pixel
+/// instead of 4. Callers fall back to `open_rgb_reader` if this is rejected.
+pub(crate) fn open_nv12_reader(path: &Path) -> Result<IMFSourceReader, String> {
+    let mut last = String::new();
+    // Prefer no video processing so no converter can slip in, but fall back to
+    // allowing it: decoders that only advertise NV12 through the processor
+    // still hand back NV12, which is what we care about.
+    for video_processing in [false, true] {
+        for hardware in [true, false] {
+            let reader = match open_reader_with(path, hardware, video_processing) {
+                Ok(reader) => reader,
+                Err(err) => {
+                    last = err;
+                    continue;
+                }
+            };
+            let output = nv12_type()?;
+            let applied = unsafe {
+                reader
+                    .SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, true)
+                    .and_then(|()| {
+                        reader.SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, None, &output)
+                    })
+            };
+            match applied {
+                Ok(()) => return Ok(reader),
+                Err(err) => {
+                    last = format!("processing={video_processing} hardware={hardware} NV12 rejected: {err}")
+                }
+            }
+        }
+    }
+    Err(format!("Could not decode NV12 from {}: {last}", path.display()))
+}
+
+/// Deliberately minimal: a partial type with extra attributes set is easy for
+/// the decoder to reject outright.
+fn nv12_type() -> Result<IMFMediaType, String> {
+    unsafe {
+        let media_type = MFCreateMediaType().map_err(|err| err.to_string())?;
+        media_type
+            .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
+            .map_err(|err| err.to_string())?;
+        media_type
+            .SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_NV12)
+            .map_err(|err| err.to_string())?;
+        Ok(media_type)
+    }
+}
+
+/// Next decoded NV12 frame, reusing `into` as the destination so a long clip
+/// does not allocate a fresh multi-megabyte buffer per frame. Returns the frame
+/// size, its row pitch, and the sample duration in 100ns units.
+pub(crate) fn read_nv12_sample(
+    reader: &IMFSourceReader,
+    into: &mut Vec<u8>,
+) -> Result<Option<Nv12Info>, String> {
+    let mut flags = 0_u32;
+    let mut timestamp = 0_i64;
+    let mut sample: Option<IMFSample> = None;
+    unsafe {
+        reader
+            .ReadSample(
+                MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+                0,
+                None,
+                Some(&mut flags),
+                Some(&mut timestamp),
+                Some(&mut sample),
+            )
+            .map_err(|err| err.to_string())?;
+    }
+    if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 {
+        return Ok(None);
+    }
+    let Some(sample) = sample else {
+        return Ok(None);
+    };
+    let duration = unsafe { sample.GetSampleDuration().unwrap_or(0) }.max(10_000);
+    let (width, height) = frame_size(reader)?;
+    let buffer = unsafe { sample.ConvertToContiguousBuffer().map_err(|err| err.to_string())? };
+    let mut data = std::ptr::null_mut();
+    let mut length = 0_u32;
+    unsafe {
+        buffer.Lock(&mut data, None, Some(&mut length)).map_err(|err| err.to_string())?;
+    }
+    if data.is_null() || length == 0 {
+        let _ = unsafe { buffer.Unlock() };
+        return Ok(None);
+    }
+    // A contiguous NV12 buffer is luma followed by half-height chroma, so the
+    // row pitch falls out of the total length.
+    let pitch = ((u64::from(length) * 2) / (u64::from(height.max(1)) * 3)) as u32;
+    let pitch = pitch.max(width);
+    if (pitch as usize) * (height as usize) * 3 / 2 > length as usize {
+        let _ = unsafe { buffer.Unlock() };
+        return Err("Decoded NV12 frame was smaller than its frame size.".into());
+    }
+    into.clear();
+    into.extend_from_slice(unsafe { std::slice::from_raw_parts(data, length as usize) });
+    unsafe {
+        buffer.Unlock().map_err(|err| err.to_string())?;
+    }
+    Ok(Some(Nv12Info {
+        width,
+        height,
+        pitch,
+        duration,
+    }))
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Nv12Info {
+    pub width: u32,
+    pub height: u32,
+    pub pitch: u32,
+    pub duration: i64,
 }
 
 /// Next decoded RGB32 frame plus its source timestamp and duration, in 100ns units.

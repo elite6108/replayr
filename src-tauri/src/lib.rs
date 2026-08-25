@@ -113,6 +113,19 @@ pub fn run() {
                     })
                     .ok();
             }
+            {
+                let state = app.state::<AppState>();
+                let reset = state
+                    .db
+                    .lock()
+                    .ok()
+                    .and_then(|conn| crate::library::reset_stale_uploads(&conn).ok());
+                if let Some(ids) = reset {
+                    if !ids.is_empty() {
+                        tracing::info!("reset {} interrupted cloud upload(s)", ids.len());
+                    }
+                }
+            }
             system::setup_tray(app.handle()).map_err(|err| err.to_string())?;
             detection::start(app.handle().clone());
             hotkeys::sync(app.handle()).map_err(|err| err.to_string())?;
@@ -162,6 +175,7 @@ pub fn run() {
             commands::stop_mic_monitor,
             commands::resolve_mic_disconnect,
             commands::list_local_clips,
+            commands::reset_stale_uploads,
             commands::save_trimmed_clip,
             commands::save_short_clip,
             commands::list_clip_filmstrip,

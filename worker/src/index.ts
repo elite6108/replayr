@@ -233,7 +233,7 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
   if (quota.storage_used_bytes + size > quota.storage_limit_bytes) {
     return json({ error: "This clip would exceed your cloud storage limit. Upgrade to Premium for 100 GB." }, 403);
   }
-  await assertUploadAllowed(env, user.id, {
+  const plan = await assertUploadAllowed(env, user.id, {
     durationMs: body.durationMs,
     width: body.width,
     height: body.height,
@@ -265,6 +265,7 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
     codec: "h264",
     visibility: "unlisted",
     status: "uploading",
+    watermark: plan.watermark,
   });
 
   const aws = r2Client(env);
@@ -523,7 +524,7 @@ async function listLibrary(request: Request, env: Env): Promise<Response> {
   const rows = await serviceRest<LibraryRow[]>(
     env,
     "GET",
-    `/clips?${filter}&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key&order=created_at.desc&limit=${limit}&offset=${offset}`,
+    `/clips?${filter}&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key,watermark&order=created_at.desc&limit=${limit}&offset=${offset}`,
   );
   requireR2(env);
   const clips = [];
@@ -546,6 +547,7 @@ async function listLibrary(request: Request, env: Env): Promise<Response> {
         row.status === "ready" && !thumbnailUrl
           ? await signedOwnedUrl(env, user.id, row.storage_key, "GET")
           : null,
+      watermark: row.watermark !== false,
     });
   }
   return json({ clips, total, page, limit });
@@ -568,7 +570,7 @@ async function listGameClips(request: Request, env: Env, slug: string): Promise<
   const rows = await serviceRest<LibraryRow[]>(
     env,
     "GET",
-    `/clips?game_id=eq.${game.id}&visibility=eq.public&status=eq.ready&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key,like_count,comment_count&order=created_at.desc&limit=48`,
+    `/clips?game_id=eq.${game.id}&visibility=eq.public&status=eq.ready&select=id,user_id,title,slug,status,visibility,duration_ms,width,height,file_size_bytes,created_at,storage_key,thumbnail_key,like_count,comment_count,watermark&order=created_at.desc&limit=48`,
   );
   requireR2(env);
   const viewer = await optionalUser(request, env);
@@ -593,6 +595,7 @@ async function listGameClips(request: Request, env: Env, slug: string): Promise<
       likeCount: extra?.likeCount ?? row.like_count ?? 0,
       commentCount: extra?.commentCount ?? row.comment_count ?? 0,
       liked: extra?.liked ?? false,
+      watermark: row.watermark !== false,
     });
   }
   return json({ game, clips });
@@ -714,6 +717,7 @@ async function getPlayback(
     likeCount: extra?.likeCount ?? clip.like_count ?? 0,
     commentCount: extra?.commentCount ?? clip.comment_count ?? 0,
     liked: extra?.liked ?? false,
+    watermark: clip.watermark !== false,
   });
 }
 
@@ -1113,6 +1117,7 @@ interface LibraryRow {
   thumbnail_key: string | null;
   like_count?: number;
   comment_count?: number;
+  watermark?: boolean;
 }
 
 interface GameRow {

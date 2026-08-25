@@ -80,6 +80,10 @@ export async function listLocalClips(limit = 80): Promise<LocalClip[]> {
   return invoke("list_local_clips", { limit });
 }
 
+export async function resetStaleUploads(): Promise<string[]> {
+  return invoke("reset_stale_uploads");
+}
+
 export async function saveTrimmedClip(
   sourceLocalId: string,
   startMs: number,

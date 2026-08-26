@@ -52,6 +52,7 @@ export function AnnouncementHost() {
   useEffect(() => {
     if (session === undefined) return;
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | 0 = 0;
 
     async function load() {
       try {
@@ -61,7 +62,10 @@ export function AnnouncementHost() {
         const next = await pickAnnouncement(items, viewer);
         setItem((current) => retainVisibleAnnouncement(items, current, next, viewer));
       } catch {
-        if (!cancelled) setItem(null);
+        if (!cancelled) {
+          if (retryTimer) clearTimeout(retryTimer);
+          retryTimer = setTimeout(() => void load(), 8_000);
+        }
       }
     }
 
@@ -70,6 +74,7 @@ export function AnnouncementHost() {
     return () => {
       cancelled = true;
       clearInterval(timer);
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [session, signedIn, premium, token]);
 

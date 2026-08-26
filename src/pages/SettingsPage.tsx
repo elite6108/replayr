@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { publicAppUrl, publicSiteUrl, APP_NAME } from "../branding";
 import { PageHeader } from "../components/common/PageHeader";
+import { HotkeyRecorder } from "../components/common/HotkeyRecorder";
 import { DEFAULT_HOTKEYS, findHotkeyConflicts, HOTKEY_ACTIONS, HOTKEY_LABELS } from "../utils/hotkeys";
 import { displayHotkey } from "../utils/format";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -573,21 +574,18 @@ function HotkeysPane({
 }) {
   return (
     <>
-      <p className="muted">These work while a game is focused.</p>
+      <p className="muted">Click a shortcut, then press the keys. These work while a game is focused.</p>
       {HOTKEY_ACTIONS.map((action) => (
         <div key={action}>
           <label className="setting-row" htmlFor={`hotkey-${action}`}>
             <span className="setting-copy">
               {HOTKEY_LABELS[action]}
-              <small>{displayHotkey(settings.hotkeys[action])}</small>
+              <small>{displayHotkey(settings.hotkeys[action]) || "Not set"}</small>
             </span>
-            <input
+            <HotkeyRecorder
               id={`hotkey-${action}`}
               value={settings.hotkeys[action]}
-              onChange={(event) => {
-                const next = { ...settings.hotkeys, [action]: event.target.value };
-                void onChange("hotkeys", next);
-              }}
+              onChange={(next) => onChange("hotkeys", { ...settings.hotkeys, [action]: next })}
             />
           </label>
           {conflicts[action] ? (

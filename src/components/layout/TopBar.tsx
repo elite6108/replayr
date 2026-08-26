@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { HotkeyRecorder } from "../common/HotkeyRecorder";
 import { useAuthStore } from "../../stores/authStore";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { useRecordingStore } from "../../stores/recordingStore";
@@ -94,12 +95,11 @@ export function TopBar() {
           </div>
           <div className="field">
             <label htmlFor="topbar-clip-hotkey">Hotkey</label>
-            <input
+            <HotkeyRecorder
               id="topbar-clip-hotkey"
               value={settings.hotkeys.saveReplay}
-              onChange={(event) => void saveHotkey("saveReplay", event.target.value)}
+              onChange={(next) => saveHotkey("saveReplay", next)}
             />
-            <div className="muted">{displayHotkey(settings.hotkeys.saveReplay)}</div>
           </div>
           <button
             type="button"
@@ -123,12 +123,11 @@ export function TopBar() {
         >
           <div className="field">
             <label htmlFor="topbar-record-hotkey">Hotkey</label>
-            <input
+            <HotkeyRecorder
               id="topbar-record-hotkey"
               value={settings.hotkeys.toggleRecording}
-              onChange={(event) => void saveHotkey("toggleRecording", event.target.value)}
+              onChange={(next) => saveHotkey("toggleRecording", next)}
             />
-            <div className="muted">{displayHotkey(settings.hotkeys.toggleRecording)}</div>
           </div>
           <button type="button" className={`btn ${recording ? "danger" : "primary"}`} disabled={busy} onClick={() => void (recording ? stop() : start())}>
             {recording ? "Stop" : "Record"}

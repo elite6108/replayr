@@ -54,9 +54,13 @@ export function AnnouncementHost({ surface = "web" as const }: { surface?: "web"
   }, [session?.access_token]);
 
   useEffect(() => {
+    if (hide) {
+      setItem(null);
+      return;
+    }
     if (session === undefined) return;
-    if (hide) return;
     let cancelled = false;
+    let retryTimer = 0;
     const token = session?.access_token ?? null;
     const viewer = { signedIn, premium };
 
@@ -67,7 +71,11 @@ export function AnnouncementHost({ surface = "web" as const }: { surface?: "web"
         const next = pickAnnouncement(items, viewer);
         setItem((current) => retainVisibleAnnouncement(items, current, next, viewer));
       } catch {
-        if (!cancelled) setItem(null);
+        // Keep whatever is visible; retry soon so a late-starting API still surfaces.
+        if (!cancelled) {
+          window.clearTimeout(retryTimer);
+          retryTimer = window.setTimeout(() => void load(), 8_000);
+        }
       }
     }
 
@@ -77,10 +85,13 @@ export function AnnouncementHost({ surface = "web" as const }: { surface?: "web"
       if (document.visibilityState === "visible") void load();
     }
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.clearTimeout(retryTimer);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
     };
   }, [session, signedIn, premium, hide, surface]);
 

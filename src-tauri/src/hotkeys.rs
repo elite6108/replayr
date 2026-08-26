@@ -79,34 +79,35 @@ pub fn sync(app: &AppHandle) -> AppResult<()> {
 }
 
 pub fn register_all(app: &AppHandle, hotkeys: &Hotkeys) -> AppResult<()> {
+    // Parse first so a bad combo never leaves every shortcut unregistered.
+    let planned = [
+        (hotkeys.save_replay.as_str(), "save_replay"),
+        (hotkeys.toggle_recording.as_str(), "toggle_recording"),
+        (hotkeys.screenshot.as_str(), "screenshot"),
+    ];
+    let mut parsed = Vec::with_capacity(planned.len());
+    for (combo, action) in planned {
+        let combo = combo.trim();
+        if combo.is_empty() {
+            continue;
+        }
+        let shortcut = Shortcut::from_str(combo)
+            .map_err(|err| AppError::Message(format!("Invalid hotkey {combo}: {err}")))?;
+        parsed.push((shortcut, action, combo.to_string()));
+    }
+
     let _ = app.global_shortcut().unregister_all();
     let mut next = HashMap::new();
-    bind(app, &hotkeys.save_replay, "save_replay", &mut next)?;
-    bind(app, &hotkeys.toggle_recording, "toggle_recording", &mut next)?;
-    bind(app, &hotkeys.screenshot, "screenshot", &mut next)?;
+    for (shortcut, action, combo) in parsed {
+        app.global_shortcut()
+            .register(shortcut.clone())
+            .map_err(|err| AppError::Message(format!("Could not register {combo}: {err}")))?;
+        next.insert(shortcut_key(&shortcut), action);
+    }
     let map = app.state::<HotkeyMap>();
     if let Ok(mut bindings) = map.bindings.lock() {
         *bindings = next;
     }
-    Ok(())
-}
-
-fn bind(
-    app: &AppHandle,
-    combo: &str,
-    action: &'static str,
-    into: &mut HashMap<String, &'static str>,
-) -> AppResult<()> {
-    let combo = combo.trim();
-    if combo.is_empty() {
-        return Ok(());
-    }
-    let shortcut = Shortcut::from_str(combo)
-        .map_err(|err| AppError::Message(format!("Invalid hotkey {combo}: {err}")))?;
-    app.global_shortcut()
-        .register(shortcut)
-        .map_err(|err| AppError::Message(format!("Could not register {combo}: {err}")))?;
-    into.insert(shortcut_key(&shortcut), action);
     Ok(())
 }
 

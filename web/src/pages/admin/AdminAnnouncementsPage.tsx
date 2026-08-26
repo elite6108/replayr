@@ -156,7 +156,11 @@ export function AdminAnnouncementsPage() {
         saved = await uploadAnnouncementImage(token, saved.id, file);
         setFile(null);
       }
-      setNotice(saved.enabled ? "Announcement saved and live in its window." : "Announcement saved as a draft.");
+      setNotice(
+        saved.enabled
+          ? "Announcement is live. Open the homepage or desktop app (not Admin) to see it."
+          : "Saved as a draft — check “Publish live” and save again to show it.",
+      );
       setEditingId(saved.id);
       await load();
     } catch (caught) {
@@ -470,12 +474,12 @@ export function AdminAnnouncementsPage() {
                 checked={draft.enabled}
                 onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
               />
-              Enabled
+              Publish live (required to show on homepage / desktop)
             </label>
           </div>
           <div className="announce-admin-actions">
             <button className="btn primary" type="submit" disabled={busy}>
-              {busy ? "Saving…" : "Save"}
+              {busy ? "Saving…" : draft.enabled ? "Save & publish" : "Save draft"}
             </button>
             <button
               className="btn"

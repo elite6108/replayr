@@ -31,6 +31,7 @@ export function AnnouncementHost() {
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer = 0;
     const viewer = { signedIn, premium: signedIn ? premium : null };
 
     async function load() {
@@ -40,7 +41,11 @@ export function AnnouncementHost() {
         const next = pickAnnouncement(items, viewer);
         setItem((current) => retainVisibleAnnouncement(items, current, next, viewer));
       } catch {
-        if (!cancelled) setItem(null);
+        // Keep whatever is visible; retry soon so a late-starting API still surfaces.
+        if (!cancelled) {
+          window.clearTimeout(retryTimer);
+          retryTimer = window.setTimeout(() => void load(), 8_000);
+        }
       }
     }
 
@@ -50,10 +55,13 @@ export function AnnouncementHost() {
       if (document.visibilityState === "visible") void load();
     }
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.clearTimeout(retryTimer);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
     };
   }, [signedIn, premium, token]);
 

@@ -8,6 +8,7 @@ import {
   deleteLocalClip,
   exportLocalClip,
   listLocalClips,
+  processWatermarkJobs,
   renameLocalClip,
   resetStaleUploads,
   revealLocalClip,
@@ -314,6 +315,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       await useCloudStore.getState().refresh();
       await useAuthStore.getState().refreshProfile();
       useToastStore.getState().show("Uploaded to cloud");
+      // The clip is already shareable; the burned-in download derivative
+      // renders in the background without blocking anything here.
+      void processWatermarkJobs(token, publicAppUrl()).catch((caught) => {
+        console.warn("watermark jobs", caught);
+      });
     } catch (caught) {
       const message = invokeErrorMessage(caught, "Upload failed");
       useToastStore.getState().show(message.includes("Premium") ? `${message} Open Account to upgrade.` : message);

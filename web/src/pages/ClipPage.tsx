@@ -14,6 +14,7 @@ export function ClipPage() {
   const { slug = "" } = useParams();
   const [clip, setClip] = useState<PlaybackClip | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [billing, setBilling] = useState<BillingStatus | null>(null);
@@ -78,21 +79,27 @@ export function ClipPage() {
               onClick={() => {
                 void (async () => {
                   setDownloading(true);
-                  setError(null);
+                  setDownloadNotice(null);
                   try {
                     const token = supabaseConfigured()
                       ? (await getSupabase().auth.getSession()).data.session?.access_token
                       : undefined;
                     await downloadCloudClip(clip.slug, clip.title, token);
                   } catch (caught) {
-                    setError(caught instanceof Error ? caught.message : "Could not download that clip.");
+                    setDownloadNotice(
+                      caught instanceof Error ? caught.message : "Could not download that clip.",
+                    );
                   } finally {
                     setDownloading(false);
                   }
                 })();
               }}
             >
-              {downloading ? "Downloading…" : "Download"}
+              {downloading
+                ? "Downloading…"
+                : clip.downloadReady === false
+                  ? "Preparing download…"
+                  : "Download"}
             </button>
             {session ? (
               <button className="btn" type="button" onClick={() => setSendOpen(true)}>
@@ -100,6 +107,7 @@ export function ClipPage() {
               </button>
             ) : null}
           </div>
+          {downloadNotice ? <p className="muted">{downloadNotice}</p> : null}
           <div className="player-stage">
             <PlayerVideo showWatermark={clip.watermark !== false}>
               <video className="player" src={clip.playbackUrl} controls playsInline autoPlay />

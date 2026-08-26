@@ -1113,7 +1113,7 @@ pub fn watermarked_temp(source: &Path, fps: u32) -> Result<PathBuf, String> {
     Ok(dest)
 }
 
-fn watermark_temp_reusable(source: &Path, dest: &Path) -> bool {
+pub(crate) fn watermark_temp_reusable(source: &Path, dest: &Path) -> bool {
     let Ok(src) = source.metadata() else {
         return false;
     };

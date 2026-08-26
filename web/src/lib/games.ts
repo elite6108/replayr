@@ -26,6 +26,7 @@ export interface PublicGameClip {
   likeCount?: number;
   commentCount?: number;
   liked?: boolean;
+  downloadReady?: boolean;
 }
 
 export async function fetchGames(): Promise<CatalogGame[]> {

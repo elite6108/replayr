@@ -36,6 +36,7 @@ mod share;
 mod still;
 mod system;
 mod upload;
+mod watermark_upload;
 
 use database::AppState;
 use std::sync::Mutex;
@@ -209,6 +210,8 @@ pub fn run() {
             commands::save_screenshot,
             commands::upload_local_clip,
             commands::delete_cloud_clip,
+            commands::sync_watermark_jobs,
+            commands::process_watermark_jobs,
             commands::create_desktop_shortcut,
             commands::remove_desktop_shortcut,
             commands::desktop_shortcut_exists

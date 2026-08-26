@@ -26,14 +26,14 @@ struct UploadSession {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PresignedPart {
+pub(crate) struct PresignedPart {
     part_number: u32,
     url: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CompletedPart {
+pub(crate) struct CompletedPart {
     part_number: u32,
     etag: String,
 }
@@ -43,6 +43,17 @@ struct CompletedPart {
 struct CompleteResponse {
     slug: String,
     share_url: Option<String>,
+    #[serde(default)]
+    watermark: Option<WatermarkInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WatermarkInfo {
+    #[serde(default)]
+    pub(crate) required: bool,
+    #[serde(default)]
+    pub(crate) render_version: Option<i64>,
 }
 
 pub fn upload_local_clip(
@@ -128,9 +139,26 @@ pub fn upload_local_clip(
 
     match complete_session(&client, api_base, access_token, &session, &etags) {
         Ok(done) => {
-            let db = app.state::<AppState>();
-            let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
-            let next = library::set_cloud(&conn, local_id, "completed", Some(&session.clip_id), None)?;
+            let next = {
+                let db = app.state::<AppState>();
+                let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+                let next = library::set_cloud(&conn, local_id, "completed", Some(&session.clip_id), None)?;
+                // The clip is shareable right away; the burned-in download
+                // derivative renders in the background from this queue.
+                if done.watermark.as_ref().is_some_and(|info| info.required) {
+                    let version = done
+                        .watermark
+                        .as_ref()
+                        .and_then(|info| info.render_version)
+                        .unwrap_or(crate::watermark_upload::WATERMARK_RENDER_VERSION);
+                    if let Err(err) =
+                        crate::watermark_upload::enqueue(&conn, &session.clip_id, local_id, version)
+                    {
+                        tracing::warn!("could not queue watermark render: {err}");
+                    }
+                }
+                next
+            };
             emit(app, local_id, "completed", done.share_url.as_deref().or(Some(&done.slug)));
             Ok(next)
         }
@@ -168,7 +196,7 @@ fn start_session(
     parse_json(response)
 }
 
-fn put_parts(
+pub(crate) fn put_parts(
     client: &Client,
     path: &Path,
     file_size: u64,
@@ -267,7 +295,7 @@ fn complete_session(
     parse_json(response)
 }
 
-fn auth_headers(access_token: &str) -> AppResult<HeaderMap> {
+pub(crate) fn auth_headers(access_token: &str) -> AppResult<HeaderMap> {
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
@@ -286,7 +314,7 @@ fn parse_json<T: for<'de> Deserialize<'de>>(response: reqwest::blocking::Respons
     serde_json::from_str(&text).map_err(|err| AppError::Message(format!("Cloud API returned invalid JSON: {err}")))
 }
 
-fn api_error(status: u16, body: &str) -> String {
+pub(crate) fn api_error(status: u16, body: &str) -> String {
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(body) {
         if let Some(error) = value.get("error").and_then(|item| item.as_str()) {
             return error.to_string();
@@ -424,6 +452,6 @@ fn emit(app: &AppHandle, local_id: &str, status: &str, detail: Option<&str>) {
     );
 }
 
-fn map_reqwest(err: reqwest::Error) -> AppError {
+pub(crate) fn map_reqwest(err: reqwest::Error) -> AppError {
     AppError::Message(format!("Cloud request failed: {err}"))
 }

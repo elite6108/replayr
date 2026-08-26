@@ -170,6 +170,14 @@ export async function deleteCloudClip(clipId: string, accessToken: string, apiBa
   return invoke("delete_cloud_clip", { clipId, accessToken, apiBase });
 }
 
+export async function syncWatermarkJobs(accessToken: string, apiBase: string): Promise<number> {
+  return invoke("sync_watermark_jobs", { accessToken, apiBase });
+}
+
+export async function processWatermarkJobs(accessToken: string, apiBase: string): Promise<number> {
+  return invoke("process_watermark_jobs", { accessToken, apiBase });
+}
+
 export async function getDefaultSaveLocation(): Promise<string> {
   return invoke("get_default_save_location");
 }

@@ -32,6 +32,7 @@ export interface PlaybackClip {
   commentCount?: number;
   liked?: boolean;
   watermark?: boolean;
+  downloadReady?: boolean;
 }
 
 export interface ManagedClip {
@@ -48,6 +49,8 @@ export interface ManagedClip {
   thumbnailUrl: string | null;
   playbackUrl: string | null;
   watermark?: boolean;
+  watermarkStatus?: string | null;
+  downloadReady?: boolean;
 }
 
 export interface LibraryPage {
@@ -82,10 +85,24 @@ export async function fetchPlayback(slug: string, accessToken?: string | null): 
   return readApiJson<PlaybackClip>(response, "That clip is not available.");
 }
 
+export const DOWNLOAD_PREPARING_MESSAGE =
+  "This download is still being prepared with its watermark. Try again shortly.";
+
+/** The watermarked download derivative is not rendered yet (HTTP 202). */
+export class DownloadPreparingError extends Error {
+  constructor() {
+    super(DOWNLOAD_PREPARING_MESSAGE);
+    this.name = "DownloadPreparingError";
+  }
+}
+
 export async function downloadCloudClip(slug: string, title: string | null, accessToken?: string | null): Promise<void> {
   const headers: HeadersInit = { accept: "application/octet-stream, application/json" };
   if (accessToken) headers.authorization = `Bearer ${accessToken}`;
   const response = await fetch(apiUrl(`/v1/clips/${slug}/download`), { headers });
+  if (response.status === 202) {
+    throw new DownloadPreparingError();
+  }
   if (!response.ok) {
     throw new Error(await readApiError(response, "Could not download that clip."));
   }

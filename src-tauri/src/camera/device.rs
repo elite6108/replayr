@@ -209,6 +209,10 @@ unsafe fn allocated_string(attrs: &IMFActivate, key: &GUID) -> Option<String> {
     if value.is_empty() { None } else { Some(value) }
 }
 
+pub(crate) unsafe fn pwstr_to_owned(ptr: PWSTR) -> String {
+    pwstr_to_string(ptr)
+}
+
 unsafe fn pwstr_to_string(ptr: PWSTR) -> String {
     if ptr.0.is_null() {
         return String::new();

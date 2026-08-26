@@ -230,6 +230,34 @@ impl MfWriter {
         live: bool,
         input: VideoInput,
     ) -> Result<Self, String> {
+        Self::create(
+            path,
+            width,
+            height,
+            fps,
+            bitrate,
+            with_audio,
+            pcm_path,
+            live,
+            input,
+            true,
+        )
+    }
+
+    /// Same as [`Self::new`], with an explicit hardware-transform *request*.
+    /// Setting this true is not proof the H.264 encoder is hardware.
+    pub fn create(
+        path: &Path,
+        width: u32,
+        height: u32,
+        fps: u32,
+        bitrate: u32,
+        with_audio: bool,
+        pcm_path: Option<&Path>,
+        live: bool,
+        input: VideoInput,
+        hardware_transforms: bool,
+    ) -> Result<Self, String> {
         ensure_mf()?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
@@ -250,7 +278,10 @@ impl MfWriter {
             MFCreateAttributes(&mut attrs, 2).map_err(|err| err.to_string())?;
             let attrs = attrs.ok_or_else(|| "Could not create Media Foundation attributes.".to_string())?;
             attrs
-                .SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)
+                .SetUINT32(
+                    &MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
+                    u32::from(hardware_transforms),
+                )
                 .map_err(|err| err.to_string())?;
             if live {
                 // Live capture must not block WGC. Offline re-encodes (watermark,
@@ -403,6 +434,20 @@ impl MfWriter {
         capture_hns: i64,
         force_keyframe: bool,
     ) -> Result<(), String> {
+        let duration = self.preview_duration(capture_hns);
+        self.write_nv12_timed(planes, row_pitch, src_height, capture_hns, duration, force_keyframe)
+    }
+
+    /// Writes one NV12 frame using an explicit sample duration (webcam path).
+    pub fn write_nv12_timed(
+        &mut self,
+        planes: &[u8],
+        row_pitch: u32,
+        src_height: u32,
+        capture_hns: i64,
+        duration_hns: i64,
+        force_keyframe: bool,
+    ) -> Result<(), String> {
         let dst_pitch = self.width as usize;
         let dst_height = self.height as usize;
         let src_pitch = row_pitch as usize;
@@ -452,7 +497,7 @@ impl MfWriter {
                 .map_err(|err| err.to_string())?;
 
             let time = self.video_time;
-            let duration = self.preview_duration(capture_hns);
+            let duration = duration_hns.max(10_000);
             let keyframe = self.first_video || force_keyframe;
             let sample = make_sample(media_buffer, time, duration, keyframe)?;
             self.first_video = false;
@@ -463,6 +508,14 @@ impl MfWriter {
             self.video_time = time + duration;
         }
         Ok(())
+    }
+
+    pub fn video_stream_index(&self) -> u32 {
+        self.video_stream
+    }
+
+    pub fn sink_writer(&self) -> &IMFSinkWriter {
+        &self.writer
     }
 
     pub fn write_pcm(&mut self, pcm: &[u8]) -> Result<(), String> {

@@ -2,6 +2,7 @@ export type CameraAvailability =
   | "idle"
   | "ready"
   | "previewing"
+  | "recording"
   | "disconnected"
   | "permissionDenied"
   | "failed"
@@ -35,6 +36,13 @@ export interface CameraStatus {
   conversionPath: boolean;
   timestampFallback: boolean;
   estimatedMbPerMinute: number;
+  recording: boolean;
+  encoderName: string;
+  encoderHardware: boolean;
+  softwareFallback: boolean;
+  droppedFrames: number;
+  writtenFrames: number;
+  testPath: string;
 }
 
 export interface CameraPreviewFrame {
@@ -58,4 +66,11 @@ export const IDLE_CAMERA_STATUS: CameraStatus = {
   conversionPath: false,
   timestampFallback: false,
   estimatedMbPerMinute: 0,
+  recording: false,
+  encoderName: "",
+  encoderHardware: false,
+  softwareFallback: false,
+  droppedFrames: 0,
+  writtenFrames: 0,
+  testPath: "",
 };

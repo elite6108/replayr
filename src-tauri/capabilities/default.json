@@ -43,6 +43,8 @@
     "allow-start-camera-preview",
     "allow-stop-camera-preview",
     "allow-get-camera-preview-frame",
+    "allow-start-webcam-test-record",
+    "allow-stop-webcam-test-record",
     "allow-auth-get-item",
     "allow-auth-set-item",
     "allow-auth-remove-item",

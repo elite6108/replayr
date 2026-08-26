@@ -15,6 +15,7 @@ pub enum CameraAvailability {
     Idle,
     Ready,
     Previewing,
+    Recording,
     Disconnected,
     PermissionDenied,
     Failed,
@@ -37,6 +38,20 @@ pub struct CameraStatus {
     pub conversion_path: bool,
     pub timestamp_fallback: bool,
     pub estimated_mb_per_minute: u32,
+    #[serde(default)]
+    pub recording: bool,
+    #[serde(default)]
+    pub encoder_name: String,
+    #[serde(default)]
+    pub encoder_hardware: bool,
+    #[serde(default)]
+    pub software_fallback: bool,
+    #[serde(default)]
+    pub dropped_frames: u32,
+    #[serde(default)]
+    pub written_frames: u32,
+    #[serde(default)]
+    pub test_path: String,
 }
 
 impl CameraStatus {
@@ -55,6 +70,13 @@ impl CameraStatus {
             conversion_path: false,
             timestamp_fallback: false,
             estimated_mb_per_minute: 0,
+            recording: false,
+            encoder_name: String::new(),
+            encoder_hardware: false,
+            software_fallback: false,
+            dropped_frames: 0,
+            written_frames: 0,
+            test_path: String::new(),
         }
     }
 

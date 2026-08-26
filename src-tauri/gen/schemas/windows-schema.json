@@ -453,10 +453,22 @@
           "markdownDescription": "Start a live webcam preview while configuring the source"
         },
         {
+          "description": "Write a short standalone webcam MP4 for encoder testing",
+          "type": "string",
+          "const": "allow-start-webcam-test-record",
+          "markdownDescription": "Write a short standalone webcam MP4 for encoder testing"
+        },
+        {
           "description": "Stop the live webcam preview",
           "type": "string",
           "const": "allow-stop-camera-preview",
           "markdownDescription": "Stop the live webcam preview"
+        },
+        {
+          "description": "Stop the standalone webcam test recording",
+          "type": "string",
+          "const": "allow-stop-webcam-test-record",
+          "markdownDescription": "Stop the standalone webcam test recording"
         },
         {
           "description": "Stop the settings microphone meter when it is not recording",

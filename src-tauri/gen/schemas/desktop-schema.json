@@ -453,6 +453,12 @@
           "markdownDescription": "Start a live webcam preview while configuring the source"
         },
         {
+          "description": "Write a short standalone webcam MP4 for encoder testing",
+          "type": "string",
+          "const": "allow-start-webcam-test-record",
+          "markdownDescription": "Write a short standalone webcam MP4 for encoder testing"
+        },
+        {
           "description": "Stop the live webcam preview",
           "type": "string",
           "const": "allow-stop-camera-preview",
@@ -463,6 +469,12 @@
           "type": "string",
           "const": "allow-stop-mic-monitor",
           "markdownDescription": "Stop the settings microphone meter when it is not recording"
+        },
+        {
+          "description": "Stop the standalone webcam test recording",
+          "type": "string",
+          "const": "allow-stop-webcam-test-record",
+          "markdownDescription": "Stop the standalone webcam test recording"
         },
         {
           "description": "This permission set configures if your\napplication can enable or disable auto\nstarting the application on boot.\n\n#### Granted Permissions\n\nIt allows all to check, enable and\ndisable the automatic start on boot.\n\n\n#### This default permission set includes:\n\n- `allow-enable`\n- `allow-disable`\n- `allow-is-enabled`",

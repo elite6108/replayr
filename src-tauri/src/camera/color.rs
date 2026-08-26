@@ -1,5 +1,5 @@
-//! Bounded preview color conversion. Recording later prefers NV12/YUY2 and
-//! only converts when the preview or a fallback encoder needs RGB.
+//! Preview and record color conversion. Encode prefers NV12/YUY2 and only
+//! goes through RGB when the reader cannot output a YUV format.
 
 use std::io::Cursor;
 
@@ -87,6 +87,134 @@ pub fn rgb32_to_bgra(src: &[u8], width: u32, height: u32, stride: usize) -> Opti
     Some(out)
 }
 
+/// Pack YUY2 into NV12 without going through RGB. Width must be even.
+pub fn yuy2_to_nv12(src: &[u8], width: u32, height: u32, stride: usize) -> Option<Vec<u8>> {
+    let width = width as usize;
+    let height = height as usize;
+    if width == 0 || height == 0 || width % 2 == 1 || height % 2 == 1 {
+        return None;
+    }
+    let row_bytes = stride.max(width * 2);
+    if src.len() < row_bytes.saturating_mul(height) {
+        return None;
+    }
+    let y_size = width * height;
+    let mut out = vec![0u8; y_size + y_size / 2];
+    for y in 0..height {
+        let row = y * row_bytes;
+        for x in (0..width).step_by(2) {
+            let base = row + x * 2;
+            if base + 3 >= src.len() {
+                break;
+            }
+            out[y * width + x] = src[base];
+            out[y * width + x + 1] = src[base + 2];
+        }
+    }
+    for y in (0..height).step_by(2) {
+        let row = y * row_bytes;
+        for x in (0..width).step_by(2) {
+            let base = row + x * 2;
+            if base + 3 >= src.len() {
+                break;
+            }
+            let uv = y_size + (y / 2) * width + x;
+            out[uv] = src[base + 1];
+            out[uv + 1] = src[base + 3];
+        }
+    }
+    Some(out)
+}
+
+/// Compact a possibly-strided NV12 buffer to width-pitched NV12.
+pub fn compact_nv12(src: &[u8], width: u32, height: u32, stride: usize) -> Option<Vec<u8>> {
+    let width = width as usize;
+    let height = height as usize;
+    if width == 0 || height == 0 || height % 2 == 1 {
+        return None;
+    }
+    let pitch = stride.max(width);
+    let y_size = pitch.checked_mul(height)?;
+    let uv_size = pitch.checked_mul(height / 2)?;
+    if src.len() < y_size + uv_size {
+        return None;
+    }
+    if pitch == width {
+        return Some(src[..y_size + uv_size].to_vec());
+    }
+    let mut out = vec![0u8; width * height * 3 / 2];
+    for y in 0..height {
+        let src_off = y * pitch;
+        let dst_off = y * width;
+        out[dst_off..dst_off + width].copy_from_slice(&src[src_off..src_off + width]);
+    }
+    let src_uv = y_size;
+    let dst_uv = width * height;
+    for y in 0..height / 2 {
+        let src_off = src_uv + y * pitch;
+        let dst_off = dst_uv + y * width;
+        out[dst_off..dst_off + width].copy_from_slice(&src[src_off..src_off + width]);
+    }
+    Some(out)
+}
+
+/// Convert packed BGRA/RGB32 into NV12. Width and height must be even.
+pub fn bgra_to_nv12(src: &[u8], width: u32, height: u32, stride: usize) -> Option<Vec<u8>> {
+    let width = width as usize;
+    let height = height as usize;
+    if width == 0 || height == 0 || width % 2 == 1 || height % 2 == 1 {
+        return None;
+    }
+    let row_bytes = stride.max(width * 4);
+    if src.len() < row_bytes.saturating_mul(height) {
+        return None;
+    }
+    let y_size = width * height;
+    let mut out = vec![0u8; y_size + y_size / 2];
+    for y in 0..height {
+        for x in 0..width {
+            let i = y * row_bytes + x * 4;
+            let (yy, _, _) = rgb_to_yuv(src[i + 2], src[i + 1], src[i]);
+            out[y * width + x] = yy;
+        }
+    }
+    for y in (0..height).step_by(2) {
+        for x in (0..width).step_by(2) {
+            let i = y * row_bytes + x * 4;
+            let (_, u, v) = rgb_to_yuv(src[i + 2], src[i + 1], src[i]);
+            let uv = y_size + (y / 2) * width + x;
+            out[uv] = u;
+            out[uv + 1] = v;
+        }
+    }
+    Some(out)
+}
+
+pub fn flip_nv12_horizontal(planes: &mut [u8], width: u32, height: u32) {
+    let width = width as usize;
+    let height = height as usize;
+    if width < 2 || height < 2 || planes.len() < width * height * 3 / 2 {
+        return;
+    }
+    for y in 0..height {
+        let row = y * width;
+        for x in 0..width / 2 {
+            planes.swap(row + x, row + width - 1 - x);
+        }
+    }
+    let uv = width * height;
+    let pairs = width / 2;
+    for y in 0..height / 2 {
+        let row = uv + y * width;
+        for i in 0..pairs / 2 {
+            let left = row + i * 2;
+            let right = row + (pairs - 1 - i) * 2;
+            planes.swap(left, right);
+            planes.swap(left + 1, right + 1);
+        }
+    }
+}
+
 pub fn flip_bgra_horizontal(pixels: &mut [u8], width: u32, height: u32) {
     let width = width as usize;
     let height = height as usize;
@@ -153,6 +281,16 @@ pub fn base64_encode(data: &[u8]) -> String {
     out
 }
 
+fn rgb_to_yuv(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
+    let r = i32::from(r);
+    let g = i32::from(g);
+    let b = i32::from(b);
+    let y = ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
+    let u = ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
+    let v = ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;
+    (clamp_u8(y), clamp_u8(u), clamp_u8(v))
+}
+
 fn yuv_to_rgb(y: i32, u: i32, v: i32) -> (u8, u8, u8) {
     let r = y + (359 * v) / 256;
     let g = y - (88 * u) / 256 - (183 * v) / 256;
@@ -211,6 +349,32 @@ mod tests {
         let rgb = vec![1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255];
         let copied = rgb32_to_bgra(&rgb, 2, 2, 8).unwrap();
         assert_eq!(&copied[0..4], &[1, 2, 3, 255]);
+    }
+
+    #[test]
+    fn yuy2_compacts_to_nv12_with_even_dims() {
+        let yuy2 = vec![16u8, 128, 32, 128, 16, 128, 32, 128, 16, 128, 32, 128, 16, 128, 32, 128];
+        let nv12 = yuy2_to_nv12(&yuy2, 2, 2, 4).unwrap();
+        assert_eq!(nv12.len(), 6);
+        assert_eq!(nv12[0], 16);
+        assert_eq!(nv12[1], 32);
+    }
+
+    #[test]
+    fn nv12_flip_swaps_luma() {
+        let mut nv12 = vec![1u8, 2, 3, 4, 128, 129];
+        flip_nv12_horizontal(&mut nv12, 2, 2);
+        assert_eq!(&nv12[0..4], &[2, 1, 4, 3]);
+    }
+
+    #[test]
+    fn compact_nv12_and_bgra_round_trip_size() {
+        let nv12 = vec![16u8, 16, 16, 16, 128, 128];
+        let compact = compact_nv12(&nv12, 2, 2, 2).unwrap();
+        assert_eq!(compact.len(), 6);
+        let bgra = vec![0u8, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255];
+        let converted = bgra_to_nv12(&bgra, 2, 2, 8).unwrap();
+        assert_eq!(converted.len(), 6);
     }
 
     #[test]

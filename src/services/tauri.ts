@@ -275,6 +275,20 @@ export async function getCameraPreviewFrame(): Promise<CameraPreviewFrame | null
   }
 }
 
+export async function startWebcamTestRecord(options: {
+  deviceId: string;
+  width: number;
+  height: number;
+  fps: number;
+  mirror: boolean;
+}): Promise<CameraStatus> {
+  return invoke("start_webcam_test_record", options);
+}
+
+export async function stopWebcamTestRecord(): Promise<CameraStatus> {
+  return invoke("stop_webcam_test_record");
+}
+
 export const credentialStorage = {
   async getItem(key: string): Promise<string | null> {
     try {

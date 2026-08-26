@@ -36,6 +36,8 @@ struct Inner {
     watch: AtomicBool,
     #[cfg(windows)]
     preview: Mutex<Option<super::preview::PreviewSession>>,
+    #[cfg(windows)]
+    record: Mutex<Option<super::record::RecordSession>>,
     session_lock: Mutex<()>,
     cached_modes: Mutex<Option<(String, Vec<super::format::CameraMode>)>>,
     stop_watch: AtomicBool,
@@ -62,6 +64,8 @@ impl CameraEngine {
                 watch: AtomicBool::new(false),
                 #[cfg(windows)]
                 preview: Mutex::new(None),
+                #[cfg(windows)]
+                record: Mutex::new(None),
                 session_lock: Mutex::new(()),
                 cached_modes: Mutex::new(None),
                 stop_watch: AtomicBool::new(false),
@@ -131,9 +135,15 @@ impl CameraEngine {
                         status.message = err;
                     } else if status.availability != CameraAvailability::Disconnected
                         && status.availability != CameraAvailability::PermissionDenied
+                        && status.availability != CameraAvailability::Recording
                     {
                         status.availability = CameraAvailability::Previewing;
                     }
+                }
+            }
+            if let Ok(record) = self.inner.record.lock() {
+                if let Some(session) = record.as_ref() {
+                    apply_record_snapshot(&mut status, &session.snapshot());
                 }
             }
             status.enabled = self.inner.enabled.load(Ordering::SeqCst);
@@ -166,7 +176,7 @@ impl CameraEngine {
         }
         // Preview is owned by the settings card. Do not tear it down when the
         // recording toggle is off — that would close the camera mid-configure.
-        let watching = webcam.enabled || previewing(&self.inner);
+        let watching = webcam.enabled || previewing(&self.inner) || recording(&self.inner);
         self.inner.watch.store(watching, Ordering::SeqCst);
         if watching {
             self.ensure_watch_thread();
@@ -186,6 +196,9 @@ impl CameraEngine {
         #[cfg(windows)]
         {
             let _session = self.inner.session_lock.lock().map_err(|err| err.to_string())?;
+            if recording(&self.inner) {
+                return Err("Stop the webcam test recording first.".into());
+            }
             let request = request;
             let devices = list_devices_off_ui()?;
             let Some(device) = devices.iter().find(|item| item.id == request.device_id) else {
@@ -238,6 +251,75 @@ impl CameraEngine {
         {
             None
         }
+    }
+
+    pub fn start_test_record(
+        &self,
+        device_id: String,
+        width: u32,
+        height: u32,
+        fps: u32,
+        mirror: bool,
+        path: std::path::PathBuf,
+    ) -> Result<CameraStatus, String> {
+        #[cfg(not(windows))]
+        {
+            let _ = (device_id, width, height, fps, mirror, path);
+            return Err("Camera capture is available on Windows.".into());
+        }
+        #[cfg(windows)]
+        {
+            let _session = self.inner.session_lock.lock().map_err(|err| err.to_string())?;
+            if recording(&self.inner) {
+                return Err("A webcam test recording is already running.".into());
+            }
+            let devices = list_devices_off_ui()?;
+            let Some(device) = devices.iter().find(|item| item.id == device_id) else {
+                self.mark_disconnected("Camera disconnected");
+                return Err("Camera disconnected".into());
+            };
+            if let Ok(mut name) = self.inner.selected_name.lock() {
+                *name = device.name.clone();
+            }
+            if let Ok(mut id) = self.inner.selected_id.lock() {
+                *id = device_id.clone();
+            }
+            stop_preview_session(&self.inner);
+            let bitrate = webcam_bitrate_bps(width, height, fps);
+            let session = super::record::RecordSession::start(super::record::RecordRequest {
+                device_id,
+                width,
+                height,
+                fps,
+                mirror,
+                bitrate,
+                path,
+                max_duration: std::time::Duration::from_secs(u64::from(super::safety::TEST_RECORD_SECONDS)),
+            })
+            .map_err(|err| {
+                let message = crate::camera::device::permission_message(&err);
+                self.mark_failed(&message);
+                message
+            })?;
+            if let Ok(mut slot) = self.inner.record.lock() {
+                *slot = Some(session);
+            }
+            self.inner.watch.store(true, Ordering::SeqCst);
+            self.ensure_watch_thread();
+            self.wake_watch();
+            Ok(self.status())
+        }
+    }
+
+    pub fn stop_test_record(&self) -> CameraStatus {
+        let Ok(_session) = self.inner.session_lock.lock() else {
+            return self.status();
+        };
+        stop_record_session(&self.inner);
+        if !self.inner.enabled.load(Ordering::SeqCst) {
+            self.inner.watch.store(previewing(&self.inner), Ordering::SeqCst);
+        }
+        self.status()
     }
 
     #[cfg(windows)]
@@ -319,6 +401,7 @@ impl CameraEngine {
 fn watch_loop(inner: Arc<Inner>) {
     while !inner.stop_watch.load(Ordering::SeqCst) {
         if inner.watch.load(Ordering::SeqCst) {
+            harvest_finished_record(inner.as_ref());
             refresh_device_presence(&inner);
         }
         let Ok(lock) = inner.wake_lock.lock() else {
@@ -372,6 +455,7 @@ fn refresh_device_presence(inner: &Inner) {
                 publish_inner(inner, status);
                 if let Ok(_session) = inner.session_lock.lock() {
                     stop_preview_session(inner);
+                    stop_record_session(inner);
                 }
                 if let Ok(mut cache) = inner.cached_modes.lock() {
                     *cache = None;
@@ -417,6 +501,109 @@ fn publish_preview_error(inner: &Inner) -> bool {
     {
         let _ = inner;
         false
+    }
+}
+
+fn harvest_finished_record(inner: &Inner) {
+    #[cfg(windows)]
+    {
+        let finished = inner
+            .record
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(super::record::RecordSession::finished))
+            .unwrap_or(false);
+        if !finished {
+            return;
+        }
+        let Ok(_session) = inner.session_lock.lock() else {
+            return;
+        };
+        stop_record_session(inner);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = inner;
+    }
+}
+
+#[cfg(windows)]
+fn apply_record_snapshot(status: &mut CameraStatus, snapshot: &super::record::RecordSnapshot) {
+    status.recording = snapshot.recording;
+    status.encoder_name = snapshot.encoder_name.clone();
+    status.encoder_hardware = snapshot.encoder_hardware;
+    status.software_fallback = snapshot.software_fallback;
+    status.dropped_frames = snapshot.dropped_frames;
+    status.written_frames = snapshot.written_frames;
+    status.test_path = snapshot.path.clone();
+    if !snapshot.message.is_empty() {
+        status.message = snapshot.message.clone();
+    }
+    if snapshot.recording {
+        status.availability = CameraAvailability::Recording;
+    }
+    status.timestamp_fallback = snapshot.timestamp_fallback;
+    if snapshot.native_subtype.is_some() {
+        status.native_subtype = snapshot.native_subtype;
+        status.reader_subtype = snapshot.reader_subtype;
+        status.conversion_path = snapshot.conversion_path;
+        if snapshot.width > 0 {
+            status.width = snapshot.width;
+            status.height = snapshot.height;
+            status.fps = snapshot.fps;
+        }
+    }
+}
+
+fn recording(inner: &Inner) -> bool {
+    #[cfg(windows)]
+    {
+        inner
+            .record
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|session| !session.finished()))
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = inner;
+        false
+    }
+}
+
+fn stop_record_session(inner: &Inner) {
+    #[cfg(windows)]
+    {
+        if let Ok(mut slot) = inner.record.lock() {
+            if let Some(session) = slot.take() {
+                let snapshot = session.stop();
+                let mut status = inner
+                    .status
+                    .lock()
+                    .map(|guard| guard.clone())
+                    .unwrap_or_else(|_| CameraStatus::idle());
+                apply_record_snapshot(&mut status, &snapshot);
+                status.recording = false;
+                if snapshot.message.is_empty() {
+                    status.availability = if inner.enabled.load(Ordering::SeqCst) {
+                        CameraAvailability::Ready
+                    } else {
+                        CameraAvailability::Idle
+                    };
+                    if !snapshot.path.is_empty() && snapshot.written_frames > 0 {
+                        status.message = format!("Saved {}", snapshot.path);
+                    }
+                } else {
+                    status.availability = CameraAvailability::Failed;
+                }
+                publish_inner(inner, status);
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = inner;
     }
 }
 

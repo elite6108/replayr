@@ -186,6 +186,53 @@ pub fn get_camera_preview_frame(engine: State<CameraEngine>) -> AppResult<Value>
 }
 
 #[tauri::command]
+pub fn start_webcam_test_record(
+    app: AppHandle,
+    engine: State<CameraEngine>,
+    device_id: String,
+    width: u32,
+    height: u32,
+    fps: u32,
+    mirror: bool,
+) -> AppResult<Value> {
+    let path = webcam_test_path(&app)?;
+    let status = engine
+        .start_test_record(device_id, width, height, fps, mirror, path)
+        .map_err(AppError::Message)?;
+    Ok(serde_json::to_value(status)?)
+}
+
+#[tauri::command]
+pub fn stop_webcam_test_record(engine: State<CameraEngine>) -> AppResult<Value> {
+    Ok(serde_json::to_value(engine.stop_test_record())?)
+}
+
+fn webcam_test_path(app: &AppHandle) -> AppResult<std::path::PathBuf> {
+    let settings = {
+        let db = app.state::<AppState>();
+        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        settings::load(&conn)?
+    };
+    let dir = if settings.save_location.trim().is_empty() {
+        let dir = app
+            .path()
+            .video_dir()
+            .or_else(|_| app.path().document_dir())
+            .map_err(|err| AppError::Message(err.to_string()))?;
+        dir.join("Project Replay")
+    } else {
+        std::path::PathBuf::from(&settings.save_location)
+    };
+    std::fs::create_dir_all(&dir)?;
+    crate::disk::ensure_free_space(&dir, settings.min_free_disk_bytes)?;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Ok(dir.join(format!("webcam-test-{ts}.mp4")))
+}
+
+#[tauri::command]
 pub async fn list_audio_sessions() -> AppResult<Value> {
     #[cfg(windows)]
     {

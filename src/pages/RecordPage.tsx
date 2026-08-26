@@ -141,7 +141,15 @@ function SourcesStatus({
     camera.availability === "disconnected" ||
     camera.availability === "permissionDenied" ||
     camera.availability === "failed";
-  const webcamLabel = webcamOff ? "Off" : webcamBad ? "!" : camera.availability === "previewing" ? "Preview" : "On";
+  const webcamLabel = webcamOff
+    ? "Off"
+    : webcamBad
+      ? "!"
+      : camera.availability === "recording" || camera.recording
+        ? "Test"
+        : camera.availability === "previewing"
+          ? "Preview"
+          : "On";
   return (
     <div className="sources-status">
       <div className="settings-group-label">Sources</div>

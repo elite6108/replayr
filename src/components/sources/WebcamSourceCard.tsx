@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { listCameraDevices, listCameraModes } from "../../services/tauri";
+import { listCameraDevices, listCameraModes, startWebcamTestRecord, stopWebcamTestRecord } from "../../services/tauri";
 import type { CameraDevice, CameraMode, CameraStatus } from "../../types/camera";
 import type { WebcamPlacement, WebcamSettings, WebcamShape } from "../../types/settings";
 import { WebcamPreview } from "./WebcamPreview";
@@ -28,6 +28,8 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [modes, setModes] = useState<CameraMode[]>([]);
   const [modesReady, setModesReady] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
+  const [testError, setTestError] = useState("");
   const deviceId = webcam.deviceId;
 
   useEffect(() => {
@@ -69,6 +71,7 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
 
   const resolutions = useMemo(() => uniqueResolutions(modes), [modes]);
   const frameRates = useMemo(() => uniqueFps(modes, webcam.width, webcam.height), [modes, webcam.width, webcam.height]);
+  const recording = status.availability === "recording" || status.recording;
   const disconnected =
     status.availability === "disconnected" ||
     status.availability === "permissionDenied" ||
@@ -78,6 +81,29 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
 
   function patch(partial: Partial<WebcamSettings>) {
     return onChange({ ...webcam, ...partial });
+  }
+
+  async function runTestRecord() {
+    if (!deviceId || testBusy) return;
+    setTestError("");
+    setTestBusy(true);
+    try {
+      if (recording) {
+        await stopWebcamTestRecord();
+        return;
+      }
+      await startWebcamTestRecord({
+        deviceId,
+        width: webcam.width,
+        height: webcam.height,
+        fps: webcam.fps,
+        mirror: webcam.mirrorRecording,
+      });
+    } catch (caught) {
+      setTestError(caught instanceof Error ? caught.message : "Could not start the webcam test recording.");
+    } finally {
+      setTestBusy(false);
+    }
   }
 
   return (
@@ -123,7 +149,7 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
             </select>
           </div>
           <WebcamPreview
-            active={previewing && Boolean(deviceId) && modesReady}
+            active={previewing && Boolean(deviceId) && modesReady && !recording}
             deviceId={deviceId}
             width={webcam.width}
             height={webcam.height}
@@ -261,6 +287,25 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
               Estimated additional storage: ~{mbMin} MB/min
             </p>
           </div>
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={!deviceId || testBusy || status.availability === "unsupported"}
+            onClick={() => void runTestRecord()}
+          >
+            {recording ? "Stop test recording" : testBusy ? "Starting…" : "Test record 8s"}
+          </button>
+          <p className="muted">Writes a separate webcam MP4. Instant Replay is unchanged.</p>
+          {recording ? (
+            <p className="muted">
+              Writing a standalone webcam MP4
+              {status.encoderName ? ` · ${status.encoderName}` : ""}
+              {status.softwareFallback ? " · software encoder" : ""}
+              {status.droppedFrames ? ` · dropped ${status.droppedFrames}` : ""}
+            </p>
+          ) : null}
+          {status.testPath && !recording ? <p className="muted">{status.testPath}</p> : null}
+          {testError ? <p className="error-text">{testError}</p> : null}
           {status.message && (disconnected || status.availability === "unsupported") ? (
             <p className="error-text">{status.message}</p>
           ) : null}

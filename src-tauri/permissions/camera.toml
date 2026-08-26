@@ -27,3 +27,13 @@ commands.allow = ["stop_camera_preview"]
 identifier = "allow-get-camera-preview-frame"
 description = "Read the latest webcam preview frame"
 commands.allow = ["get_camera_preview_frame"]
+
+[[permission]]
+identifier = "allow-start-webcam-test-record"
+description = "Write a short standalone webcam MP4 for encoder testing"
+commands.allow = ["start_webcam_test_record"]
+
+[[permission]]
+identifier = "allow-stop-webcam-test-record"
+description = "Stop the standalone webcam test recording"
+commands.allow = ["stop_webcam_test_record"]

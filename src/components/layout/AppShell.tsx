@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
 import { DesktopShortcutPrompt } from "./DesktopShortcutPrompt";
+import { AnnouncementHost } from "./AnnouncementHost";
 import { ClipPlayer } from "../common/ClipPlayer";
 import { ToastRegion } from "../common/ToastRegion";
 import { MicDisconnectToasts } from "./MicDisconnectToasts";
@@ -34,6 +35,7 @@ export function AppShell() {
       <NavRail />
       <div className="workspace">
         <TopBar />
+        <AnnouncementHost />
         <main className="page">
           <Outlet />
         </main>

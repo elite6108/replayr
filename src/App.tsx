@@ -25,14 +25,12 @@ import { useRecordingStore } from "./stores/recordingStore";
 import { useLibraryStore } from "./stores/libraryStore";
 import { useCloudStore } from "./stores/cloudStore";
 import { useUpdateStore } from "./stores/updateStore";
-import { APP_NAME } from "./branding";
 import { useSocialUnreadSync } from "./hooks/useSocialUnreadSync";
 
 export default function App() {
   const loaded = useSettingsStore((state) => state.loaded);
   const onboardingCompleted = useSettingsStore((state) => state.settings.onboardingCompleted);
   const loadSettings = useSettingsStore((state) => state.load);
-  const authReady = useAuthStore((state) => state.ready);
   const initializeAuth = useAuthStore((state) => state.initialize);
   const initializeDetection = useDetectionStore((state) => state.initialize);
   const initializeRecording = useRecordingStore((state) => state.initialize);
@@ -53,15 +51,6 @@ export default function App() {
     void initializeLibrary();
     void initializeCloud();
     void initializeUpdates();
-    const splash = window.setTimeout(() => {
-      if (!useSettingsStore.getState().loaded) {
-        useSettingsStore.setState({ loaded: true });
-      }
-      if (!useAuthStore.getState().ready) {
-        useAuthStore.setState({ ready: true });
-      }
-    }, 2500);
-    return () => window.clearTimeout(splash);
   }, [loadSettings, initializeAuth, initializeDetection, initializeRecording, initializeLibrary, initializeCloud, initializeUpdates]);
 
   useEffect(() => {
@@ -84,11 +73,9 @@ export default function App() {
     };
   }, [refreshCloud]);
 
-  if (!loaded || !authReady) {
-    return <div className="onboarding-shell muted">Starting {APP_NAME}…</div>;
-  }
-
-  if (!onboardingCompleted) {
+  // Open the app immediately. Settings/auth continue in the background.
+  // Onboarding only appears once we know it is actually unfinished.
+  if (loaded && !onboardingCompleted) {
     return (
       <>
         <MicDisconnectToasts />

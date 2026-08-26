@@ -3,6 +3,7 @@ import * as Linking from "expo-linking";
 import { useEffect } from "react";
 import { AuthProvider } from "@/lib/auth";
 import { SocialUnreadProvider } from "@/lib/socialUnread";
+import { AnnouncementHost } from "@/components/AnnouncementHost";
 import { installMobileTelemetry } from "@/lib/telemetry";
 import { colors } from "@/lib/theme";
 
@@ -40,6 +41,7 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <SocialUnreadProvider>
+        <AnnouncementHost />
         <Stack
         screenOptions={{
           headerTintColor: colors.accent,

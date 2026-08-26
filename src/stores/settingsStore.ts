@@ -38,6 +38,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+function persistOnboardingCompleted(value: boolean) {
+  try {
+    localStorage.setItem("replay.onboardingCompleted", value ? "1" : "0");
+  } catch {
+    /* private mode */
+  }
+}
+
 function normalizeSettings(settings: AppSettings): AppSettings {
   return {
     ...DEFAULT_SETTINGS,
@@ -73,7 +81,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
           const saveLocation = await withTimeout(getDefaultSaveLocation(), 3000, "save location");
           settings = await withTimeout(setSetting("saveLocation", saveLocation), 4000, "save location write");
         } catch {
-          // Keep defaults so the splash can clear even if the first write fails.
+          // Keep defaults even if the first write fails.
         }
       }
       if (settings.autoUpload === "off" && localStorage.getItem("replay.autoUploadWired") !== "1") {
@@ -86,14 +94,23 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       } else {
         localStorage.setItem("replay.autoUploadWired", "1");
       }
+      persistOnboardingCompleted(settings.onboardingCompleted);
       set({ settings, loaded: true });
     } catch (caught) {
       console.warn("settings load failed; using defaults", caught);
-      set({ settings: DEFAULT_SETTINGS, loaded: true });
+      let cachedDone = false;
+      try {
+        cachedDone = localStorage.getItem("replay.onboardingCompleted") === "1";
+      } catch {
+        cachedDone = false;
+      }
+      persistOnboardingCompleted(cachedDone);
+      set({ settings: { ...DEFAULT_SETTINGS, onboardingCompleted: cachedDone }, loaded: true });
     }
   },
   update: async (key, value) => {
     set((state) => ({ settings: { ...state.settings, [key]: value } }));
+    if (key === "onboardingCompleted") persistOnboardingCompleted(Boolean(value));
     try {
       const settings = await setSetting(key, value);
       if (key === "launchAtStartup") await syncLaunchAtStartup(Boolean(value));
@@ -115,6 +132,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       }
       if (Object.prototype.hasOwnProperty.call(values, "desktopShortcut")) {
         await syncDesktopShortcut(settings.desktopShortcut);
+      }
+      if (Object.prototype.hasOwnProperty.call(values, "onboardingCompleted")) {
+        persistOnboardingCompleted(settings.onboardingCompleted);
       }
       set({ settings });
     } catch (caught) {

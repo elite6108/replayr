@@ -1,11 +1,137 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
 use crate::error::{AppError, AppResult};
 use crate::library;
+#[cfg(windows)]
+use crate::overlay::OverlayLayout;
 
 /// How the file was handed off: native share UI, clipboard file drop, or Explorer.
+pub fn share_clip(app: &AppHandle, local_id: Option<&str>, file_path: Option<&str>) -> AppResult<String> {
+    let path = outgoing_media(app, local_id, file_path, None)?;
+    share_file(app, &path.to_string_lossy())
+}
+
+pub fn export_clip(
+    app: &AppHandle,
+    local_id: Option<&str>,
+    source: Option<&str>,
+    dest: &str,
+) -> AppResult<()> {
+    if dest.trim().is_empty() {
+        return Err(AppError::Message("Choose a download location.".into()));
+    }
+    outgoing_media(app, local_id, source, Some(Path::new(dest)))?;
+    Ok(())
+}
+
+fn outgoing_media(
+    app: &AppHandle,
+    local_id: Option<&str>,
+    file_path: Option<&str>,
+    dest: Option<&Path>,
+) -> AppResult<PathBuf> {
+    let clip = if let Some(id) = local_id {
+        let db = app.state::<crate::database::AppState>();
+        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        Some(library::get(&conn, id)?)
+    } else {
+        None
+    };
+    let gameplay = clip
+        .as_ref()
+        .map(|item| PathBuf::from(&item.file_path))
+        .or_else(|| file_path.map(PathBuf::from))
+        .ok_or_else(|| AppError::Message("Choose a clip to share.".into()))?;
+    if !gameplay.exists() {
+        return Err(AppError::Message("That file is no longer on disk.".into()));
+    }
+
+    #[cfg(windows)]
+    {
+        let fps = clip
+            .as_ref()
+            .and_then(|item| item.fps)
+            .unwrap_or(60)
+            .clamp(24, 60) as u32;
+        let watermark = crate::export::should_watermark_exports(app) && is_mp4(&gameplay);
+        if let Some(webcam) = clip.as_ref().and_then(library::valid_webcam_source) {
+            let layout = OverlayLayout::from_json(webcam.layout_json.as_deref());
+            let output = dest
+                .map(|path| path.to_path_buf())
+                .unwrap_or_else(|| composed_temp_path(&gameplay, &layout, watermark));
+            let duration_hns = clip
+                .as_ref()
+                .and_then(|item| item.duration_ms)
+                .unwrap_or(0)
+                .saturating_mul(10_000);
+            match crate::export::compose_webcam_mp4(
+                &gameplay,
+                Path::new(&webcam.file_path),
+                &output,
+                &layout,
+                0,
+                duration_hns,
+                fps,
+                watermark,
+            ) {
+                Ok(_) => return Ok(output),
+                Err(err) => {
+                    tracing::warn!(%err, "composed export failed; using gameplay file");
+                    if dest.is_some() {
+                        let _ = std::fs::remove_file(&output);
+                    }
+                }
+            }
+        }
+        if let Some(dest) = dest {
+            if watermark {
+                crate::export::write_watermarked_mp4(&gameplay, dest, fps).map_err(AppError::Message)?;
+            } else {
+                library::export_copy(&gameplay.display().to_string(), &dest.display().to_string())?;
+            }
+            return Ok(dest.to_path_buf());
+        }
+        if watermark {
+            return crate::export::watermarked_temp(&gameplay, fps).map_err(AppError::Message);
+        }
+        return Ok(gameplay);
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = clip;
+        if let Some(dest) = dest {
+            library::export_copy(&gameplay.display().to_string(), &dest.display().to_string())?;
+            return Ok(dest.to_path_buf());
+        }
+        Ok(gameplay)
+    }
+}
+
+#[cfg(windows)]
+fn is_mp4(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .eq_ignore_ascii_case("mp4")
+}
+
+#[cfg(windows)]
+fn composed_temp_path(source: &Path, layout: &OverlayLayout, watermark: bool) -> PathBuf {
+    let stem = source
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("clip");
+    let width = (layout.width * 100.0).round() as u32;
+    let kind = if watermark { "composed.watermark" } else { "composed" };
+    source.with_file_name(format!(
+        "{stem}.{}.{}.{}.{kind}.mp4",
+        layout.placement, layout.shape, width
+    ))
+}
+
 pub fn share_file(app: &AppHandle, file_path: &str) -> AppResult<String> {
     let path = Path::new(file_path);
     if !path.exists() {
@@ -13,16 +139,10 @@ pub fn share_file(app: &AppHandle, file_path: &str) -> AppResult<String> {
     }
     #[cfg(windows)]
     {
-        let watermarked = if crate::export::should_watermark_exports(app) && path.extension().and_then(|value| value.to_str()) == Some("mp4") {
-            crate::export::watermarked_temp(path, 60).ok()
-        } else {
-            None
-        };
-        let share_path = watermarked.as_deref().unwrap_or(path);
-        if show_share_ui(app, share_path).is_ok() {
+        if show_share_ui(app, path).is_ok() {
             return Ok("share".into());
         }
-        if copy_file_drop(share_path).is_ok() {
+        if copy_file_drop(path).is_ok() {
             return Ok("clipboard".into());
         }
         library::reveal(file_path)?;

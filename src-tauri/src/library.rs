@@ -2,12 +2,36 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
+use crate::camera::webcam_sidecar_path;
 use crate::database::AppState;
 use crate::error::{AppError, AppResult};
+use crate::overlay::OverlayLayout;
 use crate::still::{scale_bgra, write_bgra_bmp, StillFrame};
+
+pub const SOURCE_GAMEPLAY: &str = "gameplay";
+pub const SOURCE_WEBCAM: &str = "webcam";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipSourceDto {
+    pub id: i64,
+    pub clip_id: String,
+    pub source_instance_id: String,
+    pub kind: String,
+    pub file_path: String,
+    pub role: String,
+    pub start_hns: i64,
+    pub duration_hns: Option<i64>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    pub fps: Option<i64>,
+    pub health: String,
+    pub layout_json: Option<String>,
+    pub created_at: String,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +55,8 @@ pub struct LocalClipDto {
     pub source_start_ms: Option<i64>,
     pub source_end_ms: Option<i64>,
     pub editor_crop_x: f64,
+    #[serde(default)]
+    pub sources: Vec<ClipSourceDto>,
 }
 
 pub struct ClipLineage {
@@ -158,7 +184,219 @@ fn insert_row(
             lineage.map(|row| row.source_end_ms),
         ],
     )?;
+    attach_saved_sources(
+        conn,
+        local_id,
+        path,
+        duration_ms,
+        width,
+        height,
+        fps,
+        webcam_layout_from_settings(conn),
+    );
     Ok(())
+}
+
+fn webcam_layout_from_settings(conn: &Connection) -> Option<(u32, u32, u32, OverlayLayout)> {
+    crate::settings::load(conn).ok().map(|settings| {
+        (
+            settings.webcam.width,
+            settings.webcam.height,
+            settings.webcam.fps,
+            OverlayLayout::new(
+                &settings.webcam.default_placement,
+                &settings.webcam.default_shape,
+                settings.webcam.default_width,
+            ),
+        )
+    })
+}
+
+/// Attach gameplay always. Attach webcam only when the sidecar exists and is non-empty.
+/// Failures are logged and never fail the clip insert.
+pub fn attach_saved_sources(
+    conn: &Connection,
+    local_id: &str,
+    gameplay_path: &Path,
+    duration_ms: u64,
+    width: u32,
+    height: u32,
+    fps: u32,
+    webcam_meta: Option<(u32, u32, u32, OverlayLayout)>,
+) {
+    let duration_hns = (duration_ms as i64).saturating_mul(10_000);
+    if let Err(err) = attach_source(
+        conn,
+        NewClipSource {
+            clip_id: local_id,
+            source_instance_id: SOURCE_GAMEPLAY,
+            kind: SOURCE_GAMEPLAY,
+            file_path: &gameplay_path.display().to_string(),
+            role: "primary",
+            start_hns: 0,
+            duration_hns: Some(duration_hns),
+            width: Some(width as i64),
+            height: Some(height as i64),
+            fps: Some(fps as i64),
+            health: "valid",
+            layout_json: None,
+        },
+    ) {
+        tracing::warn!(%err, local_id, "could not attach gameplay source");
+    }
+
+    let sidecar = webcam_sidecar_path(gameplay_path);
+    let sidecar_ok = std::fs::metadata(&sidecar)
+        .map(|meta| meta.is_file() && meta.len() > 0)
+        .unwrap_or(false);
+    if !sidecar_ok {
+        return;
+    }
+    let (cam_w, cam_h, cam_fps, layout) = webcam_meta.unwrap_or((0, 0, 0, OverlayLayout::default()));
+    let layout_json = layout.to_json();
+    let path = sidecar.display().to_string();
+    if let Err(err) = attach_source(
+        conn,
+        NewClipSource {
+            clip_id: local_id,
+            source_instance_id: SOURCE_WEBCAM,
+            kind: SOURCE_WEBCAM,
+            file_path: &path,
+            role: "overlay",
+            start_hns: 0,
+            duration_hns: Some(duration_hns),
+            width: Some(cam_w as i64),
+            height: Some(cam_h as i64),
+            fps: Some(cam_fps as i64),
+            health: "valid",
+            layout_json: Some(&layout_json),
+        },
+    ) {
+        tracing::warn!(%err, local_id, "could not attach webcam source; gameplay clip is intact");
+    }
+}
+
+pub struct NewClipSource<'a> {
+    pub clip_id: &'a str,
+    pub source_instance_id: &'a str,
+    pub kind: &'a str,
+    pub file_path: &'a str,
+    pub role: &'a str,
+    pub start_hns: i64,
+    pub duration_hns: Option<i64>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    pub fps: Option<i64>,
+    pub health: &'a str,
+    pub layout_json: Option<&'a str>,
+}
+
+pub fn attach_source(conn: &Connection, source: NewClipSource<'_>) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO clip_sources (
+            clip_id, source_instance_id, kind, file_path, role, start_hns, duration_hns,
+            width, height, fps, health, layout_json, created_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, datetime('now'))
+         ON CONFLICT(clip_id, source_instance_id) DO UPDATE SET
+            kind = excluded.kind,
+            file_path = excluded.file_path,
+            role = excluded.role,
+            start_hns = excluded.start_hns,
+            duration_hns = excluded.duration_hns,
+            width = excluded.width,
+            height = excluded.height,
+            fps = excluded.fps,
+            health = excluded.health,
+            layout_json = excluded.layout_json",
+        rusqlite::params![
+            source.clip_id,
+            source.source_instance_id,
+            source.kind,
+            source.file_path,
+            source.role,
+            source.start_hns,
+            source.duration_hns,
+            source.width,
+            source.height,
+            source.fps,
+            source.health,
+            source.layout_json,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn list_sources(conn: &Connection, clip_id: &str) -> AppResult<Vec<ClipSourceDto>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, clip_id, source_instance_id, kind, file_path, role, start_hns, duration_hns,
+                width, height, fps, health, layout_json, created_at
+         FROM clip_sources
+         WHERE clip_id = ?1
+         ORDER BY id",
+    )?;
+    let rows = stmt.query_map([clip_id], map_source)?;
+    let mut sources = Vec::new();
+    for row in rows {
+        sources.push(row?);
+    }
+    Ok(sources)
+}
+
+pub fn set_source_layout(
+    conn: &Connection,
+    clip_id: &str,
+    source_instance_id: &str,
+    layout: OverlayLayout,
+) -> AppResult<LocalClipDto> {
+    let mut layout = layout;
+    layout.sanitize();
+    let json = layout.to_json();
+    let changed = conn.execute(
+        "UPDATE clip_sources SET layout_json = ?1 WHERE clip_id = ?2 AND source_instance_id = ?3",
+        rusqlite::params![json, clip_id, source_instance_id],
+    )?;
+    if changed == 0 {
+        return Err(AppError::Message("Webcam source not found.".into()));
+    }
+    get(conn, clip_id)
+}
+
+pub fn valid_webcam_source(clip: &LocalClipDto) -> Option<&ClipSourceDto> {
+    clip.sources.iter().find(|source| {
+        source.kind == SOURCE_WEBCAM
+            && source.health.eq_ignore_ascii_case("valid")
+            && source_file_ok(&source.file_path)
+    })
+}
+
+fn source_file_ok(path: &str) -> bool {
+    std::fs::metadata(path)
+        .map(|meta| meta.is_file() && meta.len() > 0)
+        .unwrap_or(false)
+}
+
+fn with_sources(conn: &Connection, mut clip: LocalClipDto) -> AppResult<LocalClipDto> {
+    clip.sources = list_sources(conn, &clip.local_id)?;
+    Ok(clip)
+}
+
+fn map_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipSourceDto> {
+    Ok(ClipSourceDto {
+        id: row.get(0)?,
+        clip_id: row.get(1)?,
+        source_instance_id: row.get(2)?,
+        kind: row.get(3)?,
+        file_path: row.get(4)?,
+        role: row.get(5)?,
+        start_hns: row.get(6)?,
+        duration_hns: row.get(7)?,
+        width: row.get(8)?,
+        height: row.get(9)?,
+        fps: row.get(10)?,
+        health: row.get(11)?,
+        layout_json: row.get(12)?,
+        created_at: row.get(13)?,
+    })
 }
 
 pub fn list(conn: &Connection, limit: i64) -> AppResult<Vec<LocalClipDto>> {
@@ -187,6 +425,9 @@ pub fn list(conn: &Connection, limit: i64) -> AppResult<Vec<LocalClipDto>> {
                 clip.thumbnail_path = Some(thumb.display().to_string());
             }
         }
+    }
+    for clip in &mut clips {
+        clip.sources = list_sources(conn, &clip.local_id).unwrap_or_default();
     }
     Ok(clips)
 }
@@ -286,12 +527,20 @@ pub fn clear_cloud_link(conn: &Connection, cloud_clip_id: &str) -> AppResult<()>
 
 pub fn delete(conn: &Connection, local_id: &str) -> AppResult<()> {
     let clip = get(conn, local_id)?;
-    conn.execute("DELETE FROM local_clips WHERE local_id = ?1", [local_id])?;
-    remove_media(&clip.file_path);
+    let mut paths = vec![clip.file_path.clone()];
     if let Some(thumb) = clip.thumbnail_path.as_ref() {
         if thumb != &clip.file_path {
-            remove_media(thumb);
+            paths.push(thumb.clone());
         }
+    }
+    for source in &clip.sources {
+        if !paths.iter().any(|path| path == &source.file_path) {
+            paths.push(source.file_path.clone());
+        }
+    }
+    conn.execute("DELETE FROM local_clips WHERE local_id = ?1", [local_id])?;
+    for path in paths {
+        remove_media(&path);
     }
     Ok(())
 }
@@ -323,6 +572,7 @@ pub fn get(conn: &Connection, local_id: &str) -> AppResult<LocalClipDto> {
         rusqlite::Error::QueryReturnedNoRows => AppError::Message("Clip not found.".into()),
         other => AppError::Sqlite(other),
     })
+    .and_then(|clip| with_sources(conn, clip))
 }
 
 pub fn reveal(path: &str) -> AppResult<()> {
@@ -378,6 +628,7 @@ fn map_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalClipDto> {
         source_start_ms: row.get(16)?,
         source_end_ms: row.get(17)?,
         editor_crop_x: row.get::<_, Option<f64>>(18)?.unwrap_or(0.5).clamp(0.0, 1.0),
+        sources: Vec::new(),
     })
 }
 
@@ -505,5 +756,79 @@ mod tests {
         .unwrap();
         let framed = get(&conn, "clip-3").unwrap();
         assert!((framed.editor_crop_x - 0.25).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn clip_sources_unique_fk_and_optional_webcam() {
+        let dir = tempdir().unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+        seed(&conn, "clip-src", "Gameplay");
+        let gameplay = dir.path().join("clip-src.mp4");
+        std::fs::write(&gameplay, b"gameplay").unwrap();
+
+        attach_saved_sources(&conn, "clip-src", &gameplay, 8_000, 1920, 1080, 60, None);
+        let clip = get(&conn, "clip-src").unwrap();
+        assert_eq!(clip.sources.len(), 1);
+        assert_eq!(clip.sources[0].kind, SOURCE_GAMEPLAY);
+        assert!(valid_webcam_source(&clip).is_none());
+
+        let sidecar = webcam_sidecar_path(&gameplay);
+        std::fs::write(&sidecar, b"webcam").unwrap();
+        let layout = OverlayLayout::new("top-left", "circle", 0.18);
+        attach_saved_sources(
+            &conn,
+            "clip-src",
+            &gameplay,
+            8_000,
+            1920,
+            1080,
+            60,
+            Some((1280, 720, 30, layout.clone())),
+        );
+        let clip = get(&conn, "clip-src").unwrap();
+        assert_eq!(clip.sources.len(), 2);
+        let webcam = clip.sources.iter().find(|s| s.kind == SOURCE_WEBCAM).unwrap();
+        assert_eq!(webcam.source_instance_id, SOURCE_WEBCAM);
+        assert_eq!(webcam.role, "overlay");
+        let parsed = OverlayLayout::from_json(webcam.layout_json.as_deref());
+        assert_eq!(parsed.placement, "top-left");
+        assert_eq!(parsed.shape, "circle");
+
+        let duplicate = conn.execute(
+            "INSERT INTO clip_sources (
+                clip_id, source_instance_id, kind, file_path, role, start_hns, health, created_at
+             ) VALUES ('clip-src', 'webcam', 'webcam', 'other.mp4', 'overlay', 0, 'valid', datetime('now'))",
+            [],
+        );
+        assert!(duplicate.is_err());
+
+        let updated = set_source_layout(&conn, "clip-src", SOURCE_WEBCAM, OverlayLayout::new("bottom-right", "rounded", 0.22)).unwrap();
+        let webcam = updated.sources.iter().find(|s| s.kind == SOURCE_WEBCAM).unwrap();
+        assert_eq!(OverlayLayout::from_json(webcam.layout_json.as_deref()).placement, "bottom-right");
+
+        delete(&conn, "clip-src").unwrap();
+        assert!(get(&conn, "clip-src").is_err());
+        let leftover: i64 = conn
+            .query_row("SELECT COUNT(*) FROM clip_sources WHERE clip_id = 'clip-src'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(leftover, 0);
+        assert!(!gameplay.exists());
+        assert!(!sidecar.exists());
+    }
+
+    #[test]
+    fn missing_webcam_does_not_fail_source_attach() {
+        let dir = tempdir().unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+        seed(&conn, "clip-gap", "No cam");
+        let gameplay = dir.path().join("missing-cam.mp4");
+        std::fs::write(&gameplay, b"gameplay").unwrap();
+        attach_saved_sources(&conn, "clip-gap", &gameplay, 2_000, 1280, 720, 60, None);
+        let listed = list(&conn, 10).unwrap();
+        let clip = listed.iter().find(|item| item.local_id == "clip-gap").unwrap();
+        assert_eq!(clip.sources.len(), 1);
+        assert_eq!(clip.sources[0].kind, SOURCE_GAMEPLAY);
     }
 }

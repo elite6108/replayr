@@ -26,6 +26,7 @@ mod error;
 mod games;
 mod hotkeys;
 mod library;
+mod overlay;
 mod overlay_notification;
 mod process;
 #[cfg(windows)]
@@ -211,6 +212,7 @@ pub fn run() {
             commands::save_short_clip,
             commands::list_clip_filmstrip,
             commands::set_clip_editor_crop,
+            commands::set_clip_source_layout,
             commands::rename_local_clip,
             commands::set_local_clip_favorite,
             commands::delete_local_clip,

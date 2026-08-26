@@ -472,6 +472,17 @@ pub fn set_clip_editor_crop(app: AppHandle, local_id: String, pan: f64) -> AppRe
 }
 
 #[tauri::command]
+pub fn set_clip_source_layout(
+    state: State<AppState>,
+    local_id: String,
+    source_instance_id: String,
+    layout: crate::overlay::OverlayLayout,
+) -> AppResult<LocalClipDto> {
+    let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    library::set_source_layout(&conn, &local_id, &source_instance_id, layout)
+}
+
+#[tauri::command]
 pub async fn list_clip_filmstrip(
     app: AppHandle,
     local_id: String,
@@ -520,25 +531,22 @@ pub fn reveal_local_clip(file_path: String) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub fn share_local_clip(app: AppHandle, file_path: String) -> AppResult<String> {
-    crate::share::share_file(&app, &file_path)
+pub fn share_local_clip(
+    app: AppHandle,
+    file_path: Option<String>,
+    local_id: Option<String>,
+) -> AppResult<String> {
+    crate::share::share_clip(&app, local_id.as_deref(), file_path.as_deref())
 }
 
 #[tauri::command]
-pub fn export_local_clip(app: AppHandle, source: String, dest: String) -> AppResult<()> {
-    #[cfg(windows)]
-    {
-        let src = std::path::Path::new(&source);
-        if crate::export::should_watermark_exports(&app)
-            && src.extension().and_then(|value| value.to_str()).unwrap_or("").eq_ignore_ascii_case("mp4")
-        {
-            crate::export::write_watermarked_mp4(src, std::path::Path::new(&dest), 60).map_err(AppError::Message)?;
-            return Ok(());
-        }
-    }
-    #[cfg(not(windows))]
-    let _ = app;
-    library::export_copy(&source, &dest)
+pub fn export_local_clip(
+    app: AppHandle,
+    source: Option<String>,
+    dest: String,
+    local_id: Option<String>,
+) -> AppResult<()> {
+    crate::share::export_clip(&app, local_id.as_deref(), source.as_deref(), &dest)
 }
 
 #[tauri::command]

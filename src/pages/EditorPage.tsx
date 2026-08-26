@@ -9,20 +9,34 @@ import {
   saveShortClip,
   saveTrimmedClip,
   setClipEditorCrop,
+  setClipSourceLayout,
   shareLocalClip,
 } from "../services/tauri";
 import { useAuthStore } from "../stores/authStore";
 import { useCloudStore } from "../stores/cloudStore";
 import { useLibraryStore } from "../stores/libraryStore";
 import { useToastStore } from "../stores/toastStore";
-import type { CloudClip, LocalClip } from "../types/clip";
+import type { ClipSourceLayout, CloudClip, LocalClip } from "../types/clip";
+import type { WebcamPlacement, WebcamShape } from "../types/settings";
 import { formatClock, formatDuration, invokeErrorMessage, isVideoPath, parseClock } from "../utils/format";
-import { normalizeUploadStatus } from "../utils/clips";
+import { clipWebcamSource, normalizeUploadStatus, parseSourceLayout } from "../utils/clips";
 
 const MIN_TRIM_MS = 1000;
 const SHORTS_WARN_MS = 60_000;
 // Part of the on-disk filmstrip cache key, so keep it stable across resizes.
 const STRIP_TILES = 12;
+const WEBCAM_DRIFT_S = 0.08;
+const WEBCAM_PLACEMENTS: { id: WebcamPlacement; label: string }[] = [
+  { id: "top-left", label: "Top Left" },
+  { id: "top-right", label: "Top Right" },
+  { id: "bottom-left", label: "Bottom Left" },
+  { id: "bottom-right", label: "Bottom Right" },
+];
+const WEBCAM_SHAPES: { id: WebcamShape; label: string }[] = [
+  { id: "rectangle", label: "Rectangle" },
+  { id: "rounded", label: "Rounded" },
+  { id: "circle", label: "Circle" },
+];
 
 type DragKind = "start" | "end" | "playhead";
 type SaveKind = "trim" | "short";
@@ -136,6 +150,7 @@ export function EditorPage() {
 
   const source = clips.find((item) => item.localId === clipId) ?? null;
   const videoRef = useRef<HTMLVideoElement>(null);
+  const webcamRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragKind | null>(null);
@@ -160,6 +175,7 @@ export function EditorPage() {
   const [stripFrames, setStripFrames] = useState<Array<{ path: string; atMs: number }>>([]);
   const [pan, setPan] = useState(0.5);
   const [shortsMode, setShortsMode] = useState(false);
+  const [webcamLayout, setWebcamLayout] = useState<ClipSourceLayout>(() => parseSourceLayout(null));
 
   panRef.current = pan;
   const saving = savingKind !== null;
@@ -176,6 +192,25 @@ export function EditorPage() {
     pan,
   );
   const poster = source?.thumbnailPath ? convertFileSrc(source.thumbnailPath) : undefined;
+  const webcamSource = clipWebcamSource(source);
+  const webcamMedia = useMemo(
+    () => (webcamSource ? convertFileSrc(webcamSource.filePath) : ""),
+    [webcamSource?.filePath],
+  );
+
+  function syncWebcam(master: HTMLVideoElement) {
+    const cam = webcamRef.current;
+    if (!cam || !webcamMedia) return;
+    const drift = Math.abs(cam.currentTime - master.currentTime);
+    if (drift > WEBCAM_DRIFT_S) {
+      cam.currentTime = master.currentTime;
+    }
+    if (master.paused) {
+      if (!cam.paused) cam.pause();
+    } else if (cam.paused) {
+      void cam.play().catch(() => undefined);
+    }
+  }
 
   useEffect(() => {
     closePlayer();
@@ -208,6 +243,8 @@ export function EditorPage() {
       video.pause();
       video.currentTime = 0;
     }
+    webcamRef.current?.pause();
+    setWebcamLayout(parseSourceLayout(clipWebcamSource(source)?.layoutJson));
   }, [source?.localId]);
 
   useEffect(() => {
@@ -242,6 +279,10 @@ export function EditorPage() {
     if (video && Number.isFinite(clamped / 1000)) {
       video.currentTime = clamped / 1000;
     }
+    const cam = webcamRef.current;
+    if (cam && Number.isFinite(clamped / 1000)) {
+      cam.currentTime = clamped / 1000;
+    }
   }, [durationMs]);
 
   const msFromClientX = useCallback((clientX: number) => {
@@ -259,6 +300,21 @@ export function EditorPage() {
       void setClipEditorCrop(source.localId, clamped).catch(() => undefined);
     },
     [source?.localId],
+  );
+
+  const persistWebcamLayout = useCallback(
+    (next: ClipSourceLayout) => {
+      setWebcamLayout(next);
+      if (!source || !webcamSource) return;
+      void setClipSourceLayout(source.localId, webcamSource.sourceInstanceId, next)
+        .then((clip) => {
+          useLibraryStore.setState({
+            clips: useLibraryStore.getState().clips.map((item) => (item.localId === clip.localId ? clip : item)),
+          });
+        })
+        .catch(() => undefined);
+    },
+    [source?.localId, webcamSource?.sourceInstanceId],
   );
 
   useEffect(() => {
@@ -372,6 +428,7 @@ export function EditorPage() {
     setPreviewing(false);
     setShortsMode(false);
     videoRef.current?.pause();
+    webcamRef.current?.pause();
   }
 
   function commitClock(which: "start" | "end", value: string) {
@@ -438,7 +495,7 @@ export function EditorPage() {
     if (!savedClip) return;
     setSharingFile(true);
     try {
-      const how = await shareLocalClip(savedClip.filePath);
+      const how = await shareLocalClip({ localId: savedClip.localId, filePath: savedClip.filePath });
       if (how === "clipboard") {
         showToast("Clip copied. Paste it into TikTok, CapCut, Explorer, or an upload dialog.");
       } else if (how === "folder") {
@@ -476,6 +533,7 @@ export function EditorPage() {
         <div ref={previewRef} className="editor-preview">
           <video
             ref={videoRef}
+            className="editor-gameplay"
             src={media}
             poster={poster}
             controls={false}
@@ -495,18 +553,46 @@ export function EditorPage() {
               void ensureFirstFrame(video);
             }}
             onTimeUpdate={(event) => {
-              const ms = asMs(event.currentTarget.currentTime * 1000);
+              const video = event.currentTarget;
+              const ms = asMs(video.currentTime * 1000);
               setPlayheadMs(ms);
+              syncWebcam(video);
               if (previewing && ms >= endMs) {
-                event.currentTarget.pause();
-                event.currentTarget.currentTime = endMs / 1000;
+                video.pause();
+                video.currentTime = endMs / 1000;
                 setPlayheadMs(asMs(endMs));
                 setPreviewing(false);
               }
             }}
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
+            onPlay={(event) => {
+              setPlaying(true);
+              syncWebcam(event.currentTarget);
+            }}
+            onPause={(event) => {
+              setPlaying(false);
+              syncWebcam(event.currentTarget);
+            }}
+            onSeeked={(event) => syncWebcam(event.currentTarget)}
           />
+          {webcamMedia ? (
+            <div
+              className={`editor-webcam place-${webcamLayout.placement} shape-${webcamLayout.shape}`}
+              style={{ width: `${webcamLayout.width * 100}%` }}
+            >
+              <video
+                ref={webcamRef}
+                src={webcamMedia}
+                muted
+                playsInline
+                preload="auto"
+                controls={false}
+                onLoadedMetadata={(event) => {
+                  const master = videoRef.current;
+                  if (master) event.currentTarget.currentTime = master.currentTime;
+                }}
+              />
+            </div>
+          ) : null}
           {shortsMode && overlay.visible ? (
             <div
               className="editor-reframe interactive"
@@ -629,6 +715,49 @@ export function EditorPage() {
           <strong>{formatDuration(selectedMs)}</strong>
         </div>
       </div>
+
+      {webcamMedia ? (
+        <div className="editor-webcam-controls">
+          <span className="settings-group-label">Webcam overlay</span>
+          <div className="placement-grid" role="group" aria-label="Webcam position">
+            {WEBCAM_PLACEMENTS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`placement-cell ${webcamLayout.placement === item.id ? "on" : ""}`}
+                onClick={() => persistWebcamLayout({ ...webcamLayout, placement: item.id })}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <div className="shape-row">
+            {WEBCAM_SHAPES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`chip ${webcamLayout.shape === item.id ? "on" : ""}`}
+                onClick={() => persistWebcamLayout({ ...webcamLayout, shape: item.id })}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <label className="setting-row">
+            <span>Size</span>
+            <span className="muted">{Math.round(webcamLayout.width * 100)}%</span>
+          </label>
+          <input
+            type="range"
+            min={12}
+            max={40}
+            value={Math.round(webcamLayout.width * 100)}
+            onChange={(event) =>
+              persistWebcamLayout({ ...webcamLayout, width: Number(event.target.value) / 100 })
+            }
+          />
+        </div>
+      ) : null}
 
       <p className="muted editor-hint">
         Space plays, I / O set in and out, arrows nudge 1s (Shift 5s). Start may snap back by up to about 2 seconds to

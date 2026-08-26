@@ -68,6 +68,20 @@ pub fn save_trimmed_clip(
         return Err(AppError::Message("Trim is only available on Windows.".into()));
     };
 
+    #[cfg(windows)]
+    if let Some(webcam) = library::valid_webcam_source(&source) {
+        let sidecar = crate::camera::webcam_sidecar_path(&dest);
+        if let Err(err) = crate::export::trim_mp4(
+            Path::new(&webcam.file_path),
+            &sidecar,
+            ms_to_hns(start_ms),
+            ms_to_hns(end_ms),
+        ) {
+            tracing::warn!(%err, "webcam trim failed; saving gameplay-only derived clip");
+            let _ = std::fs::remove_file(&sidecar);
+        }
+    }
+
     let duration_ms = if written_ms > 0 { written_ms as u64 } else { end_ms - start_ms };
     let mid_ms = duration_ms / 2;
     #[cfg(windows)]
@@ -152,6 +166,11 @@ pub fn save_short_clip(
     let fps = source.fps.unwrap_or(60).max(24).min(60) as u32;
 
     #[cfg(windows)]
+    let overlay = library::valid_webcam_source(&source).map(|webcam| crate::export::WebcamCompose {
+        path: PathBuf::from(&webcam.file_path),
+        layout: crate::overlay::OverlayLayout::from_json(webcam.layout_json.as_deref()),
+    });
+    #[cfg(windows)]
     let written_ms = crate::export::write_vertical_mp4(
         &path,
         &dest,
@@ -159,6 +178,7 @@ pub fn save_short_clip(
         ms_to_hns(end_ms),
         pan,
         fps,
+        overlay.as_ref(),
     )
     .map_err(|err| {
         // The sink writer creates the file up front, so a failed encode would

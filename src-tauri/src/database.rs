@@ -17,6 +17,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (4, include_str!("../migrations/004_more_games.sql")),
     (5, include_str!("../migrations/005_clip_lineage.sql")),
     (6, include_str!("../migrations/006_editor_crop.sql")),
+    (7, include_str!("../migrations/007_clip_sources.sql")),
 ];
 
 pub fn database_path(app: &AppHandle) -> AppResult<PathBuf> {
@@ -84,7 +85,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
 
         let tables: Vec<String> = {
             let mut stmt = conn
@@ -99,5 +100,6 @@ mod tests {
         assert!(tables.contains(&"local_clips".to_string()));
         assert!(tables.contains(&"upload_queue".to_string()));
         assert!(tables.contains(&"games".to_string()));
+        assert!(tables.contains(&"clip_sources".to_string()));
     }
 }

@@ -122,8 +122,16 @@ export async function setClipEditorCrop(localId: string, pan: number): Promise<L
   });
 }
 
-export async function shareLocalClip(filePath: string): Promise<string> {
-  return invoke("share_local_clip", { filePath });
+export async function setClipSourceLayout(
+  localId: string,
+  sourceInstanceId: string,
+  layout: { placement: string; shape: string; width: number },
+): Promise<LocalClip> {
+  return invoke("set_clip_source_layout", { localId, sourceInstanceId, layout });
+}
+
+export async function shareLocalClip(options: { localId?: string; filePath?: string }): Promise<string> {
+  return invoke("share_local_clip", options);
 }
 
 export async function listClipFilmstrip(
@@ -155,8 +163,12 @@ export async function revealLocalClip(filePath: string): Promise<void> {
   return invoke("reveal_local_clip", { filePath });
 }
 
-export async function exportLocalClip(source: string, dest: string): Promise<void> {
-  return invoke("export_local_clip", { source, dest });
+export async function exportLocalClip(options: {
+  dest: string;
+  localId?: string;
+  source?: string;
+}): Promise<void> {
+  return invoke("export_local_clip", options);
 }
 
 export async function downloadUrlToFile(url: string, dest: string): Promise<void> {

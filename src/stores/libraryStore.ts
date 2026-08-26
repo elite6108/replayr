@@ -337,7 +337,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         title: "Download clip",
       });
       if (!dest) return;
-      await exportLocalClip(clip.filePath, dest);
+      await exportLocalClip({ localId: clip.localId, source: clip.filePath, dest });
       useToastStore.getState().show("Saved to disk");
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not download clip"));
@@ -359,7 +359,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         const ext = clip.filePath.split(".").pop() || "mp4";
         const dest = joinPath(folder, uniqueFileName(used, suggestedFileName(clip.title, "clip", ext)));
         try {
-          await exportLocalClip(clip.filePath, dest);
+          await exportLocalClip({ localId: clip.localId, source: clip.filePath, dest });
           saved += 1;
         } catch (caught) {
           useToastStore.getState().show(invokeErrorMessage(caught, "Could not download clip"));

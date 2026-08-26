@@ -232,6 +232,8 @@ const SHORT_HEIGHT: u32 = 1920;
 const SHORT_BITRATE: u32 = 15_000_000;
 
 /// Re-encodes `start_hns..end_hns` as 1080×1920 9:16. `pan` 0 is left, 1 is right.
+/// Optional webcam is overlaid on the cropped canvas; a missing/failed webcam
+/// leaves a gameplay-only Short.
 pub fn write_vertical_mp4(
     input: &Path,
     output: &Path,
@@ -239,6 +241,7 @@ pub fn write_vertical_mp4(
     end_hns: i64,
     pan: f32,
     fps: u32,
+    overlay: Option<&WebcamCompose>,
 ) -> Result<i64, String> {
     if !input.exists() {
         return Err("That clip is no longer on disk.".into());
@@ -272,6 +275,16 @@ pub fn write_vertical_mp4(
     if start_hns > 0 {
         crate::thumb::seek_hns(&reader, start_hns)?;
     }
+    let mut webcam = match overlay {
+        Some(overlay) => match WebcamFollow::open(&overlay.path, start_hns) {
+            Ok(follow) => Some(follow),
+            Err(err) => {
+                tracing::warn!(%err, "webcam overlay skipped for this Short; encoding gameplay only");
+                None
+            }
+        },
+        None => None,
+    };
     let mut origin: Option<i64> = None;
     let mut clock = 0_i64;
     let mut frames = 0_u32;
@@ -288,7 +301,15 @@ pub fn write_vertical_mp4(
         }
         let from_source = (timestamp - base).max(0);
         let capture_hns = if from_source > clock { from_source } else { clock };
-        let vertical = crate::still::crop_and_scale_9x16(&frame, pan, SHORT_WIDTH, SHORT_HEIGHT);
+        let mut vertical = crate::still::crop_and_scale_9x16(&frame, pan, SHORT_WIDTH, SHORT_HEIGHT);
+        if let Some(follow) = webcam.as_mut() {
+            follow.ensure_at(timestamp);
+        }
+        if let Some(cam_frame) = webcam.as_ref().and_then(|follow| follow.current_frame()) {
+            if let Some(overlay) = overlay {
+                crate::overlay::overlay_webcam_bgra(&mut vertical, cam_frame, &overlay.layout);
+            }
+        }
         writer.write_bgra(
             &vertical.bgra,
             vertical.pitch,
@@ -319,6 +340,177 @@ pub fn write_vertical_mp4(
     tracing::info!(
         "short {} -> {} ({} ms, {} frames) in {} ms",
         input.display(),
+        output.display(),
+        written_ms,
+        frames,
+        started.elapsed().as_millis()
+    );
+    Ok(written_ms)
+}
+
+#[derive(Debug, Clone)]
+pub struct WebcamCompose {
+    pub path: PathBuf,
+    pub layout: crate::overlay::OverlayLayout,
+}
+
+struct WebcamFollow {
+    reader: IMFSourceReader,
+    current: Option<(crate::still::StillFrame, i64)>,
+}
+
+impl WebcamFollow {
+    fn open(path: &Path, start_hns: i64) -> Result<Self, String> {
+        if !path.exists() {
+            return Err("Webcam sidecar is no longer on disk.".into());
+        }
+        let reader = crate::thumb::open_rgb_reader(path)?;
+        if start_hns > 0 {
+            crate::thumb::seek_hns(&reader, start_hns)?;
+        }
+        Ok(Self { reader, current: None })
+    }
+
+    fn ensure_at(&mut self, target_hns: i64) {
+        loop {
+            if let Some((_, ts)) = &self.current {
+                if *ts + 10_000 >= target_hns {
+                    return;
+                }
+            }
+            match crate::thumb::read_rgb_sample(&self.reader) {
+                Ok(Some((frame, ts, _))) => {
+                    let caught_up = ts >= target_hns;
+                    self.current = Some((frame, ts));
+                    if caught_up {
+                        return;
+                    }
+                }
+                _ => return,
+            }
+        }
+    }
+
+    fn current_frame(&self) -> Option<&crate::still::StillFrame> {
+        self.current.as_ref().map(|(frame, _)| frame)
+    }
+}
+
+/// Timeline-driven compositor. Gameplay PTS is the master clock; webcam is
+/// sampled at the same timestamp and blitted with `layout`. Optional watermark
+/// is applied after the overlay. `end_hns <= 0` reads until end of stream.
+pub fn compose_webcam_mp4(
+    gameplay: &Path,
+    webcam: &Path,
+    output: &Path,
+    layout: &crate::overlay::OverlayLayout,
+    start_hns: i64,
+    end_hns: i64,
+    fps: u32,
+    watermark: bool,
+) -> Result<i64, String> {
+    if !gameplay.exists() {
+        return Err("That clip is no longer on disk.".into());
+    }
+    if !webcam.exists() {
+        return Err("Webcam sidecar is no longer on disk.".into());
+    }
+    if gameplay == output {
+        return Err("Composed output cannot replace the original file.".into());
+    }
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let started = Instant::now();
+    unsafe {
+        MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|err| err.to_string())?;
+    }
+
+    let end_hns = if end_hns <= 0 { i64::MAX } else { end_hns };
+    let pcm = if start_hns > 0 || end_hns < i64::MAX {
+        decode_audio_range(gameplay, start_hns.max(0), end_hns).unwrap_or_default()
+    } else {
+        decode_audio_pcm(gameplay).unwrap_or_default()
+    };
+    let has_audio = !pcm.is_empty();
+    let reader = crate::thumb::open_rgb_reader(gameplay)?;
+    if start_hns > 0 {
+        crate::thumb::seek_hns(&reader, start_hns)?;
+    }
+    let mut follow = WebcamFollow::open(webcam, start_hns)?;
+    let Some((first, first_ts, first_duration)) = crate::thumb::read_rgb_sample(&reader)? else {
+        return Err("That clip has no video.".into());
+    };
+    if first_ts >= end_hns {
+        return Err("That range did not include any video.".into());
+    }
+    let width = first.width.max(16);
+    let height = first.height.max(16);
+    let fps = fps.clamp(24, 60);
+    let bitrate = ((width as u64 * height as u64 * u64::from(fps)) / 6).clamp(4_000_000, 25_000_000) as u32;
+    let mut writer = crate::encode::MfWriter::new(
+        output,
+        width,
+        height,
+        fps,
+        bitrate,
+        has_audio,
+        None,
+        false,
+        crate::encode::VideoInput::Bgra,
+    )?;
+
+    let mut frame = first;
+    let mut timestamp = first_ts;
+    let mut duration = first_duration;
+    let mut clock = 0_i64;
+    let mut frames = 0_u32;
+    loop {
+        follow.ensure_at(timestamp);
+        if let Some(cam) = follow.current_frame() {
+            crate::overlay::overlay_webcam_bgra(&mut frame, cam, layout);
+        }
+        if watermark {
+            crate::still::composite_watermark(&mut frame);
+        }
+        writer.write_bgra(
+            &frame.bgra,
+            frame.pitch,
+            frame.width,
+            frame.height,
+            clock,
+            frames == 0,
+        )?;
+        clock += duration.max(1);
+        frames += 1;
+        let Some((next, next_ts, next_duration)) = crate::thumb::read_rgb_sample(&reader)? else {
+            break;
+        };
+        if next_ts >= end_hns {
+            break;
+        }
+        frame = next;
+        timestamp = next_ts;
+        duration = next_duration;
+    }
+    drop(reader);
+    if frames == 0 {
+        return Err("That range did not include any video.".into());
+    }
+    let video_hns = writer.timestamp();
+    if has_audio {
+        let mut audio = pcm;
+        let _ = fit_pcm_to_video(&mut audio, video_hns);
+        writer.write_pcm_closing(&audio)?;
+    } else {
+        let _ = writer.write_pcm_closing(&[]);
+    }
+    let written_ms = (writer.timestamp() / 10_000).max(0);
+    writer.finish()?;
+    tracing::info!(
+        "composed {} + {} -> {} ({} ms, {} frames) in {} ms",
+        gameplay.display(),
+        webcam.display(),
         output.display(),
         written_ms,
         frames,

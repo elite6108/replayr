@@ -1,3 +1,5 @@
+import type { WebcamPlacement, WebcamShape } from "./settings";
+
 export type LocalUploadStatus =
   | "local"
   | "queued"
@@ -41,4 +43,31 @@ export interface LocalClip {
   sourceStartMs: number | null;
   sourceEndMs: number | null;
   editorCropX?: number;
+  sources?: ClipSource[];
+}
+
+export type ClipSourceKind = "gameplay" | "webcam" | string;
+export type ClipSourceHealth = "valid" | "gap" | "failed" | string;
+
+export interface ClipSourceLayout {
+  placement: WebcamPlacement;
+  shape: WebcamShape;
+  width: number;
+}
+
+export interface ClipSource {
+  id: number;
+  clipId: string;
+  sourceInstanceId: string;
+  kind: ClipSourceKind;
+  filePath: string;
+  role: string;
+  startHns: number;
+  durationHns: number | null;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  health: ClipSourceHealth;
+  layoutJson: string | null;
+  createdAt: string;
 }

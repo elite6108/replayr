@@ -1,4 +1,5 @@
 import { AwsClient } from "aws4fetch";
+import { handleAdminAnnouncements } from "./announcements";
 import { applyPlan, stripeForm } from "./billing";
 import { listAdminErrors, openErrorCount, resolveAdminError } from "./errors";
 import { ownedObjectKey, type Env } from "./shared";
@@ -86,6 +87,8 @@ interface ApplicationRow {
 
 export async function handleAdmin(request: Request, env: Env, url: URL): Promise<Response> {
   const actor = await requireAdmin(request, env);
+  const announcements = await handleAdminAnnouncements(request, env, url, actor);
+  if (announcements) return announcements;
   const path = url.pathname;
 
   if (request.method === "GET" && path === "/v1/admin/overview") {

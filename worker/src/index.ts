@@ -1,4 +1,5 @@
 import { handleAdmin } from "./admin";
+import { handlePublicAnnouncements } from "./announcements";
 import type { Env } from "./env";
 import { ingestClientError, recordWorkerError } from "./errors";
 import { cors, HttpError, json } from "./http";
@@ -119,6 +120,8 @@ async function route(
   if (billing) return billing;
   const social = await handleSocial(request, env, url);
   if (social) return social;
+  const announcements = await handlePublicAnnouncements(request, env, url);
+  if (announcements) return announcements;
   if (request.method === "GET" && url.pathname === "/v1/library") {
     return listLibrary(request, env);
   }

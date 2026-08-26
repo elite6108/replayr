@@ -30,6 +30,8 @@ import { AdminClipsPage } from "./pages/admin/AdminClipsPage";
 import { AdminStoragePage } from "./pages/admin/AdminStoragePage";
 import { AdminCreatorsPage } from "./pages/admin/AdminCreatorsPage";
 import { AdminErrorsPage } from "./pages/admin/AdminErrorsPage";
+import { AdminAnnouncementsPage } from "./pages/admin/AdminAnnouncementsPage";
+import { AnnouncementHost } from "./components/AnnouncementHost";
 
 export function App() {
   return (
@@ -48,6 +50,7 @@ function AppShell() {
   return (
       <div className={`site${admin ? " site-admin" : ""}${messages ? " site-messages" : ""}`}>
         <SiteHeader />
+        <AnnouncementHost />
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/features" element={<FeaturesPage />} />
@@ -117,6 +120,7 @@ function AppShell() {
             <Route path="clips" element={<AdminClipsPage />} />
             <Route path="storage" element={<AdminStoragePage />} />
             <Route path="creators" element={<AdminCreatorsPage />} />
+            <Route path="announcements" element={<AdminAnnouncementsPage />} />
             <Route path="errors" element={<AdminErrorsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

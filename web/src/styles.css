@@ -2388,3 +2388,168 @@ code {
   justify-content: flex-end;
 }
 
+.announce-banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(127, 208, 239, 0.1);
+}
+
+.announce-banner img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.announce-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.announce-copy strong,
+.announce-copy p {
+  margin: 0;
+}
+
+.announce-copy p {
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.announce-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.announce-x {
+  min-width: 36px;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.announce-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.announce-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.announce-modal {
+  position: relative;
+  z-index: 1;
+  width: min(480px, calc(100vw - 32px));
+  max-height: 86vh;
+  overflow: auto;
+  border-radius: 20px;
+  background: #141821;
+  border: 1px solid var(--border);
+}
+
+.announce-modal img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  display: block;
+}
+
+.announce-modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.announce-modal-body h2,
+.announce-modal-body p {
+  margin: 0;
+}
+
+.announce-modal-body p {
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.announce-admin-form {
+  margin-top: 28px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.announce-admin-form h3 {
+  margin: 0;
+}
+
+.announce-admin-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.announce-admin-form input,
+.announce-admin-form textarea,
+.announce-admin-form select {
+  color: var(--text);
+}
+
+.announce-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.announce-check-row {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.announce-check-row legend {
+  padding: 0 6px;
+  color: var(--muted);
+}
+
+.announce-check-row label,
+.announce-check-single {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.announce-admin-preview {
+  width: min(320px, 100%);
+  max-height: 160px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.announce-admin-actions {
+  display: flex;
+  gap: 8px;
+}
+
+

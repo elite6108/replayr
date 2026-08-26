@@ -49,7 +49,7 @@ export function AdminPage() {
 
   return (
     <>
-      <PageHeader title="Admin" subtitle="Operator tools. The full console lives on the website.">
+      <PageHeader title="Admin" subtitle="Operator tools. Announcement banners and the full console live on the website.">
         <button
           className="btn primary"
           type="button"

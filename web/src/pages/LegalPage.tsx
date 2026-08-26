@@ -232,7 +232,7 @@ function TermsBody() {
 
       <h2>8. Cloud storage and plans</h2>
       <p>
-        Free accounts include 5 GB of cloud storage, 20-minute 1080p/60 fps uploads, a Replayr.tv watermark on shared
+        Free accounts include 5 GB of cloud storage, 20-minute 1080p uploads, a Replayr.tv watermark on shared
         and uploaded copies, and house upgrade ads on the website and mobile app. Replayr Premium is $4.99 per month or
         $47.88 per year, with a 7-day trial that requires a card. Premium includes 100 GB, original-quality uploads,
         no watermark, and no ads. You can cancel in the Stripe Customer Portal; access continues until the end of the

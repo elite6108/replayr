@@ -255,11 +255,10 @@ mod windows_impl {
                 height,
                 pitch,
             };
-            // Only downscale when Settings asked for 720p/1080p and the source is
-            // actually larger. Native (and 1080p-on-1080p) stay as captured; the
-            // encoder already crops the 16-pixel alignment sliver (1080→1072).
-            if needs_resolution_scale(frame.width, frame.height, &self.flags.resolution) {
-                frame = crate::still::scale_bgra_to(frame, self.flags.width, self.flags.height);
+            // Fit into the encoder canvas with letterbox/pillarbox so 4:3 and
+            // 16:10 (and mismatched DPI sizes) keep their shape.
+            if frame.width != self.flags.width || frame.height != self.flags.height {
+                frame = crate::still::fit_bgra_contain(frame, self.flags.width, self.flags.height);
             }
             if self.last_still_at.elapsed() >= Duration::from_millis(500) {
                 self.last_still_at = Instant::now();
@@ -306,9 +305,9 @@ mod windows_impl {
         let _ = shared.cv.wait_timeout(tick, timeout);
     }
 
-    fn align16(value: u32, fallback: u32) -> u32 {
-        let value = if value < 64 { fallback } else { value };
-        (value.max(16) / 16) * 16
+    fn align_even(value: u32, fallback: u32) -> u32 {
+        let value = if value < 2 { fallback } else { value };
+        (value.max(2) / 2) * 2
     }
 
     fn resolution_box(resolution: &str) -> Option<(u32, u32)> {
@@ -319,25 +318,25 @@ mod windows_impl {
         }
     }
 
-    fn needs_resolution_scale(src_w: u32, src_h: u32, resolution: &str) -> bool {
-        resolution_box(resolution).is_some_and(|(max_w, max_h)| src_w > max_w || src_h > max_h)
-    }
-
+    /// Output size that keeps the source aspect (4:3 / 16:9 / 16:10) instead of
+    /// forcing a 16:9 box. Dimensions are even for H.264.
     fn encode_size(src_w: u32, src_h: u32, resolution: &str) -> (u32, u32) {
-        let src_w = src_w.max(16);
-        let src_h = src_h.max(16);
-        let native_w = align16(src_w, 1920);
-        let native_h = align16(src_h, 1080);
-        let Some((max_w, max_h)) = resolution_box(resolution) else {
-            return (native_w, native_h);
+        let src_w = src_w.max(2);
+        let src_h = src_h.max(2);
+        let (target_w, target_h) = if let Some((max_w, max_h)) = resolution_box(resolution) {
+            if src_w <= max_w && src_h <= max_h {
+                (src_w, src_h)
+            } else {
+                let scale = (max_w as f64 / src_w as f64).min(max_h as f64 / src_h as f64);
+                (
+                    ((src_w as f64) * scale).round().max(2.0) as u32,
+                    ((src_h as f64) * scale).round().max(2.0) as u32,
+                )
+            }
+        } else {
+            (src_w, src_h)
         };
-        if native_w <= max_w && native_h <= max_h {
-            return (native_w, native_h);
-        }
-        let scale = (max_w as f64 / native_w as f64).min(max_h as f64 / native_h as f64);
-        let width = align16(((native_w as f64) * scale).round() as u32, 16).max(16);
-        let height = align16(((native_h as f64) * scale).round() as u32, 16).max(16);
-        (width, height)
+        (align_even(target_w, 1920), align_even(target_h, 1080))
     }
 
     fn capture_settings<T>(item: T, flags: SessionFlags) -> Settings<SessionFlags, T>

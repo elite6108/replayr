@@ -84,7 +84,7 @@ export function PricingPage() {
           <p className="price">{free ? formatBytes(free.storage_limit_bytes) : "5 GB"}</p>
           <ul>
             <li>{formatClipCap(free?.max_clip_duration_ms ?? 1_200_000)} cloud clips</li>
-            <li>{free?.max_upload_quality || "1080p"} / 60 fps uploads</li>
+            <li>{free?.max_upload_quality || "1080p"} uploads (any frame rate)</li>
             <li>Replayr.tv watermark on share, export, and cloud</li>
             <li>House upgrade ads on web and mobile</li>
             <li>Local library unlimited and unmarked</li>

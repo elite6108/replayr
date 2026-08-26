@@ -489,6 +489,49 @@ pub fn scale_bgra_to(frame: StillFrame, width: u32, height: u32) -> StillFrame {
     }
 }
 
+/// Scale `frame` into `out_width`×`out_height` with letterbox/pillarbox so 4:3,
+/// 16:9, and 16:10 sources keep their shape instead of being stretched or cropped.
+pub fn fit_bgra_contain(frame: StillFrame, out_width: u32, out_height: u32) -> StillFrame {
+    let out_width = out_width.max(1);
+    let out_height = out_height.max(1);
+    if frame.width == out_width && frame.height == out_height {
+        return frame;
+    }
+    if frame.width == 0 || frame.height == 0 {
+        return StillFrame {
+            bgra: vec![0_u8; (out_width * out_height * 4) as usize],
+            width: out_width,
+            height: out_height,
+            pitch: out_width * 4,
+        };
+    }
+    let scale = (out_width as f64 / frame.width as f64).min(out_height as f64 / frame.height as f64);
+    let fit_w = ((frame.width as f64) * scale).round().max(1.0) as u32;
+    let fit_h = ((frame.height as f64) * scale).round().max(1.0) as u32;
+    let scaled = scale_bgra_to(frame, fit_w, fit_h);
+    if fit_w == out_width && fit_h == out_height {
+        return scaled;
+    }
+    let dst_pitch = out_width * 4;
+    let mut bgra = vec![0_u8; (dst_pitch * out_height) as usize];
+    let origin_x = (out_width.saturating_sub(fit_w)) / 2;
+    let origin_y = (out_height.saturating_sub(fit_h)) / 2;
+    for y in 0..fit_h {
+        let src_row = (y * scaled.pitch) as usize;
+        let dst_row = ((origin_y + y) * dst_pitch + origin_x * 4) as usize;
+        let bytes = (fit_w * 4) as usize;
+        if src_row + bytes <= scaled.bgra.len() && dst_row + bytes <= bgra.len() {
+            bgra[dst_row..dst_row + bytes].copy_from_slice(&scaled.bgra[src_row..src_row + bytes]);
+        }
+    }
+    StillFrame {
+        bgra,
+        width: out_width,
+        height: out_height,
+        pitch: dst_pitch,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,5 +606,23 @@ mod tests {
             }
         }
         assert!(marked > 80, "expected logo pixels in the bottom-right, got {marked}");
+    }
+
+    #[test]
+    fn fit_contain_preserves_4x3_inside_16x9_canvas() {
+        let frame = StillFrame {
+            bgra: vec![255; 40 * 30 * 4],
+            width: 40,
+            height: 30,
+            pitch: 160,
+        };
+        let fitted = fit_bgra_contain(frame, 64, 36);
+        assert_eq!(fitted.width, 64);
+        assert_eq!(fitted.height, 36);
+        // 40x30 → scale 1.2 → 48x36, centered with 8px pillars.
+        let left = &fitted.bgra[0..4];
+        assert_eq!(left, &[0, 0, 0, 0]);
+        let mid = ((18 * 64 + 32) * 4) as usize;
+        assert_eq!(&fitted.bgra[mid..mid + 4], &[255, 255, 255, 255]);
     }
 }

@@ -14,10 +14,13 @@ import { useToastStore } from "./toastStore";
 interface CloudState {
   clips: CloudClip[];
   selectedIds: string[];
+  playing: { clip: CloudClip; url: string } | null;
   loading: boolean;
   error: string | null;
   initialize: () => Promise<void>;
   refresh: () => Promise<void>;
+  play: (clipId: string) => Promise<void>;
+  closePlayer: () => void;
   remove: (clipId: string) => Promise<void>;
   removeMany: (clipIds: string[]) => Promise<void>;
   unlink: (clipId: string) => Promise<void>;
@@ -37,6 +40,7 @@ let listening = false;
 export const useCloudStore = create<CloudState>((set, get) => ({
   clips: [],
   selectedIds: [],
+  playing: null,
   loading: false,
   error: null,
   initialize: async () => {
@@ -51,7 +55,7 @@ export const useCloudStore = create<CloudState>((set, get) => ({
   refresh: async () => {
     const user = useAuthStore.getState().user;
     if (!user) {
-      set({ clips: [], loading: false, error: null });
+      set({ clips: [], loading: false, error: null, playing: null });
       return;
     }
     set({ loading: true, error: null });
@@ -67,6 +71,33 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       });
     }
   },
+  play: async (clipId) => {
+    const clip = get().clips.find((item) => item.id === clipId);
+    const token = useAuthStore.getState().session?.access_token;
+    if (!clip || !token) {
+      useToastStore.getState().show("Sign in to play a cloud clip");
+      return;
+    }
+    if (clip.status !== "ready") {
+      useToastStore.getState().show("That clip is not ready to play");
+      return;
+    }
+    try {
+      const { useLibraryStore } = await import("./libraryStore");
+      useLibraryStore.getState().closePlayer();
+      const response = await fetch(`${publicAppUrl()}/v1/clips/${clip.slug}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const body = await readApiJson<{ playbackUrl?: string }>(response, "Could not get a playback URL");
+      if (!body.playbackUrl) {
+        throw new Error("Could not get a playback URL");
+      }
+      set({ playing: { clip, url: body.playbackUrl } });
+    } catch (caught) {
+      useToastStore.getState().show(invokeErrorMessage(caught, "Could not play that cloud clip"));
+    }
+  },
+  closePlayer: () => set({ playing: null }),
   remove: async (clipId) => {
     const token = useAuthStore.getState().session?.access_token;
     if (!token) {
@@ -78,6 +109,7 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       set({
         clips: get().clips.filter((clip) => clip.id !== clipId),
         selectedIds: get().selectedIds.filter((id) => id !== clipId),
+        playing: get().playing?.clip.id === clipId ? null : get().playing,
       });
       await useAuthStore.getState().refreshProfile();
       await deleteLocalCopiesForCloudIds([clipId]);

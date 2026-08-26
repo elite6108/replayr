@@ -139,9 +139,6 @@ export async function assertUploadAllowed(
     if (width > 1920 || height > 1080) {
       throw new HttpError(403, "Free cloud uploads are limited to 1080p. Upgrade to Premium for original quality.");
     }
-    if (body.fps != null && body.fps > 60) {
-      throw new HttpError(403, "Free cloud uploads are limited to 60 fps. Upgrade to Premium for high frame rates.");
-    }
   }
   return status;
 }

@@ -177,7 +177,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       set({ clips: [], loaded: true, error: message });
     }
   },
-  play: (localId) => set({ playingId: localId }),
+  play: (localId) => {
+    useCloudStore.getState().closePlayer();
+    set({ playingId: localId });
+  },
   closePlayer: () => set({ playingId: null }),
   setFavoritesOnly: (value) => set({ favoritesOnly: value }),
   toggleSelect: (localId) => {

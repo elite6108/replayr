@@ -51,11 +51,6 @@ export function comboFromKeyboardEvent(event: KeyboardEvent): string | null {
   if (event.ctrlKey || event.metaKey) parts.push("CommandOrControl");
   if (event.altKey) parts.push("Alt");
   if (event.shiftKey) parts.push("Shift");
-
-  const functionKey = /^F([1-9]|1[0-2])$/i.test(key);
-  // Bare letter/digit shortcuts steal typing; require a modifier unless it is an F-key.
-  if (!parts.length && !functionKey) return null;
-
   parts.push(key);
   return parts.join("+");
 }

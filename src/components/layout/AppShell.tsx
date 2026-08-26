@@ -6,6 +6,7 @@ import { TopBar } from "./TopBar";
 import { DesktopShortcutPrompt } from "./DesktopShortcutPrompt";
 import { AnnouncementHost } from "./AnnouncementHost";
 import { ClipPlayer } from "../common/ClipPlayer";
+import { CloudClipPlayer } from "../common/CloudClipPlayer";
 import { ToastRegion } from "../common/ToastRegion";
 import { MicDisconnectToasts } from "./MicDisconnectToasts";
 
@@ -44,6 +45,7 @@ export function AppShell() {
       <MicDisconnectToasts />
       <DesktopShortcutPrompt />
       <ClipPlayer />
+      <CloudClipPlayer />
     </div>
   );
 }

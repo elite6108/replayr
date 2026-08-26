@@ -8,6 +8,7 @@ export function CloudClipCard({
   clip,
   selected,
   onSelect,
+  onPlay,
   onRename,
   onDelete,
   onDownload,
@@ -16,6 +17,7 @@ export function CloudClipCard({
   clip: CloudClip;
   selected?: boolean;
   onSelect?: (clip: CloudClip) => void;
+  onPlay?: (clip: CloudClip) => void;
   onRename?: (clip: CloudClip, title: string) => void;
   onDelete?: (clip: CloudClip) => void;
   onDownload?: (clip: CloudClip) => void;
@@ -60,7 +62,13 @@ export function CloudClipCard({
           />
         </label>
       ) : null}
-      <div className="clip-open">
+      <button
+        type="button"
+        className="clip-open"
+        disabled={!ready || !onPlay}
+        onClick={() => onPlay?.(clip)}
+        title={ready ? "Play clip" : "Clip is not ready"}
+      >
         <div className="clip-thumb">
           <IconPlay size={22} />
           {clip.durationMs ? <span className="clip-duration">{formatDuration(clip.durationMs)}</span> : null}
@@ -69,7 +77,7 @@ export function CloudClipCard({
             <span>Cloud</span>
           </span>
         </div>
-      </div>
+      </button>
       <div className="clip-meta">
         {renaming ? (
           <input
@@ -108,6 +116,11 @@ export function CloudClipCard({
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            {
+              label: "Play",
+              disabled: !ready,
+              onClick: () => onPlay?.(clip),
+            },
             { label: selected ? "Deselect" : "Select", onClick: () => onSelect?.(clip) },
             {
               label: "Rename",

@@ -42,7 +42,7 @@ export function HotkeyRecorder({
 
       const combo = comboFromKeyboardEvent(event);
       if (!combo) {
-        setHint("Add Ctrl/Alt/Shift, or use an F-key.");
+        setHint("That key isn’t supported. Try another.");
         return;
       }
 

@@ -36,6 +36,7 @@ mod share;
 mod still;
 mod system;
 mod upload;
+mod camera;
 
 use database::AppState;
 use std::sync::Mutex;
@@ -92,6 +93,7 @@ pub fn run() {
             app.manage(detection::DetectionState::default());
             app.manage(capture::RecordingState::default());
             app.manage(hotkeys::HotkeyMap::default());
+            app.manage(crate::camera::CameraEngine::new());
             #[cfg(windows)]
             {
                 app.manage(crate::audio::AudioRuntime::new());
@@ -125,6 +127,20 @@ pub fn run() {
                     if !ids.is_empty() {
                         tracing::info!("reset {} interrupted cloud upload(s)", ids.len());
                     }
+                }
+            }
+            {
+                let engine = app.state::<crate::camera::CameraEngine>();
+                engine.bind(app.handle().clone());
+                let loaded = {
+                    let db = app.state::<AppState>();
+                    db.db
+                        .lock()
+                        .ok()
+                        .and_then(|conn| crate::settings::load(&conn).ok())
+                };
+                if let Some(settings) = loaded {
+                    engine.configure(&settings.webcam);
                 }
             }
             system::setup_tray(app.handle()).map_err(|err| err.to_string())?;
@@ -181,6 +197,12 @@ pub fn run() {
             commands::get_mic_level,
             commands::stop_mic_monitor,
             commands::resolve_mic_disconnect,
+            commands::list_camera_devices,
+            commands::list_camera_modes,
+            commands::get_camera_status,
+            commands::start_camera_preview,
+            commands::stop_camera_preview,
+            commands::get_camera_preview_frame,
             commands::list_local_clips,
             commands::reset_stale_uploads,
             commands::save_trimmed_clip,

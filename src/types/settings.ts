@@ -10,6 +10,37 @@ export type AutoUploadMode = "off" | "favorites" | "all";
 export type BandwidthLimit = "unlimited" | "50" | "25" | "10" | "5" | "1" | "custom";
 export type ThemePreference = "dark";
 
+export type WebcamPlacement = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+export type WebcamShape = "rectangle" | "rounded" | "circle";
+
+export interface WebcamSettings {
+  enabled: boolean;
+  deviceId: string;
+  name: string;
+  width: number;
+  height: number;
+  fps: number;
+  mirrorPreview: boolean;
+  mirrorRecording: boolean;
+  defaultPlacement: WebcamPlacement;
+  defaultShape: WebcamShape;
+  defaultWidth: number;
+}
+
+export const DEFAULT_WEBCAM_SETTINGS: WebcamSettings = {
+  enabled: false,
+  deviceId: "",
+  name: "Webcam",
+  width: 1280,
+  height: 720,
+  fps: 30,
+  mirrorPreview: true,
+  mirrorRecording: false,
+  defaultPlacement: "bottom-right",
+  defaultShape: "rounded",
+  defaultWidth: 0.22,
+};
+
 export interface ExtraAudioApp {
   id: string;
   exe: string;
@@ -53,6 +84,7 @@ export interface AppSettings {
   desktopShortcutPrompted: boolean;
   watermarkExports: boolean;
   clipSavedNotification: boolean;
+  webcam: WebcamSettings;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -89,4 +121,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   desktopShortcutPrompted: false,
   watermarkExports: true,
   clipSavedNotification: true,
+  webcam: { ...DEFAULT_WEBCAM_SETTINGS },
 };

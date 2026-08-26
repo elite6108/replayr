@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { AppSettings } from "../types/settings";
 import type { AudioDevice, AudioEngineStatus, AudioSession } from "../types/audio";
+import type { CameraDevice, CameraMode, CameraPreviewFrame, CameraStatus } from "../types/camera";
 import type { LocalClip } from "../types/clip";
 import type { DetectedGameSnapshot, GameCatalogEntry } from "../types/game";
 import type { RecordingStatus, ReplayStatus } from "../types/recording";
@@ -220,6 +221,58 @@ export async function saveClip(): Promise<string> {
 
 export async function saveScreenshot(): Promise<string> {
   return invoke("save_screenshot");
+}
+
+export async function listCameraDevices(): Promise<CameraDevice[]> {
+  try {
+    const devices = await withTimeout(invoke<CameraDevice[]>("list_camera_devices"), 5000, "list_camera_devices");
+    return Array.isArray(devices) ? devices : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function listCameraModes(deviceId: string): Promise<CameraMode[]> {
+  try {
+    const modes = await withTimeout(
+      invoke<CameraMode[]>("list_camera_modes", { deviceId }),
+      5000,
+      "list_camera_modes",
+    );
+    return Array.isArray(modes) ? modes : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getCameraStatus(): Promise<CameraStatus | null> {
+  try {
+    return await withTimeout(invoke<CameraStatus>("get_camera_status"), 4000, "get_camera_status");
+  } catch {
+    return null;
+  }
+}
+
+export async function startCameraPreview(options: {
+  deviceId: string;
+  width: number;
+  height: number;
+  fps: number;
+  mirror: boolean;
+}): Promise<CameraStatus> {
+  return invoke("start_camera_preview", options);
+}
+
+export async function stopCameraPreview(): Promise<void> {
+  await invoke("stop_camera_preview");
+}
+
+export async function getCameraPreviewFrame(): Promise<CameraPreviewFrame | null> {
+  try {
+    return await invoke<CameraPreviewFrame | null>("get_camera_preview_frame");
+  } catch {
+    return null;
+  }
 }
 
 export const credentialStorage = {

@@ -59,6 +59,13 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     hotkeys: { ...DEFAULT_SETTINGS.hotkeys, ...settings.hotkeys },
     watermarkExports: settings.watermarkExports ?? DEFAULT_SETTINGS.watermarkExports,
     clipSavedNotification: settings.clipSavedNotification ?? DEFAULT_SETTINGS.clipSavedNotification,
+    webcam: {
+      ...DEFAULT_SETTINGS.webcam,
+      ...(settings.webcam ?? {}),
+      enabled: settings.webcam?.enabled ?? false,
+      mirrorPreview: settings.webcam?.mirrorPreview ?? true,
+      mirrorRecording: settings.webcam?.mirrorRecording ?? false,
+    },
   };
 }
 

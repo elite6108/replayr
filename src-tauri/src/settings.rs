@@ -94,6 +94,101 @@ pub struct AppSettings {
     /// In-game Replayr overlay after a clip is successfully saved. Default on.
     #[serde(default = "default_true")]
     pub clip_saved_notification: bool,
+    /// Optional webcam as a separate recording source. Off until the user opts in.
+    #[serde(default)]
+    pub webcam: WebcamSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WebcamSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub device_id: String,
+    #[serde(default = "default_webcam_name")]
+    pub name: String,
+    #[serde(default = "default_webcam_width")]
+    pub width: u32,
+    #[serde(default = "default_webcam_height")]
+    pub height: u32,
+    #[serde(default = "default_webcam_fps")]
+    pub fps: u32,
+    #[serde(default = "default_true")]
+    pub mirror_preview: bool,
+    #[serde(default)]
+    pub mirror_recording: bool,
+    #[serde(default = "default_webcam_placement")]
+    pub default_placement: String,
+    #[serde(default = "default_webcam_shape")]
+    pub default_shape: String,
+    #[serde(default = "default_webcam_overlay_width")]
+    pub default_width: f32,
+}
+
+impl Default for WebcamSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            device_id: String::new(),
+            name: default_webcam_name(),
+            width: default_webcam_width(),
+            height: default_webcam_height(),
+            fps: default_webcam_fps(),
+            mirror_preview: true,
+            mirror_recording: false,
+            default_placement: default_webcam_placement(),
+            default_shape: default_webcam_shape(),
+            default_width: default_webcam_overlay_width(),
+        }
+    }
+}
+
+impl WebcamSettings {
+    pub fn display_name(&self) -> String {
+        let name = self.name.trim();
+        if name.is_empty() {
+            default_webcam_name()
+        } else {
+            name.chars().take(32).collect()
+        }
+    }
+
+    pub fn sanitize(&mut self) {
+        self.device_id = self.device_id.trim().chars().take(512).collect();
+        if self.device_id.contains('\0') || self.device_id.contains("..") {
+            self.device_id.clear();
+        }
+        self.name = self.display_name();
+        self.width = match self.width {
+            1920 => 1920,
+            1280 => 1280,
+            640 => 640,
+            other if other >= 1600 => 1920,
+            other if other >= 960 => 1280,
+            _ => 1280,
+        };
+        self.height = match self.width {
+            1920 => 1080,
+            640 => 480,
+            _ => 720,
+        };
+        self.fps = match self.fps {
+            60 => 60,
+            24 => 24,
+            15 => 15,
+            _ => 30,
+        };
+        self.default_placement = match self.default_placement.as_str() {
+            "top-left" | "top-right" | "bottom-left" => self.default_placement.clone(),
+            _ => default_webcam_placement(),
+        };
+        self.default_shape = match self.default_shape.as_str() {
+            "rectangle" | "circle" => self.default_shape.clone(),
+            _ => default_webcam_shape(),
+        };
+        self.default_width = self.default_width.clamp(0.12, 0.40);
+    }
 }
 
 impl Default for AppSettings {
@@ -132,12 +227,41 @@ impl Default for AppSettings {
             desktop_shortcut_prompted: false,
             watermark_exports: true,
             clip_saved_notification: true,
+            webcam: WebcamSettings::default(),
         }
     }
 }
 
 fn default_mic_gain() -> f32 {
     1.0
+}
+
+fn default_webcam_name() -> String {
+    "Webcam".into()
+}
+
+fn default_webcam_width() -> u32 {
+    1280
+}
+
+fn default_webcam_height() -> u32 {
+    720
+}
+
+fn default_webcam_fps() -> u32 {
+    30
+}
+
+fn default_webcam_placement() -> String {
+    "bottom-right".into()
+}
+
+fn default_webcam_shape() -> String {
+    "rounded".into()
+}
+
+fn default_webcam_overlay_width() -> f32 {
+    0.22
 }
 
 const SETTINGS_KEY: &str = "document";
@@ -209,6 +333,7 @@ pub fn set_document(conn: &Connection, patch: Value) -> AppResult<AppSettings> {
     settings.mic_gain = settings.mic_gain.clamp(0.0, 2.0);
     settings.game_audio_gain = settings.game_audio_gain.clamp(0.0, 2.0);
     settings.discord_audio_gain = settings.discord_audio_gain.clamp(0.0, 2.0);
+    settings.webcam.sanitize();
     for app in &mut settings.extra_apps {
         app.gain = app.gain.clamp(0.0, 2.0);
         if app.id.trim().is_empty() {
@@ -312,6 +437,40 @@ mod tests {
         let loaded: AppSettings = serde_json::from_value(value).unwrap();
         assert!(!loaded.desktop_shortcut);
         assert!(!loaded.desktop_shortcut_prompted);
+    }
+
+    #[test]
+    fn webcam_defaults_off_when_missing() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("webcam");
+        let loaded: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(!loaded.webcam.enabled);
+        assert!(loaded.webcam.device_id.is_empty());
+        assert_eq!(loaded.webcam.width, 1280);
+        assert_eq!(loaded.webcam.height, 720);
+        assert_eq!(loaded.webcam.fps, 30);
+        assert!(loaded.webcam.mirror_preview);
+        assert!(!loaded.webcam.mirror_recording);
+        assert_eq!(loaded.webcam.default_placement, "bottom-right");
+        assert_eq!(loaded.webcam.default_shape, "rounded");
+    }
+
+    #[test]
+    fn webcam_sanitize_rejects_path_injection() {
+        let mut webcam = WebcamSettings {
+            device_id: String::from("..\\not-a-camera"),
+            name: String::from("  Facecam  "),
+            fps: 90,
+            default_width: 2.0,
+            ..WebcamSettings::default()
+        };
+        webcam.sanitize();
+        assert!(webcam.device_id.is_empty());
+        assert_eq!(webcam.name, "Facecam");
+        assert_eq!(webcam.fps, 30);
+        assert!((webcam.default_width - 0.40).abs() < f32::EPSILON);
+        assert!(!webcam.enabled);
     }
 
     #[test]

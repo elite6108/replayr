@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { DetectedGamePanel } from "../components/common/DetectedGamePanel";
 import { PageHeader } from "../components/common/PageHeader";
@@ -6,6 +7,9 @@ import { useDetectionStore } from "../stores/detectionStore";
 import { useRecordingStore } from "../stores/recordingStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useToastStore } from "../stores/toastStore";
+import { getCameraStatus } from "../services/tauri";
+import { IDLE_CAMERA_STATUS, type CameraStatus } from "../types/camera";
+import type { WebcamSettings } from "../types/settings";
 import { displayHotkey } from "../utils/format";
 
 export function RecordPage() {
@@ -19,6 +23,23 @@ export function RecordPage() {
   const saveClip = useRecordingStore((state) => state.saveClip);
   const update = useSettingsStore((state) => state.update);
   const showToast = useToastStore((state) => state.show);
+  const [camera, setCamera] = useState<CameraStatus>(IDLE_CAMERA_STATUS);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getCameraStatus().then((next) => {
+      if (!cancelled && next) setCamera(next);
+    });
+    const timer = window.setInterval(() => {
+      void getCameraStatus().then((next) => {
+        if (!cancelled && next) setCamera(next);
+      });
+    }, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [settings.webcam.enabled, settings.webcam.deviceId]);
 
   function toggleMix(key: "gameAudioEnabled" | "discordAudioEnabled" | "systemAudioEnabled" | "micEnabled", next: boolean, on: string, off: string) {
     void update(key, next)
@@ -91,8 +112,58 @@ export function RecordPage() {
               Audio settings
             </Link>
           </div>
+          <SourcesStatus
+            gameName={snapshot.name ?? "Gameplay"}
+            micEnabled={settings.micEnabled}
+            webcam={settings.webcam}
+            camera={camera}
+          />
         </section>
       </div>
     </>
+  );
+}
+
+function SourcesStatus({
+  gameName,
+  micEnabled,
+  webcam,
+  camera,
+}: {
+  gameName: string;
+  micEnabled: boolean;
+  webcam: WebcamSettings;
+  camera: CameraStatus;
+}) {
+  const webcamOff = !webcam.enabled;
+  const webcamName = webcam.name.trim() || camera.deviceName || "Webcam";
+  const webcamBad =
+    camera.availability === "disconnected" ||
+    camera.availability === "permissionDenied" ||
+    camera.availability === "failed";
+  const webcamLabel = webcamOff ? "Off" : webcamBad ? "!" : camera.availability === "previewing" ? "Preview" : "On";
+  return (
+    <div className="sources-status">
+      <div className="settings-group-label">Sources</div>
+      <div className="source-status-row">
+        <span>{gameName}</span>
+        <span className="source-dot on">Active</span>
+      </div>
+      {micEnabled ? (
+        <div className="source-status-row">
+          <span>Microphone</span>
+          <span className="source-dot on">Active</span>
+        </div>
+      ) : null}
+      <div className={`source-status-row ${webcamBad ? "warn" : ""}`}>
+        <span>
+          {webcamName}
+          {webcamBad ? <small>{camera.message || "Camera unavailable"}</small> : null}
+        </span>
+        <span className={`source-dot ${webcamOff ? "" : webcamBad ? "warn" : "on"}`}>
+          {webcamLabel}
+        </span>
+      </div>
+    </div>
   );
 }

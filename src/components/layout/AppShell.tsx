@@ -9,6 +9,7 @@ import { ClipPlayer } from "../common/ClipPlayer";
 import { CloudClipPlayer } from "../common/CloudClipPlayer";
 import { ToastRegion } from "../common/ToastRegion";
 import { MicDisconnectToasts } from "./MicDisconnectToasts";
+import { CameraDisconnectToasts } from "./CameraDisconnectToasts";
 
 function TrayNavigation() {
   const navigate = useNavigate();
@@ -42,7 +43,8 @@ export function AppShell() {
         </main>
       </div>
       <ToastRegion />
-      <MicDisconnectToasts />
+        <MicDisconnectToasts />
+        <CameraDisconnectToasts />
       <DesktopShortcutPrompt />
       <ClipPlayer />
       <CloudClipPlayer />

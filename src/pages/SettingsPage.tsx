@@ -11,6 +11,7 @@ import { useDetectionStore } from "../stores/detectionStore";
 import { useToastStore } from "../stores/toastStore";
 import { AudioSourceRow } from "../components/settings/AudioSourceRow";
 import { MicrophoneControls } from "../components/settings/MicrophoneControls";
+import { RecordingSources } from "../components/sources/RecordingSources";
 import { addExtraAudioApp, getAudioStatus, listAudioSessions } from "../services/tauri";
 import type { AudioEngineStatus, AudioSession } from "../types/audio";
 import type { AppSettings, ExtraAudioApp } from "../types/settings";
@@ -385,15 +386,14 @@ function RecordingPane({
           onChange={(event) => void onChange("instantReplayEnabled", event.target.checked)}
         />
       </label>
-      <label className="setting-row">
-        <span>Show overlay when a clip is saved</span>
-        <input
-          className="switch"
-          type="checkbox"
-          checked={settings.clipSavedNotification}
-          onChange={(event) => void onChange("clipSavedNotification", event.target.checked)}
-        />
-      </label>
+      <RecordingSources
+        settings={settings}
+        previewing
+        onWebcamChange={(webcam) => onChange("webcam", webcam)}
+      />
+      <div className="settings-group">
+        <div className="settings-group-label">Quality</div>
+      </div>
       <div className="settings-fields">
         <div className="field">
           <label htmlFor="replay-length">Replay length</label>
@@ -462,6 +462,15 @@ function RecordingPane({
           </select>
         </div>
       </div>
+      <label className="setting-row">
+        <span>Show overlay when a clip is saved</span>
+        <input
+          className="switch"
+          type="checkbox"
+          checked={settings.clipSavedNotification}
+          onChange={(event) => void onChange("clipSavedNotification", event.target.checked)}
+        />
+      </label>
       <LocalSaveLocation path={settings.saveLocation} onBrowse={onBrowse} />
     </>
   );

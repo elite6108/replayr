@@ -393,6 +393,18 @@
           "markdownDescription": "Read isolated audio source status and meters"
         },
         {
+          "description": "Read the latest webcam preview frame",
+          "type": "string",
+          "const": "allow-get-camera-preview-frame",
+          "markdownDescription": "Read the latest webcam preview frame"
+        },
+        {
+          "description": "Read webcam source status and hotplug state",
+          "type": "string",
+          "const": "allow-get-camera-status",
+          "markdownDescription": "Read webcam source status and hotplug state"
+        },
+        {
           "description": "Read the live microphone peak meter",
           "type": "string",
           "const": "allow-get-mic-level",
@@ -411,6 +423,18 @@
           "markdownDescription": "List WASAPI render sessions for Add App"
         },
         {
+          "description": "List connected Windows cameras",
+          "type": "string",
+          "const": "allow-list-camera-devices",
+          "markdownDescription": "List connected Windows cameras"
+        },
+        {
+          "description": "List native camera modes for a selected device",
+          "type": "string",
+          "const": "allow-list-camera-modes",
+          "markdownDescription": "List native camera modes for a selected device"
+        },
+        {
           "description": "Remove the Replayr desktop shortcut",
           "type": "string",
           "const": "allow-remove-desktop-shortcut",
@@ -421,6 +445,18 @@
           "type": "string",
           "const": "allow-resolve-mic-disconnect",
           "markdownDescription": "Choose a microphone fallback after the selected device disappears"
+        },
+        {
+          "description": "Start a live webcam preview while configuring the source",
+          "type": "string",
+          "const": "allow-start-camera-preview",
+          "markdownDescription": "Start a live webcam preview while configuring the source"
+        },
+        {
+          "description": "Stop the live webcam preview",
+          "type": "string",
+          "const": "allow-stop-camera-preview",
+          "markdownDescription": "Stop the live webcam preview"
         },
         {
           "description": "Stop the settings microphone meter when it is not recording",

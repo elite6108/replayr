@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 
+use crate::camera::{CameraEngine, PreviewRequest};
 use crate::capture::{RecordingState, RecordingStatus, ReplayStatus};
 use crate::database::AppState;
 use crate::detection::DetectionState;
@@ -77,6 +78,7 @@ fn after_settings(
     let hotkeys_changed = keys.iter().any(|key| key == "hotkeys");
     let audio_changed = keys.iter().any(|key| LIVE_AUDIO_KEYS.contains(&key.as_str()));
     let capture_changed = keys.iter().any(|key| CAPTURE_KEYS.contains(&key.as_str()));
+    let webcam_changed = keys.iter().any(|key| key == "webcam");
 
     if hotkeys_changed {
         hotkeys::register_all(app, &settings.hotkeys)?;
@@ -91,6 +93,10 @@ fn after_settings(
             .spawn(move || {
                 handle.state::<crate::audio::AudioRuntime>().apply(&settings);
             });
+    }
+
+    if webcam_changed {
+        app.state::<CameraEngine>().configure(&settings.webcam);
     }
 
     if capture_changed {
@@ -128,6 +134,55 @@ pub async fn list_audio_devices() -> AppResult<Value> {
     {
         Ok(json!([]))
     }
+}
+
+#[tauri::command]
+pub fn list_camera_devices(engine: State<CameraEngine>) -> AppResult<Value> {
+    let devices = engine.list_devices().map_err(AppError::Message)?;
+    Ok(serde_json::to_value(devices)?)
+}
+
+#[tauri::command]
+pub fn list_camera_modes(engine: State<CameraEngine>, device_id: String) -> AppResult<Value> {
+    let modes = engine.list_modes(&device_id).map_err(AppError::Message)?;
+    Ok(serde_json::to_value(modes)?)
+}
+
+#[tauri::command]
+pub fn get_camera_status(engine: State<CameraEngine>) -> AppResult<Value> {
+    Ok(serde_json::to_value(engine.status())?)
+}
+
+#[tauri::command]
+pub fn start_camera_preview(
+    engine: State<CameraEngine>,
+    device_id: String,
+    width: u32,
+    height: u32,
+    fps: u32,
+    mirror: bool,
+) -> AppResult<Value> {
+    let status = engine
+        .start_preview(PreviewRequest {
+            device_id,
+            width,
+            height,
+            fps,
+            mirror,
+        })
+        .map_err(AppError::Message)?;
+    Ok(serde_json::to_value(status)?)
+}
+
+#[tauri::command]
+pub fn stop_camera_preview(engine: State<CameraEngine>) -> AppResult<()> {
+    engine.stop_preview();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_camera_preview_frame(engine: State<CameraEngine>) -> AppResult<Value> {
+    Ok(serde_json::to_value(engine.latest_preview())?)
 }
 
 #[tauri::command]

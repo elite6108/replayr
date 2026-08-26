@@ -1,0 +1,29 @@
+[[permission]]
+identifier = "allow-list-camera-devices"
+description = "List connected Windows cameras"
+commands.allow = ["list_camera_devices"]
+
+[[permission]]
+identifier = "allow-list-camera-modes"
+description = "List native camera modes for a selected device"
+commands.allow = ["list_camera_modes"]
+
+[[permission]]
+identifier = "allow-get-camera-status"
+description = "Read webcam source status and hotplug state"
+commands.allow = ["get_camera_status"]
+
+[[permission]]
+identifier = "allow-start-camera-preview"
+description = "Start a live webcam preview while configuring the source"
+commands.allow = ["start_camera_preview"]
+
+[[permission]]
+identifier = "allow-stop-camera-preview"
+description = "Stop the live webcam preview"
+commands.allow = ["stop_camera_preview"]
+
+[[permission]]
+identifier = "allow-get-camera-preview-frame"
+description = "Read the latest webcam preview frame"
+commands.allow = ["get_camera_preview_frame"]

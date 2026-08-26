@@ -1,3 +1,15 @@
+html.preview,
+html.preview body,
+html.preview #root {
+  background: #0c0e13;
+}
+
+html.preview #root {
+  display: flex;
+  justify-content: flex-end;
+  padding: 24px;
+}
+
 html,
 body,
 #root {

@@ -1,4 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -8,8 +9,9 @@ use tauri::{AppHandle, Emitter};
 
 use crate::settings::WebcamSettings;
 
+use super::clock::{webcam_sidecar_path, SessionClock};
 use super::format::{estimated_mb_per_minute, pick_camera_mode, webcam_bitrate_bps, RequestedMode};
-use super::clock::SessionClock;
+use super::ring::{RotateAck, WebcamBuffer};
 use super::types::{
     CameraAvailability, CameraDeviceInfo, CameraStatus, PreviewFrame, PreviewRequest,
 };
@@ -40,6 +42,8 @@ struct Inner {
     preview: Mutex<Option<super::preview::PreviewSession>>,
     #[cfg(windows)]
     record: Mutex<Option<super::record::RecordSession>>,
+    #[cfg(windows)]
+    rolling: Mutex<Option<super::roll::RollingSession>>,
     session_lock: Mutex<()>,
     cached_modes: Mutex<Option<(String, Vec<super::format::CameraMode>)>>,
     stop_watch: AtomicBool,
@@ -47,6 +51,12 @@ struct Inner {
     wake: Condvar,
     wake_lock: Mutex<()>,
     session_clock: Mutex<Option<SessionClock>>,
+    rotate: Arc<RotateAck>,
+    webcam_buffer: Arc<Mutex<WebcamBuffer>>,
+    scratch_dir: Mutex<Option<PathBuf>>,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    replay_keep_ms: AtomicU64,
+    mirror_recording: AtomicBool,
 }
 
 impl Default for CameraEngine {
@@ -69,6 +79,8 @@ impl CameraEngine {
                 preview: Mutex::new(None),
                 #[cfg(windows)]
                 record: Mutex::new(None),
+                #[cfg(windows)]
+                rolling: Mutex::new(None),
                 session_lock: Mutex::new(()),
                 cached_modes: Mutex::new(None),
                 stop_watch: AtomicBool::new(false),
@@ -76,6 +88,11 @@ impl CameraEngine {
                 wake: Condvar::new(),
                 wake_lock: Mutex::new(()),
                 session_clock: Mutex::new(None),
+                rotate: Arc::new(RotateAck::default()),
+                webcam_buffer: Arc::new(Mutex::new(WebcamBuffer::new(60_000))),
+                scratch_dir: Mutex::new(None),
+                replay_keep_ms: AtomicU64::new(60_000),
+                mirror_recording: AtomicBool::new(false),
             }),
         }
     }
@@ -151,6 +168,11 @@ impl CameraEngine {
                     apply_record_snapshot(&mut status, &session.snapshot());
                 }
             }
+            if let Ok(rolling) = self.inner.rolling.lock() {
+                if let Some(session) = rolling.as_ref() {
+                    apply_record_snapshot(&mut status, &session.snapshot());
+                }
+            }
             status.enabled = self.inner.enabled.load(Ordering::SeqCst);
             apply_session_clock(&self.inner, &mut status);
             status
@@ -168,15 +190,67 @@ impl CameraEngine {
     }
 
     pub fn end_session(&self) {
+        stop_rolling_session(&self.inner);
         if let Ok(mut slot) = self.inner.session_clock.lock() {
             if slot.take().is_some() {
                 tracing::info!("camera unbound from capture SessionClock");
             }
         }
+        if let Ok(mut scratch) = self.inner.scratch_dir.lock() {
+            *scratch = None;
+        }
+        if let Ok(mut buffer) = self.inner.webcam_buffer.lock() {
+            buffer.clear(false);
+        }
+        self.inner.rotate.ack();
     }
 
     pub fn session_clock(&self) -> Option<SessionClock> {
         self.inner.session_clock.lock().ok().and_then(|guard| *guard)
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn start_rolling(&self, scratch: PathBuf, keep_ms: u64) {
+        self.inner.replay_keep_ms.store(keep_ms.max(1_000), Ordering::SeqCst);
+        if let Ok(mut slot) = self.inner.scratch_dir.lock() {
+            *slot = Some(scratch.clone());
+        }
+        if let Ok(mut buffer) = self.inner.webcam_buffer.lock() {
+            buffer.set_max_keep_ms(keep_ms);
+        }
+        start_rolling_inner(&self.inner, scratch);
+    }
+
+    pub fn request_rotate(&self) -> u64 {
+        let generation = self.inner.rotate.generation();
+        if rolling(&self.inner) {
+            self.inner.rotate.request();
+        }
+        generation
+    }
+
+    pub fn wait_for_rotate(&self, start_gen: u64, timeout: Duration) -> bool {
+        if !rolling(&self.inner) {
+            return true;
+        }
+        self.inner.rotate.wait_since(start_gen, timeout)
+    }
+
+    /// Best-effort sidecar remux. Never returns an error to gameplay save.
+    pub fn save_overlap_sidecar(&self, clip: &Path, start_hns: i64, end_hns: i64) {
+        let output = webcam_sidecar_path(clip);
+        match remux_overlap_inner(&self.inner, start_hns, end_hns, &output) {
+            Ok(Some(path)) => {
+                tracing::info!(path = %path.display(), "saved overlapping webcam sidecar");
+            }
+            Ok(None) => {
+                tracing::debug!("no overlapping webcam for this clip");
+            }
+            Err(err) => {
+                tracing::warn!(%err, "webcam sidecar skipped; gameplay clip is intact");
+                let _ = std::fs::remove_file(&output);
+            }
+        }
     }
 
     pub fn configure(&self, webcam: &WebcamSettings) {
@@ -197,6 +271,7 @@ impl CameraEngine {
             status.estimated_mb_per_minute =
                 estimated_mb_per_minute(webcam_bitrate_bps(webcam.width, webcam.height, webcam.fps));
         }
+        self.inner.mirror_recording.store(webcam.mirror_recording, Ordering::SeqCst);
         if let Ok(mut cache) = self.inner.cached_modes.lock() {
             if cache.as_ref().is_some_and(|(id, _)| id != &webcam.device_id) {
                 *cache = None;
@@ -204,13 +279,25 @@ impl CameraEngine {
         }
         // Preview is owned by the settings card. Do not tear it down when the
         // recording toggle is off — that would close the camera mid-configure.
-        let watching = webcam.enabled || previewing(&self.inner) || recording(&self.inner);
+        let watching = webcam.enabled || previewing(&self.inner) || recording(&self.inner) || rolling(&self.inner);
         self.inner.watch.store(watching, Ordering::SeqCst);
         if watching {
             self.ensure_watch_thread();
             self.wake_watch();
         } else {
             self.publish_idle_if_disabled();
+        }
+        if self.session_clock().is_some() {
+            if webcam.enabled {
+                if let Ok(scratch) = self.inner.scratch_dir.lock() {
+                    if let Some(dir) = scratch.clone() {
+                        drop(scratch);
+                        start_rolling_inner(&self.inner, dir);
+                    }
+                }
+            } else {
+                stop_rolling_session(&self.inner);
+            }
         }
     }
 
@@ -226,6 +313,9 @@ impl CameraEngine {
             let _session = self.inner.session_lock.lock().map_err(|err| err.to_string())?;
             if recording(&self.inner) {
                 return Err("Stop the webcam test recording first.".into());
+            }
+            if rolling(&self.inner) {
+                return Err("Webcam is recording with Instant Replay.".into());
             }
             let request = request;
             let devices = list_devices_off_ui()?;
@@ -301,6 +391,9 @@ impl CameraEngine {
             let _session = self.inner.session_lock.lock().map_err(|err| err.to_string())?;
             if recording(&self.inner) {
                 return Err("A webcam test recording is already running.".into());
+            }
+            if rolling(&self.inner) {
+                return Err("Webcam is recording with Instant Replay.".into());
             }
             let devices = list_devices_off_ui()?;
             let Some(device) = devices.iter().find(|item| item.id == device_id) else {
@@ -432,6 +525,7 @@ fn watch_loop(inner: Arc<Inner>) {
     while !inner.stop_watch.load(Ordering::SeqCst) {
         if inner.watch.load(Ordering::SeqCst) {
             harvest_finished_record(inner.as_ref());
+            harvest_finished_rolling(inner.as_ref());
             refresh_device_presence(&inner);
         }
         let Ok(lock) = inner.wake_lock.lock() else {
@@ -486,6 +580,7 @@ fn refresh_device_presence(inner: &Inner) {
                 if let Ok(_session) = inner.session_lock.lock() {
                     stop_preview_session(inner);
                     stop_record_session(inner);
+                    stop_rolling_session(inner);
                 }
                 if let Ok(mut cache) = inner.cached_modes.lock() {
                     *cache = None;
@@ -583,6 +678,186 @@ fn apply_record_snapshot(status: &mut CameraStatus, snapshot: &super::record::Re
             status.height = snapshot.height;
             status.fps = snapshot.fps;
         }
+    }
+}
+
+fn rolling(inner: &Inner) -> bool {
+    #[cfg(windows)]
+    {
+        inner
+            .rolling
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|session| !session.finished()))
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = inner;
+        false
+    }
+}
+
+fn start_rolling_inner(inner: &Inner, scratch: PathBuf) {
+    #[cfg(windows)]
+    {
+        if !inner.enabled.load(Ordering::SeqCst) {
+            return;
+        }
+        if recording(inner) || rolling(inner) {
+            return;
+        }
+        let Some(clock) = inner.session_clock.lock().ok().and_then(|guard| *guard) else {
+            return;
+        };
+        let device_id = inner.selected_id.lock().map(|id| id.clone()).unwrap_or_default();
+        if device_id.is_empty() {
+            tracing::info!("webcam enabled but no device selected; Instant Replay continues without it");
+            return;
+        }
+        let Ok(_session) = inner.session_lock.lock() else {
+            return;
+        };
+        if recording(inner) || rolling(inner) {
+            return;
+        }
+        stop_preview_session(inner);
+        let status = inner
+            .status
+            .lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_else(|_| CameraStatus::idle());
+        let dir = super::roll::prepare_webcam_dir(&scratch);
+        let keep_ms = inner.replay_keep_ms.load(Ordering::SeqCst);
+        if let Ok(mut buffer) = inner.webcam_buffer.lock() {
+            buffer.set_max_keep_ms(keep_ms);
+        }
+        match super::roll::RollingSession::start(super::roll::RollingRequest {
+            device_id,
+            width: status.width.max(320),
+            height: status.height.max(240),
+            fps: status.fps.max(24),
+            mirror: inner.mirror_recording.load(Ordering::SeqCst),
+            bitrate: webcam_bitrate_bps(status.width.max(320), status.height.max(240), status.fps.max(24)),
+            dir,
+            session_origin_hns: clock.qpc_origin_hns(),
+            rotate: Arc::clone(&inner.rotate),
+            buffer: Arc::clone(&inner.webcam_buffer),
+        }) {
+            Ok(session) => {
+                if let Ok(mut slot) = inner.rolling.lock() {
+                    *slot = Some(session);
+                }
+                inner.watch.store(true, Ordering::SeqCst);
+                tracing::info!("webcam rolling segments started");
+            }
+            Err(err) => {
+                tracing::warn!(%err, "webcam rolling did not start; gameplay capture continues");
+                let mut failed = status;
+                failed.availability = CameraAvailability::Failed;
+                failed.message = crate::camera::device::permission_message(&err);
+                publish_inner(inner, failed);
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (inner, scratch);
+    }
+}
+
+fn stop_rolling_session(inner: &Inner) {
+    #[cfg(windows)]
+    {
+        if let Ok(mut slot) = inner.rolling.lock() {
+            if let Some(session) = slot.take() {
+                let _ = session.stop();
+            }
+        }
+        inner.rotate.ack();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = inner;
+    }
+}
+
+fn harvest_finished_rolling(inner: &Inner) {
+    #[cfg(windows)]
+    {
+        let finished = inner
+            .rolling
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(super::roll::RollingSession::finished))
+            .unwrap_or(false);
+        if !finished {
+            return;
+        }
+        let Ok(_session) = inner.session_lock.lock() else {
+            return;
+        };
+        if let Ok(mut slot) = inner.rolling.lock() {
+            if let Some(session) = slot.take() {
+                let snapshot = session.stop();
+                if !snapshot.message.is_empty() {
+                    let mut status = inner
+                        .status
+                        .lock()
+                        .map(|guard| guard.clone())
+                        .unwrap_or_else(|_| CameraStatus::idle());
+                    apply_record_snapshot(&mut status, &snapshot);
+                    status.recording = false;
+                    status.availability = CameraAvailability::Failed;
+                    publish_inner(inner, status);
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = inner;
+    }
+}
+
+fn remux_overlap_inner(
+    inner: &Inner,
+    start_hns: i64,
+    end_hns: i64,
+    output: &Path,
+) -> Result<Option<PathBuf>, String> {
+    let paths = {
+        let Ok(mut buffer) = inner.webcam_buffer.lock() else {
+            return Ok(None);
+        };
+        buffer.lock_range(start_hns, end_hns);
+        buffer.remux_paths(start_hns, end_hns)
+    };
+    let existing: Vec<_> = paths
+        .into_iter()
+        .filter(|path| std::fs::metadata(path).map(|meta| meta.len() > 0).unwrap_or(false))
+        .collect();
+    if existing.is_empty() {
+        if let Ok(mut buffer) = inner.webcam_buffer.lock() {
+            buffer.unlock_all();
+        }
+        return Ok(None);
+    }
+    #[cfg(windows)]
+    {
+        let result = crate::export::concat_mp4s(&existing, output);
+        if let Ok(mut buffer) = inner.webcam_buffer.lock() {
+            buffer.unlock_all();
+        }
+        result.map(|_| Some(output.to_path_buf()))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = output;
+        if let Ok(mut buffer) = inner.webcam_buffer.lock() {
+            buffer.unlock_all();
+        }
+        Ok(None)
     }
 }
 
@@ -741,5 +1016,23 @@ mod tests {
         engine.end_session();
         assert!(engine.session_clock().is_none());
         assert!(!engine.status().session_clock);
+    }
+
+    #[test]
+    fn rotate_without_rolling_is_immediate() {
+        let engine = CameraEngine::new();
+        let gen = engine.request_rotate();
+        assert!(engine.wait_for_rotate(gen, Duration::from_millis(20)));
+    }
+
+    #[test]
+    fn sidecar_without_webcam_does_not_fail() {
+        let engine = CameraEngine::new();
+        let dir = tempfile::tempdir().unwrap();
+        let clip = dir.path().join("clip-1.mp4");
+        std::fs::write(&clip, b"clip").unwrap();
+        engine.save_overlap_sidecar(&clip, 0, 40_000_000);
+        assert!(!webcam_sidecar_path(&clip).exists());
+        assert!(clip.exists());
     }
 }

@@ -329,6 +329,8 @@ impl EncodeState {
             }
             encoder.finish().map_err(|err| err.to_string())?;
             if self.segmented && duration_ms > 0 {
+                let end_hns = self.last_capture_hns.max(0);
+                let start_hns = end_hns.saturating_sub((duration_ms as i64).saturating_mul(10_000));
                 if let Ok(mut buffer) = self.shared.buffer.lock() {
                     buffer.push(Segment {
                         path,
@@ -338,6 +340,8 @@ impl EncodeState {
                         fps: self.fps,
                         pinned: false,
                         locked: false,
+                        start_hns,
+                        end_hns,
                     });
                 }
                 self.sweep_scratch();

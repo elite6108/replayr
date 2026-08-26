@@ -175,7 +175,7 @@ impl Drop for RecordSession {
     }
 }
 
-struct Nv12Frame {
+pub(super) struct Nv12Frame {
     planes: Vec<u8>,
     width: u32,
     height: u32,
@@ -184,16 +184,16 @@ struct Nv12Frame {
     arrival_qpc: i64,
 }
 
-struct FrameQueue {
+pub(super) struct FrameQueue {
     frames: Mutex<VecDeque<Nv12Frame>>,
     cv: Condvar,
     shutdown: AtomicBool,
-    dropped: AtomicU32,
-    seen: AtomicU32,
+    pub(super) dropped: AtomicU32,
+    pub(super) seen: AtomicU32,
 }
 
 impl FrameQueue {
-    fn new() -> Arc<Self> {
+    pub(super) fn new() -> Arc<Self> {
         Arc::new(Self {
             frames: Mutex::new(VecDeque::new()),
             cv: Condvar::new(),
@@ -203,7 +203,7 @@ impl FrameQueue {
         })
     }
 
-    fn push(&self, frame: Nv12Frame) {
+    pub(super) fn push(&self, frame: Nv12Frame) {
         self.seen.fetch_add(1, Ordering::SeqCst);
         if self.shutdown.load(Ordering::SeqCst) {
             return;
@@ -219,7 +219,7 @@ impl FrameQueue {
         self.cv.notify_one();
     }
 
-    fn pop(&self) -> Option<Nv12Frame> {
+    pub(super) fn pop(&self) -> Option<Nv12Frame> {
         let Ok(mut frames) = self.frames.lock() else {
             return None;
         };
@@ -234,7 +234,33 @@ impl FrameQueue {
         }
     }
 
-    fn close(&self) {
+    pub(super) fn pop_timeout(&self, timeout: Duration) -> Option<Nv12Frame> {
+        let Ok(mut frames) = self.frames.lock() else {
+            return None;
+        };
+        loop {
+            if let Some(frame) = frames.pop_front() {
+                return Some(frame);
+            }
+            if self.shutdown.load(Ordering::SeqCst) {
+                return None;
+            }
+            let (guard, timed_out) = match self.cv.wait_timeout(frames, timeout) {
+                Ok(result) => result,
+                Err(_) => return None,
+            };
+            frames = guard;
+            if timed_out.timed_out() {
+                return None;
+            }
+        }
+    }
+
+    pub(super) fn closed(&self) -> bool {
+        self.shutdown.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn close(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
         self.cv.notify_all();
     }
@@ -429,7 +455,7 @@ fn publish_negotiated(snapshot: &Mutex<RecordSnapshot>, negotiated: &NegotiatedM
     }
 }
 
-fn open_record_reader(
+pub(super) fn open_record_reader(
     source: &windows::Win32::Media::MediaFoundation::IMFMediaSource,
     width: u32,
     height: u32,
@@ -478,7 +504,7 @@ fn set_reader_type(reader: &IMFSourceReader, width: u32, height: u32, subtype: C
     }
 }
 
-fn read_nv12_frame(
+pub(super) fn read_nv12_frame(
     reader: &IMFSourceReader,
     subtype: CameraSubtype,
     fallback_width: u32,

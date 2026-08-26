@@ -10,6 +10,15 @@ pub struct Segment {
     pub fps: u32,
     pub pinned: bool,
     pub locked: bool,
+    pub start_hns: i64,
+    pub end_hns: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipWindow {
+    pub paths: Vec<PathBuf>,
+    pub start_hns: i64,
+    pub end_hns: i64,
 }
 
 #[derive(Debug, Default)]
@@ -69,19 +78,28 @@ impl ReplayBuffer {
     }
 
     pub fn clip_paths(&mut self, duration_ms: u64) -> Vec<PathBuf> {
+        self.clip_window(duration_ms).paths
+    }
+
+    pub fn clip_window(&mut self, duration_ms: u64) -> ClipWindow {
         let want = duration_ms.max(1);
         let mut acc = 0_u64;
         let mut chosen = Vec::new();
         for segment in self.segments.iter_mut().rev() {
             segment.locked = true;
-            chosen.push(segment.path.clone());
+            chosen.push(segment.clone());
             acc = acc.saturating_add(segment.duration_ms);
             if acc >= want {
                 break;
             }
         }
         chosen.reverse();
-        chosen
+        window_from_segments(&chosen)
+    }
+
+    pub fn session_window(&self) -> ClipWindow {
+        let chosen: Vec<_> = self.segments.iter().filter(|segment| segment.pinned).cloned().collect();
+        window_from_segments(&chosen)
     }
 
     pub fn unlock_all(&mut self) {
@@ -124,6 +142,24 @@ fn remove_segment_files(path: &Path) {
     let _ = std::fs::remove_file(path.with_extension("pcm"));
 }
 
+fn window_from_segments(chosen: &[Segment]) -> ClipWindow {
+    let paths = chosen.iter().map(|segment| segment.path.clone()).collect();
+    let start_hns = chosen.first().map(|segment| segment.start_hns).unwrap_or(0);
+    let end_hns = chosen.last().map(|segment| segment.end_hns).unwrap_or(0);
+    let (start_hns, end_hns) = if end_hns > start_hns {
+        (start_hns, end_hns)
+    } else if !chosen.is_empty() {
+        (0, chosen.len() as i64 * 20_000_000)
+    } else {
+        (0, 0)
+    };
+    ClipWindow {
+        paths,
+        start_hns,
+        end_hns,
+    }
+}
+
 /// Delete scratch files that are not part of the live ring (or the file currently being written).
 pub fn sweep_dir(dir: &Path, keep: &[PathBuf]) {
     let mut keep: HashSet<PathBuf> = keep.iter().cloned().collect();
@@ -146,6 +182,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn seg(id: u32, duration_ms: u64, pinned: bool) -> Segment {
+        let start_hns = i64::from(id) * 20_000_000;
         Segment {
             path: PathBuf::from(format!("seg-{id}.mp4")),
             duration_ms,
@@ -154,6 +191,8 @@ mod tests {
             fps: 60,
             pinned,
             locked: false,
+            start_hns,
+            end_hns: start_hns + duration_ms as i64 * 10_000,
         }
     }
 
@@ -201,6 +240,18 @@ mod tests {
         assert!(buffer.segments.iter().rev().take(3).all(|segment| segment.locked));
         buffer.unlock_all();
         assert!(buffer.segments.iter().all(|segment| !segment.locked));
+    }
+
+    #[test]
+    fn clip_window_uses_actual_gameplay_hns() {
+        let mut buffer = ReplayBuffer::new(60_000);
+        for id in 0..5 {
+            buffer.push(seg(id, 2_000, false));
+        }
+        let window = buffer.clip_window(5_000);
+        assert_eq!(window.paths.len(), 3);
+        assert_eq!(window.start_hns, 40_000_000);
+        assert_eq!(window.end_hns, 100_000_000);
     }
 
     #[test]

@@ -56,7 +56,32 @@ pub fn open_webcam_writer(
     fps: u32,
     bitrate: u32,
 ) -> Result<OpenedEncoder, String> {
-    let inventory = log_h264_inventory();
+    open_webcam_writer_ex(path, width, height, fps, bitrate, true)
+}
+
+pub fn open_webcam_segment_writer(
+    path: &Path,
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate: u32,
+) -> Result<OpenedEncoder, String> {
+    open_webcam_writer_ex(path, width, height, fps, bitrate, false)
+}
+
+fn open_webcam_writer_ex(
+    path: &Path,
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate: u32,
+    log_inventory: bool,
+) -> Result<OpenedEncoder, String> {
+    let inventory = if log_inventory {
+        log_h264_inventory()
+    } else {
+        Vec::new()
+    };
     let hardware_available = inventory.iter().any(|item| item.hardware);
     match open_writer(path, width, height, fps, bitrate, true) {
         Ok(writer) => {
@@ -76,7 +101,7 @@ pub fn open_webcam_writer(
                 hardware_available,
                 "webcam SinkWriter opened with hardware transforms requested"
             );
-            if !hardware_available {
+            if log_inventory && !hardware_available {
                 tracing::warn!(
                     "no hardware H.264 MFT was enumerated; do not treat this session as hardware-encoded"
                 );

@@ -187,6 +187,7 @@ mod windows_impl {
         pub audio_runtime: crate::audio::AudioRuntime,
         pub camera: crate::camera::CameraEngine,
         pub resolution: String,
+        pub replay_keep_ms: u64,
     }
 
     impl GraphicsCaptureApiHandler for WindowsSession {
@@ -231,6 +232,9 @@ mod windows_impl {
             if !pump.include_audio {
                 audio = None;
                 flags.audio_runtime.end_session();
+            }
+            if flags.segmented {
+                flags.camera.start_rolling(flags.dir.clone(), flags.replay_keep_ms);
             }
             Ok(Self {
                 pump,
@@ -637,6 +641,7 @@ mod windows_impl {
             audio_runtime: audio_runtime.clone(),
             camera: camera.clone(),
             resolution: resolution.clone(),
+            replay_keep_ms: u64::from(settings.replay_duration_seconds) * 1000,
         };
 
         let mut last_error = None;
@@ -782,7 +787,12 @@ mod windows_impl {
                     return Err(AppError::Message("Already recording.".into()));
                 }
                 if active.segmented {
+                    let camera = app.state::<crate::camera::CameraEngine>();
+                    let webcam_gen = camera.request_rotate();
                     wait_for_rotate(&state.shared, Duration::from_secs(3));
+                    if !camera.wait_for_rotate(webcam_gen, crate::camera::WEBCAM_ROTATE_TIMEOUT) {
+                        tracing::warn!("webcam rotate timed out; starting the recording without waiting on the camera");
+                    }
                     if let Ok(mut buffer) = state.shared.buffer.lock() {
                         buffer.begin_session();
                     }
@@ -831,13 +841,19 @@ mod windows_impl {
                 .unwrap_or(false)
         };
         if segmented_session {
+            let camera = app.state::<crate::camera::CameraEngine>();
+            let webcam_gen = camera.request_rotate();
             wait_for_rotate(&state.shared, Duration::from_secs(3));
-            let paths = state
+            if !camera.wait_for_rotate(webcam_gen, crate::camera::WEBCAM_ROTATE_TIMEOUT) {
+                tracing::warn!("webcam rotate timed out; saving the recording without the latest webcam segment");
+            }
+            let window = state
                 .shared
                 .buffer
                 .lock()
                 .map_err(|err| AppError::Message(err.to_string()))?
-                .session_paths();
+                .session_window();
+            let paths = window.paths;
             let (output, elapsed, width, height, fps, game_id, title) = {
                 let mut inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
                 let active = inner.as_mut().ok_or_else(|| AppError::Message("Not recording.".into()))?;
@@ -856,6 +872,7 @@ mod windows_impl {
                 return Err(AppError::Message("Recording did not capture any video yet.".into()));
             }
             crate::export::concat_mp4s(&paths, &output).map_err(AppError::Message)?;
+            camera.save_overlap_sidecar(&output, window.start_hns, window.end_hns);
             if let Ok(mut buffer) = state.shared.buffer.lock() {
                 buffer.unlock_all();
                 buffer.end_session();
@@ -1045,25 +1062,28 @@ mod windows_impl {
                 active.placement,
             )
         };
+        let camera = app.state::<crate::camera::CameraEngine>();
+        let webcam_gen = camera.request_rotate();
         wait_for_rotate(&state.shared, Duration::from_millis(400));
+        if !camera.wait_for_rotate(webcam_gen, crate::camera::WEBCAM_ROTATE_TIMEOUT) {
+            tracing::warn!("webcam rotate timed out; saving the gameplay clip without the latest webcam segment");
+        }
         let duration_ms = u64::from(settings.replay_duration_seconds) * 1000;
-        let paths: Vec<_> = {
+        let window = {
             let mut buffer = state.shared.buffer.lock().map_err(|err| AppError::Message(err.to_string()))?;
             if buffer.total_ms() < 400 {
                 buffer.unlock_all();
                 return Err(AppError::Message("Replay buffer is still filling.".into()));
             }
-            buffer
-                .clip_paths(duration_ms)
-                .into_iter()
-                .filter(|path| std::fs::metadata(path).map(|meta| meta.len() > 0).unwrap_or(false))
-                .collect()
+            let mut window = buffer.clip_window(duration_ms);
+            window.paths.retain(|path| std::fs::metadata(path).map(|meta| meta.len() > 0).unwrap_or(false));
+            window
         };
-        if paths.is_empty() {
+        if window.paths.is_empty() {
             return Err(AppError::Message("Replay buffer is still filling.".into()));
         }
         let output = output_path(&save, "clip", "mp4");
-        let result = crate::export::concat_mp4s(&paths, &output);
+        let result = crate::export::concat_mp4s(&window.paths, &output);
         if let Ok(mut buffer) = state.shared.buffer.lock() {
             buffer.unlock_all();
         }
@@ -1071,7 +1091,8 @@ mod windows_impl {
             let _ = std::fs::remove_file(&output);
             return Err(AppError::Message(err));
         }
-        let clip_ms = paths.len() as u64 * 2_000;
+        camera.save_overlap_sidecar(&output, window.start_hns, window.end_hns);
+        let clip_ms = window.paths.len() as u64 * 2_000;
         let local_id = insert_local_clip(
             app,
             state,

@@ -263,6 +263,21 @@ pub fn overlapping_segments(segments: &[SourceSegment], range_start: i64, range_
         .collect()
 }
 
+/// Valid webcam files that overlap the gameplay interval. Gaps and failures are omitted.
+pub fn remux_paths(segments: &[SourceSegment], range_start: i64, range_end: i64) -> Vec<String> {
+    overlapping_segments(segments, range_start, range_end)
+        .into_iter()
+        .filter(|segment| segment.health == SegmentHealth::Valid && !segment.path.is_empty())
+        .map(|segment| segment.path.clone())
+        .collect()
+}
+
+pub fn webcam_sidecar_path(clip: &std::path::Path) -> std::path::PathBuf {
+    let stem = clip.file_stem().and_then(|stem| stem.to_str()).unwrap_or("clip");
+    let ext = clip.extension().and_then(|ext| ext.to_str()).unwrap_or("mp4");
+    clip.with_file_name(format!("{stem}-webcam.{ext}"))
+}
+
 fn is_usable_timestamp(camera_hns: i64, last: Option<i64>) -> bool {
     if camera_hns < 0 {
         return false;
@@ -388,5 +403,19 @@ mod tests {
         assert_eq!(chosen[1].health, SegmentHealth::Gap);
         assert_eq!(chosen[2].health, SegmentHealth::Failed);
         assert!(overlapping_segments(&segments, 60_000_000, 80_000_000).is_empty());
+        assert_eq!(
+            remux_paths(&segments, 18_000_000, 42_000_000),
+            vec!["cam-0.mp4".to_string()]
+        );
+        assert!(remux_paths(&segments, 20_000_000, 40_000_000).is_empty());
+    }
+
+    #[test]
+    fn webcam_sidecar_sits_next_to_the_gameplay_clip() {
+        let clip = std::path::Path::new("/clips/clip-123.mp4");
+        assert_eq!(
+            webcam_sidecar_path(clip),
+            std::path::PathBuf::from("/clips/clip-123-webcam.mp4")
+        );
     }
 }

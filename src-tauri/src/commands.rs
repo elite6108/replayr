@@ -424,13 +424,18 @@ pub fn share_local_clip(app: AppHandle, file_path: String) -> AppResult<String> 
 
 #[tauri::command]
 pub fn export_local_clip(app: AppHandle, source: String, dest: String) -> AppResult<()> {
-    let src = std::path::Path::new(&source);
-    if crate::export::should_watermark_exports(&app)
-        && src.extension().and_then(|value| value.to_str()).unwrap_or("").eq_ignore_ascii_case("mp4")
+    #[cfg(windows)]
     {
-        crate::export::write_watermarked_mp4(src, std::path::Path::new(&dest), 60).map_err(AppError::Message)?;
-        return Ok(());
+        let src = std::path::Path::new(&source);
+        if crate::export::should_watermark_exports(&app)
+            && src.extension().and_then(|value| value.to_str()).unwrap_or("").eq_ignore_ascii_case("mp4")
+        {
+            crate::export::write_watermarked_mp4(src, std::path::Path::new(&dest), 60).map_err(AppError::Message)?;
+            return Ok(());
+        }
     }
+    #[cfg(not(windows))]
+    let _ = app;
     library::export_copy(&source, &dest)
 }
 

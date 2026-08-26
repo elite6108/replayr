@@ -125,6 +125,7 @@ struct ActiveRecording {
     game_id: Option<String>,
     title: String,
     pid: Option<u32>,
+    placement: crate::overlay_notification::PlacementHint,
     segmented: bool,
     session: bool,
 }
@@ -703,6 +704,7 @@ mod windows_impl {
             game_id,
             title: target_label,
             pid,
+            placement: crate::overlay_notification::hint_from_pid(pid),
             segmented,
             session,
         });
@@ -1007,7 +1009,7 @@ mod windows_impl {
         let settings = load_settings(app)?;
         let save = save_dir(app, &settings)?;
         crate::disk::ensure_free_space(&save, settings.min_free_disk_bytes)?;
-        let (width, height, fps, game_id, title) = {
+        let (width, height, fps, game_id, title, placement) = {
             let inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
             let active = inner.as_ref().ok_or_else(|| AppError::Message("Instant Replay is not running.".into()))?;
             if !active.segmented {
@@ -1019,6 +1021,7 @@ mod windows_impl {
                 active.fps,
                 active.game_id.clone(),
                 active.title.clone(),
+                active.placement,
             )
         };
         wait_for_rotate(&state.shared, Duration::from_millis(400));
@@ -1060,6 +1063,11 @@ mod windows_impl {
             format!("{title} clip"),
         )?;
         emit_saved(app, &output, "clip", local_id);
+        crate::overlay_notification::notify_clip_saved(
+            app,
+            placement,
+            Some(settings.replay_duration_seconds),
+        );
         Ok(output.display().to_string())
     }
 

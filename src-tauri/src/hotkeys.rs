@@ -35,7 +35,7 @@ pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: tauri_plugin_global_s
     // Global shortcuts fire on the UI thread. Remux/MF work must not run there.
     run_background(app, move |app| match action {
         "save_replay" => match capture::save_clip(app, &app.state::<RecordingState>()) {
-            Ok(path) => notify(app, "Clip saved", &path),
+            Ok(_) => {}
             Err(err) => notify(app, "Could not save clip", &err.to_string()),
         },
         "toggle_recording" => {

@@ -52,6 +52,7 @@ export interface AppSettings {
   desktopShortcut: boolean;
   desktopShortcutPrompted: boolean;
   watermarkExports: boolean;
+  clipSavedNotification: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -87,4 +88,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   desktopShortcut: false,
   desktopShortcutPrompted: false,
   watermarkExports: true,
+  clipSavedNotification: true,
 };

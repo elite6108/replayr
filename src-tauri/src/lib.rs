@@ -26,6 +26,7 @@ mod error;
 mod games;
 mod hotkeys;
 mod library;
+mod overlay_notification;
 mod process;
 #[cfg(windows)]
 mod process_loopback;
@@ -127,6 +128,7 @@ pub fn run() {
                 }
             }
             system::setup_tray(app.handle()).map_err(|err| err.to_string())?;
+            crate::overlay_notification::prepare(app.handle());
             detection::start(app.handle().clone());
             hotkeys::sync(app.handle()).map_err(|err| err.to_string())?;
             {
@@ -147,6 +149,11 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    return;
+                }
                 let close_to_tray = {
                     let state = window.state::<AppState>();
                     let close = match state.db.lock() {

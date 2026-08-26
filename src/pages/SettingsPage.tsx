@@ -385,6 +385,15 @@ function RecordingPane({
           onChange={(event) => void onChange("instantReplayEnabled", event.target.checked)}
         />
       </label>
+      <label className="setting-row">
+        <span>Show overlay when a clip is saved</span>
+        <input
+          className="switch"
+          type="checkbox"
+          checked={settings.clipSavedNotification}
+          onChange={(event) => void onChange("clipSavedNotification", event.target.checked)}
+        />
+      </label>
       <div className="settings-fields">
         <div className="field">
           <label htmlFor="replay-length">Replay length</label>

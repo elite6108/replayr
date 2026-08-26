@@ -20,6 +20,24 @@
         "minHeight": 640,
         "resizable": true,
         "decorations": true
+      },
+      {
+        "label": "clip-overlay",
+        "title": "Replayr Overlay",
+        "url": "overlay.html",
+        "width": 320,
+        "height": 78,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": false,
+        "shadow": false,
+        "maximizable": false,
+        "minimizable": false,
+        "closable": false
       }
     ],
     "security": {

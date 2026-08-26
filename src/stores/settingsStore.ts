@@ -58,6 +58,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     extraApps: Array.isArray(settings.extraApps) ? settings.extraApps : DEFAULT_SETTINGS.extraApps,
     hotkeys: { ...DEFAULT_SETTINGS.hotkeys, ...settings.hotkeys },
     watermarkExports: settings.watermarkExports ?? DEFAULT_SETTINGS.watermarkExports,
+    clipSavedNotification: settings.clipSavedNotification ?? DEFAULT_SETTINGS.clipSavedNotification,
   };
 }
 

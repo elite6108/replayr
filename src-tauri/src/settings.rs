@@ -91,6 +91,9 @@ pub struct AppSettings {
     /// When true, share / export / upload copies get a Replayr.tv watermark.
     #[serde(default = "default_true")]
     pub watermark_exports: bool,
+    /// In-game Replayr overlay after a clip is successfully saved. Default on.
+    #[serde(default = "default_true")]
+    pub clip_saved_notification: bool,
 }
 
 impl Default for AppSettings {
@@ -128,6 +131,7 @@ impl Default for AppSettings {
             desktop_shortcut: false,
             desktop_shortcut_prompted: false,
             watermark_exports: true,
+            clip_saved_notification: true,
         }
     }
 }
@@ -308,6 +312,15 @@ mod tests {
         let loaded: AppSettings = serde_json::from_value(value).unwrap();
         assert!(!loaded.desktop_shortcut);
         assert!(!loaded.desktop_shortcut_prompted);
+    }
+
+    #[test]
+    fn clip_saved_notification_defaults_on_when_missing() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("clipSavedNotification");
+        let loaded: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(loaded.clip_saved_notification);
     }
 
     #[test]

@@ -20,7 +20,7 @@ use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 use crate::audio_timeline::qpc_hns;
 use crate::still::StillFrame;
 
-use super::clock::CameraClockMap;
+use super::clock::{CameraClockMap, SessionClock};
 use super::color::{encode_png_bgra, flip_bgra_horizontal, nv12_to_bgra, rgb32_to_bgra, yuy2_to_bgra, base64_encode};
 use super::device::{activate_source, ensure_mf, guid_from_subtype, list_modes, mf_error, permission_message, subtype_from_guid};
 use super::format::{
@@ -42,7 +42,7 @@ pub struct PreviewSession {
 }
 
 impl PreviewSession {
-    pub fn start(request: PreviewRequest) -> Result<Self, String> {
+    pub fn start(request: PreviewRequest, session_origin_hns: Option<i64>) -> Result<Self, String> {
         let request = request.sanitize()?;
         let stop = Arc::new(AtomicBool::new(false));
         let latest = Arc::new(Mutex::new(None));
@@ -59,6 +59,7 @@ impl PreviewSession {
             .spawn(move || {
                 if let Err(err) = run_preview(
                     request,
+                    session_origin_hns,
                     thread_stop,
                     thread_latest,
                     thread_negotiated,
@@ -116,6 +117,7 @@ impl Drop for PreviewSession {
 
 fn run_preview(
     request: PreviewRequest,
+    session_origin_hns: Option<i64>,
     stop: Arc<AtomicBool>,
     latest: Arc<Mutex<Option<PreviewFrame>>>,
     negotiated_slot: Arc<Mutex<Option<NegotiatedMode>>>,
@@ -144,7 +146,13 @@ fn run_preview(
         *slot = Some(negotiated.clone());
     }
 
-    let mut clock = CameraClockMap::new(qpc_hns(), selected.fps.max(1));
+    let origin = session_origin_hns.unwrap_or_else(|| SessionClock::start().qpc_origin_hns());
+    tracing::debug!(
+        session_origin_hns = origin,
+        live_session = session_origin_hns.is_some(),
+        "camera preview using SessionClock origin"
+    );
+    let mut clock = CameraClockMap::new(origin, selected.fps.max(1));
     let mut last_emit = Instant::now()
         .checked_sub(PREVIEW_MIN_INTERVAL)
         .unwrap_or_else(Instant::now);

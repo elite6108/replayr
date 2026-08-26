@@ -52,6 +52,10 @@ pub struct CameraStatus {
     pub written_frames: u32,
     #[serde(default)]
     pub test_path: String,
+    #[serde(default)]
+    pub session_clock: bool,
+    #[serde(default)]
+    pub session_skew_ms: i64,
 }
 
 impl CameraStatus {
@@ -77,6 +81,8 @@ impl CameraStatus {
             dropped_frames: 0,
             written_frames: 0,
             test_path: String::new(),
+            session_clock: false,
+            session_skew_ms: 0,
         }
     }
 

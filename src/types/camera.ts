@@ -43,6 +43,8 @@ export interface CameraStatus {
   droppedFrames: number;
   writtenFrames: number;
   testPath: string;
+  sessionClock: boolean;
+  sessionSkewMs: number;
 }
 
 export interface CameraPreviewFrame {
@@ -73,4 +75,6 @@ export const IDLE_CAMERA_STATUS: CameraStatus = {
   droppedFrames: 0,
   writtenFrames: 0,
   testPath: "",
+  sessionClock: false,
+  sessionSkewMs: 0,
 };

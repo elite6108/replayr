@@ -25,7 +25,7 @@ use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 use crate::audio_timeline::qpc_hns;
 use crate::encode::MfWriter;
 
-use super::clock::CameraClockMap;
+use super::clock::{CameraClockMap, SessionClock};
 use super::color::{bgra_to_nv12, compact_nv12, flip_nv12_horizontal, yuy2_to_nv12};
 use super::device::{
     activate_source, ensure_mf, guid_from_subtype, list_modes, mf_error, permission_message,
@@ -46,6 +46,7 @@ pub struct RecordRequest {
     pub bitrate: u32,
     pub path: PathBuf,
     pub max_duration: Duration,
+    pub session_origin_hns: Option<i64>,
 }
 
 impl RecordRequest {
@@ -71,6 +72,7 @@ impl RecordRequest {
             bitrate: self.bitrate.clamp(2_000_000, 10_000_000),
             path: self.path,
             max_duration,
+            session_origin_hns: self.session_origin_hns,
         })
     }
 }
@@ -90,6 +92,7 @@ pub struct RecordSnapshot {
     pub reader_subtype: Option<CameraSubtype>,
     pub conversion_path: bool,
     pub timestamp_fallback: bool,
+    pub session_skew_hns: i64,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
@@ -291,9 +294,26 @@ fn run_record(
     let encode_snapshot = Arc::clone(&snapshot);
     let software = opened.software_fallback;
     let writer = opened.writer;
+    let session_origin = request
+        .session_origin_hns
+        .unwrap_or_else(|| SessionClock::start().qpc_origin_hns());
+    tracing::info!(
+        session_origin_hns = session_origin,
+        live_session = request.session_origin_hns.is_some(),
+        "webcam encode using SessionClock origin"
+    );
     let encode = match std::thread::Builder::new()
         .name("camera-encode".into())
-        .spawn(move || encode_loop(writer, encode_queue, encode_snapshot, software, selected.fps))
+        .spawn(move || {
+            encode_loop(
+                writer,
+                encode_queue,
+                encode_snapshot,
+                software,
+                session_origin,
+                selected.fps,
+            )
+        })
     {
         Ok(handle) => handle,
         Err(err) => {
@@ -356,15 +376,17 @@ fn encode_loop(
     queue: Arc<FrameQueue>,
     snapshot: Arc<Mutex<RecordSnapshot>>,
     software: bool,
+    session_origin_hns: i64,
     fps: u32,
 ) -> Result<(), String> {
-    let mut clock = CameraClockMap::new(qpc_hns(), fps.max(1));
+    let mut clock = CameraClockMap::new(session_origin_hns, fps.max(1));
     let mut stalls = 0u32;
     let mut written = 0u32;
     while let Some(frame) = queue.pop() {
         let mapped = clock.map_sample(frame.sample_time, frame.sample_duration, frame.arrival_qpc);
         if let Ok(mut slot) = snapshot.lock() {
             slot.timestamp_fallback = mapped.fallback || clock.is_fallback();
+            slot.session_skew_hns = clock.last_skew_hns().unwrap_or(0);
         }
         let started = Instant::now();
         writer.write_nv12_timed(

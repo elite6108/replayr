@@ -162,13 +162,13 @@ mod windows_impl {
     };
     use windows_capture::window::Window;
 
-    use crate::audio_timeline::qpc_hns;
+    use crate::camera::SessionClock;
 
     pub struct WindowsSession {
         pump: crate::encode_pump::EncodePump,
         audio: Option<crate::audio::LoopbackCapture>,
         flags: SessionFlags,
-        clock: Instant,
+        clock: SessionClock,
         last_still_at: Instant,
     }
 
@@ -185,6 +185,7 @@ mod windows_impl {
         pub min_free_disk_bytes: u64,
         pub shared: Arc<CaptureShared>,
         pub audio_runtime: crate::audio::AudioRuntime,
+        pub camera: crate::camera::CameraEngine,
         pub resolution: String,
     }
 
@@ -194,10 +195,11 @@ mod windows_impl {
 
         fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
             let flags = ctx.flags;
-            // The audio timeline and the video clock must agree on time zero,
-            // so open both here before anything can produce a sample.
-            let clock = Instant::now();
-            flags.audio_runtime.begin_session(qpc_hns());
+            // Gameplay Instant-elapsed, audio QPC origin, and webcam mapping
+            // share this T0. Instant is sampled first, then QPC.
+            let clock = SessionClock::start();
+            flags.audio_runtime.begin_session(clock.qpc_origin_hns());
+            flags.camera.begin_session(clock);
             let mut audio = if flags.include_audio {
                 crate::audio::LoopbackCapture::start(
                     flags.audio_runtime.sink(),
@@ -206,7 +208,7 @@ mod windows_impl {
             } else {
                 None
             };
-            let pump = crate::encode_pump::EncodePump::start(crate::encode_pump::EncodeSession {
+            let pump = match crate::encode_pump::EncodePump::start(crate::encode_pump::EncodeSession {
                 path: flags.path.clone(),
                 dir: flags.dir.clone(),
                 width: flags.width,
@@ -218,7 +220,14 @@ mod windows_impl {
                 min_free_disk_bytes: flags.min_free_disk_bytes,
                 shared: Arc::clone(&flags.shared),
                 audio: flags.audio_runtime.clone(),
-            })?;
+            }) {
+                Ok(pump) => pump,
+                Err(err) => {
+                    flags.camera.end_session();
+                    flags.audio_runtime.end_session();
+                    return Err(err);
+                }
+            };
             if !pump.include_audio {
                 audio = None;
                 flags.audio_runtime.end_session();
@@ -267,7 +276,7 @@ mod windows_impl {
                     *still = Some(frame.clone());
                 }
             }
-            let capture_hns = (self.clock.elapsed().as_nanos() / 100) as i64;
+            let capture_hns = self.clock.capture_hns();
             self.pump.push(crate::encode_pump::QueuedFrame {
                 bgra: frame.bgra,
                 pitch: frame.pitch,
@@ -289,8 +298,15 @@ mod windows_impl {
                 drop(self.audio.take());
             }
             self.pump.shutdown();
+            self.flags.camera.end_session();
             self.flags.audio_runtime.end_session();
             Ok(())
+        }
+    }
+
+    impl Drop for WindowsSession {
+        fn drop(&mut self) {
+            self.flags.camera.end_session();
         }
     }
 
@@ -591,6 +607,10 @@ mod windows_impl {
             let runtime = app.state::<crate::audio::AudioRuntime>();
             (*runtime).clone()
         };
+        let camera = {
+            let engine = app.state::<crate::camera::CameraEngine>();
+            (*engine).clone()
+        };
         let first_path = if segmented {
             buffer_dir.join("seg-000000.mp4")
         } else {
@@ -615,6 +635,7 @@ mod windows_impl {
             min_free_disk_bytes: settings.min_free_disk_bytes,
             shared: state.shared.clone(),
             audio_runtime: audio_runtime.clone(),
+            camera: camera.clone(),
             resolution: resolution.clone(),
         };
 

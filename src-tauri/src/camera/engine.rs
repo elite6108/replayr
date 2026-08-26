@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter};
 use crate::settings::WebcamSettings;
 
 use super::format::{estimated_mb_per_minute, pick_camera_mode, webcam_bitrate_bps, RequestedMode};
+use super::clock::SessionClock;
 use super::types::{
     CameraAvailability, CameraDeviceInfo, CameraStatus, PreviewFrame, PreviewRequest,
 };
@@ -23,6 +24,7 @@ pub struct CameraStatusEvent {
     pub status: CameraStatus,
 }
 
+#[derive(Clone)]
 pub struct CameraEngine {
     inner: Arc<Inner>,
 }
@@ -44,6 +46,7 @@ struct Inner {
     watch_thread: Mutex<Option<JoinHandle<()>>>,
     wake: Condvar,
     wake_lock: Mutex<()>,
+    session_clock: Mutex<Option<SessionClock>>,
 }
 
 impl Default for CameraEngine {
@@ -72,6 +75,7 @@ impl CameraEngine {
                 watch_thread: Mutex::new(None),
                 wake: Condvar::new(),
                 wake_lock: Mutex::new(()),
+                session_clock: Mutex::new(None),
             }),
         }
     }
@@ -114,6 +118,7 @@ impl CameraEngine {
             status.enabled = self.inner.enabled.load(Ordering::SeqCst);
             status.device_id = self.inner.selected_id.lock().map(|id| id.clone()).unwrap_or_default();
             status.device_name = self.inner.selected_name.lock().map(|name| name.clone()).unwrap_or_default();
+            apply_session_clock(&self.inner, &mut status);
             status
         }
         #[cfg(windows)]
@@ -147,8 +152,31 @@ impl CameraEngine {
                 }
             }
             status.enabled = self.inner.enabled.load(Ordering::SeqCst);
+            apply_session_clock(&self.inner, &mut status);
             status
         }
+    }
+
+    pub fn begin_session(&self, clock: SessionClock) {
+        tracing::info!(
+            qpc_origin_hns = clock.qpc_origin_hns(),
+            "camera bound to capture SessionClock"
+        );
+        if let Ok(mut slot) = self.inner.session_clock.lock() {
+            *slot = Some(clock);
+        }
+    }
+
+    pub fn end_session(&self) {
+        if let Ok(mut slot) = self.inner.session_clock.lock() {
+            if slot.take().is_some() {
+                tracing::info!("camera unbound from capture SessionClock");
+            }
+        }
+    }
+
+    pub fn session_clock(&self) -> Option<SessionClock> {
+        self.inner.session_clock.lock().ok().and_then(|guard| *guard)
     }
 
     pub fn configure(&self, webcam: &WebcamSettings) {
@@ -212,7 +240,8 @@ impl CameraEngine {
                 *id = request.device_id.clone();
             }
             stop_preview_session(&self.inner);
-            let session = super::preview::PreviewSession::start(request).map_err(|err| {
+            let origin = self.session_clock().map(|clock| clock.qpc_origin_hns());
+            let session = super::preview::PreviewSession::start(request, origin).map_err(|err| {
                 let message = crate::camera::device::permission_message(&err);
                 self.mark_failed(&message);
                 message
@@ -295,6 +324,7 @@ impl CameraEngine {
                 bitrate,
                 path,
                 max_duration: std::time::Duration::from_secs(u64::from(super::safety::TEST_RECORD_SECONDS)),
+                session_origin_hns: self.session_clock().map(|clock| clock.qpc_origin_hns()),
             })
             .map_err(|err| {
                 let message = crate::camera::device::permission_message(&err);
@@ -543,6 +573,7 @@ fn apply_record_snapshot(status: &mut CameraStatus, snapshot: &super::record::Re
         status.availability = CameraAvailability::Recording;
     }
     status.timestamp_fallback = snapshot.timestamp_fallback;
+    status.session_skew_ms = snapshot.session_skew_hns / 10_000;
     if snapshot.native_subtype.is_some() {
         status.native_subtype = snapshot.native_subtype;
         status.reader_subtype = snapshot.reader_subtype;
@@ -682,4 +713,33 @@ pub fn pick_requested_mode(
     fps: u32,
 ) -> Option<super::format::CameraMode> {
     pick_camera_mode(available, RequestedMode { width, height, fps })
+}
+
+fn apply_session_clock(inner: &Inner, status: &mut CameraStatus) {
+    status.session_clock = inner
+        .session_clock
+        .lock()
+        .ok()
+        .and_then(|guard| *guard)
+        .is_some();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn begin_and_end_session_share_clock() {
+        let engine = CameraEngine::new();
+        assert!(engine.session_clock().is_none());
+        assert!(!engine.status().session_clock);
+        let clock = SessionClock::start();
+        engine.begin_session(clock);
+        let bound = engine.session_clock().expect("camera should be bound to the session");
+        assert_eq!(bound.qpc_origin_hns(), clock.qpc_origin_hns());
+        assert!(engine.status().session_clock);
+        engine.end_session();
+        assert!(engine.session_clock().is_none());
+        assert!(!engine.status().session_clock);
+    }
 }

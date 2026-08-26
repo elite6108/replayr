@@ -2,9 +2,11 @@
 //!
 //! Gameplay and webcam do **not** share frame counts or segment indexes. Both
 //! sit on the same absolute session HNS clock. Camera samples keep their
-//! source timestamps; we store one origin offset at capture start and map
-//! through it. Arrival QPC is for diagnostics, discontinuity detection, and
-//! fallback when the driver timestamps are unusable.
+//! source timestamps; we store one origin offset at the first usable sample
+//! and map through it. Arrival QPC is for diagnostics, discontinuity
+//! detection, and fallback when the driver timestamps are unusable.
+
+use std::time::{Duration, Instant};
 
 pub const SEGMENT_HNS: i64 = 20_000_000;
 pub const HNS_PER_SECOND: i64 = 10_000_000;
@@ -13,6 +15,8 @@ pub const HNS_PER_SECOND: i64 = 10_000_000;
 const DISCONTINUITY_HNS: i64 = 5_000_000; // 500 ms
 const MIN_DURATION_HNS: i64 = 10_000; // 100 µs
 const MAX_DURATION_HNS: i64 = HNS_PER_SECOND; // 1 s
+const SKEW_WARN_HNS: i64 = 500_000; // 50 ms
+const SKEW_LOG_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentHealth {
@@ -37,23 +41,73 @@ pub struct MappedSample {
     pub fallback: bool,
 }
 
+/// Shared T0 for gameplay Instant-elapsed HNS, audio QPC origin, and webcam mapping.
+#[derive(Debug, Clone, Copy)]
+pub struct SessionClock {
+    instant: Instant,
+    qpc_origin_hns: i64,
+}
+
+impl SessionClock {
+    /// Pair Instant and QPC in that order, matching gameplay capture start.
+    pub fn start() -> Self {
+        let instant = Instant::now();
+        Self {
+            instant,
+            qpc_origin_hns: current_qpc_hns(),
+        }
+    }
+
+    pub fn qpc_origin_hns(&self) -> i64 {
+        self.qpc_origin_hns
+    }
+
+    /// Gameplay capture timestamp: nanoseconds since T0, in 100 ns units.
+    pub fn capture_hns(&self) -> i64 {
+        (self.instant.elapsed().as_nanos() / 100) as i64
+    }
+
+    /// Arrival QPC expressed as session elapsed HNS.
+    pub fn arrival_hns(&self, arrival_qpc: i64) -> i64 {
+        arrival_qpc.saturating_sub(self.qpc_origin_hns).max(0)
+    }
+}
+
+fn current_qpc_hns() -> i64 {
+    #[cfg(windows)]
+    {
+        crate::audio_timeline::qpc_hns()
+    }
+    #[cfg(not(windows))]
+    {
+        0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CameraClockMap {
     session_origin_hns: i64,
     camera_origin_hns: Option<i64>,
+    session_at_origin_hns: Option<i64>,
     last_camera_hns: Option<i64>,
     last_mapped_hns: Option<i64>,
+    last_skew_hns: Option<i64>,
+    last_skew_log: Option<Instant>,
     fallback_to_arrival: bool,
     nominal_duration_hns: i64,
 }
 
 impl CameraClockMap {
+    /// `session_origin_hns` is QPC at session T0, not a session-elapsed stamp.
     pub fn new(session_origin_hns: i64, fps: u32) -> Self {
         Self {
             session_origin_hns,
             camera_origin_hns: None,
+            session_at_origin_hns: None,
             last_camera_hns: None,
             last_mapped_hns: None,
+            last_skew_hns: None,
+            last_skew_log: None,
             fallback_to_arrival: false,
             nominal_duration_hns: nominal_frame_duration(fps),
         }
@@ -61,6 +115,10 @@ impl CameraClockMap {
 
     pub fn is_fallback(&self) -> bool {
         self.fallback_to_arrival
+    }
+
+    pub fn last_skew_hns(&self) -> Option<i64> {
+        self.last_skew_hns
     }
 
     /// Map one camera sample onto the session timeline.
@@ -79,13 +137,14 @@ impl CameraClockMap {
         }
         match sample_time_hns {
             Some(camera_hns) if is_usable_timestamp(camera_hns, self.last_camera_hns) => {
+                let arrival_session = self.arrival_session(arrival_qpc_hns);
                 if self.camera_origin_hns.is_none() {
                     self.camera_origin_hns = Some(camera_hns);
+                    self.session_at_origin_hns = Some(arrival_session);
                 }
                 let origin = self.camera_origin_hns.unwrap_or(camera_hns);
-                let mapped = self
-                    .session_origin_hns
-                    .saturating_add(camera_hns.saturating_sub(origin));
+                let session_at_origin = self.session_at_origin_hns.unwrap_or(arrival_session);
+                let mapped = session_at_origin.saturating_add(camera_hns.saturating_sub(origin));
                 if self.is_discontinuity(mapped) {
                     tracing::warn!(
                         camera_hns,
@@ -98,6 +157,7 @@ impl CameraClockMap {
                 }
                 self.last_camera_hns = Some(camera_hns);
                 self.last_mapped_hns = Some(mapped);
+                self.note_skew(arrival_session, mapped);
                 MappedSample {
                     session_hns: mapped,
                     duration_hns: duration,
@@ -119,9 +179,14 @@ impl CameraClockMap {
         }
     }
 
+    fn arrival_session(&self, arrival_qpc_hns: i64) -> i64 {
+        arrival_qpc_hns.saturating_sub(self.session_origin_hns).max(0)
+    }
+
     fn map_arrival(&mut self, arrival_qpc_hns: i64, duration: i64) -> MappedSample {
-        let mapped = arrival_qpc_hns.saturating_sub(self.session_origin_hns).max(0);
+        let mapped = self.arrival_session(arrival_qpc_hns);
         self.last_mapped_hns = Some(mapped);
+        self.note_skew(mapped, mapped);
         MappedSample {
             session_hns: mapped,
             duration_hns: duration,
@@ -131,8 +196,9 @@ impl CameraClockMap {
     }
 
     fn reanchor_from_arrival(&mut self, camera_hns: i64, arrival_qpc_hns: i64) {
-        let session_now = arrival_qpc_hns.saturating_sub(self.session_origin_hns).max(0);
-        self.camera_origin_hns = Some(camera_hns.saturating_sub(session_now));
+        let session_now = self.arrival_session(arrival_qpc_hns);
+        self.camera_origin_hns = Some(camera_hns);
+        self.session_at_origin_hns = Some(session_now);
         self.last_camera_hns = Some(camera_hns);
         self.last_mapped_hns = Some(session_now);
     }
@@ -143,6 +209,32 @@ impl CameraClockMap {
             Some(previous) if mapped.saturating_sub(previous) > DISCONTINUITY_HNS => true,
             _ => false,
         }
+    }
+
+    fn note_skew(&mut self, arrival_session: i64, mapped: i64) {
+        let skew = if mapped > arrival_session {
+            mapped.saturating_sub(arrival_session).saturating_neg()
+        } else {
+            arrival_session.saturating_sub(mapped)
+        };
+        self.last_skew_hns = Some(skew);
+        if skew.unsigned_abs() < SKEW_WARN_HNS as u64 {
+            return;
+        }
+        let now = Instant::now();
+        if self
+            .last_skew_log
+            .is_some_and(|previous| now.saturating_duration_since(previous) < SKEW_LOG_INTERVAL)
+        {
+            return;
+        }
+        self.last_skew_log = Some(now);
+        tracing::warn!(
+            skew_ms = skew / 10_000,
+            mapped,
+            arrival_session,
+            "webcam vs SessionClock skew"
+        );
     }
 }
 
@@ -197,9 +289,20 @@ mod tests {
         let mut clock = CameraClockMap::new(1_000_000, 30);
         let first = clock.map_sample(Some(50_000_000), Some(333_333), 1_000_000);
         let second = clock.map_sample(Some(50_333_333), Some(333_333), 1_040_000);
-        assert_eq!(first.session_hns, 1_000_000);
+        assert_eq!(first.session_hns, 0);
         assert!(first.used_source_timestamp);
-        assert_eq!(second.session_hns, 1_333_333);
+        assert_eq!(second.session_hns, 333_333);
+        assert!(!clock.is_fallback());
+    }
+
+    #[test]
+    fn late_first_sample_sits_at_arrival_elapsed() {
+        let mut clock = CameraClockMap::new(10_000_000, 30);
+        let first = clock.map_sample(Some(1_000), Some(333_333), 12_000_000);
+        let second = clock.map_sample(Some(1_000 + 333_333), Some(333_333), 12_333_333);
+        assert_eq!(first.session_hns, 2_000_000);
+        assert!(first.used_source_timestamp);
+        assert_eq!(second.session_hns, 2_333_333);
         assert!(!clock.is_fallback());
     }
 
@@ -228,6 +331,25 @@ mod tests {
         assert!(mapped.fallback);
         assert_eq!(mapped.session_hns, 10_000);
         assert_eq!(mapped.duration_hns, nominal_frame_duration(30));
+    }
+
+    #[test]
+    fn session_clock_arrival_is_elapsed_from_qpc_origin() {
+        let clock = SessionClock {
+            instant: Instant::now(),
+            qpc_origin_hns: 10_000_000,
+        };
+        assert_eq!(clock.arrival_hns(12_000_000), 2_000_000);
+        assert_eq!(clock.arrival_hns(5_000_000), 0);
+        assert!(clock.capture_hns() >= 0);
+    }
+
+    #[test]
+    fn source_mapping_skew_is_arrival_minus_mapped() {
+        let mut clock = CameraClockMap::new(0, 30);
+        let _ = clock.map_sample(Some(0), Some(333_333), 0);
+        let _ = clock.map_sample(Some(333_333), Some(333_333), 400_000);
+        assert_eq!(clock.last_skew_hns(), Some(66_667));
     }
 
     #[test]

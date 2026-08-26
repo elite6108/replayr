@@ -1,6 +1,6 @@
 //! Long-lived camera engine. Phase 1 enumerates devices and previews.
-//! Phase 2 can write a standalone webcam MP4. Instant Replay integration
-//! comes later.
+//! Phase 2 can write a standalone webcam MP4. Phase 3 shares SessionClock
+//! with gameplay capture. Instant Replay webcam segments come later.
 //!
 //! Webcam remains optional: gameplay recording never depends on this module.
 
@@ -21,7 +21,9 @@ mod preview;
 mod record;
 
 #[allow(unused_imports)]
-pub use clock::{overlapping_segments, segment_bounds, segment_index, CameraClockMap, SEGMENT_HNS};
+pub use clock::{
+    overlapping_segments, segment_bounds, segment_index, CameraClockMap, SessionClock, SEGMENT_HNS,
+};
 #[allow(unused_imports)]
 pub use engine::{estimate_storage_mb_per_minute, CameraEngine};
 #[allow(unused_imports)]

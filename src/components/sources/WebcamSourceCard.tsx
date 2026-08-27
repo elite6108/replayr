@@ -71,7 +71,8 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
 
   const resolutions = useMemo(() => uniqueResolutions(modes), [modes]);
   const frameRates = useMemo(() => uniqueFps(modes, webcam.width, webcam.height), [modes, webcam.width, webcam.height]);
-  const recording = status.availability === "recording" || status.recording;
+  const testRecording = status.recording && !status.rolling;
+  const instantReplayLive = status.rolling;
   const disconnected =
     status.availability === "disconnected" ||
     status.availability === "permissionDenied" ||
@@ -84,11 +85,11 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
   }
 
   async function runTestRecord() {
-    if (!deviceId || testBusy) return;
+    if (!deviceId || testBusy || instantReplayLive) return;
     setTestError("");
     setTestBusy(true);
     try {
-      if (recording) {
+      if (testRecording) {
         await stopWebcamTestRecord();
         return;
       }
@@ -149,7 +150,7 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
             </select>
           </div>
           <WebcamPreview
-            active={previewing && Boolean(deviceId) && modesReady && !recording}
+            active={previewing && Boolean(deviceId) && modesReady && !testRecording && !instantReplayLive}
             deviceId={deviceId}
             width={webcam.width}
             height={webcam.height}
@@ -290,13 +291,23 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
           <button
             type="button"
             className="btn ghost"
-            disabled={!deviceId || testBusy || status.availability === "unsupported"}
+            disabled={!deviceId || testBusy || instantReplayLive || status.availability === "unsupported"}
             onClick={() => void runTestRecord()}
           >
-            {recording ? "Stop test recording" : testBusy ? "Starting…" : "Test record 8s"}
+            {testRecording
+              ? "Stop test recording"
+              : instantReplayLive
+                ? "Recording with Instant Replay"
+                : testBusy
+                  ? "Starting…"
+                  : "Test record 8s"}
           </button>
-          <p className="muted">Writes a separate webcam MP4. Instant Replay is unchanged.</p>
-          {recording ? (
+          <p className="muted">
+            {instantReplayLive
+              ? "Webcam is already rolling with Instant Replay. F10 saves it next to the gameplay clip."
+              : "Writes a separate webcam MP4. Instant Replay is unchanged."}
+          </p>
+          {testRecording ? (
             <p className="muted">
               Writing a standalone webcam MP4
               {status.encoderName ? ` · ${status.encoderName}` : ""}
@@ -304,7 +315,15 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
               {status.droppedFrames ? ` · dropped ${status.droppedFrames}` : ""}
             </p>
           ) : null}
-          {status.testPath && !recording ? <p className="muted">{status.testPath}</p> : null}
+          {instantReplayLive ? (
+            <p className="muted">
+              Instant Replay webcam buffer is live
+              {status.encoderName ? ` · ${status.encoderName}` : ""}
+              {status.softwareFallback ? " · software encoder" : ""}
+              {status.droppedFrames ? ` · dropped ${status.droppedFrames}` : ""}
+            </p>
+          ) : null}
+          {status.testPath && !testRecording ? <p className="muted">{status.testPath}</p> : null}
           {testError ? <p className="error-text">{testError}</p> : null}
           {status.message && (disconnected || status.availability === "unsupported") ? (
             <p className="error-text">{status.message}</p>

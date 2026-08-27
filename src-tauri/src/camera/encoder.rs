@@ -27,7 +27,6 @@ pub struct EncoderInfo {
     pub hardware: bool,
 }
 
-#[derive(Debug, Clone)]
 pub struct OpenedEncoder {
     pub writer: MfWriter,
     pub name: String,
@@ -172,7 +171,12 @@ fn sink_transform_name(writer: &MfWriter) -> Option<String> {
         let ex: IMFSinkWriterEx = writer.sink_writer().cast().ok()?;
         let mut category = GUID::zeroed();
         let mut transform: Option<IMFTransform> = None;
-        ex.GetTransformForStream(writer.video_stream_index(), 0, &mut category, &mut transform)
+        ex.GetTransformForStream(
+            writer.video_stream_index(),
+            0,
+            Some(&mut category as *mut _),
+            &mut transform,
+        )
             .ok()?;
         let transform = transform?;
         let attrs = transform.GetAttributes().ok()?;
@@ -237,8 +241,9 @@ trait GetFriendlyName {
 impl GetFriendlyName for IMFActivate {
     fn friendly_name(&self) -> Result<Option<String>, String> {
         unsafe {
-            let pwstr = self
-                .GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute)
+            let mut pwstr = windows::core::PWSTR::null();
+            let mut len = 0u32;
+            self.GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute, &mut pwstr, &mut len)
                 .map_err(mf_error)?;
             let value = super::device::pwstr_to_owned(pwstr);
             CoTaskMemFree(Some(pwstr.0 as *const std::ffi::c_void));
@@ -250,8 +255,9 @@ impl GetFriendlyName for IMFActivate {
 impl GetFriendlyName for windows::Win32::Media::MediaFoundation::IMFAttributes {
     fn friendly_name(&self) -> Result<Option<String>, String> {
         unsafe {
-            let pwstr = self
-                .GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute)
+            let mut pwstr = windows::core::PWSTR::null();
+            let mut len = 0u32;
+            self.GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute, &mut pwstr, &mut len)
                 .map_err(mf_error)?;
             let value = super::device::pwstr_to_owned(pwstr);
             CoTaskMemFree(Some(pwstr.0 as *const std::ffi::c_void));

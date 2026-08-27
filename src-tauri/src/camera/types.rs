@@ -40,6 +40,9 @@ pub struct CameraStatus {
     pub estimated_mb_per_minute: u32,
     #[serde(default)]
     pub recording: bool,
+    /// True while Instant Replay owns the webcam rolling buffer (not a settings test record).
+    #[serde(default)]
+    pub rolling: bool,
     #[serde(default)]
     pub encoder_name: String,
     #[serde(default)]
@@ -75,6 +78,7 @@ impl CameraStatus {
             timestamp_fallback: false,
             estimated_mb_per_minute: 0,
             recording: false,
+            rolling: false,
             encoder_name: String::new(),
             encoder_hardware: false,
             software_fallback: false,

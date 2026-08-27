@@ -37,6 +37,8 @@ export interface CameraStatus {
   timestampFallback: boolean;
   estimatedMbPerMinute: number;
   recording: boolean;
+  /** Instant Replay owns the webcam buffer (not a settings test record). */
+  rolling: boolean;
   encoderName: string;
   encoderHardware: boolean;
   softwareFallback: boolean;
@@ -69,6 +71,7 @@ export const IDLE_CAMERA_STATUS: CameraStatus = {
   timestampFallback: false,
   estimatedMbPerMinute: 0,
   recording: false,
+  rolling: false,
   encoderName: "",
   encoderHardware: false,
   softwareFallback: false,

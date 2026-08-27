@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { SendClipSheet } from "./SendClipSheet";
@@ -8,6 +8,7 @@ import { useCloudStore } from "../../stores/cloudStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useBillingStore } from "../../stores/billingStore";
 import { formatBytes, formatClipDate, formatDuration, isVideoPath } from "../../utils/format";
+import { clipWebcamSource, parseSourceLayout } from "../../utils/clips";
 
 export function ClipPlayer() {
   const clips = useLibraryStore((state) => state.clips);
@@ -27,6 +28,10 @@ export function ClipPlayer() {
   const [title, setTitle] = useState(clip?.title ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [wrapFullscreen, setWrapFullscreen] = useState(false);
+  const gameplayRef = useRef<HTMLVideoElement>(null);
+  const webcamRef = useRef<HTMLVideoElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setTitle(clip?.title ?? "");
@@ -35,9 +40,22 @@ export function ClipPlayer() {
   }, [clip?.localId, clip?.title]);
 
   useEffect(() => {
+    function onFullscreenChange() {
+      setWrapFullscreen(document.fullscreenElement === wrapRef.current);
+    }
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  useEffect(() => {
     if (!clip) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") closePlayer();
+      if (event.key !== "Escape") return;
+      if (document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => undefined);
+        return;
+      }
+      closePlayer();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -47,8 +65,39 @@ export function ClipPlayer() {
 
   const media = convertFileSrc(clip.filePath);
   const video = isVideoPath(clip.filePath);
+  const webcamSource = clipWebcamSource(clip);
+  const webcamMedia = webcamSource ? convertFileSrc(webcamSource.filePath) : "";
+  const webcamLayout = parseSourceLayout(webcamSource?.layoutJson);
   const uploading = ["queued", "preparing", "uploading", "processing"].includes(clip.uploadStatus);
   const cloudSlug = cloudClips.find((item) => item.id === clip.cloudClipId)?.slug;
+
+  function syncWebcam(master: HTMLVideoElement) {
+    const cam = webcamRef.current;
+    if (!cam) return;
+    const drift = Math.abs(cam.currentTime - master.currentTime);
+    if (drift > 0.12) {
+      cam.currentTime = master.currentTime;
+    }
+    if (master.paused) {
+      if (!cam.paused) cam.pause();
+    } else if (cam.paused) {
+      void cam.play().catch(() => undefined);
+    }
+  }
+
+  async function toggleWrapFullscreen() {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    try {
+      if (document.fullscreenElement === wrap) {
+        await document.exitFullscreen();
+      } else {
+        await wrap.requestFullscreen();
+      }
+    } catch {
+      /* WebView may deny fullscreen without a gesture */
+    }
+  }
 
   return (
     <div className="player-overlay" role="dialog" aria-modal="true" aria-label={clip.title || "Clip player"}>
@@ -56,8 +105,50 @@ export function ClipPlayer() {
       <section className="player-card">
         <div className="player-stage">
           {video ? (
-            <PlayerVideo showWatermark={watermark}>
-              <video src={media} controls autoPlay />
+            <PlayerVideo ref={wrapRef} showWatermark={watermark}>
+              <video
+                ref={gameplayRef}
+                src={media}
+                controls
+                autoPlay
+                controlsList={webcamMedia ? "nofullscreen" : undefined}
+                onPlay={(event) => syncWebcam(event.currentTarget)}
+                onPause={(event) => syncWebcam(event.currentTarget)}
+                onSeeked={(event) => syncWebcam(event.currentTarget)}
+                onTimeUpdate={(event) => syncWebcam(event.currentTarget)}
+                onDoubleClick={() => {
+                  if (webcamMedia) void toggleWrapFullscreen();
+                }}
+              />
+              {webcamMedia ? (
+                <div
+                  className={`editor-webcam place-${webcamLayout.placement} shape-${webcamLayout.shape}`}
+                  style={{ width: `${webcamLayout.width * 100}%` }}
+                >
+                  <video
+                    ref={webcamRef}
+                    src={webcamMedia}
+                    muted
+                    playsInline
+                    preload="auto"
+                    controls={false}
+                    onLoadedMetadata={(event) => {
+                      const master = gameplayRef.current;
+                      if (master) event.currentTarget.currentTime = master.currentTime;
+                    }}
+                  />
+                </div>
+              ) : null}
+              {webcamMedia ? (
+                <button
+                  type="button"
+                  className="player-fullscreen-btn"
+                  aria-label={wrapFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                  onClick={() => void toggleWrapFullscreen()}
+                >
+                  {wrapFullscreen ? "Exit full screen" : "Full screen"}
+                </button>
+              ) : null}
             </PlayerVideo>
           ) : (
             <img src={media} alt={clip.title || "Screenshot"} />

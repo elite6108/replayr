@@ -259,7 +259,8 @@ pub fn write_vertical_mp4(
 
     let pcm = decode_audio_range(input, start_hns, end_hns).unwrap_or_default();
     let has_audio = !pcm.is_empty();
-    let mut writer = crate::encode::MfWriter::new(
+    // Same single-thread BGRA pitfall as compose_webcam_mp4 — disable sink throttling.
+    let mut writer = crate::encode::MfWriter::create(
         output,
         SHORT_WIDTH,
         SHORT_HEIGHT,
@@ -267,8 +268,9 @@ pub fn write_vertical_mp4(
         SHORT_BITRATE,
         has_audio,
         None,
-        false,
+        true,
         crate::encode::VideoInput::Bgra,
+        false,
     )?;
 
     let reader = crate::thumb::open_rgb_reader(input)?;
@@ -372,6 +374,7 @@ impl WebcamFollow {
     }
 
     fn ensure_at(&mut self, target_hns: i64) {
+        let mut last_ts = self.current.as_ref().map(|(_, ts)| *ts);
         loop {
             if let Some((_, ts)) = &self.current {
                 if *ts + 10_000 >= target_hns {
@@ -380,6 +383,12 @@ impl WebcamFollow {
             }
             match crate::thumb::read_rgb_sample(&self.reader) {
                 Ok(Some((frame, ts, _))) => {
+                    // Non-advancing PTS would spin forever before the first encode write.
+                    if last_ts.is_some_and(|previous| ts <= previous) {
+                        self.current = Some((frame, ts));
+                        return;
+                    }
+                    last_ts = Some(ts);
                     let caught_up = ts >= target_hns;
                     self.current = Some((frame, ts));
                     if caught_up {
@@ -448,7 +457,9 @@ pub fn compose_webcam_mp4(
     let height = first.height.max(16);
     let fps = fps.clamp(24, 60);
     let bitrate = ((width as u64 * height as u64 * u64::from(fps)) / 6).clamp(4_000_000, 25_000_000) as u32;
-    let mut writer = crate::encode::MfWriter::new(
+    // Single-thread BGRA decode+encode deadlocks with MF sink throttling on (WriteSample
+    // waits forever while the encoder never drains). Disable throttling + HW transforms.
+    let mut writer = crate::encode::MfWriter::create(
         output,
         width,
         height,
@@ -456,8 +467,9 @@ pub fn compose_webcam_mp4(
         bitrate,
         has_audio,
         None,
-        false,
+        true,
         crate::encode::VideoInput::Bgra,
+        false,
     )?;
 
     let mut frame = first;
@@ -802,17 +814,38 @@ fn open_writer(path: &Path, video_type: &IMFMediaType, audio: WriterAudio) -> Re
         let mut attrs = None;
         MFCreateAttributes(&mut attrs, 4).map_err(|err| err.to_string())?;
         let attrs = attrs.ok_or_else(|| "Could not create writer attributes.".to_string())?;
+        // Pure compressed copy (webcam sidecar / Copy audio) needs converters
+        // off so H.264 can be both the output and input type. Do not also set
+        // MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS — that combo makes
+        // MFCreateSinkWriterFromURL return E_INVALIDARG (0x80070057) on some
+        // machines, which is why F10 gameplay remux worked while the webcam
+        // sidecar always failed.
         if !matches!(audio, WriterAudio::StitchedAac) {
             let _ = attrs.SetUINT32(&MF_READWRITE_DISABLE_CONVERTERS, 1);
         }
-        // Video is a copy. Hardware AAC MFTs and low-latency mode click/cackle
-        // through the whole clip on both game and mic.
-        if !matches!(audio, WriterAudio::StitchedAac) {
-            let _ = attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1);
-        }
         let _ = attrs.SetUINT32(&MF_SINK_WRITER_DISABLE_THROTTLING, 1);
-        let writer = MFCreateSinkWriterFromURL(PCWSTR(wide.as_ptr()), None, Some(&attrs))
-            .map_err(|err| format!("Could not create the clip writer: {err}"))?;
+        let writer = match MFCreateSinkWriterFromURL(PCWSTR(wide.as_ptr()), None, Some(&attrs)) {
+            Ok(writer) => writer,
+            Err(err) => {
+                // Last-chance fallback: bare writer attributes. Still try to
+                // attach the compressed type below.
+                tracing::warn!(
+                    path = %path.display(),
+                    %err,
+                    "clip writer create failed with remux attrs; retrying without DISABLE_CONVERTERS"
+                );
+                let mut plain = None;
+                MFCreateAttributes(&mut plain, 2).map_err(|e| e.to_string())?;
+                let plain = plain.ok_or_else(|| "Could not create writer attributes.".to_string())?;
+                let _ = plain.SetUINT32(&MF_SINK_WRITER_DISABLE_THROTTLING, 1);
+                MFCreateSinkWriterFromURL(PCWSTR(wide.as_ptr()), None, Some(&plain)).map_err(|retry| {
+                    format!(
+                        "Could not create the clip writer for {}: {err} (retry: {retry})",
+                        path.display()
+                    )
+                })?
+            }
+        };
         let video_stream = writer
             .AddStream(video_type)
             .map_err(|err| format!("Could not add the video stream: {err}"))?;

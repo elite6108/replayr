@@ -171,7 +171,7 @@ fn run_rolling(
     let (reader, reader_subtype) = match open_record_reader(&source, selected.width, selected.height) {
         Ok(opened) => opened,
         Err(err) => {
-            let _ = source.Shutdown();
+            let _ = unsafe { source.Shutdown() };
             return Err(err);
         }
     };
@@ -206,7 +206,7 @@ fn run_rolling(
     {
         Ok(handle) => handle,
         Err(err) => {
-            let _ = source.Shutdown();
+            let _ = unsafe { source.Shutdown() };
             return Err(err.to_string());
         }
     };
@@ -229,7 +229,7 @@ fn run_rolling(
             Err(err) => {
                 queue.close();
                 let _ = encode.join();
-                let _ = source.Shutdown();
+                let _ = unsafe { source.Shutdown() };
                 request.rotate.ack();
                 return Err(err);
             }
@@ -248,17 +248,17 @@ fn run_rolling(
     match encode.join() {
         Ok(Ok(())) => {}
         Ok(Err(err)) => {
-            let _ = source.Shutdown();
+            let _ = unsafe { source.Shutdown() };
             request.rotate.ack();
             return Err(err);
         }
         Err(_) => {
-            let _ = source.Shutdown();
+            let _ = unsafe { source.Shutdown() };
             request.rotate.ack();
             return Err("Webcam rolling encode thread panicked.".into());
         }
     }
-    let _ = source.Shutdown();
+    let _ = unsafe { source.Shutdown() };
     request.rotate.ack();
     Ok(())
 }

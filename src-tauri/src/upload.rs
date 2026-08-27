@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use reqwest::blocking::Client;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
@@ -13,6 +13,17 @@ use crate::error::{AppError, AppResult};
 use crate::library::{self, LocalClipDto};
 
 const PART_SIZE: usize = 8 * 1024 * 1024;
+
+/// Temp composed upload file. Removed on drop so failed uploads do not litter disk.
+struct UploadComposeGuard(Option<PathBuf>);
+
+impl Drop for UploadComposeGuard {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,8 +81,8 @@ pub fn upload_local_clip(
     };
     emit(app, local_id, "preparing", None);
 
-    let path = Path::new(&clip.file_path);
-    let ext = path
+    let gameplay = PathBuf::from(&clip.file_path);
+    let ext = gameplay
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or("")
@@ -80,13 +91,21 @@ pub fn upload_local_clip(
         fail(app, local_id, "Only MP4 clips can be uploaded.")?;
         return Err(AppError::Message("Only MP4 clips can be uploaded.".into()));
     }
-    if !path.exists() {
+    if !gameplay.exists() {
         fail(app, local_id, "That file is no longer on disk.")?;
         return Err(AppError::Message("That file is no longer on disk.".into()));
     }
 
-    // Clips upload as recorded. The watermark is drawn by the players from the
-    // per-clip flag the API stamps at upload time, and burned in only on export.
+    // Burn webcam into the bytes uploaded to cloud so share links, web players,
+    // and website downloads all show the camera. Watermark stays player-side.
+    let (upload_path, _compose_guard) = match prepare_cloud_upload_mp4(&clip) {
+        Ok(prepared) => prepared,
+        Err(err) => {
+            fail(app, local_id, &err.to_string())?;
+            return Err(err);
+        }
+    };
+    let path = upload_path.as_path();
     let file_size = std::fs::metadata(path)?.len();
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(300))
@@ -139,6 +158,56 @@ pub fn upload_local_clip(
             Err(err)
         }
     }
+}
+
+/// Returns `(path_to_upload, temp_guard)`. When a webcam sidecar exists, burns it
+/// into a temp MP4 so cloud playback matches the desktop overlay.
+fn prepare_cloud_upload_mp4(clip: &LocalClipDto) -> AppResult<(PathBuf, UploadComposeGuard)> {
+    let gameplay = PathBuf::from(&clip.file_path);
+    #[cfg(windows)]
+    {
+        if let Some(webcam) = library::valid_webcam_source(clip) {
+            let layout = crate::overlay::OverlayLayout::from_json(webcam.layout_json.as_deref());
+            let stem = gameplay
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("clip");
+            let output = gameplay.with_file_name(format!(
+                "{stem}.upload-composed-{}.mp4",
+                std::process::id()
+            ));
+            let fps = clip.fps.unwrap_or(60).clamp(24, 60) as u32;
+            let duration_hns = clip.duration_ms.unwrap_or(0).saturating_mul(10_000);
+            tracing::info!(
+                gameplay = %gameplay.display(),
+                webcam = %webcam.file_path,
+                "composing webcam into cloud upload"
+            );
+            match crate::export::compose_webcam_mp4(
+                &gameplay,
+                Path::new(&webcam.file_path),
+                &output,
+                &layout,
+                0,
+                duration_hns,
+                fps,
+                false,
+            ) {
+                Ok(_) => {
+                    tracing::info!(
+                        path = %output.display(),
+                        "composed webcam into cloud upload"
+                    );
+                    return Ok((output.clone(), UploadComposeGuard(Some(output))));
+                }
+                Err(err) => {
+                    tracing::warn!(%err, "cloud upload compose failed; uploading gameplay only");
+                    let _ = std::fs::remove_file(&output);
+                }
+            }
+        }
+    }
+    Ok((gameplay, UploadComposeGuard(None)))
 }
 
 fn start_session(

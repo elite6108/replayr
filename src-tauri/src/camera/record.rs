@@ -176,12 +176,12 @@ impl Drop for RecordSession {
 }
 
 pub(super) struct Nv12Frame {
-    planes: Vec<u8>,
-    width: u32,
-    height: u32,
-    sample_time: Option<i64>,
-    sample_duration: Option<i64>,
-    arrival_qpc: i64,
+    pub(super) planes: Vec<u8>,
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) sample_time: Option<i64>,
+    pub(super) sample_duration: Option<i64>,
+    pub(super) arrival_qpc: i64,
 }
 
 pub(super) struct FrameQueue {
@@ -300,7 +300,7 @@ fn run_record(
     ) {
         Ok(opened) => opened,
         Err(err) => {
-            let _ = source.Shutdown();
+            let _ = unsafe { source.Shutdown() };
             return Err(err);
         }
     };
@@ -343,7 +343,7 @@ fn run_record(
     {
         Ok(handle) => handle,
         Err(err) => {
-            let _ = source.Shutdown();
+            let _ = unsafe { source.Shutdown() };
             return Err(err.to_string());
         }
     };
@@ -367,7 +367,7 @@ fn run_record(
             Err(err) => {
                 queue.close();
                 let _ = encode.join();
-                let _ = source.Shutdown();
+                let _ = unsafe { source.Shutdown() };
                 return Err(err);
             }
         }
@@ -385,15 +385,15 @@ fn run_record(
     match encode.join() {
         Ok(Ok(())) => {}
         Ok(Err(err)) => {
-            let _ = source.Shutdown();
+            let _ = unsafe { source.Shutdown() };
             return Err(err);
         }
         Err(_) => {
-            let _ = source.Shutdown();
+            let _ = unsafe { source.Shutdown() };
             return Err("Webcam encode thread panicked.".into());
         }
     }
-    let _ = source.Shutdown();
+    let _ = unsafe { source.Shutdown() };
     Ok(())
 }
 

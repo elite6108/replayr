@@ -4,8 +4,7 @@
 
 use std::time::Duration;
 
-use windows::core::{GUID, PWSTR};
-use windows::Win32::Foundation::BOOL;
+use windows::core::{BOOL, GUID, PWSTR};
 use windows::Win32::Media::MediaFoundation::{
     IMFActivate, IMFAttributes, IMFMediaSource, IMFMediaType, IMFPresentationDescriptor, IMFStreamDescriptor,
     MFCreateAttributes, MFEnumDeviceSources, MFMediaType_Video, MFStartup, MFVideoFormat_MJPG,
@@ -203,7 +202,9 @@ pub fn guid_from_subtype(subtype: CameraSubtype) -> Option<GUID> {
 }
 
 unsafe fn allocated_string(attrs: &IMFActivate, key: &GUID) -> Option<String> {
-    let pwstr = attrs.GetAllocatedString(key).ok()?;
+    let mut pwstr = PWSTR::null();
+    let mut len = 0u32;
+    attrs.GetAllocatedString(key, &mut pwstr, &mut len).ok()?;
     let value = pwstr_to_string(pwstr);
     CoTaskMemFree(Some(pwstr.0 as *const std::ffi::c_void));
     if value.is_empty() { None } else { Some(value) }

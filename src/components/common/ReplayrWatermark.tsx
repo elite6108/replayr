@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { forwardRef, type ReactNode } from "react";
 import watermarkLogo from "../../assets/replayr-watermark.png";
 
 export function ReplayrWatermark({ show }: { show: boolean }) {
@@ -6,19 +6,20 @@ export function ReplayrWatermark({ show }: { show: boolean }) {
   return <img className="clip-watermark" src={watermarkLogo} alt="" aria-hidden="true" />;
 }
 
-export function PlayerVideo({
-  showWatermark,
-  children,
-}: {
-  showWatermark: boolean;
-  children: ReactNode;
-}) {
+export const PlayerVideo = forwardRef<
+  HTMLDivElement,
+  {
+    showWatermark: boolean;
+    children: ReactNode;
+    className?: string;
+  }
+>(function PlayerVideo({ showWatermark, children, className }, ref) {
   return (
-    <div className="player-video-wrap">
+    <div ref={ref} className={className ? `player-video-wrap ${className}` : "player-video-wrap"}>
       {children}
       <div className="player-video-mark">
         <ReplayrWatermark show={showWatermark} />
       </div>
     </div>
   );
-}
+});

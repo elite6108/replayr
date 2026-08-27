@@ -168,9 +168,37 @@ impl CameraEngine {
                     apply_record_snapshot(&mut status, &session.snapshot());
                 }
             }
+            status.rolling = false;
             if let Ok(rolling) = self.inner.rolling.lock() {
                 if let Some(session) = rolling.as_ref() {
-                    apply_record_snapshot(&mut status, &session.snapshot());
+                    let snap = session.snapshot();
+                    status.rolling = !session.finished();
+                    // Instant Replay rolling must not look like a settings "test record".
+                    // That made the UI show "Stop test recording" and refuse preview.
+                    if status.rolling {
+                        status.encoder_name = snap.encoder_name;
+                        status.encoder_hardware = snap.encoder_hardware;
+                        status.software_fallback = snap.software_fallback;
+                        status.dropped_frames = snap.dropped_frames;
+                        status.written_frames = snap.written_frames;
+                        status.timestamp_fallback = snap.timestamp_fallback;
+                        status.session_skew_ms = snap.session_skew_hns / 10_000;
+                        if recording(&self.inner) {
+                            // Rare: test record and IR should not overlap, but keep test state.
+                        } else {
+                            status.recording = false;
+                            if status.availability == CameraAvailability::Recording {
+                                status.availability = if status.enabled {
+                                    CameraAvailability::Ready
+                                } else {
+                                    CameraAvailability::Idle
+                                };
+                            }
+                            if status.message.is_empty() {
+                                status.message = "Recording with Instant Replay".into();
+                            }
+                        }
+                    }
                 }
             }
             status.enabled = self.inner.enabled.load(Ordering::SeqCst);
@@ -244,7 +272,11 @@ impl CameraEngine {
                 tracing::info!(path = %path.display(), "saved overlapping webcam sidecar");
             }
             Ok(None) => {
-                tracing::debug!("no overlapping webcam for this clip");
+                tracing::info!(
+                    start_hns,
+                    end_hns,
+                    "no overlapping webcam for this clip"
+                );
             }
             Err(err) => {
                 tracing::warn!(%err, "webcam sidecar skipped; gameplay clip is intact");
@@ -843,6 +875,13 @@ fn remux_overlap_inner(
         }
         return Ok(None);
     }
+    tracing::info!(
+        segments = existing.len(),
+        start_hns,
+        end_hns,
+        output = %output.display(),
+        "remuxing overlapping webcam sidecar"
+    );
     #[cfg(windows)]
     {
         let result = crate::export::concat_mp4s(&existing, output);

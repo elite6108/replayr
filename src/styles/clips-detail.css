@@ -1,0 +1,94 @@
+.clip-upload:hover {
+  color: var(--accent, #7dd3fc);
+}
+
+.clip-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+}
+
+.clip-cloud-link {
+  position: static;
+}
+
+.clip-star {
+  top: 8px;
+  right: 8px;
+  border: 0;
+  color: var(--text-muted);
+  border-radius: 999px;
+}
+
+.clip-star.on {
+  color: var(--warn);
+}
+
+.clip-title-btn {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-title-btn:hover {
+  color: var(--accent);
+}
+
+.clip-title {
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-meta {
+  padding: 10px 12px 12px;
+}
+
+.clip-date {
+  margin-top: 2px;
+  color: #c4cad4;
+  font-size: 12px;
+}
+
+.clip-visibility {
+  display: block;
+  margin-top: 8px;
+}
+
+.clip-visibility select {
+  width: 100%;
+  font-size: 12px;
+}
+
+.clip-line {
+  display: block;
+  height: 8px;
+  border-radius: 99px;
+  background: #2a313b;
+  margin-bottom: 6px;
+}
+
+.clip-line.short {
+  width: 46%;
+}
+
+.clip-grid-wrap .empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(16, 18, 24, 0.2), rgba(16, 18, 24, 0.82));
+}

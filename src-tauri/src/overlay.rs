@@ -13,6 +13,8 @@ pub const DEFAULT_WIDTH: f32 = 0.22;
 const MIN_WIDTH: f32 = 0.12;
 const MAX_WIDTH: f32 = 0.40;
 const MARGIN: f32 = 0.03;
+/// Keep bottom placements above native HTML5 / mobile control bars (~seeker).
+const MARGIN_BOTTOM: f32 = 0.11;
 const ROUNDED_RADIUS: f32 = 0.18;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -152,21 +154,24 @@ pub fn overlay_box(canvas_w: u32, canvas_h: u32, source_aspect: f32, layout: &Ov
         }
     }
     let margin_x = ((canvas_w as f32) * MARGIN).round() as u32;
-    let margin_y = ((canvas_h as f32) * MARGIN).round() as u32;
+    let margin_top = ((canvas_h as f32) * MARGIN).round() as u32;
+    let margin_bottom = ((canvas_h as f32) * MARGIN_BOTTOM).round() as u32;
     let max_x = canvas_w.saturating_sub(width);
     let max_y = canvas_h.saturating_sub(height);
     let (x, y) = if let (Some(nx), Some(ny)) = (layout.x, layout.y) {
         let x = ((canvas_w as f32) * nx.clamp(0.0, 1.0)).round() as u32;
         let y = ((canvas_h as f32) * ny.clamp(0.0, 1.0)).round() as u32;
-        (x.min(max_x), y.min(max_y))
+        // Keep free-drag overlays out of the bottom control-safe band.
+        let max_y_safe = max_y.saturating_sub(margin_bottom.min(max_y));
+        (x.min(max_x), y.min(max_y_safe))
     } else {
         let x = match layout.placement.as_str() {
             "top-left" | "bottom-left" => margin_x.min(max_x),
             _ => max_x.saturating_sub(margin_x.min(max_x)),
         };
         let y = match layout.placement.as_str() {
-            "top-left" | "top-right" => margin_y.min(max_y),
-            _ => max_y.saturating_sub(margin_y.min(max_y)),
+            "top-left" | "top-right" => margin_top.min(max_y),
+            _ => max_y.saturating_sub(margin_bottom.min(max_y)),
         };
         (x, y)
     };
@@ -307,7 +312,7 @@ mod tests {
         assert_eq!(w, 422);
         assert_eq!(h, 237);
         assert_eq!(x, 1920 - 422 - 58);
-        assert_eq!(y, 1080 - 237 - 32);
+        assert_eq!(y, 1080 - 237 - 119);
     }
 
     #[test]

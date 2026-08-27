@@ -10,6 +10,9 @@ import { useBillingStore } from "../../stores/billingStore";
 import { formatBytes, formatClipDate, formatDuration, isVideoPath } from "../../utils/format";
 import { clipWebcamSource, parseSourceLayout, webcamOverlayStyle } from "../../utils/clips";
 
+/** Webcam capture runs ahead of gameplay; delay overlay to match. */
+const WEBCAM_LAG_S = 1.0;
+
 export function ClipPlayer() {
   const clips = useLibraryStore((state) => state.clips);
   const playingId = useLibraryStore((state) => state.playingId);
@@ -74,10 +77,11 @@ export function ClipPlayer() {
   function syncWebcam(master: HTMLVideoElement) {
     const cam = webcamRef.current;
     if (!cam) return;
-    const drift = Math.abs(cam.currentTime - master.currentTime);
-    // Keep cam tight to gameplay/audio; seeking is async so re-check next tick.
+    // Webcam pipeline runs ~1s ahead of gameplay; delay cam to match audio/game.
+    const target = Math.max(0, master.currentTime - WEBCAM_LAG_S);
+    const drift = Math.abs(cam.currentTime - target);
     if (drift > 0.05) {
-      cam.currentTime = master.currentTime;
+      cam.currentTime = target;
     }
     if (master.paused) {
       if (!cam.paused) cam.pause();
@@ -135,7 +139,9 @@ export function ClipPlayer() {
                     controls={false}
                     onLoadedMetadata={(event) => {
                       const master = gameplayRef.current;
-                      if (master) event.currentTarget.currentTime = master.currentTime;
+                      if (master) {
+                        event.currentTarget.currentTime = Math.max(0, master.currentTime - WEBCAM_LAG_S);
+                      }
                     }}
                   />
                 </div>

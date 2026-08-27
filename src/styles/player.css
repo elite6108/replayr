@@ -1,0 +1,155 @@
+.player-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.player-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(6, 8, 12, 0.72);
+}
+
+.player-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(240px, 0.8fr);
+  gap: 16px;
+  width: min(1100px, 100%);
+  max-height: calc(100vh - 48px);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 22px;
+  padding: 16px;
+  z-index: 1;
+  box-shadow: var(--shadow);
+}
+
+.player-stage {
+  position: relative;
+  min-height: 240px;
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.player-video-wrap {
+  position: relative;
+  display: grid;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: center;
+}
+
+.player-video-wrap > video {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100vh - 96px);
+  background: #000;
+  position: relative;
+  z-index: 0;
+}
+
+/* Fullscreen the wrap (not the <video>) so webcam overlay stays visible. */
+.player-video-wrap:fullscreen {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  place-items: center;
+  background: #000;
+}
+
+.player-video-wrap:fullscreen > video {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.player-fullscreen-btn {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 8;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.player-fullscreen-btn:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.player-video-mark {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  container-type: size;
+  pointer-events: none;
+}
+
+.player-video-mark .clip-watermark {
+  position: absolute;
+  right: max(8px, 2cqmin);
+  bottom: max(8px, 2cqmin);
+  width: clamp(120px, 24cqmin, 260px);
+  height: auto;
+  max-width: 28%;
+  max-height: 14%;
+  object-fit: contain;
+  background: none;
+  pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.75));
+}
+
+.house-ad {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.player-stage video,
+.player-stage > img {
+  width: 100%;
+  max-height: calc(100vh - 96px);
+  background: #000;
+}
+
+.player-stage .player-video-wrap > video {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100vh - 96px);
+}
+
+.player-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.player-side input {
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.player-side .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

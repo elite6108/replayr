@@ -1,0 +1,27 @@
+.record-orb {
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  border: 1px solid #5a2a2a;
+  background: radial-gradient(circle at 50% 40%, #7a3030, #3a1515);
+  color: #f3d4d4;
+  display: grid;
+  place-items: center;
+  margin: 8px auto 0;
+}
+
+.record-orb.live {
+  border-color: #c44;
+  box-shadow: 0 0 0 4px rgba(180, 40, 40, 0.25);
+  animation: pulse-live 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-live {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(180, 40, 40, 0.18); }
+  50% { box-shadow: 0 0 0 10px rgba(180, 40, 40, 0.05); }
+}
+
+.stat-card .stat-value {
+  font-size: 18px;
+  font-weight: 650;
+}

@@ -1,0 +1,322 @@
+.editor-layout {
+  display: grid;
+  gap: 14px;
+  /* Match the column to the picture so the timeline lines up under it. */
+  width: min(1100px, calc(min(52vh, 560px) * var(--editor-aspect, 1.7778)));
+  min-width: min(100%, 560px);
+  margin-inline: auto;
+}
+
+.editor-stage video {
+  width: 100%;
+  max-height: min(52vh, 560px);
+  background: #000;
+}
+
+.editor-preview {
+  position: relative;
+  width: 100%;
+}
+
+.editor-preview video.editor-gameplay,
+.editor-preview > video {
+  display: block;
+  width: 100%;
+  position: relative;
+  z-index: 0;
+}
+
+.editor-webcam {
+  position: absolute;
+  z-index: 6;
+  /* Keep webcam above WebView2/hardware video surfaces. */
+  transform: translateZ(0);
+  isolation: isolate;
+  pointer-events: none;
+  overflow: hidden;
+  background: #111;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.editor-webcam.draggable {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.editor-webcam.draggable.dragging {
+  cursor: grabbing;
+  z-index: 4;
+}
+
+.editor-webcam.draggable video {
+  pointer-events: none;
+}
+
+.editor-webcam video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.editor-webcam.place-top-left { top: 3%; left: 3%; }
+
+.editor-webcam.place-top-right { top: 3%; right: 3%; }
+
+.editor-webcam.place-bottom-left { bottom: 11%; left: 3%; }
+
+.editor-webcam.place-bottom-right { bottom: 11%; right: 3%; }
+
+.editor-webcam.free {
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+}
+
+.editor-webcam-hint {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.editor-webcam.shape-circle {
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.editor-webcam.shape-rounded {
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+}
+
+.editor-webcam.shape-rectangle {
+  aspect-ratio: 16 / 9;
+}
+
+.editor-webcam-controls {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 4px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-chip);
+}
+
+.editor-reframe {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.editor-reframe.interactive {
+  pointer-events: auto;
+  cursor: ew-resize;
+}
+
+.editor-reframe-dim {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.editor-reframe-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  box-shadow: inset 0 0 0 2px var(--accent);
+  pointer-events: none;
+}
+
+.editor-actions {
+  flex-wrap: wrap;
+}
+
+.editor-transport {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.editor-timeline {
+  position: relative;
+  height: 80px;
+  margin: 8px 0 4px;
+  border-radius: 12px;
+  overflow: visible;
+  background: var(--bg-chip);
+  border: 1px solid var(--border);
+  user-select: none;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.editor-strip {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 11px;
+}
+
+.editor-strip img,
+.editor-strip-empty {
+  display: block;
+  flex: 1;
+  width: 0;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  background: #12161f;
+}
+
+.editor-strip-empty {
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.editor-short-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-short-btn.on:disabled {
+  opacity: 1;
+  cursor: default;
+  border-color: var(--border-strong);
+  background: #1a1f27;
+}
+
+.editor-brand-logos {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.editor-short-btn .editor-brand-logos {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.editor-short-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo-tiktok {
+  color: #69c9d0;
+}
+
+.logo-instagram {
+  color: #e4405f;
+}
+
+.logo-youtube {
+  color: #ff0033;
+}
+
+.editor-dim {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.editor-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-top: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  background: rgba(127, 208, 239, 0.12);
+  pointer-events: none;
+}
+
+.editor-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  padding: 0;
+  margin-left: -5px;
+  border: 0;
+  border-radius: 0;
+  background: var(--accent);
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.editor-playhead {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 18px;
+  padding: 0;
+  margin-left: -9px;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+  z-index: 4;
+}
+
+.editor-playhead::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  bottom: 0;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.editor-playhead::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 2px;
+  transform: rotate(45deg);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.editor-fields {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.editor-fields label,
+.editor-success label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.editor-fields input {
+  width: 120px;
+}
+
+.editor-duration {
+  display: grid;
+  gap: 6px;
+}
+
+.editor-hint {
+  margin: 0;
+}
+
+.editor-success {
+  margin-top: 4px;
+}

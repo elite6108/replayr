@@ -26,6 +26,8 @@ const SHORTS_WARN_MS = 60_000;
 // Part of the on-disk filmstrip cache key, so keep it stable across resizes.
 const STRIP_TILES = 12;
 const WEBCAM_DRIFT_S = 0.05;
+/** Webcam capture runs ahead of gameplay; delay overlay to match. */
+const WEBCAM_LAG_S = 1.0;
 const WEBCAM_PLACEMENTS: { id: WebcamPlacement; label: string }[] = [
   { id: "top-left", label: "Top Left" },
   { id: "top-right", label: "Top Right" },
@@ -212,9 +214,10 @@ export function EditorPage() {
   function syncWebcam(master: HTMLVideoElement) {
     const cam = webcamRef.current;
     if (!cam || !webcamMedia) return;
-    const drift = Math.abs(cam.currentTime - master.currentTime);
+    const target = Math.max(0, master.currentTime - WEBCAM_LAG_S);
+    const drift = Math.abs(cam.currentTime - target);
     if (drift > WEBCAM_DRIFT_S) {
-      cam.currentTime = master.currentTime;
+      cam.currentTime = target;
     }
     if (master.paused) {
       if (!cam.paused) cam.pause();
@@ -292,7 +295,7 @@ export function EditorPage() {
     }
     const cam = webcamRef.current;
     if (cam && Number.isFinite(clamped / 1000)) {
-      cam.currentTime = clamped / 1000;
+      cam.currentTime = Math.max(0, clamped / 1000 - WEBCAM_LAG_S);
     }
   }, [durationMs]);
 
@@ -665,7 +668,9 @@ export function EditorPage() {
                 draggable={false}
                 onLoadedMetadata={(event) => {
                   const master = videoRef.current;
-                  if (master) event.currentTarget.currentTime = master.currentTime;
+                  if (master) {
+                    event.currentTarget.currentTime = Math.max(0, master.currentTime - WEBCAM_LAG_S);
+                  }
                 }}
               />
             </div>

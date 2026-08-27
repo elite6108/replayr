@@ -385,13 +385,18 @@ impl WebcamFollow {
             return Err("Webcam sidecar is no longer on disk.".into());
         }
         let reader = crate::thumb::open_rgb_reader(path)?;
-        if start_hns > 0 {
-            crate::thumb::seek_hns(&reader, start_hns)?;
+        let seek = start_hns
+            .saturating_sub(crate::camera::WEBCAM_SYNC_DELAY_HNS)
+            .max(0);
+        if seek > 0 {
+            crate::thumb::seek_hns(&reader, seek)?;
         }
         Ok(Self { reader, current: None })
     }
 
     fn ensure_at(&mut self, target_hns: i64) {
+        // Sample an earlier webcam frame so the overlay matches gameplay/audio.
+        let target_hns = target_hns.saturating_sub(crate::camera::WEBCAM_SYNC_DELAY_HNS).max(0);
         let mut last_ts = self.current.as_ref().map(|(_, ts)| *ts);
         loop {
             if let Some((_, ts)) = &self.current {

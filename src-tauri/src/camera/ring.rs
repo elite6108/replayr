@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use super::clock::{
     overlapping_segments, remux_paths, segment_bounds, segment_index, SegmentHealth, SourceSegment,
-    SEGMENT_HNS, WEBCAM_FILE_HNS,
+    WEBCAM_FILE_HNS,
 };
 
 pub const WEBCAM_ROTATE_TIMEOUT: Duration = Duration::from_millis(400);

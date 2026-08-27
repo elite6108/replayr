@@ -1,0 +1,255 @@
+.clip-grid-wrap {
+  position: relative;
+  min-height: 280px;
+}
+
+.clip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.clip-card {
+  border: 1px solid transparent;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--bg-raised);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.clip-card.live {
+  position: relative;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+}
+
+.clip-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.clip-card.live:hover,
+.clip-card.live:focus-visible {
+  border-color: rgba(127, 208, 239, 0.28);
+  transform: translateY(-3px);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32);
+}
+
+.clip-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-dim);
+}
+
+.clip-rename {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.ctx-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 176px;
+  padding: 8px;
+  background: #161b24;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.ctx-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+
+.ctx-menu button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.ctx-menu button.danger {
+  color: var(--danger);
+}
+
+.clip-card.ghost {
+  opacity: 0.28;
+}
+
+.clip-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, #1c2430, #10141b);
+  color: var(--text-muted);
+  overflow: hidden;
+}
+
+.clip-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.clip-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, transparent 40%, rgba(0, 0, 0, 0.45));
+  color: #fff;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.clip-card:hover .clip-play {
+  opacity: 1;
+}
+
+.clip-play span {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(8, 10, 14, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.clip-duration,
+.clip-star {
+  position: absolute;
+  z-index: 1;
+  background: rgba(8, 10, 14, 0.72);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.clip-duration {
+  right: 8px;
+  bottom: 8px;
+}
+
+.clip-aspect-badge {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 2;
+  background: rgba(8, 10, 14, 0.82);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.clip-flag {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 1;
+  background: rgba(8, 10, 14, 0.72);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.clip-check {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  border-radius: 8px;
+  background: rgba(8, 10, 14, 0.72);
+  cursor: pointer;
+}
+
+.clip-check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.clip-cloud-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(8, 10, 14, 0.82);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--accent, #7dd3fc);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.clip-cloud-badge.busy {
+  color: var(--text-muted);
+}
+
+.clip-cloud-badge.failed {
+  color: var(--danger);
+}
+
+.clip-cloud-mark {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.clip-upload {
+  position: absolute;
+  top: 8px;
+  left: 40px;
+  z-index: 1;
+  background: rgba(8, 10, 14, 0.72);
+  border: 0;
+  border-radius: 999px;
+  padding: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.selection-bar {
+  position: sticky;
+  bottom: 16px;
+  z-index: 12;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  margin-top: 16px;
+  background: rgba(10, 12, 18, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}

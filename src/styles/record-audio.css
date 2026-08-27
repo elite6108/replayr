@@ -1,0 +1,65 @@
+.audio-source {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mix-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+}
+
+.mix-strip .chip {
+  border: 1px solid var(--border);
+  background: #101216;
+  color: var(--text-muted);
+  border-radius: 99px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.mix-strip .chip.on {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.audio-meter {
+  height: 8px;
+  background: #101216;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.audio-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  width: 0;
+  transition: width 80ms linear;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.desktop-prompt {
+  position: fixed;
+  left: calc(var(--rail) + 16px);
+  bottom: 16px;
+  z-index: 18;
+  max-width: 320px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+}
+
+.desktop-prompt p {
+  margin: 0 0 10px;
+}

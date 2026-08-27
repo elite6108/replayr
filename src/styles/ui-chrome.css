@@ -1,0 +1,55 @@
+.page-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.tabs a,
+.tabs button {
+  padding: 6px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.tabs a:hover,
+.tabs button:hover {
+  color: var(--text);
+}
+
+.tabs a.active,
+.tabs button.active {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+
+.topbar-user.sign-in {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}

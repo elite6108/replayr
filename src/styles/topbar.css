@@ -1,0 +1,140 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(10, 12, 16, 0.78);
+  backdrop-filter: blur(18px);
+  font-family: var(--font-chrome);
+  letter-spacing: 0.01em;
+  overflow: visible;
+  z-index: 40;
+}
+
+.topbar-game {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 168px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--bg-chip);
+  border: 1px solid var(--border);
+}
+
+.topbar-kicker {
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+}
+
+.topbar-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.hotkey-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-chip);
+  border-radius: 999px;
+  padding: 6px 12px 6px 8px;
+  color: var(--text);
+}
+
+.hotkey-chip:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+
+.hotkey-chip.live {
+  border-color: #5a2a2a;
+  background: #2a1416;
+  color: #ffd6d6;
+}
+
+.hotkey-chip.on {
+  border-color: #2f4a38;
+  background: #13241a;
+}
+
+.hotkey-chip kbd {
+  min-width: 52px;
+  text-align: center;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0;
+  border-radius: 6px;
+  padding: 3px 7px;
+  background: #0d1016;
+}
+
+.hotkey-chip .chip-copy {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.topbar-chip-wrap {
+  position: relative;
+}
+
+.topbar-chip-popover {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 240px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.topbar-chip-popover .btn {
+  width: 100%;
+}
+
+.topbar-pill,
+.topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-chip);
+  border-radius: 999px;
+  padding: 6px 12px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.topbar-spacer {
+  flex: 1;
+}
+
+.topbar-user-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}

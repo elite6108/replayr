@@ -1,0 +1,411 @@
+.page:has(.social-fill) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 18px;
+}
+
+.social-page {
+  min-height: 0;
+}
+
+.social-fill {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.social-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.person-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.person-list.picker {
+  max-height: 280px;
+  overflow: auto;
+}
+
+.person-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-radius: 14px;
+}
+
+.person-row:hover {
+  background: var(--bg-hover);
+}
+
+.person-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.person-copy strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.person-handle {
+  text-decoration: none;
+}
+
+.person-handle:hover {
+  color: var(--text);
+}
+
+.person-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.verified-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.find-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+}
+
+.find-search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  outline: none;
+}
+
+.messages-shell {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.conv-pane,
+.thread-pane {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+}
+
+.conv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  min-height: 0;
+}
+
+.conv-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.conv-item:hover {
+  background: var(--bg-hover);
+}
+
+.conv-item.active {
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.conv-avatar {
+  position: relative;
+}
+
+.unread-pip {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-raised);
+}
+
+.conv-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.conv-copy strong,
+.conv-copy .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-time {
+  font-size: 11px;
+  max-width: 88px;
+  text-align: right;
+}
+
+.thread-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.thread-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px 8px;
+}
+
+.thread-earlier,
+.thread-empty {
+  align-self: center;
+}
+
+.bubble-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 78%;
+}
+
+.bubble-row.mine {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 16px 16px 16px 6px;
+  background: #1a2130;
+  border: 1px solid var(--border);
+}
+
+.bubble.mine {
+  background: var(--accent-dim);
+  border-color: #2a5a6e;
+  border-radius: 16px 16px 6px 16px;
+}
+
+.bubble p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.bubble-name {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--accent);
+}
+
+.bubble time {
+  font-size: 11px;
+}
+
+.clip-bubble {
+  display: grid;
+  gap: 6px;
+  width: 220px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.clip-bubble-thumb {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 12px;
+  aspect-ratio: 16 / 9;
+  background: var(--bg-input);
+}
+
+.clip-bubble-thumb img,
+.clip-bubble-thumb .feed-thumb-empty {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.composer input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+}
+
+.social-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgba(7, 8, 11, 0.62);
+}
+
+.social-modal-card {
+  width: min(420px, calc(100vw - 48px));
+}
+
+.picker-row {
+  cursor: pointer;
+}
+
+.discover-rail {
+  margin: 0 0 22px;
+}
+
+.discover-rail h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.explore-rail {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.explore-rail .feed-home-card {
+  text-align: left;
+  cursor: pointer;
+}
+
+.explore-rail .feed-home-card img,
+.explore-rail .feed-thumb-empty {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #0c0e14;
+}
+
+.send-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+}
+
+.send-sheet {
+  position: relative;
+  z-index: 2;
+  width: min(440px, 92vw);
+  max-height: 82vh;
+  overflow: auto;
+  padding: 20px;
+  border-radius: 18px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.send-sheet h2,
+.send-sheet h3 {
+  margin: 0;
+}
+
+.send-sheet h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.send-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.send-pick {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 14px;
+}
+
+.send-pick.is-picked,
+.send-pick:hover {
+  background: var(--bg-hover);
+}
+
+@media (max-width: 980px) {
+  .social-split,
+  .messages-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .messages-shell {
+    overflow: auto;
+  }
+
+  .conv-pane {
+    max-height: 240px;
+  }
+}

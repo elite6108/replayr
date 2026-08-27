@@ -1,0 +1,93 @@
+.header-icon-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-chip);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.header-icon-btn:hover {
+  background: var(--bg-hover);
+}
+
+.header-popover-wrap {
+  position: relative;
+}
+
+.header-popover {
+  position: fixed;
+  z-index: 50;
+  top: calc(var(--topbar) + 6px);
+  right: 18px;
+  width: min(360px, calc(100vw - 40px));
+  max-height: min(70vh, 480px);
+  overflow: auto;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.header-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.header-popover-head a {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.header-popover-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.header-popover-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--bg-chip);
+}
+
+.header-popover-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.header-popover-main strong,
+.header-popover-main span {
+  display: block;
+}
+
+.header-popover-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}

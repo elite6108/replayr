@@ -8,6 +8,11 @@
 
 use std::time::{Duration, Instant};
 
+/// Webcam often sits ~1s ahead of gameplay (camera pipeline vs WGC). Delay cam
+/// relative to the master clock so mouth/action line up. Used by dual-video UI
+/// and by compose (`WebcamFollow`).
+pub const WEBCAM_SYNC_DELAY_HNS: i64 = 10_000_000; // 1.0s
+
 pub const SEGMENT_HNS: i64 = 20_000_000;
 /// Webcam rolling files span multiple gameplay grids so encoder restarts
 /// (and the visible hitch at each keyframe) are far less frequent.

@@ -21,6 +21,13 @@ import {
 import { useAuth } from "../lib/auth";
 import { useSocialUnread } from "../lib/socialUnread";
 import { formatClipDate, formatDurationMs } from "../lib/format";
+import { getSupabase, supabaseConfigured } from "../lib/supabase";
+
+function mergeById(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const map = new Map(current.map((item) => [item.id, item]));
+  for (const item of incoming) map.set(item.id, item);
+  return [...map.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
 
 export function MessagesPage() {
   const { id = "" } = useParams();
@@ -113,6 +120,61 @@ export function MessagesPage() {
       cancelled = true;
     };
   }, [id, token]);
+
+  // Open threads only refreshed on focus before — subscribe so peers appear live.
+  useEffect(() => {
+    if (!token || !myId || !supabaseConfigured()) return;
+    const supabase = getSupabase();
+    const channel = supabase
+      .channel(`messages-live:${myId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
+        const row = payload.new as {
+          id?: string;
+          conversation_id?: string;
+          sender_id?: string;
+        };
+        const conversationKey = row.conversation_id;
+        if (!conversationKey || !row.id) return;
+
+        if (id === conversationKey) {
+          void Promise.all([
+            fetchMessages(token, conversationKey),
+            fetchConversation(token, conversationKey).catch(() => null),
+          ])
+            .then(([thread, summary]) => {
+              setMessages((current) => mergeById(current, thread));
+              markConversationRead(conversationKey);
+              if (summary) {
+                setConversations((current) =>
+                  upsertConversation(
+                    {
+                      ...summary,
+                      lastMessage: thread[thread.length - 1] ?? summary.lastMessage,
+                      unreadCount: 0,
+                    },
+                    current,
+                  ),
+                );
+              }
+            })
+            .catch(() => undefined);
+          return;
+        }
+
+        if (row.sender_id === myId) return;
+        void fetchConversation(token, conversationKey)
+          .then((summary) => {
+            setConversations((current) =>
+              upsertConversation({ ...summary, unreadCount: Math.max(1, summary.unreadCount) }, current),
+            );
+          })
+          .catch(() => undefined);
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [token, myId, id, markConversationRead]);
 
   useEffect(() => {
     const node = scrollerRef.current;

@@ -16,11 +16,38 @@ import {
   leaveConversation,
   postMessage,
 } from "../services/api.messages";
+import { getSupabase, supabaseConfigured } from "../services/supabase";
 import type { ChatMessage, ConversationSummary, Friend, MessageClip, SocialUser } from "../services/social-types";
 import { useAuthStore } from "../stores/authStore";
 import { useSocialUnreadStore } from "../stores/socialUnreadStore";
 import { useToastStore } from "../stores/toastStore";
 import { formatClipDate, formatDuration } from "../utils/format";
+
+function mergeById(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const map = new Map(current.map((item) => [item.id, item]));
+  for (const item of incoming) map.set(item.id, item);
+  return [...map.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+function bumpConversation(
+  current: ConversationSummary[],
+  conversationId: string,
+  message: ChatMessage | null,
+  unread: boolean,
+): ConversationSummary[] {
+  const mine = current.find((item) => item.id === conversationId);
+  if (!mine) return current;
+  const rest = current.filter((item) => item.id !== conversationId);
+  return [
+    {
+      ...mine,
+      lastMessage: message ?? mine.lastMessage,
+      updatedAt: message?.createdAt ?? mine.updatedAt,
+      unreadCount: unread ? Math.max(1, mine.unreadCount + (message ? 1 : 0)) : 0,
+    },
+    ...rest,
+  ];
+}
 
 export function MessagesPage() {
   const configured = useAuthStore((state) => state.configured);
@@ -102,6 +129,60 @@ export function MessagesPage() {
       cancelled = true;
     };
   }, [conversationId, token, showToast]);
+
+  // Live inserts: unread badges already subscribe, but the open thread did not.
+  useEffect(() => {
+    if (!token || !user?.id || !supabaseConfigured()) return;
+    const supabase = getSupabase();
+    const myId = user.id;
+    const channel = supabase
+      .channel(`messages-live:${myId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
+        const row = payload.new as {
+          id?: string;
+          conversation_id?: string;
+          sender_id?: string;
+          body?: string | null;
+          clip_id?: string | null;
+          created_at?: string;
+        };
+        const conversationKey = row.conversation_id;
+        const messageId = row.id;
+        if (!conversationKey || !messageId) return;
+
+        const activeId = useSocialUnreadStore.getState().activeConversationId;
+        if (activeId === conversationKey) {
+          stickToBottom.current = true;
+          void fetchMessages(token, conversationKey)
+            .then((thread) => {
+              setMessages((current) => mergeById(current, thread));
+              setConversations((current) =>
+                bumpConversation(current, conversationKey, thread[thread.length - 1] ?? null, false),
+              );
+              useSocialUnreadStore.getState().markConversationRead(conversationKey);
+            })
+            .catch(() => undefined);
+          return;
+        }
+
+        if (row.sender_id === myId) return;
+        void fetchConversation(token, conversationKey)
+          .then((summary) => {
+            setConversations((current) => {
+              const rest = current.filter((item) => item.id !== summary.id);
+              return [{ ...summary, unreadCount: Math.max(1, summary.unreadCount) }, ...rest];
+            });
+            useSocialUnreadStore.getState().noteMessage(conversationKey, row.sender_id || "", myId);
+          })
+          .catch(() => {
+            useSocialUnreadStore.getState().noteMessage(conversationKey, row.sender_id || "", myId);
+          });
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [token, user?.id]);
 
   useEffect(() => {
     if (!token || !conversationId) return;

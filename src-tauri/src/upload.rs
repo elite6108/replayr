@@ -42,11 +42,21 @@ struct PresignedPart {
     url: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct CompletedPart {
     part_number: u32,
     etag: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UploadResume {
+    clip_id: String,
+    upload_id: Option<String>,
+    file_size: u64,
+    composed_path: Option<String>,
+    parts: Vec<CompletedPart>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,10 +106,21 @@ pub fn upload_local_clip(
         return Err(AppError::Message("That file is no longer on disk.".into()));
     }
 
+    let prior_resume = {
+        let db = app.state::<AppState>();
+        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        library::load_upload_resume(&conn, local_id)?
+            .and_then(|text| serde_json::from_str::<UploadResume>(&text).ok())
+    };
+
     // Burn webcam into the bytes uploaded to cloud so share links, web players,
     // and website downloads all show the camera. Watermark stays player-side.
-    let (upload_path, _compose_guard) = match prepare_cloud_upload_mp4(&clip) {
-        Ok(prepared) => prepared,
+    let mut compose_ms: Option<u64> = None;
+    let (upload_path, mut compose_guard) = match prepare_cloud_upload_mp4(&clip, prior_resume.as_ref()) {
+        Ok(prepared) => {
+            compose_ms = prepared.2;
+            (prepared.0, prepared.1)
+        }
         Err(err) => {
             fail(app, local_id, &err.to_string())?;
             return Err(err);
@@ -112,8 +133,24 @@ pub fn upload_local_clip(
         .build()
         .map_err(|err| AppError::Message(err.to_string()))?;
 
-    let session = match start_session(&client, api_base, access_token, &clip, file_size) {
-        Ok(session) => session,
+    let (session, mut completed) = match try_resume_session(
+        &client,
+        api_base,
+        access_token,
+        prior_resume.as_ref(),
+        file_size,
+    ) {
+        Ok(Some(resumed)) => resumed,
+        Ok(None) => {
+            let session = match start_session(&client, api_base, access_token, &clip, file_size) {
+                Ok(session) => session,
+                Err(err) => {
+                    fail(app, local_id, &err.to_string())?;
+                    return Err(err);
+                }
+            };
+            (session, Vec::new())
+        }
         Err(err) => {
             fail(app, local_id, &err.to_string())?;
             return Err(err);
@@ -124,12 +161,33 @@ pub fn upload_local_clip(
         let db = app.state::<AppState>();
         let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
         library::set_cloud(&conn, local_id, "uploading", Some(&session.clip_id), None)?;
+        let resume = UploadResume {
+            clip_id: session.clip_id.clone(),
+            upload_id: session.upload_id.clone(),
+            file_size,
+            composed_path: compose_guard.0.as_ref().map(|p| p.display().to_string()),
+            parts: completed.clone(),
+        };
+        if let Ok(text) = serde_json::to_string(&resume) {
+            let _ = library::save_upload_resume(&conn, local_id, &text, 0);
+        }
     }
     emit(app, local_id, "uploading", None);
 
-    let etags = match put_parts(&client, path, file_size, &session.parts) {
+    let etags = match put_parts(
+        app,
+        local_id,
+        &client,
+        path,
+        file_size,
+        &session,
+        &mut completed,
+        compose_guard.0.as_ref().map(|p| p.display().to_string()),
+    ) {
         Ok(etags) => etags,
         Err(err) => {
+            // Keep composed bytes on disk for resume.
+            compose_guard.0 = None;
             fail(app, local_id, &err.to_string())?;
             return Err(err);
         }
@@ -145,15 +203,17 @@ pub fn upload_local_clip(
     }
     emit(app, local_id, "processing", None);
 
-    match complete_session(&client, api_base, access_token, &session, &etags) {
+    match complete_session(&client, api_base, access_token, &session, &etags, compose_ms) {
         Ok(done) => {
             let db = app.state::<AppState>();
             let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+            let _ = library::clear_upload_resume(&conn, local_id);
             let next = library::set_cloud(&conn, local_id, "completed", Some(&session.clip_id), None)?;
             emit(app, local_id, "completed", done.share_url.as_deref().or(Some(&done.slug)));
             Ok(next)
         }
         Err(err) => {
+            compose_guard.0 = None;
             fail(app, local_id, &err.to_string())?;
             Err(err)
         }
@@ -162,8 +222,23 @@ pub fn upload_local_clip(
 
 /// Returns `(path_to_upload, temp_guard)`. When a webcam sidecar exists, burns it
 /// into a temp MP4 so cloud playback matches the desktop overlay.
-fn prepare_cloud_upload_mp4(clip: &LocalClipDto) -> AppResult<(PathBuf, UploadComposeGuard)> {
+fn prepare_cloud_upload_mp4(
+    clip: &LocalClipDto,
+    resume: Option<&UploadResume>,
+) -> AppResult<(PathBuf, UploadComposeGuard, Option<u64>)> {
     let gameplay = PathBuf::from(&clip.file_path);
+    if let Some(resume) = resume {
+        if let Some(composed) = resume.composed_path.as_deref() {
+            let path = PathBuf::from(composed);
+            if path.exists() {
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    if meta.len() == resume.file_size && meta.len() > 0 {
+                        return Ok((path.clone(), UploadComposeGuard(Some(path)), None));
+                    }
+                }
+            }
+        }
+    }
     #[cfg(windows)]
     {
         if let Some(webcam) = library::valid_webcam_source(clip) {
@@ -172,10 +247,8 @@ fn prepare_cloud_upload_mp4(clip: &LocalClipDto) -> AppResult<(PathBuf, UploadCo
                 .file_stem()
                 .and_then(|value| value.to_str())
                 .unwrap_or("clip");
-            let output = gameplay.with_file_name(format!(
-                "{stem}.upload-composed-{}.mp4",
-                std::process::id()
-            ));
+            // Stable name so a crash mid-upload can resume without recompose.
+            let output = gameplay.with_file_name(format!("{stem}.upload-composed.mp4"));
             let fps = clip.fps.unwrap_or(60).clamp(24, 60) as u32;
             let duration_hns = clip.duration_ms.unwrap_or(0).saturating_mul(10_000);
             tracing::info!(
@@ -183,7 +256,9 @@ fn prepare_cloud_upload_mp4(clip: &LocalClipDto) -> AppResult<(PathBuf, UploadCo
                 webcam = %webcam.file_path,
                 "composing webcam into cloud upload"
             );
-            match crate::export::compose_webcam_mp4(
+            let timeout = compose_timeout(clip.duration_ms);
+            let started = std::time::Instant::now();
+            match crate::export::compose_webcam_mp4_timed(
                 &gameplay,
                 Path::new(&webcam.file_path),
                 &output,
@@ -192,22 +267,113 @@ fn prepare_cloud_upload_mp4(clip: &LocalClipDto) -> AppResult<(PathBuf, UploadCo
                 duration_hns,
                 fps,
                 false,
+                timeout,
             ) {
                 Ok(_) => {
+                    let compose_ms = started.elapsed().as_millis() as u64;
                     tracing::info!(
                         path = %output.display(),
+                        compose_ms,
                         "composed webcam into cloud upload"
                     );
-                    return Ok((output.clone(), UploadComposeGuard(Some(output))));
+                    return Ok((
+                        output.clone(),
+                        UploadComposeGuard(Some(output)),
+                        Some(compose_ms),
+                    ));
                 }
                 Err(err) => {
-                    tracing::warn!(%err, "cloud upload compose failed; uploading gameplay only");
                     let _ = std::fs::remove_file(&output);
+                    return Err(AppError::Message(format!(
+                        "Could not burn webcam into this clip: {err}"
+                    )));
                 }
             }
         }
     }
-    Ok((gameplay, UploadComposeGuard(None)))
+    Ok((gameplay, UploadComposeGuard(None), None))
+}
+
+fn try_resume_session(
+    client: &Client,
+    api_base: &str,
+    access_token: &str,
+    resume: Option<&UploadResume>,
+    file_size: u64,
+) -> AppResult<Option<(UploadSession, Vec<CompletedPart>)>> {
+    let Some(resume) = resume else {
+        return Ok(None);
+    };
+    if resume.file_size != file_size || resume.clip_id.is_empty() {
+        return Ok(None);
+    }
+    let done_numbers: Vec<u32> = resume.parts.iter().map(|part| part.part_number).collect();
+    let total_parts = if file_size > PART_SIZE as u64 {
+        ((file_size + PART_SIZE as u64 - 1) / PART_SIZE as u64) as u32
+    } else {
+        1
+    };
+    let remaining: Vec<u32> = (1..=total_parts)
+        .filter(|n| !done_numbers.contains(n))
+        .collect();
+    if remaining.is_empty() && !resume.parts.is_empty() {
+        return Ok(Some((
+            UploadSession {
+                clip_id: resume.clip_id.clone(),
+                slug: String::new(),
+                upload_id: resume.upload_id.clone(),
+                thumb_url: None,
+                parts: Vec::new(),
+            },
+            resume.parts.clone(),
+        )));
+    }
+    match continue_session(
+        client,
+        api_base,
+        access_token,
+        &resume.clip_id,
+        resume.upload_id.as_deref(),
+        &remaining,
+    ) {
+        Ok(session) => Ok(Some((session, resume.parts.clone()))),
+        Err(err) => {
+            tracing::warn!(error = %err, "upload resume rejected; starting a new session");
+            Ok(None)
+        }
+    }
+}
+
+fn continue_session(
+    client: &Client,
+    api_base: &str,
+    access_token: &str,
+    clip_id: &str,
+    upload_id: Option<&str>,
+    part_numbers: &[u32],
+) -> AppResult<UploadSession> {
+    let mut headers = auth_headers(access_token)?;
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let response = client
+        .post(format!("{api_base}/v1/clips/{clip_id}/upload-parts"))
+        .headers(headers)
+        .json(&json!({
+            "uploadId": upload_id,
+            "partNumbers": part_numbers,
+        }))
+        .send()
+        .map_err(map_reqwest)?;
+    parse_json(response)
+}
+
+fn compose_timeout(duration_ms: Option<i64>) -> std::time::Duration {
+    let secs = duration_ms
+        .unwrap_or(30_000)
+        .max(5_000)
+        .saturating_mul(4)
+        .saturating_div(1000)
+        .clamp(120, 600) as u64;
+    std::time::Duration::from_secs(secs)
 }
 
 fn start_session(
@@ -238,33 +404,83 @@ fn start_session(
 }
 
 fn put_parts(
+    app: &AppHandle,
+    local_id: &str,
     client: &Client,
     path: &Path,
     file_size: u64,
-    parts: &[PresignedPart],
+    session: &UploadSession,
+    completed: &mut Vec<CompletedPart>,
+    composed_path: Option<String>,
 ) -> AppResult<Vec<CompletedPart>> {
-    if parts.is_empty() {
+    if session.parts.is_empty() && completed.is_empty() {
         return Err(AppError::Message("Cloud API did not return upload URLs.".into()));
     }
     let mut file = File::open(path)?;
-    let mut completed = Vec::new();
-    let mut offset = 0u64;
-    for part in parts {
+    for part in &session.parts {
+        if completed.iter().any(|done| done.part_number == part.part_number) {
+            continue;
+        }
+        let offset = (u64::from(part.part_number.saturating_sub(1))) * PART_SIZE as u64;
         let remaining = file_size.saturating_sub(offset);
         let take = remaining.min(PART_SIZE as u64) as usize;
         let mut buf = vec![0u8; take];
         file.seek(SeekFrom::Start(offset))?;
         file.read_exact(&mut buf)?;
-        let response = client
-            .put(&part.url)
+        let etag = put_part_with_retry(client, &part.url, &buf, part.part_number)?;
+        completed.push(CompletedPart {
+            part_number: part.part_number,
+            etag,
+        });
+        let uploaded = completed
+            .iter()
+            .map(|done| {
+                let start = (u64::from(done.part_number.saturating_sub(1))) * PART_SIZE as u64;
+                file_size.saturating_sub(start).min(PART_SIZE as u64)
+            })
+            .sum::<u64>();
+        if let Ok(text) = serde_json::to_string(&UploadResume {
+            clip_id: session.clip_id.clone(),
+            upload_id: session.upload_id.clone(),
+            file_size,
+            composed_path: composed_path.clone(),
+            parts: completed.clone(),
+        }) {
+            let db = app.state::<AppState>();
+            if let Ok(conn) = db.db.lock() {
+                let _ = library::save_upload_resume(&conn, local_id, &text, uploaded);
+            };
+        }
+    }
+    completed.sort_by_key(|part| part.part_number);
+    Ok(completed.clone())
+}
+
+fn put_part_with_retry(client: &Client, url: &str, buf: &[u8], part_number: u32) -> AppResult<String> {
+    let mut last_err = String::new();
+    for attempt in 0u64..3 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(250 * attempt));
+        }
+        let response = match client
+            .put(url)
             .header(CONTENT_TYPE, "video/mp4")
-            .body(buf)
+            .body(buf.to_vec())
             .send()
-            .map_err(map_reqwest)?;
+        {
+            Ok(response) => response,
+            Err(err) => {
+                last_err = err.to_string();
+                continue;
+            }
+        };
+        if response.status().is_server_error() || response.status().as_u16() == 429 {
+            last_err = format!("HTTP {}", response.status());
+            continue;
+        }
         if !response.status().is_success() {
             return Err(AppError::Message(format!(
-                "R2 rejected part {}: HTTP {}",
-                part.part_number,
+                "R2 rejected part {part_number}: HTTP {}",
                 response.status()
             )));
         }
@@ -277,17 +493,14 @@ fn put_parts(
             .to_string();
         if etag.is_empty() {
             return Err(AppError::Message(format!(
-                "R2 did not return an ETag for part {}.",
-                part.part_number
+                "R2 did not return an ETag for part {part_number}."
             )));
         }
-        completed.push(CompletedPart {
-            part_number: part.part_number,
-            etag,
-        });
-        offset += take as u64;
+        return Ok(etag);
     }
-    Ok(completed)
+    Err(AppError::Message(format!(
+        "R2 rejected part {part_number} after retries: {last_err}"
+    )))
 }
 
 fn put_thumb(client: &Client, path: &str, url: &str) -> AppResult<()> {
@@ -321,6 +534,7 @@ fn complete_session(
     access_token: &str,
     session: &UploadSession,
     parts: &[CompletedPart],
+    compose_ms: Option<u64>,
 ) -> AppResult<CompleteResponse> {
     let mut headers = auth_headers(access_token)?;
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -330,6 +544,7 @@ fn complete_session(
         .json(&json!({
             "uploadId": session.upload_id,
             "parts": parts,
+            "composeMs": compose_ms,
         }))
         .send()
         .map_err(map_reqwest)?;
@@ -413,18 +628,33 @@ pub fn delete_cloud_clip(
     Ok(())
 }
 
-pub fn download_url_to_file(app: &AppHandle, url: &str, dest: &str) -> AppResult<()> {
+pub fn download_url_to_file(
+    app: &AppHandle,
+    url: &str,
+    dest: &str,
+    skip_watermark: bool,
+    authorization: Option<&str>,
+) -> AppResult<()> {
     if !url.starts_with("https://") && !url.starts_with("http://127.0.0.1") && !url.starts_with("http://localhost") {
         return Err(AppError::Message("Download URL is not allowed.".into()));
     }
     if dest.trim().is_empty() {
         return Err(AppError::Message("Choose a download location.".into()));
     }
+    crate::paths::assert_export_dest_allowed(app, dest)?;
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(300))
+        .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .map_err(map_reqwest)?;
-    let response = client.get(url).send().map_err(map_reqwest)?;
+    let mut request = client.get(url);
+    if let Some(token) = authorization.map(str::trim).filter(|value| !value.is_empty()) {
+        request = request.header("authorization", format!("Bearer {token}"));
+    }
+    let response = request.send().map_err(map_reqwest)?;
+    if response.status().as_u16() == 202 {
+        return Err(AppError::Message("Branded download is still preparing. Try again in a moment.".into()));
+    }
     if !response.status().is_success() {
         return Err(AppError::Message(format!(
             "Could not download clip: HTTP {}",
@@ -432,6 +662,19 @@ pub fn download_url_to_file(app: &AppHandle, url: &str, dest: &str) -> AppResult
         )));
     }
     let bytes = response.bytes().map_err(map_reqwest)?;
+    // Reject Bunny/CDN hotlink HTML/JSON error pages saved as fake MP4s.
+    {
+        let prefix = std::str::from_utf8(&bytes[..bytes.len().min(96)]).unwrap_or("");
+        let trimmed = prefix.trim_start();
+        let looks_like_text = trimmed.starts_with('<') || trimmed.starts_with('{');
+        let has_ftyp = bytes.windows(4).take(64).any(|window| window == b"ftyp");
+        if looks_like_text || !has_ftyp {
+            return Err(AppError::Message(
+                "Download did not return a video file. Wait for the branded download to finish and try again."
+                    .into(),
+            ));
+        }
+    }
     let dest_path = Path::new(dest);
     if let Some(parent) = dest_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -439,7 +682,8 @@ pub fn download_url_to_file(app: &AppHandle, url: &str, dest: &str) -> AppResult
 
     #[cfg(windows)]
     {
-        let watermark = crate::export::should_watermark_exports(app)
+        let watermark = !skip_watermark
+            && crate::export::should_watermark_exports(app)
             && dest_path
                 .extension()
                 .and_then(|value| value.to_str())
@@ -469,7 +713,7 @@ pub fn download_url_to_file(app: &AppHandle, url: &str, dest: &str) -> AppResult
         }
     }
     #[cfg(not(windows))]
-    let _ = app;
+    let _ = (app, skip_watermark);
 
     std::fs::write(dest, bytes)?;
     Ok(())
@@ -495,4 +739,35 @@ fn emit(app: &AppHandle, local_id: &str, status: &str, detail: Option<&str>) {
 
 fn map_reqwest(err: reqwest::Error) -> AppError {
     AppError::Message(format!("Cloud request failed: {err}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compose_timeout_clamps_between_two_and_ten_minutes() {
+        assert_eq!(compose_timeout(Some(1_000)).as_secs(), 120);
+        assert_eq!(compose_timeout(Some(60_000)).as_secs(), 240);
+        assert_eq!(compose_timeout(Some(10_000_000)).as_secs(), 600);
+    }
+
+    #[test]
+    fn upload_resume_round_trips_json() {
+        let resume = UploadResume {
+            clip_id: "abc".into(),
+            upload_id: Some("up".into()),
+            file_size: 16 * 1024 * 1024,
+            composed_path: Some("C:\\clips\\a.upload-composed.mp4".into()),
+            parts: vec![CompletedPart {
+                part_number: 1,
+                etag: "etag1".into(),
+            }],
+        };
+        let text = serde_json::to_string(&resume).unwrap();
+        let parsed: UploadResume = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed.clip_id, "abc");
+        assert_eq!(parsed.parts.len(), 1);
+        assert_eq!(parsed.parts[0].etag, "etag1");
+    }
 }

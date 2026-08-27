@@ -42,6 +42,17 @@ impl Drop for RemovePath {
 }
 
 pub fn concat_mp4s(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
+    concat_mp4s_inner(inputs, output, false)
+}
+
+/// Like [`concat_mp4s`], but keeps each source sample's presentation gaps.
+/// Webcam rolling writes sparse PTS for dropped frames; packing those gaps
+/// out again would make the cam run ahead and hitch at segment joins.
+pub fn concat_mp4s_preserve_timeline(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
+    concat_mp4s_inner(inputs, output, true)
+}
+
+fn concat_mp4s_inner(inputs: &[PathBuf], output: &Path, preserve_timeline: bool) -> Result<(), String> {
     if inputs.is_empty() {
         return Err("Replay buffer is empty.".into());
     }
@@ -86,24 +97,31 @@ pub fn concat_mp4s(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
     for path in inputs {
         let reader = open_reader(path)?;
         let video_before = video_time;
-        copy_stream(
-            &reader,
-            &writer,
-            0,
-            MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
-            &mut video_time,
-            fallback,
-            None,
-        )?;
+        if preserve_timeline {
+            copy_stream_preserve(
+                &reader,
+                &writer,
+                0,
+                MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+                &mut video_time,
+                fallback,
+            )?;
+        } else {
+            copy_stream(
+                &reader,
+                &writer,
+                0,
+                MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+                &mut video_time,
+                fallback,
+                None,
+            )?;
+        }
         drop(reader);
         if let Some(pcm_file) = pcm_file.as_mut() {
             let video_added = video_time.saturating_sub(video_before);
             let (mut chunk, from_sidecar) = load_segment_pcm(path);
             if from_sidecar {
-                // Each sidecar already runs at 1x for exactly its own segment,
-                // so pinning it to that segment's video length keeps every later
-                // segment at its true offset. Correcting only the total would
-                // let a short segment shift everything after it.
                 let drift = fit_pcm_to_video(&mut chunk, video_added);
                 if drift.abs() > hns_to_pcm_bytes(200_000) as i64 {
                     tracing::warn!(
@@ -409,6 +427,63 @@ impl WebcamFollow {
 /// sampled at the same timestamp and blitted with `layout`. Optional watermark
 /// is applied after the overlay. `end_hns <= 0` reads until end of stream.
 pub fn compose_webcam_mp4(
+    gameplay: &Path,
+    webcam: &Path,
+    output: &Path,
+    layout: &crate::overlay::OverlayLayout,
+    start_hns: i64,
+    end_hns: i64,
+    fps: u32,
+    watermark: bool,
+) -> Result<i64, String> {
+    compose_webcam_mp4_inner(gameplay, webcam, output, layout, start_hns, end_hns, fps, watermark)
+}
+
+/// Same as [`compose_webcam_mp4`], but aborts if composition exceeds `timeout`.
+pub fn compose_webcam_mp4_timed(
+    gameplay: &Path,
+    webcam: &Path,
+    output: &Path,
+    layout: &crate::overlay::OverlayLayout,
+    start_hns: i64,
+    end_hns: i64,
+    fps: u32,
+    watermark: bool,
+    timeout: std::time::Duration,
+) -> Result<i64, String> {
+    let gameplay = gameplay.to_path_buf();
+    let webcam = webcam.to_path_buf();
+    let output = output.to_path_buf();
+    let layout = layout.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("compose-webcam".into())
+        .spawn(move || {
+            let result = compose_webcam_mp4_inner(
+                &gameplay,
+                &webcam,
+                &output,
+                &layout,
+                start_hns,
+                end_hns,
+                fps,
+                watermark,
+            );
+            let _ = tx.send(result);
+        })
+        .map_err(|err| err.to_string())?;
+    match rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            Err("Webcam compose timed out. Try again or turn webcam off for this clip.".into())
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("Webcam compose stopped unexpectedly.".into())
+        }
+    }
+}
+
+fn compose_webcam_mp4_inner(
     gameplay: &Path,
     webcam: &Path,
     output: &Path,
@@ -1253,6 +1328,54 @@ fn copy_stream(
                 .map_err(|err| format!("Could not copy a replay sample: {err}"))?;
         }
         *timeline += duration;
+    }
+    Ok(())
+}
+
+/// Copy compressed samples while preserving source PTS gaps (webcam path).
+fn copy_stream_preserve(
+    reader: &IMFSourceReader,
+    writer: &IMFSinkWriter,
+    writer_stream: u32,
+    reader_stream: u32,
+    timeline: &mut i64,
+    fallback_duration: i64,
+) -> Result<(), String> {
+    let file_start = *timeline;
+    let mut origin: Option<i64> = None;
+    loop {
+        let mut flags = 0_u32;
+        let mut timestamp = 0_i64;
+        let mut sample: Option<IMFSample> = None;
+        unsafe {
+            reader
+                .ReadSample(reader_stream, 0, None, Some(&mut flags), Some(&mut timestamp), Some(&mut sample))
+                .map_err(|err| format!("Could not read a replay sample: {err}"))?;
+        }
+        if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 {
+            break;
+        }
+        let Some(sample) = sample else {
+            continue;
+        };
+        let base = *origin.get_or_insert(timestamp);
+        let out_time = file_start
+            .saturating_add(timestamp.saturating_sub(base))
+            .max(*timeline);
+        let from_sample = unsafe { sample.GetSampleDuration().unwrap_or(0) };
+        let duration = if from_sample >= 10_000 {
+            from_sample
+        } else {
+            fallback_duration
+        };
+        unsafe {
+            sample.SetSampleTime(out_time).map_err(|err| err.to_string())?;
+            sample.SetSampleDuration(duration).map_err(|err| err.to_string())?;
+            writer
+                .WriteSample(writer_stream, &sample)
+                .map_err(|err| format!("Could not copy a replay sample: {err}"))?;
+        }
+        *timeline = out_time.saturating_add(duration);
     }
     Ok(())
 }

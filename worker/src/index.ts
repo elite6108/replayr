@@ -3,11 +3,14 @@ import { handlePublicAnnouncements } from "./announcements";
 import type { Env } from "./env";
 import { ingestClientError, recordWorkerError } from "./errors";
 import { cors, HttpError, json } from "./http";
+import { recordProductEvent } from "./metrics";
+import { assertRateLimit } from "./rateLimit";
 import {
   anonymousAuthor,
   loadAuthors,
   loadSocial,
   lookupPlaybackRaw,
+  mapPool,
   objectUrl,
   optionalUser,
   ownedObjectKey,
@@ -28,6 +31,15 @@ import {
 } from "./shared";
 import { assertUploadAllowed, handleBilling } from "./billing";
 import { handleSocial } from "./social";
+import {
+  brandedDownloadRedirect,
+  deleteBunnyAssetForClip,
+  enqueueWatermarkVariant,
+  handleBunnySource,
+  handleBunnyWebhook,
+  reconcileWatermarkJobs,
+} from "./watermark";
+import { bunnyConfigured } from "./bunny";
 
 export type {
   AddMembersBody,
@@ -79,6 +91,7 @@ interface UploadBody {
 interface CompleteBody {
   uploadId?: string | null;
   parts?: { partNumber: number; etag: string }[];
+  composeMs?: number | null;
 }
 
 export default {
@@ -102,6 +115,14 @@ export default {
       return cors(json({ error: "Something went wrong." }, 500), request);
     }
   },
+  async scheduled(_controller: ScheduledController, env: Env, ctx: { waitUntil(task: Promise<unknown>): void }) {
+    ctx.waitUntil(
+      (async () => {
+        await cleanupExpiredUploadsGlobal(env);
+        await reconcileWatermarkJobs(env);
+      })(),
+    );
+  },
 };
 
 async function route(
@@ -116,8 +137,26 @@ async function route(
       storage: Boolean(env.R2_BUCKET_NAME && env.R2_ACCESS_KEY_ID && env.R2_ACCOUNT_ID),
     });
   }
+  if (request.method === "POST" && url.pathname === "/internal/webhooks/bunny") {
+    return handleBunnyWebhook(request, env);
+  }
+  const bunnySource = url.pathname.match(/^\/internal\/bunny-source\/([^/]+)$/);
+  if (request.method === "GET" && bunnySource?.[1]) {
+    return handleBunnySource(request, env, bunnySource[1]);
+  }
   const billing = await handleBilling(request, env, url);
   if (billing) return billing;
+  if (
+    request.method !== "GET" &&
+    request.method !== "HEAD" &&
+    request.method !== "OPTIONS" &&
+    (url.pathname.startsWith("/v1/friends") ||
+      url.pathname.startsWith("/v1/conversations") ||
+      url.pathname.startsWith("/v1/notifications") ||
+      /^\/v1\/clips\/[^/]+\/send$/.test(url.pathname))
+  ) {
+    assertRateLimit(request, "social-write", 60);
+  }
   const social = await handleSocial(request, env, url);
   if (social) return social;
   const announcements = await handlePublicAnnouncements(request, env, url);
@@ -135,13 +174,17 @@ async function route(
   if (request.method === "POST" && url.pathname === "/v1/clips/uploads") {
     return createUpload(request, env);
   }
+  const uploadParts = url.pathname.match(/^\/v1\/clips\/([^/]+)\/upload-parts$/);
+  if (request.method === "POST" && uploadParts?.[1]) {
+    return continueUploadParts(request, env, uploadParts[1]);
+  }
   const complete = url.pathname.match(/^\/v1\/clips\/([^/]+)\/complete$/);
   if (request.method === "POST" && complete?.[1]) {
-    return completeUpload(request, env, complete[1]);
+    return completeUpload(request, env, complete[1], ctx);
   }
   const download = url.pathname.match(/^\/v1\/clips\/([^/]+)\/download$/);
   if (request.method === "GET" && download?.[1]) {
-    return downloadClip(request, env, download[1]);
+    return downloadClip(request, env, download[1], ctx);
   }
   const commentItem = url.pathname.match(/^\/v1\/clips\/([^/]+)\/comments\/([^/]+)$/);
   if (request.method === "DELETE" && commentItem?.[1] && commentItem[2]) {
@@ -185,7 +228,7 @@ async function route(
     return serveUpdaterManifest(request, env);
   }
   if (request.method === "GET" && url.pathname === "/") {
-    if (env.ASSETS) return env.ASSETS.fetch(request);
+    if (env.ASSETS) return withWebSecurityHeaders(await env.ASSETS.fetch(request));
     return siteLanding(env);
   }
   if (
@@ -200,20 +243,47 @@ async function route(
   ) {
     if (env.ASSETS) {
       const index = new URL("/index.html", request.url);
-      return env.ASSETS.fetch(new Request(index, request));
+      return withWebSecurityHeaders(await env.ASSETS.fetch(new Request(index, request)));
     }
   }
   if (url.pathname.startsWith("/v1/")) {
     return json({ error: "Not found." }, 404);
   }
   if (env.ASSETS && request.method === "GET") {
-    return env.ASSETS.fetch(request);
+    return withWebSecurityHeaders(await env.ASSETS.fetch(request));
   }
   return json({ error: "Not found." }, 404);
 }
 
+function withWebSecurityHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  const csp = [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' blob: https:",
+    "font-src 'self' data:",
+    "style-src 'self' 'unsafe-inline'",
+    "script-src 'self'",
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://*.r2.cloudflarestorage.com https://replayr.tv https://www.replayr.tv",
+    "form-action 'self'",
+  ].join("; ");
+  headers.set("Content-Security-Policy", csp);
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set("X-Frame-Options", "DENY");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function createUpload(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
+  assertRateLimit(request, "upload-create", 10, user.id);
   requireR2(env);
   const body = (await request.json()) as UploadBody;
   const size = Number(body.size ?? 0);
@@ -290,15 +360,32 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
       return json({ error: "R2 did not return an upload id." }, 502);
     }
     const count = Math.ceil(size / PART_SIZE);
-    for (let partNumber = 1; partNumber <= count; partNumber += 1) {
+    const MAX_PRESIGN_PARTS = 80;
+    if (count > MAX_PRESIGN_PARTS) {
+      await abortMultipart(env, key, uploadId);
+      await failClip(env, user.id, clipId);
+      return json(
+        {
+          error: `That file needs ${count} parts. Split clips under ${Math.floor((MAX_PRESIGN_PARTS * PART_SIZE) / (1024 * 1024))} MB or contact support.`,
+        },
+        400,
+      );
+    }
+    const partNumbers = Array.from({ length: count }, (_, index) => index + 1);
+    const signedParts = await mapPool(partNumbers, 16, async (partNumber) => {
       const signed = await aws.sign(
-        `${endpoint}?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId)}`,
+        `${endpoint}?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId!)}&X-Amz-Expires=3600`,
         { method: "PUT", headers: signHeaders, aws: { signQuery: true } },
       );
-      parts.push({ partNumber, url: signed.url });
-    }
+      return { partNumber, url: signed.url };
+    });
+    parts.push(...signedParts);
   } else {
-    const signed = await aws.sign(endpoint, { method: "PUT", headers: signHeaders, aws: { signQuery: true } });
+    const signed = await aws.sign(`${endpoint}?X-Amz-Expires=3600`, {
+      method: "PUT",
+      headers: signHeaders,
+      aws: { signQuery: true },
+    });
     parts.push({ partNumber: 1, url: signed.url });
   }
 
@@ -340,15 +427,106 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
   });
 }
 
-async function completeUpload(request: Request, env: Env, clipId: string): Promise<Response> {
+interface ContinuePartsBody {
+  uploadId?: string | null;
+  partNumbers?: number[];
+}
+
+async function continueUploadParts(request: Request, env: Env, clipId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  requireR2(env);
+  const body = (await request.json()) as ContinuePartsBody;
+  const clips = await serviceRest<ClipRow[]>(
+    env,
+    "GET",
+    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,status,thumbnail_key`,
+  );
+  const clip = clips[0];
+  if (!clip || clip.status !== "uploading") {
+    return json({ error: "Clip upload was not found or is no longer resumable." }, 404);
+  }
+  if (!ownedObjectKey(user.id, clip.storage_key)) {
+    return json({ error: "Clip storage key is invalid." }, 403);
+  }
+  const sessions = await serviceRest<
+    { multipart_upload_id: string | null; expected_size_bytes: number; status: string; expires_at: string }[]
+  >(
+    env,
+    "GET",
+    `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&status=eq.uploading&select=multipart_upload_id,expected_size_bytes,status,expires_at`,
+  );
+  const session = sessions[0];
+  if (!session) {
+    return json({ error: "Upload session expired. Start a new upload." }, 410);
+  }
+  if (new Date(session.expires_at).getTime() < Date.now()) {
+    await releaseExpiredUploads(env, user.id);
+    return json({ error: "Upload session expired. Start a new upload." }, 410);
+  }
+  const uploadId = body.uploadId ?? session.multipart_upload_id;
+  if (session.multipart_upload_id && uploadId !== session.multipart_upload_id) {
+    return json({ error: "Upload id does not match this session." }, 400);
+  }
+  const partNumbers = Array.isArray(body.partNumbers)
+    ? [...new Set(body.partNumbers.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n >= 1))]
+    : [];
+  const expectedParts = Math.max(1, Math.ceil(Number(session.expected_size_bytes) / PART_SIZE));
+  if (partNumbers.some((n) => n > expectedParts) || partNumbers.length > 80) {
+    return json({ error: "Invalid part numbers for this upload." }, 400);
+  }
+
+  const aws = r2Client(env);
+  const endpoint = objectUrl(env, clip.storage_key);
+  const signHeaders = { "content-type": CONTENT_TYPE };
+  const parts: { partNumber: number; url: string }[] = [];
+
+  if (!uploadId) {
+    if (partNumbers.length > 1 || (partNumbers.length === 1 && partNumbers[0] !== 1)) {
+      return json({ error: "Single-PUT uploads can only resign part 1." }, 400);
+    }
+    const signed = await aws.sign(`${endpoint}?X-Amz-Expires=3600`, {
+      method: "PUT",
+      headers: signHeaders,
+      aws: { signQuery: true },
+    });
+    parts.push({ partNumber: 1, url: signed.url });
+  } else {
+    const numbers = partNumbers.length ? partNumbers : Array.from({ length: expectedParts }, (_, i) => i + 1);
+    const signedParts = await mapPool(numbers, 16, async (partNumber) => {
+      const signed = await aws.sign(
+        `${endpoint}?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId)}&X-Amz-Expires=3600`,
+        { method: "PUT", headers: signHeaders, aws: { signQuery: true } },
+      );
+      return { partNumber, url: signed.url };
+    });
+    parts.push(...signedParts);
+  }
+
+  return json({
+    clipId,
+    slug: clip.slug,
+    uploadId: uploadId ?? null,
+    thumbUrl: clip.thumbnail_key
+      ? await signedOwnedUrl(env, user.id, clip.thumbnail_key, "PUT", { "content-type": "image/bmp" })
+      : null,
+    parts,
+  });
+}
+
+async function completeUpload(
+  request: Request,
+  env: Env,
+  clipId: string,
+  ctx: { waitUntil(task: Promise<unknown>): void },
+): Promise<Response> {
   const user = await requireUser(request, env);
   requireR2(env);
   await releaseExpiredUploads(env, user.id);
   const body = (await request.json()) as CompleteBody;
-  const clips = await serviceRest<ClipRow[]>(
+  const clips = await serviceRest<(ClipRow & { watermark?: boolean })[]>(
     env,
     "GET",
-    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,status`,
+    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,status,watermark`,
   );
   const clip = clips[0];
   if (!clip) {
@@ -413,6 +591,15 @@ async function completeUpload(request: Request, env: Env, clipId: string): Promi
     status: "completed",
   });
 
+  void recordProductEvent(env, "upload_success", 1, { clipId });
+  if (typeof body.composeMs === "number" && Number.isFinite(body.composeMs) && body.composeMs >= 0) {
+    void recordProductEvent(env, "compose_ms", Math.min(body.composeMs, 3_600_000), { clipId });
+  }
+
+  if (clip.watermark) {
+    ctx.waitUntil(enqueueWatermarkVariant(env, clipId, request));
+  }
+
   return json({
     clipId,
     slug: clip.slug,
@@ -426,10 +613,10 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
     return json({ error: "Clip id is invalid." }, 400);
   }
   const user = await requireUser(request, env);
-  const clips = await serviceRest<ClipRow[]>(
+  const clips = await serviceRest<(ClipRow & { watermark_processor_video_id?: string | null })[]>(
     env,
     "GET",
-    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,thumbnail_key,status,file_size_bytes`,
+    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,thumbnail_key,status,file_size_bytes,watermark_processor_video_id`,
   );
   const clip = clips[0];
   if (!clip || clip.status === "deleted") {
@@ -448,6 +635,7 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
   if (clip.storage_key || clip.thumbnail_key) requireR2(env);
   await deleteOwnedObject(env, user.id, clip.storage_key);
   await deleteOwnedObject(env, user.id, clip.thumbnail_key);
+  await deleteBunnyAssetForClip(env, clip.watermark_processor_video_id);
 
   if (clip.status === "ready" && clip.file_size_bytes && clip.file_size_bytes > 0) {
     await releaseReservedBytes(env, user.id, clip.file_size_bytes);
@@ -459,6 +647,8 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
     status: "deleted",
     storage_key: null,
     thumbnail_key: null,
+    watermark_processor_video_id: null,
+    watermark_variant_status: "none",
   });
   await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`);
 
@@ -472,10 +662,10 @@ async function deleteAccount(request: Request, env: Env): Promise<Response> {
 
   let offset = 0;
   for (;;) {
-    const clips = await serviceRest<ClipRow[]>(
+    const clips = await serviceRest<(ClipRow & { watermark_processor_video_id?: string | null })[]>(
       env,
       "GET",
-      `/clips?user_id=eq.${user.id}&status=neq.deleted&select=id,user_id,storage_key,thumbnail_key,status,file_size_bytes&limit=100&offset=${offset}`,
+      `/clips?user_id=eq.${user.id}&status=neq.deleted&select=id,user_id,storage_key,thumbnail_key,status,file_size_bytes,watermark_processor_video_id&limit=100&offset=${offset}`,
     );
     if (clips.length === 0) break;
     const uploadingIds = clips.filter((clip) => clip.status === "uploading").map((clip) => clip.id);
@@ -491,6 +681,7 @@ async function deleteAccount(request: Request, env: Env): Promise<Response> {
     for (const clip of clips) {
       await deleteOwnedObject(env, user.id, clip.storage_key);
       await deleteOwnedObject(env, user.id, clip.thumbnail_key);
+      await deleteBunnyAssetForClip(env, clip.watermark_processor_video_id);
       if (clip.status === "ready" && clip.file_size_bytes && clip.file_size_bytes > 0) {
         await releaseReservedBytes(env, user.id, clip.file_size_bytes);
       } else if (clip.status === "uploading") {
@@ -578,10 +769,10 @@ async function listGameClips(request: Request, env: Env, slug: string): Promise<
   requireR2(env);
   const viewer = await optionalUser(request, env);
   const social = await loadSocial(env, rows, viewer?.id ?? null);
-  const clips = [];
-  for (const row of rows) {
+  const thumbs = await mapPool(rows, 12, (row) => signedOwnedUrl(env, row.user_id, row.thumbnail_key, "GET"));
+  const clips = rows.map((row, index) => {
     const extra = social.get(row.id);
-    clips.push({
+    return {
       id: row.id,
       title: row.title,
       slug: row.slug,
@@ -592,15 +783,15 @@ async function listGameClips(request: Request, env: Env, slug: string): Promise<
       height: row.height,
       fileSizeBytes: row.file_size_bytes,
       createdAt: row.created_at,
-      thumbnailUrl: await signedOwnedUrl(env, row.user_id, row.thumbnail_key, "GET"),
-      playbackUrl: await signedOwnedUrl(env, row.user_id, row.storage_key, "GET"),
+      thumbnailUrl: thumbs[index],
+      playbackUrl: null as string | null,
       author: extra?.author ?? anonymousAuthor(),
       likeCount: extra?.likeCount ?? row.like_count ?? 0,
       commentCount: extra?.commentCount ?? row.comment_count ?? 0,
       liked: extra?.liked ?? false,
       watermark: row.watermark !== false,
-    });
-  }
+    };
+  });
   return json({ game, clips });
 }
 
@@ -650,13 +841,89 @@ async function listTrendingPublicRows(env: Env, limit: number): Promise<PublicCl
   return ordered;
 }
 
-async function downloadClip(request: Request, env: Env, slug: string): Promise<Response> {
+async function downloadClip(
+  request: Request,
+  env: Env,
+  slug: string,
+  ctx: { waitUntil(task: Promise<unknown>): void },
+): Promise<Response> {
   const clip = await lookupPlayback(request, env, slug);
   if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) {
     return json({ error: "That clip is not available." }, 404);
   }
+
+  // Pro / clean downloads: stream original from R2.
+  if (clip.watermark === false) {
+    return streamR2Original(env, clip);
+  }
+
+  if (!bunnyConfigured(env)) {
+    return json({ error: "Branded downloads are temporarily unavailable.", code: "bunny_unconfigured" }, 503);
+  }
+
+  const variants = await serviceRest<
+    {
+      watermark_variant_status: string;
+      watermark_processor_video_id: string | null;
+      watermark_resolution: number | null;
+      watermark_error: string | null;
+    }[]
+  >(
+    env,
+    "GET",
+    `/clips?id=eq.${clip.id}&select=watermark_variant_status,watermark_processor_video_id,watermark_resolution,watermark_error`,
+  );
+  const variant = variants[0] ?? {
+    watermark_variant_status: "none",
+    watermark_processor_video_id: null,
+    watermark_resolution: null,
+    watermark_error: null,
+  };
+
+  if (variant.watermark_variant_status === "ready" && variant.watermark_processor_video_id) {
+    try {
+      return await brandedDownloadRedirect(
+        env,
+        variant,
+        downloadFileName(clip.title, clip.slug),
+      );
+    } catch {
+      return json({ error: "Could not download that branded clip." }, 502);
+    }
+  }
+
+  if (variant.watermark_variant_status === "failed") {
+    if (variant.watermark_error === "unavailable_mp4_resolution") {
+      return json(
+        {
+          error: "Branded download is unavailable for this clip.",
+          code: "unavailable_mp4_resolution",
+        },
+        409,
+      );
+    }
+  }
+
+  if (
+    variant.watermark_variant_status === "none" ||
+    variant.watermark_variant_status === "failed"
+  ) {
+    ctx.waitUntil(enqueueWatermarkVariant(env, clip.id, request));
+  }
+
+  return json(
+    {
+      status: "preparing",
+      message: "Preparing branded download",
+      code: "watermark_preparing",
+    },
+    202,
+  );
+}
+
+async function streamR2Original(env: Env, clip: PlaybackRow): Promise<Response> {
   requireR2(env);
-  const signed = await r2Client(env).sign(`${objectUrl(env, clip.storage_key)}?X-Amz-Expires=3600`, {
+  const signed = await r2Client(env).sign(`${objectUrl(env, clip.storage_key!)}?X-Amz-Expires=3600`, {
     method: "GET",
     aws: { signQuery: true },
   });
@@ -688,6 +955,7 @@ async function getPlayback(
   slug: string,
   ctx: { waitUntil(task: Promise<unknown>): void },
 ): Promise<Response> {
+  assertRateLimit(request, "playback", 120);
   const clip = await lookupPlayback(request, env, slug);
   if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) {
     return json({ error: "That clip is not available." }, 404);
@@ -697,6 +965,7 @@ async function getPlayback(
     method: "GET",
     aws: { signQuery: true },
   });
+  ctx.waitUntil(recordProductEvent(env, "sign_count", 2, { route: "playback" }));
   const viewer = await optionalUser(request, env);
   if (clipAllowsSocial(clip) && viewer?.id !== clip.user_id) {
     ctx.waitUntil(recordClipView(env, clip.id, request));
@@ -893,7 +1162,7 @@ async function serveUpdaterManifest(request: Request, env: Env): Promise<Respons
 async function clipPlayerPage(request: Request, env: Env, slug: string): Promise<Response> {
   if (env.ASSETS) {
     const index = new URL("/index.html", request.url);
-    return env.ASSETS.fetch(new Request(index, request));
+    return withWebSecurityHeaders(await env.ASSETS.fetch(new Request(index, request)));
   }
   const origin = publicShareOrigin(env) || new URL(request.url).origin;
   const safeSlug = slug.replace(/[^a-z0-9]/g, "");
@@ -990,15 +1259,48 @@ async function deleteOwnedObject(env: Env, userId: string, key: string | null | 
 }
 
 async function releaseExpiredUploads(env: Env, userId: string) {
-  const expired = await serviceRest<{ clip_id: string; expected_size_bytes: number }[]>(
+  const expired = await serviceRest<
+    {
+      clip_id: string;
+      expected_size_bytes: number;
+      storage_key: string | null;
+      multipart_upload_id: string | null;
+    }[]
+  >(
     env,
     "GET",
-    `/upload_sessions?user_id=eq.${userId}&status=eq.uploading&expires_at=lt.${new Date().toISOString()}&select=clip_id,expected_size_bytes`,
+    `/upload_sessions?user_id=eq.${userId}&status=eq.uploading&expires_at=lt.${new Date().toISOString()}&select=clip_id,expected_size_bytes,storage_key,multipart_upload_id`,
   );
   for (const session of expired) {
+    await abortMultipart(env, session.storage_key ?? "", session.multipart_upload_id);
+    await deleteOwnedObject(env, userId, session.storage_key);
     await releaseReservedBytes(env, userId, Number(session.expected_size_bytes));
     await failClip(env, userId, session.clip_id);
     await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${session.clip_id}&user_id=eq.${userId}`);
+  }
+}
+
+/** Cron / global sweep: abort multipart leftovers for every expired session. */
+async function cleanupExpiredUploadsGlobal(env: Env) {
+  const expired = await serviceRest<
+    {
+      clip_id: string;
+      user_id: string;
+      expected_size_bytes: number;
+      storage_key: string | null;
+      multipart_upload_id: string | null;
+    }[]
+  >(
+    env,
+    "GET",
+    `/upload_sessions?status=eq.uploading&expires_at=lt.${new Date().toISOString()}&select=clip_id,user_id,expected_size_bytes,storage_key,multipart_upload_id&limit=200`,
+  );
+  for (const session of expired) {
+    await abortMultipart(env, session.storage_key ?? "", session.multipart_upload_id);
+    await deleteOwnedObject(env, session.user_id, session.storage_key);
+    await releaseReservedBytes(env, session.user_id, Number(session.expected_size_bytes));
+    await failClip(env, session.user_id, session.clip_id);
+    await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${session.clip_id}&user_id=eq.${session.user_id}`);
   }
 }
 
@@ -1020,7 +1322,7 @@ async function failClip(env: Env, userId: string, clipId: string) {
 }
 
 async function abortMultipart(env: Env, key: string, uploadId: string | null) {
-  if (!uploadId) return;
+  if (!uploadId || !key) return;
   try {
     await r2Client(env).fetch(`${objectUrl(env, key)}?uploadId=${encodeURIComponent(uploadId)}`, { method: "DELETE" });
   } catch {

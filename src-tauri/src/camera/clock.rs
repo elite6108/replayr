@@ -9,6 +9,9 @@
 use std::time::{Duration, Instant};
 
 pub const SEGMENT_HNS: i64 = 20_000_000;
+/// Webcam rolling files span multiple gameplay grids so encoder restarts
+/// (and the visible hitch at each keyframe) are far less frequent.
+pub const WEBCAM_FILE_HNS: i64 = SEGMENT_HNS * 5; // 10s
 pub const HNS_PER_SECOND: i64 = 10_000_000;
 
 /// Jump larger than this versus the previous mapped time is a discontinuity.
@@ -249,6 +252,15 @@ pub fn segment_index(session_hns: i64) -> i64 {
 pub fn segment_bounds(index: i64) -> (i64, i64) {
     let start = index.max(0).saturating_mul(SEGMENT_HNS);
     (start, start.saturating_add(SEGMENT_HNS))
+}
+
+pub fn webcam_file_index(session_hns: i64) -> i64 {
+    session_hns.max(0) / WEBCAM_FILE_HNS
+}
+
+pub fn webcam_file_bounds(index: i64) -> (i64, i64) {
+    let start = index.max(0).saturating_mul(WEBCAM_FILE_HNS);
+    (start, start.saturating_add(WEBCAM_FILE_HNS))
 }
 
 /// Select every segment that overlaps `[range_start, range_end)`.

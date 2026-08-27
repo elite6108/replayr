@@ -555,11 +555,7 @@ async function listConversations(request: Request, env: Env): Promise<Response> 
     "GET",
     `/conversation_members?conversation_id=in.(${ids.join(",")})&select=conversation_id,user_id,role,last_read_at`,
   );
-  const presented = [];
-  for (const conversation of conversations) {
-    const summary = await presentConversation(env, user.id, conversation, allMembers);
-    if (summary) presented.push(summary);
-  }
+  const presented = await presentConversationsBatch(env, user.id, conversations, allMembers);
   return json({ conversations: presented });
 }
 
@@ -854,9 +850,80 @@ async function presentConversationOrThrow(
   conversation: ConversationRow,
 ): Promise<ConversationSummary> {
   const members = await conversationMembers(env, conversation.id);
-  const summary = await presentConversation(env, userId, conversation, members);
+  const [summary] = await presentConversationsBatch(env, userId, [conversation], members);
   if (!summary) throw new HttpError(403, "That conversation is not available.");
   return summary;
+}
+
+async function presentConversationsBatch(
+  env: Env,
+  userId: string,
+  conversations: ConversationRow[],
+  memberships: MemberRow[],
+): Promise<ConversationSummary[]> {
+  if (conversations.length === 0) return [];
+  const friendshipIdx = await friendshipIndex(env, userId);
+  const memberIds = [...new Set(memberships.map((row) => row.user_id))];
+  const people = await loadSocialUsers(env, memberIds);
+  const conversationIds = conversations.map((row) => row.id);
+  const lastByConversation = new Map<string, MessageRow>();
+  for (const group of chunkIds(conversationIds)) {
+    const lastRows = await serviceRest<MessageRow[]>(
+      env,
+      "GET",
+      `/messages?conversation_id=in.(${group.join(",")})&select=${MESSAGE_SELECT}&order=created_at.desc&limit=200`,
+    );
+    for (const row of lastRows) {
+      if (!lastByConversation.has(row.conversation_id)) {
+        lastByConversation.set(row.conversation_id, row);
+      }
+    }
+  }
+  const lastMessages = await presentMessages(env, [...lastByConversation.values()]);
+  const lastMessageById = new Map(lastMessages.map((message) => [message.id, message]));
+
+  const out: ConversationSummary[] = [];
+  for (const conversation of conversations) {
+    const members = memberships.filter((row) => row.conversation_id === conversation.id);
+    if (!members.some((row) => row.user_id === userId)) continue;
+    if (conversation.type === "dm") {
+      const otherId = conversation.dm_user_a === userId ? conversation.dm_user_b : conversation.dm_user_a;
+      if (!otherId) continue;
+      if (relationshipOf(friendshipIdx.get(otherId) ?? null, userId) !== "friends") continue;
+    }
+    const lastRow = lastByConversation.get(conversation.id) ?? null;
+    const lastMessage = lastRow ? lastMessageById.get(lastRow.id) ?? null : null;
+    const mine = members.find((row) => row.user_id === userId);
+    let unreadCount = 0;
+    if (
+      lastMessage &&
+      lastMessage.senderId !== userId &&
+      (!mine?.last_read_at || lastMessage.createdAt > mine.last_read_at)
+    ) {
+      unreadCount = 1;
+    }
+    out.push({
+      id: conversation.id,
+      type: conversation.type,
+      title: conversation.title,
+      createdBy: conversation.created_by,
+      createdAt: conversation.created_at,
+      updatedAt: conversation.updated_at,
+      members: members.map((row) => {
+        const person = people.get(row.user_id) ?? {
+          id: row.user_id,
+          username: null,
+          displayName: "Player",
+          avatarUrl: null,
+          verified: false,
+        };
+        return { ...person, role: row.role };
+      }),
+      lastMessage,
+      unreadCount,
+    });
+  }
+  return out;
 }
 
 async function presentConversation(
@@ -865,52 +932,8 @@ async function presentConversation(
   conversation: ConversationRow,
   memberships: MemberRow[],
 ): Promise<ConversationSummary | null> {
-  const members = memberships.filter((row) => row.conversation_id === conversation.id);
-  if (!members.some((row) => row.user_id === userId)) return null;
-  if (conversation.type === "dm") {
-    const otherId = conversation.dm_user_a === userId ? conversation.dm_user_b : conversation.dm_user_a;
-    if (!otherId) return null;
-    const friendship = await loadFriendship(env, userId, otherId);
-    if (relationshipOf(friendship, userId) !== "friends") return null;
-  }
-  const people = await loadSocialUsers(
-    env,
-    members.map((row) => row.user_id),
-  );
-  const lastRows = await serviceRest<MessageRow[]>(
-    env,
-    "GET",
-    `/messages?conversation_id=eq.${conversation.id}&select=${MESSAGE_SELECT}&order=created_at.desc&limit=1`,
-  );
-  const lastMessage = (await presentMessages(env, lastRows))[0] ?? null;
-  const mine = members.find((row) => row.user_id === userId);
-  const unreadFilter = mine?.last_read_at
-    ? `&created_at=gt.${encodeURIComponent(mine.last_read_at)}`
-    : "";
-  const unreadCount = await serviceRestCount(
-    env,
-    `/messages?conversation_id=eq.${conversation.id}&sender_id=neq.${userId}${unreadFilter}&select=id`,
-  );
-  return {
-    id: conversation.id,
-    type: conversation.type,
-    title: conversation.title,
-    createdBy: conversation.created_by,
-    createdAt: conversation.created_at,
-    updatedAt: conversation.updated_at,
-    members: members.map((row) => {
-      const person = people.get(row.user_id) ?? {
-        id: row.user_id,
-        username: null,
-        displayName: "Player",
-        avatarUrl: null,
-        verified: false,
-      };
-      return { ...person, role: row.role };
-    }),
-    lastMessage,
-    unreadCount,
-  };
+  const [summary] = await presentConversationsBatch(env, userId, [conversation], memberships);
+  return summary ?? null;
 }
 
 async function presentMessages(env: Env, rows: MessageRow[]): Promise<ChatMessage[]> {

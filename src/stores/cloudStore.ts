@@ -5,10 +5,12 @@ import { clipShareUrl, publicAppUrl } from "../branding";
 import { fetchOwnClipStatuses, fetchOwnClips, updateOwnClipTitle, updateOwnClipVisibility } from "../services/supabase";
 import { deleteCloudClip, deleteLocalClip, downloadUrlToFile, listLocalClips, renameLocalClip } from "../services/tauri";
 import type { CloudClip } from "../types/clip";
+import { waitForCloudDownloadReady } from "../utils/cloudDownload";
 import { joinPath, suggestedFileName, uniqueFileName } from "../utils/files";
 import { invokeErrorMessage } from "../utils/format";
 import { readApiJson } from "../utils/http";
 import { useAuthStore } from "./authStore";
+import { useBillingStore } from "./billingStore";
 import { useToastStore } from "./toastStore";
 
 interface CloudState {
@@ -278,19 +280,29 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       return;
     }
     try {
-      const response = await fetch(`${publicAppUrl()}/v1/clips/${clip.slug}`, {
-        headers: { authorization: `Bearer ${token}` },
-      });
-      const body = await readApiJson<{ playbackUrl?: string }>(response, "Could not get a download URL");
-      if (!body.playbackUrl) {
-        throw new Error("Could not get a download URL");
-      }
+      const downloadUrl = `${publicAppUrl()}/v1/clips/${clip.slug}/download`;
       const dest = await save({
         defaultPath: suggestedFileName(clip.title, "clip", "mp4"),
         title: "Download cloud clip",
       });
       if (!dest) return;
-      await downloadUrlToFile(body.playbackUrl, dest);
+      const freeTier = useBillingStore.getState().status?.watermark !== false;
+      const upgradeHint = freeTier
+        ? " Upgrade to Premium for instant downloads without watermarks."
+        : "";
+      useToastStore.getState().show(`Download will begin within about 30 seconds…${upgradeHint}`);
+      await waitForCloudDownloadReady(downloadUrl, token, {
+        onProgress: (update) => {
+          if (update.attempt === 1 || update.attempt % 3 === 0 || update.progress >= 1) {
+            useToastStore.getState().show(
+              update.progress >= 1
+                ? "Starting download…"
+                : `${update.message}${upgradeHint}`,
+            );
+          }
+        },
+      });
+      await downloadUrlToFile(downloadUrl, dest, { skipWatermark: true, accessToken: token });
       useToastStore.getState().show("Saved to disk");
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not download clip"));
@@ -318,18 +330,13 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       let saved = 0;
       for (const clip of clips) {
         try {
-          const response = await fetch(`${publicAppUrl()}/v1/clips/${clip.slug}`, {
-            headers: { authorization: `Bearer ${token}` },
-          });
-          const body = await readApiJson<{ playbackUrl?: string }>(response, "Could not get a download URL");
-          if (!body.playbackUrl) {
-            throw new Error("Could not get a download URL");
-          }
+          const downloadUrl = `${publicAppUrl()}/v1/clips/${clip.slug}/download`;
           const dest = joinPath(folder, uniqueFileName(used, suggestedFileName(clip.title, "clip", "mp4")));
-          await downloadUrlToFile(body.playbackUrl, dest);
+          await waitForCloudDownloadReady(downloadUrl, token);
+          await downloadUrlToFile(downloadUrl, dest, { skipWatermark: true, accessToken: token });
           saved += 1;
-        } catch (caught) {
-          useToastStore.getState().show(invokeErrorMessage(caught, "Could not download clip"));
+        } catch {
+          /* continue remaining clips */
         }
       }
       if (saved > 0) {

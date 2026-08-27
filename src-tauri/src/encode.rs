@@ -496,7 +496,7 @@ impl MfWriter {
                 .SetCurrentLength(buffer_size as u32)
                 .map_err(|err| err.to_string())?;
 
-            let time = self.video_time;
+            let time = capture_hns.max(0).max(self.video_time);
             let duration = duration_hns.max(10_000);
             let keyframe = self.first_video || force_keyframe;
             let sample = make_sample(media_buffer, time, duration, keyframe)?;

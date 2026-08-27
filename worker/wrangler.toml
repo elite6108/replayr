@@ -18,7 +18,10 @@ PUBLIC_APP_URL = "http://127.0.0.1:8787"
 directory = "../web/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/v1/*", "/releases/latest.json"]
+run_worker_first = ["/v1/*", "/internal/*", "/releases/latest.json"]
+
+[triggers]
+crons = ["15 * * * *"]
 
 # Local secrets live in .dev.vars (gitignored). Sync from the repo env files:
 #   node worker/scripts/sync-dev-vars.mjs
@@ -37,3 +40,12 @@ run_worker_first = ["/v1/*", "/releases/latest.json"]
 # Create prices: npm run setup-stripe --prefix worker
 # Webhook: https://www.replayr.tv/v1/billing/webhook
 # Events: checkout.session.completed, customer.subscription.*, invoice.paid, invoice.payment_failed
+#
+# Bunny Stream (free-tier branded downloads; never VITE_):
+# BUNNY_STREAM_LIBRARY_ID
+# BUNNY_STREAM_API_KEY
+# BUNNY_STREAM_CDN_HOSTNAME
+# BUNNY_STREAM_READONLY_API_KEY  (webhook HMAC; library Read-Only API key)
+# BUNNY_STREAM_TOKEN_AUTH_KEY    (optional; CDN token auth)
+# Webhook: https://www.replayr.tv/internal/webhooks/bunny
+# Ops: enable library watermark PNG + MP4 fallback / single-resolution before ingest

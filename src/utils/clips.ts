@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { ClipSource, ClipSourceLayout, CloudClip, LocalClip } from "../types/clip";
 import type { WebcamPlacement, WebcamShape } from "../types/settings";
 import { DEFAULT_WEBCAM_SETTINGS } from "../types/settings";
@@ -49,6 +50,8 @@ export function parseSourceLayout(raw: string | null | undefined): ClipSourceLay
     placement: DEFAULT_WEBCAM_SETTINGS.defaultPlacement,
     shape: DEFAULT_WEBCAM_SETTINGS.defaultShape,
     width: DEFAULT_WEBCAM_SETTINGS.defaultWidth,
+    x: null,
+    y: null,
   };
   if (!raw?.trim()) return fallback;
   try {
@@ -56,14 +59,51 @@ export function parseSourceLayout(raw: string | null | undefined): ClipSourceLay
     const placement = parsed.placement as WebcamPlacement;
     const shape = parsed.shape as WebcamShape;
     const width = Number(parsed.width);
+    const x = Number(parsed.x);
+    const y = Number(parsed.y);
+    const free =
+      Number.isFinite(x) && Number.isFinite(y)
+        ? { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) }
+        : { x: null, y: null };
     return {
       placement: ["top-left", "top-right", "bottom-left", "bottom-right"].includes(placement)
         ? placement
         : fallback.placement,
       shape: ["rectangle", "rounded", "circle"].includes(shape) ? shape : fallback.shape,
       width: Number.isFinite(width) ? Math.max(0.12, Math.min(0.4, width)) : fallback.width,
+      x: free.x,
+      y: free.y,
     };
   } catch {
     return fallback;
   }
 }
+
+/** CSS for editor/player webcam overlay (corner classes or free x/y). */
+export function webcamOverlayStyle(layout: ClipSourceLayout): CSSProperties {
+  const style: CSSProperties = { width: `${layout.width * 100}%` };
+  if (layout.x != null && layout.y != null) {
+    style.left = `${layout.x * 100}%`;
+    style.top = `${layout.y * 100}%`;
+    style.right = "auto";
+    style.bottom = "auto";
+  }
+  return style;
+}
+
+export function nearestWebcamPlacement(
+  x: number,
+  y: number,
+  boxW: number,
+  boxH: number,
+): WebcamPlacement {
+  const cx = x + boxW / 2;
+  const cy = y + boxH / 2;
+  const left = cx < 0.5;
+  const top = cy < 0.5;
+  if (top && left) return "top-left";
+  if (top) return "top-right";
+  if (left) return "bottom-left";
+  return "bottom-right";
+}
+

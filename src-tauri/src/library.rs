@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
@@ -486,8 +486,8 @@ pub fn set_cloud(
     get(conn, local_id)
 }
 
-/// Clears in-flight upload rows left behind when the app crashed mid-watermark.
-/// Returns the local ids that can be retried.
+/// Clears in-flight upload rows left behind when the app crashed mid-upload.
+/// Keeps resume metadata so a retry can continue multipart instead of restarting.
 pub fn reset_stale_uploads(conn: &Connection) -> AppResult<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT local_id FROM local_clips
@@ -501,16 +501,40 @@ pub fn reset_stale_uploads(conn: &Connection) -> AppResult<Vec<String>> {
         return Ok(ids);
     }
     conn.execute(
-        "UPDATE local_clips SET upload_status = 'local', cloud_clip_id = NULL
+        "UPDATE local_clips SET upload_status = 'failed'
          WHERE upload_status IN ('queued', 'preparing', 'uploading', 'processing')",
         [],
     )?;
     conn.execute(
-        "UPDATE upload_queue SET status = 'local', last_error = 'Upload interrupted', updated_at = datetime('now')
+        "UPDATE upload_queue SET status = 'failed', last_error = COALESCE(last_error, 'Upload interrupted'), updated_at = datetime('now')
          WHERE status IN ('queued', 'preparing', 'uploading', 'processing')",
         [],
     )?;
     Ok(ids)
+}
+
+pub fn save_upload_resume(conn: &Connection, local_id: &str, resume_json: &str, uploaded_bytes: u64) -> AppResult<()> {
+    conn.execute(
+        "UPDATE upload_queue SET resume_json = ?1, uploaded_bytes = ?2, updated_at = datetime('now') WHERE local_clip_id = ?3",
+        rusqlite::params![resume_json, uploaded_bytes as i64, local_id],
+    )?;
+    Ok(())
+}
+
+pub fn load_upload_resume(conn: &Connection, local_id: &str) -> AppResult<Option<String>> {
+    let mut stmt = conn.prepare("SELECT resume_json FROM upload_queue WHERE local_clip_id = ?1")?;
+    let value: Option<Option<String>> = stmt
+        .query_row([local_id], |row| row.get(0))
+        .optional()?;
+    Ok(value.flatten().filter(|text| !text.is_empty()))
+}
+
+pub fn clear_upload_resume(conn: &Connection, local_id: &str) -> AppResult<()> {
+    conn.execute(
+        "UPDATE upload_queue SET resume_json = NULL, uploaded_bytes = 0, updated_at = datetime('now') WHERE local_clip_id = ?1",
+        [local_id],
+    )?;
+    Ok(())
 }
 
 pub fn clear_cloud_link(conn: &Connection, cloud_clip_id: &str) -> AppResult<()> {

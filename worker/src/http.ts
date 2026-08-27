@@ -37,6 +37,7 @@ export function cors(response: Response, request?: Request) {
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     headers.set("access-control-allow-origin", origin);
     headers.set("vary", "Origin");
+    headers.set("access-control-expose-headers", "location, content-disposition, content-type");
   }
   headers.set("access-control-allow-headers", "authorization, content-type");
   headers.set("access-control-allow-methods", "GET, POST, PATCH, DELETE, OPTIONS");

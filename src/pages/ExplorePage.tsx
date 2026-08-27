@@ -9,6 +9,7 @@ import {
   fetchClipComments,
   fetchFriendClips,
   fetchPublicFeed,
+  fetchClipPlayback,
   postClipComment,
   setClipLiked,
   type ClipComment,
@@ -193,6 +194,23 @@ function PublicClipPanel({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
+  const [playbackUrl, setPlaybackUrl] = useState(clip.playbackUrl);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPlaybackUrl(clip.playbackUrl);
+    if (clip.playbackUrl) return;
+    void fetchClipPlayback(clip.slug, token)
+      .then((next) => {
+        if (!cancelled) setPlaybackUrl(next.playbackUrl);
+      })
+      .catch((caught) => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not load that clip.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clip.slug, clip.playbackUrl, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -228,12 +246,12 @@ function PublicClipPanel({
       <button type="button" className="player-backdrop" aria-label="Close" onClick={onClose} />
       <section className="player-card">
         <div className="player-stage">
-          {clip.playbackUrl ? (
+          {playbackUrl ? (
             <PlayerVideo showWatermark={clip.watermark !== false}>
-              <video src={clip.playbackUrl} controls autoPlay />
+              <video src={playbackUrl} controls autoPlay />
             </PlayerVideo>
           ) : (
-            <p className="muted">Playback is unavailable.</p>
+            <p className="muted">{error || "Loading playback…"}</p>
           )}
         </div>
         <div className="player-side">

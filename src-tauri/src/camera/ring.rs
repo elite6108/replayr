@@ -9,7 +9,8 @@ use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
 use super::clock::{
-    overlapping_segments, remux_paths, segment_bounds, segment_index, SegmentHealth, SourceSegment, SEGMENT_HNS,
+    overlapping_segments, remux_paths, segment_bounds, segment_index, SegmentHealth, SourceSegment,
+    SEGMENT_HNS, WEBCAM_FILE_HNS,
 };
 
 pub const WEBCAM_ROTATE_TIMEOUT: Duration = Duration::from_millis(400);
@@ -68,6 +69,28 @@ impl WebcamBuffer {
         let mut index = last.saturating_add(1);
         while index < next_index {
             self.push_gap(index);
+            index += 1;
+        }
+    }
+
+    pub fn fill_webcam_file_gaps_before(&mut self, next_file_index: i64) {
+        use super::clock::{webcam_file_bounds, webcam_file_index};
+        let last = self
+            .segments
+            .last()
+            .map(|stored| webcam_file_index(stored.segment.start_hns));
+        let Some(last) = last else {
+            return;
+        };
+        let mut index = last.saturating_add(1);
+        while index < next_file_index {
+            let (start_hns, end_hns) = webcam_file_bounds(index);
+            self.push(SourceSegment {
+                start_hns,
+                end_hns,
+                path: String::new(),
+                health: SegmentHealth::Gap,
+            });
             index += 1;
         }
     }
@@ -134,7 +157,9 @@ impl WebcamBuffer {
 }
 
 fn keep_hns(max_keep_ms: u64) -> i64 {
-    (max_keep_ms.max(1_000) as i64).saturating_mul(10_000).saturating_add(SEGMENT_HNS)
+    (max_keep_ms.max(1_000) as i64)
+        .saturating_mul(10_000)
+        .saturating_add(WEBCAM_FILE_HNS)
 }
 
 fn remove_webcam_file(path: &str) {

@@ -1748,6 +1748,8 @@ img.avatar {
   max-width: 100%;
   max-height: calc(100vh - 96px);
   background: #000;
+  position: relative;
+  z-index: 0;
 }
 
 /* Fullscreen the wrap (not the <video>) so webcam overlay stays visible. */
@@ -1771,7 +1773,7 @@ img.avatar {
   position: absolute;
   right: 10px;
   top: 10px;
-  z-index: 3;
+  z-index: 8;
   padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 8px;
@@ -1789,6 +1791,7 @@ img.avatar {
 .player-video-mark {
   position: absolute;
   inset: 0;
+  z-index: 4;
   container-type: size;
   pointer-events: none;
 }
@@ -2105,15 +2108,36 @@ img.avatar {
 .editor-preview > video {
   display: block;
   width: 100%;
+  position: relative;
+  z-index: 0;
 }
 
 .editor-webcam {
   position: absolute;
-  z-index: 2;
+  z-index: 6;
+  /* Keep webcam above WebView2/hardware video surfaces. */
+  transform: translateZ(0);
+  isolation: isolate;
   pointer-events: none;
   overflow: hidden;
   background: #111;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.editor-webcam.draggable {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.editor-webcam.draggable.dragging {
+  cursor: grabbing;
+  z-index: 4;
+}
+
+.editor-webcam.draggable video {
+  pointer-events: none;
 }
 
 .editor-webcam video {
@@ -2127,6 +2151,18 @@ img.avatar {
 .editor-webcam.place-top-right { top: 3%; right: 3%; }
 .editor-webcam.place-bottom-left { bottom: 3%; left: 3%; }
 .editor-webcam.place-bottom-right { bottom: 3%; right: 3%; }
+
+.editor-webcam.free {
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+}
+
+.editor-webcam-hint {
+  margin: 0;
+  font-size: 0.85rem;
+}
 
 .editor-webcam.shape-circle {
   aspect-ratio: 1;

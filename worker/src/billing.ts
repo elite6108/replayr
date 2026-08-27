@@ -136,7 +136,10 @@ export async function assertUploadAllowed(
   if (status.maxUploadQuality === "1080p") {
     const width = Number(body.width ?? 0);
     const height = Number(body.height ?? 0);
-    if (width > 1920 || height > 1080) {
+    // 1080p includes landscape 1920×1080 and portrait/shorts 1080×1920.
+    const longSide = Math.max(width, height);
+    const shortSide = Math.min(width, height);
+    if (longSide > 1920 || shortSide > 1080) {
       throw new HttpError(403, "Free cloud uploads are limited to 1080p. Upgrade to Premium for original quality.");
     }
   }

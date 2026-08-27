@@ -15,7 +15,7 @@ use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
 use crate::encode::MfWriter;
 
-use super::clock::{segment_index, CameraClockMap, SegmentHealth, SourceSegment};
+use super::clock::{webcam_file_bounds, webcam_file_index, CameraClockMap, SegmentHealth, SourceSegment};
 use super::device::{activate_source, ensure_mf, list_modes, permission_message};
 use super::encoder::open_webcam_segment_writer;
 use super::format::{log_negotiated_mode, pick_camera_mode, RequestedMode};
@@ -141,7 +141,7 @@ impl Drop for RollingSession {
 struct OpenSegment {
     writer: MfWriter,
     path: PathBuf,
-    grid_index: i64,
+    file_index: i64,
     start_hns: i64,
     last_hns: i64,
     last_duration: i64,
@@ -295,9 +295,9 @@ fn rolling_encode_loop(
                 slot.timestamp_fallback = mapped.fallback || clock.is_fallback();
                 slot.session_skew_hns = clock.last_skew_hns().unwrap_or(0);
             }
-            let index = segment_index(mapped.session_hns);
-            let grid_changed = current.as_ref().is_some_and(|open| open.grid_index != index);
-            if grid_changed || rotate {
+            let file_index = webcam_file_index(mapped.session_hns);
+            let file_changed = current.as_ref().is_some_and(|open| open.file_index != file_index);
+            if file_changed || rotate {
                 close_segment(&mut current, &request.buffer, SegmentHealth::Valid);
                 if rotate {
                     request.rotate.ack();
@@ -305,9 +305,11 @@ fn rolling_encode_loop(
             }
             if current.is_none() {
                 if let Ok(mut buffer) = request.buffer.lock() {
-                    buffer.fill_gaps_before(index);
+                    buffer.fill_webcam_file_gaps_before(file_index);
                 }
-                match open_segment(&request, file_seq, index, mapped.session_hns, &snapshot) {
+                // Start this file at the first real sample so we do not insert a
+                // black/freeze lead (that looked like a hitch every segment).
+                match open_segment(&request, file_seq, file_index, mapped.session_hns, &snapshot) {
                     Ok((opened, software)) => {
                         request.software = software;
                         current = Some(opened);
@@ -316,9 +318,9 @@ fn rolling_encode_loop(
                     }
                     Err(err) => {
                         consecutive_open_failures += 1;
-                        tracing::warn!(%err, index, "webcam segment open failed; gameplay continues");
+                        tracing::warn!(%err, file_index, "webcam segment open failed; gameplay continues");
                         if let Ok(mut buffer) = request.buffer.lock() {
-                            let (start_hns, end_hns) = super::clock::segment_bounds(index);
+                            let (start_hns, end_hns) = webcam_file_bounds(file_index);
                             buffer.push(SourceSegment {
                                 start_hns,
                                 end_hns,
@@ -337,12 +339,15 @@ fn rolling_encode_loop(
                 continue;
             };
             let first = open.written == 0;
+            // File-relative PTS keeps dropped-frame gaps on the session clock
+            // without duplicating freeze frames at boundaries.
+            let file_ts = mapped.session_hns.saturating_sub(open.start_hns).max(0);
             let started = Instant::now();
             if let Err(err) = open.writer.write_nv12_timed(
                 &frame.planes,
                 frame.width,
                 frame.height,
-                mapped.session_hns,
+                file_ts,
                 mapped.duration_hns,
                 first,
             ) {
@@ -386,7 +391,7 @@ fn rolling_encode_loop(
 fn open_segment(
     request: &RollingEncode,
     file_seq: u64,
-    grid_index: i64,
+    file_index: i64,
     start_hns: i64,
     snapshot: &Mutex<RecordSnapshot>,
 ) -> Result<(OpenSegment, bool), String> {
@@ -405,7 +410,7 @@ fn open_segment(
         OpenSegment {
             writer: opened.writer,
             path,
-            grid_index,
+            file_index,
             start_hns,
             last_hns: start_hns,
             last_duration: 0,
@@ -425,6 +430,7 @@ fn close_segment(current: &mut Option<OpenSegment>, buffer: &Mutex<WebcamBuffer>
     let end_hns = open
         .last_hns
         .saturating_add(open.last_duration)
+        .max(start_hns.saturating_add(open.writer.timestamp()))
         .max(start_hns.saturating_add(10_000));
     let finish = open.writer.finish();
     if written == 0 {

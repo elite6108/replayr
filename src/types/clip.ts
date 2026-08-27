@@ -53,6 +53,10 @@ export interface ClipSourceLayout {
   placement: WebcamPlacement;
   shape: WebcamShape;
   width: number;
+  /** Normalized left edge (0–1). With `y`, free placement overrides corners. */
+  x?: number | null;
+  /** Normalized top edge (0–1). With `x`, free placement overrides corners. */
+  y?: number | null;
 }
 
 export interface ClipSource {

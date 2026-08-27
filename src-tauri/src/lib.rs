@@ -28,6 +28,7 @@ mod hotkeys;
 mod library;
 mod overlay;
 mod overlay_notification;
+mod paths;
 mod process;
 #[cfg(windows)]
 mod process_loopback;

@@ -19,13 +19,13 @@ import { useToastStore } from "../stores/toastStore";
 import type { ClipSourceLayout, CloudClip, LocalClip } from "../types/clip";
 import type { WebcamPlacement, WebcamShape } from "../types/settings";
 import { formatClock, formatDuration, invokeErrorMessage, isVideoPath, parseClock } from "../utils/format";
-import { clipWebcamSource, normalizeUploadStatus, parseSourceLayout } from "../utils/clips";
+import { clipWebcamSource, nearestWebcamPlacement, normalizeUploadStatus, parseSourceLayout, webcamOverlayStyle } from "../utils/clips";
 
 const MIN_TRIM_MS = 1000;
 const SHORTS_WARN_MS = 60_000;
 // Part of the on-disk filmstrip cache key, so keep it stable across resizes.
 const STRIP_TILES = 12;
-const WEBCAM_DRIFT_S = 0.08;
+const WEBCAM_DRIFT_S = 0.05;
 const WEBCAM_PLACEMENTS: { id: WebcamPlacement; label: string }[] = [
   { id: "top-left", label: "Top Left" },
   { id: "top-right", label: "Top Right" },
@@ -154,6 +154,15 @@ export function EditorPage() {
   const previewRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragKind | null>(null);
+  const webcamDragRef = useRef<{
+    originX: number;
+    originY: number;
+    startClientX: number;
+    startClientY: number;
+    boxW: number;
+    boxH: number;
+  } | null>(null);
+  const [webcamDragging, setWebcamDragging] = useState(false);
   const reframeDragRef = useRef(false);
   const panRef = useRef(0.5);
 
@@ -178,6 +187,8 @@ export function EditorPage() {
   const [webcamLayout, setWebcamLayout] = useState<ClipSourceLayout>(() => parseSourceLayout(null));
 
   panRef.current = pan;
+  const webcamLayoutRef = useRef(webcamLayout);
+  webcamLayoutRef.current = webcamLayout;
   const saving = savingKind !== null;
   const durationMs = Math.max(source?.durationMs ?? 0, videoMs);
   const savedClip = clips.find((item) => item.localId === saved?.localId) ?? saved;
@@ -297,28 +308,55 @@ export function EditorPage() {
     (next: number) => {
       if (!source) return;
       const clamped = clampPan(next);
-      void setClipEditorCrop(source.localId, clamped).catch(() => undefined);
+      const previous = pan;
+      setPan(clamped);
+      void setClipEditorCrop(source.localId, clamped).catch((caught) => {
+        setPan(previous);
+        showToast(invokeErrorMessage(caught, "Could not save crop"));
+      });
     },
-    [source?.localId],
+    [source?.localId, pan, showToast],
   );
 
   const persistWebcamLayout = useCallback(
     (next: ClipSourceLayout) => {
-      setWebcamLayout(next);
       if (!source || !webcamSource) return;
+      const previous = webcamLayout;
+      setWebcamLayout(next);
       void setClipSourceLayout(source.localId, webcamSource.sourceInstanceId, next)
         .then((clip) => {
           useLibraryStore.setState({
             clips: useLibraryStore.getState().clips.map((item) => (item.localId === clip.localId ? clip : item)),
           });
         })
-        .catch(() => undefined);
+        .catch((caught) => {
+          setWebcamLayout(previous);
+          showToast(invokeErrorMessage(caught, "Could not save webcam layout"));
+        });
     },
-    [source?.localId, webcamSource?.sourceInstanceId],
+    [source?.localId, webcamSource?.sourceInstanceId, webcamLayout, showToast],
   );
 
   useEffect(() => {
     function onMove(event: PointerEvent) {
+      if (webcamDragRef.current) {
+        const node = previewRef.current;
+        const drag = webcamDragRef.current;
+        if (!node) return;
+        const rect = node.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const dx = (event.clientX - drag.startClientX) / rect.width;
+        const dy = (event.clientY - drag.startClientY) / rect.height;
+        const x = Math.max(0, Math.min(1 - drag.boxW, drag.originX + dx));
+        const y = Math.max(0, Math.min(1 - drag.boxH, drag.originY + dy));
+        setWebcamLayout((prev) => ({
+          ...prev,
+          x,
+          y,
+          placement: nearestWebcamPlacement(x, y, drag.boxW, drag.boxH),
+        }));
+        return;
+      }
       if (reframeDragRef.current) {
         const node = previewRef.current;
         if (!node || !overlay.visible) return;
@@ -341,6 +379,12 @@ export function EditorPage() {
       }
     }
     function onUp() {
+      if (webcamDragRef.current) {
+        webcamDragRef.current = null;
+        setWebcamDragging(false);
+        persistWebcamLayout(webcamLayoutRef.current);
+        return;
+      }
       if (reframeDragRef.current) {
         reframeDragRef.current = false;
         persistPan(panRef.current);
@@ -353,7 +397,7 @@ export function EditorPage() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [applyRange, endMs, msFromClientX, overlay.visible, overlay.width, persistPan, seekTo, startMs]);
+  }, [applyRange, endMs, msFromClientX, overlay.visible, overlay.width, persistPan, persistWebcamLayout, seekTo, startMs]);
 
   const saveRef = useRef<(share: boolean) => Promise<void>>(async () => {});
   const togglePlayRef = useRef<() => void>(() => {});
@@ -576,8 +620,40 @@ export function EditorPage() {
           />
           {webcamMedia ? (
             <div
-              className={`editor-webcam place-${webcamLayout.placement} shape-${webcamLayout.shape}`}
-              style={{ width: `${webcamLayout.width * 100}%` }}
+              className={`editor-webcam draggable place-${webcamLayout.placement} shape-${webcamLayout.shape}${webcamDragging ? " dragging" : ""}${webcamLayout.x != null && webcamLayout.y != null ? " free" : ""}`}
+              style={webcamOverlayStyle(webcamLayout)}
+              title="Drag to reposition"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const preview = previewRef.current;
+                const target = event.currentTarget;
+                if (!preview) return;
+                const rect = preview.getBoundingClientRect();
+                const box = target.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) return;
+                const boxW = box.width / rect.width;
+                const boxH = box.height / rect.height;
+                const originX =
+                  webcamLayout.x != null ? webcamLayout.x : (box.left - rect.left) / rect.width;
+                const originY =
+                  webcamLayout.y != null ? webcamLayout.y : (box.top - rect.top) / rect.height;
+                webcamDragRef.current = {
+                  originX,
+                  originY,
+                  startClientX: event.clientX,
+                  startClientY: event.clientY,
+                  boxW,
+                  boxH,
+                };
+                setWebcamDragging(true);
+                setWebcamLayout((prev) => ({
+                  ...prev,
+                  x: originX,
+                  y: originY,
+                  placement: nearestWebcamPlacement(originX, originY, boxW, boxH),
+                }));
+              }}
             >
               <video
                 ref={webcamRef}
@@ -586,6 +662,7 @@ export function EditorPage() {
                 playsInline
                 preload="auto"
                 controls={false}
+                draggable={false}
                 onLoadedMetadata={(event) => {
                   const master = videoRef.current;
                   if (master) event.currentTarget.currentTime = master.currentTime;
@@ -719,13 +796,16 @@ export function EditorPage() {
       {webcamMedia ? (
         <div className="editor-webcam-controls">
           <span className="settings-group-label">Webcam overlay</span>
+          <p className="muted editor-webcam-hint">Drag the camera on the preview, or snap to a corner.</p>
           <div className="placement-grid" role="group" aria-label="Webcam position">
             {WEBCAM_PLACEMENTS.map((item) => (
               <button
                 key={item.id}
                 type="button"
                 className={`placement-cell ${webcamLayout.placement === item.id ? "on" : ""}`}
-                onClick={() => persistWebcamLayout({ ...webcamLayout, placement: item.id })}
+                onClick={() =>
+                  persistWebcamLayout({ ...webcamLayout, placement: item.id, x: null, y: null })
+                }
               >
                 {item.label}
               </button>

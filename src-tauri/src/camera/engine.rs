@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::settings::WebcamSettings;
 
-use super::clock::{webcam_sidecar_path, SessionClock};
+use super::clock::{webcam_sidecar_path, SegmentHealth, SessionClock};
 use super::format::{estimated_mb_per_minute, pick_camera_mode, webcam_bitrate_bps, RequestedMode};
 use super::ring::{RotateAck, WebcamBuffer};
 use super::types::{
@@ -858,16 +858,30 @@ fn remux_overlap_inner(
     end_hns: i64,
     output: &Path,
 ) -> Result<Option<PathBuf>, String> {
-    let paths = {
+    let segments = {
         let Ok(mut buffer) = inner.webcam_buffer.lock() else {
             return Ok(None);
         };
         buffer.lock_range(start_hns, end_hns);
-        buffer.remux_paths(start_hns, end_hns)
+        buffer
+            .snapshot()
+            .into_iter()
+            .filter(|segment| {
+                segment.health == SegmentHealth::Valid
+                    && !segment.path.is_empty()
+                    && segment.start_hns < end_hns
+                    && segment.end_hns > start_hns
+            })
+            .collect::<Vec<_>>()
     };
-    let existing: Vec<_> = paths
-        .into_iter()
-        .filter(|path| std::fs::metadata(path).map(|meta| meta.len() > 0).unwrap_or(false))
+    let existing: Vec<_> = segments
+        .iter()
+        .filter(|segment| {
+            std::fs::metadata(&segment.path)
+                .map(|meta| meta.len() > 0)
+                .unwrap_or(false)
+        })
+        .cloned()
         .collect();
     if existing.is_empty() {
         if let Ok(mut buffer) = inner.webcam_buffer.lock() {
@@ -884,11 +898,37 @@ fn remux_overlap_inner(
     );
     #[cfg(windows)]
     {
-        let result = crate::export::concat_mp4s(&existing, output);
+        let paths: Vec<PathBuf> = existing.iter().map(|segment| PathBuf::from(&segment.path)).collect();
+        let tmp = output.with_extension("overlap-tmp.mp4");
+        let result: Result<(), String> = (|| {
+            crate::export::concat_mp4s_preserve_timeline(&paths, &tmp)?;
+            let first_start = existing[0].start_hns;
+            let window = (end_hns - start_hns).max(10_000);
+            // Align sidecar t=0 to the gameplay window, not the first webcam segment.
+            let trim_start = (start_hns - first_start).max(0);
+            let trim_end = trim_start.saturating_add(window);
+            match crate::export::trim_mp4(&tmp, output, trim_start, trim_end) {
+                Ok(_) => {
+                    let _ = std::fs::remove_file(&tmp);
+                    Ok(())
+                }
+                Err(err) => {
+                    // If trim fails (short source), keep the concat so the clip still has a sidecar.
+                    tracing::warn!(%err, "webcam window trim failed; using full overlap concat");
+                    std::fs::rename(&tmp, output).map_err(|rename_err| rename_err.to_string())?;
+                    Ok(())
+                }
+            }
+        })();
         if let Ok(mut buffer) = inner.webcam_buffer.lock() {
             buffer.unlock_all();
         }
-        result.map(|_| Some(output.to_path_buf()))
+        if let Err(err) = result {
+            let _ = std::fs::remove_file(&tmp);
+            let _ = std::fs::remove_file(output);
+            return Err(err);
+        }
+        Ok(Some(output.to_path_buf()))
     }
     #[cfg(not(windows))]
     {

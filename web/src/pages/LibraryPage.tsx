@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { ClipThumb } from "../components/ClipThumb";
 import { PlayerVideo } from "../components/ReplayrWatermark";
@@ -6,6 +7,7 @@ import { deleteCloudClip, downloadCloudClip, fetchLibrary, fetchPlayback, type M
 import { useAuth } from "../lib/auth";
 import { formatBytes, formatClipDate, formatDurationMs } from "../lib/format";
 import { clipShareUrl, getSupabase } from "../lib/supabase";
+import { fetchBillingStatus } from "../lib/billing";
 
 const PAGE_SIZE = 24;
 
@@ -28,10 +30,15 @@ export function LibraryPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [busy, setBusy] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<{
+    message: string;
+    progress: number;
+  } | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [playBusy, setPlayBusy] = useState(false);
+  const [premium, setPremium] = useState(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<HTMLElement | null>(null);
   const loadingMoreRef = useRef(false);
@@ -40,6 +47,24 @@ export function LibraryPage() {
 
   clipsLengthRef.current = clips.length;
   totalRef.current = total;
+
+  useEffect(() => {
+    if (!token) {
+      setPremium(false);
+      return;
+    }
+    let cancelled = false;
+    void fetchBillingStatus(token)
+      .then((status) => {
+        if (!cancelled) setPremium(Boolean(status.premium));
+      })
+      .catch(() => {
+        if (!cancelled) setPremium(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   useEffect(() => {
     if (!userId || !token) return;
@@ -146,10 +171,18 @@ export function LibraryPage() {
     if (!token || clip.status !== "ready") return;
     setBusy(true);
     setError(null);
+    setDownloadProgress({
+      message: "Download will begin within about 30 seconds…",
+      progress: 0.12,
+    });
     try {
-      await downloadCloudClip(clip.slug, clip.title, token);
+      await downloadCloudClip(clip.slug, clip.title, token, (update) => {
+        setDownloadProgress({ message: update.message, progress: update.progress });
+      });
       setNotice("Download started");
+      setDownloadProgress(null);
     } catch (caught) {
+      setDownloadProgress(null);
       setError(caught instanceof Error ? caught.message : "Could not download that clip.");
     } finally {
       setBusy(false);
@@ -245,13 +278,21 @@ export function LibraryPage() {
     if (!token || chosen.length === 0) return;
     setBusy(true);
     setError(null);
+    setDownloadProgress({
+      message: "Download will begin within about 30 seconds…",
+      progress: 0.12,
+    });
     try {
       for (const clip of chosen) {
-        await downloadCloudClip(clip.slug, clip.title, token);
+        await downloadCloudClip(clip.slug, clip.title, token, (update) => {
+          setDownloadProgress({ message: update.message, progress: update.progress });
+        });
       }
       setNotice(chosen.length === 1 ? "Download started" : `${chosen.length} downloads started`);
       setSelectedIds([]);
+      setDownloadProgress(null);
     } catch (caught) {
+      setDownloadProgress(null);
       setError(caught instanceof Error ? caught.message : "Could not download those clips.");
     } finally {
       setBusy(false);
@@ -285,6 +326,28 @@ export function LibraryPage() {
       </div>
       {error ? <p className="error">{error}</p> : null}
       {notice ? <p className="ok">{notice}</p> : null}
+      {downloadProgress ? (
+        <aside className="download-prep" aria-live="polite">
+          <div className="download-prep-copy">
+            <strong>{downloadProgress.message}</strong>
+            {!premium ? (
+              <p className="muted">
+                Upgrade to Premium for instant downloads without a watermark.{" "}
+                <Link to="/pricing">View Premium</Link>
+              </p>
+            ) : null}
+          </div>
+          <div
+            className="download-prep-bar"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(downloadProgress.progress * 100)}
+          >
+            <span style={{ width: `${Math.round(downloadProgress.progress * 100)}%` }} />
+          </div>
+        </aside>
+      ) : null}
 
       {loading ? (
         <p className="muted">Loading cloud clips…</p>

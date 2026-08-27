@@ -125,9 +125,19 @@ export async function setClipEditorCrop(localId: string, pan: number): Promise<L
 export async function setClipSourceLayout(
   localId: string,
   sourceInstanceId: string,
-  layout: { placement: string; shape: string; width: number },
+  layout: { placement: string; shape: string; width: number; x?: number | null; y?: number | null },
 ): Promise<LocalClip> {
-  return invoke("set_clip_source_layout", { localId, sourceInstanceId, layout });
+  return invoke("set_clip_source_layout", {
+    localId,
+    sourceInstanceId,
+    layout: {
+      placement: layout.placement,
+      shape: layout.shape,
+      width: layout.width,
+      x: layout.x ?? null,
+      y: layout.y ?? null,
+    },
+  });
 }
 
 export async function shareLocalClip(options: { localId?: string; filePath?: string }): Promise<string> {
@@ -171,8 +181,17 @@ export async function exportLocalClip(options: {
   return invoke("export_local_clip", options);
 }
 
-export async function downloadUrlToFile(url: string, dest: string): Promise<void> {
-  return invoke("download_url_to_file", { url, dest });
+export async function downloadUrlToFile(
+  url: string,
+  dest: string,
+  options?: { skipWatermark?: boolean; accessToken?: string | null },
+): Promise<void> {
+  return invoke("download_url_to_file", {
+    url,
+    dest,
+    skipWatermark: options?.skipWatermark ?? false,
+    accessToken: options?.accessToken ?? null,
+  });
 }
 
 export async function uploadLocalClip(localId: string, accessToken: string, apiBase: string): Promise<LocalClip> {

@@ -82,14 +82,89 @@ export async function fetchPlayback(slug: string, accessToken?: string | null): 
   return readApiJson<PlaybackClip>(response, "That clip is not available.");
 }
 
-export async function downloadCloudClip(slug: string, title: string | null, accessToken?: string | null): Promise<void> {
+export type DownloadProgress = {
+  attempt: number;
+  attempts: number;
+  message: string;
+  progress: number;
+};
+
+export async function downloadCloudClip(
+  slug: string,
+  title: string | null,
+  accessToken?: string | null,
+  onProgress?: (update: DownloadProgress) => void,
+): Promise<void> {
   const headers: HeadersInit = { accept: "application/octet-stream, application/json" };
   if (accessToken) headers.authorization = `Bearer ${accessToken}`;
-  const response = await fetch(apiUrl(`/v1/clips/${slug}/download`), { headers });
-  if (!response.ok) {
-    throw new Error(await readApiError(response, "Could not download that clip."));
+  const url = apiUrl(`/v1/clips/${slug}/download`);
+  const attempts = 36;
+  let lastMessage = "Download will begin within about 30 seconds…";
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    onProgress?.({
+      attempt: attempt + 1,
+      attempts,
+      message: lastMessage,
+      progress: Math.min(0.92, 0.15 + (attempt / Math.min(attempts, 8)) * 0.75),
+    });
+    const response = await fetch(url, { headers, redirect: "manual" });
+    if (response.status === 202) {
+      try {
+        const body = (await response.json()) as { message?: string };
+        if (body.message) lastMessage = body.message;
+      } catch {
+        /* ignore */
+      }
+      lastMessage =
+        attempt < 6
+          ? "Download will begin within about 30 seconds…"
+          : "Still preparing your branded download…";
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 5000));
+      continue;
+    }
+    if (response.status === 409) {
+      throw new Error(await readApiError(response, "Branded download is unavailable for this clip."));
+    }
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) throw new Error("Could not download that clip.");
+      const file = await fetch(location, { headers: { Referer: "https://www.replayr.tv/" } });
+      if (!file.ok) throw new Error("Could not download that clip.");
+      const blob = await file.blob();
+      assertVideoBlob(blob);
+      onProgress?.({ attempt: attempt + 1, attempts, message: "Starting download…", progress: 1 });
+      triggerBlobDownload(blob, title, slug);
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Could not download that clip."));
+    }
+    const blob = await response.blob();
+    assertVideoBlob(blob);
+    onProgress?.({ attempt: attempt + 1, attempts, message: "Starting download…", progress: 1 });
+    triggerBlobDownload(blob, title, slug);
+    return;
   }
-  const blob = await response.blob();
+  throw new Error(lastMessage);
+}
+
+async function assertVideoBlob(blob: Blob) {
+  const head = new Uint8Array(await blob.slice(0, 96).arrayBuffer());
+  const prefix = new TextDecoder().decode(head).trimStart();
+  const hasFtyp = [...head].some(
+    (_, i) =>
+      i + 4 <= head.length &&
+      head[i] === 0x66 &&
+      head[i + 1] === 0x74 &&
+      head[i + 2] === 0x79 &&
+      head[i + 3] === 0x70,
+  );
+  if (prefix.startsWith("<") || prefix.startsWith("{") || !hasFtyp) {
+    throw new Error("Download did not return a video file. Try again in a moment.");
+  }
+}
+
+function triggerBlobDownload(blob: Blob, title: string | null, slug: string) {
   const href = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = href;

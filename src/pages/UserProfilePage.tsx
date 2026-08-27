@@ -13,9 +13,11 @@ import {
   fetchUserProfile,
 } from "../services/api.friends";
 import { createConversation } from "../services/api.messages";
+import { fetchClipPlayback } from "../services/social";
 import type { FriendRequest, PublicClipCard, UserProfileResponse } from "../services/social-types";
 import { useAuthStore } from "../stores/authStore";
 import { formatCount, formatDuration, formatHandle } from "../utils/format";
+import { useToastStore } from "../stores/toastStore";
 
 export function UserProfilePage() {
   const { username = "" } = useParams();
@@ -189,7 +191,24 @@ export function UserProfilePage() {
                     <strong>{formatHandle(clip.author)}</strong>
                     <span className="muted">{clip.game?.name || "Public"}</span>
                   </div>
-                  <button className="clip-open" type="button" onClick={() => setOpenClip(clip)}>
+                  <button
+                    className="clip-open"
+                    type="button"
+                    onClick={() => {
+                      void (async () => {
+                        if (clip.playbackUrl) {
+                          setOpenClip(clip);
+                          return;
+                        }
+                        try {
+                          const next = await fetchClipPlayback(clip.slug, token);
+                          setOpenClip({ ...clip, playbackUrl: next.playbackUrl, watermark: next.watermark ?? clip.watermark });
+                        } catch (caught) {
+                          useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not play that clip");
+                        }
+                      })();
+                    }}
+                  >
                     {clip.thumbnailUrl ? <img src={clip.thumbnailUrl} alt="" /> : <div className="feed-thumb-empty" />}
                     {clip.durationMs ? <span className="clip-duration">{formatDuration(clip.durationMs)}</span> : null}
                   </button>

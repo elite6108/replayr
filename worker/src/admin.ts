@@ -4,6 +4,7 @@ import { applyPlan, stripeForm } from "./billing";
 import { listAdminErrors, openErrorCount, resolveAdminError } from "./errors";
 import { ownedObjectKey, type Env } from "./shared";
 import { HttpError, json } from "./http";
+import { deleteBunnyAssetForClip } from "./watermark";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PLAN_SLUGS = new Set(["free", "pro", "pro_plus"]);
@@ -610,11 +611,11 @@ async function listClips(env: Env, actor: AdminActor, url: URL): Promise<Respons
 
 async function deleteClip(env: Env, actor: AdminActor, clipId: string): Promise<Response> {
   if (!UUID.test(clipId)) throw new HttpError(400, "Clip id is invalid.");
-  const clips = await serviceRest<ClipRow[]>(
+  const clips = await serviceRest<(ClipRow & { watermark_processor_video_id?: string | null })[]>(
     env,
     actor,
     "GET",
-    `/clips?id=eq.${clipId}&select=id,user_id,slug,status,file_size_bytes,storage_key,thumbnail_key`,
+    `/clips?id=eq.${clipId}&select=id,user_id,slug,status,file_size_bytes,storage_key,thumbnail_key,watermark_processor_video_id`,
   );
   const clip = clips[0];
   if (!clip || clip.status === "deleted") {
@@ -624,6 +625,7 @@ async function deleteClip(env: Env, actor: AdminActor, clipId: string): Promise<
   if (clip.storage_key || clip.thumbnail_key) requireR2(env);
   if (ownedObjectKey(clip.user_id, clip.storage_key)) await deleteObject(env, clip.storage_key);
   if (ownedObjectKey(clip.user_id, clip.thumbnail_key)) await deleteObject(env, clip.thumbnail_key);
+  await deleteBunnyAssetForClip(env, clip.watermark_processor_video_id);
 
   if (clip.status === "ready" && clip.file_size_bytes && clip.file_size_bytes > 0) {
     const rows = await serviceRest<StorageRow[]>(
@@ -643,6 +645,8 @@ async function deleteClip(env: Env, actor: AdminActor, clipId: string): Promise<
     status: "deleted",
     storage_key: null,
     thumbnail_key: null,
+    watermark_processor_video_id: null,
+    watermark_variant_status: "none",
   });
   await serviceRest(env, actor, "DELETE", `/upload_sessions?clip_id=eq.${clipId}`);
   return json({ clipId, status: "deleted" });

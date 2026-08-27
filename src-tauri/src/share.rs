@@ -22,6 +22,7 @@ pub fn export_clip(
     if dest.trim().is_empty() {
         return Err(AppError::Message("Choose a download location.".into()));
     }
+    crate::paths::assert_export_dest_allowed(app, dest)?;
     outgoing_media(app, local_id, source, Some(Path::new(dest)))?;
     Ok(())
 }
@@ -66,7 +67,7 @@ fn outgoing_media(
                 .and_then(|item| item.duration_ms)
                 .unwrap_or(0)
                 .saturating_mul(10_000);
-            match crate::export::compose_webcam_mp4(
+            match crate::export::compose_webcam_mp4_timed(
                 &gameplay,
                 Path::new(&webcam.file_path),
                 &output,
@@ -75,13 +76,16 @@ fn outgoing_media(
                 duration_hns,
                 fps,
                 watermark,
+                compose_timeout(clip.as_ref().and_then(|item| item.duration_ms)),
             ) {
                 Ok(_) => return Ok(output),
                 Err(err) => {
-                    tracing::warn!(%err, "composed export failed; using gameplay file");
                     if dest.is_some() {
                         let _ = std::fs::remove_file(&output);
                     }
+                    return Err(AppError::Message(format!(
+                        "Could not burn webcam into this clip: {err}"
+                    )));
                 }
             }
         }
@@ -116,6 +120,17 @@ fn is_mp4(path: &Path) -> bool {
         .and_then(|value| value.to_str())
         .unwrap_or("")
         .eq_ignore_ascii_case("mp4")
+}
+
+#[cfg(windows)]
+fn compose_timeout(duration_ms: Option<i64>) -> std::time::Duration {
+    let secs = duration_ms
+        .unwrap_or(30_000)
+        .max(5_000)
+        .saturating_mul(4)
+        .saturating_div(1000)
+        .clamp(120, 600) as u64;
+    std::time::Duration::from_secs(secs)
 }
 
 #[cfg(windows)]

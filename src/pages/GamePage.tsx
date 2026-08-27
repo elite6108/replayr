@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { save } from "@tauri-apps/plugin-dialog";
-import { clipShareUrl } from "../branding";
+import { clipShareUrl, publicAppUrl } from "../branding";
 import { GameCover } from "../components/common/GameCover";
 import { EmptyState } from "../components/common/EmptyState";
 import { PageHeader } from "../components/common/PageHeader";
 import { PlayerVideo } from "../components/common/ReplayrWatermark";
 import { IconGames, IconPlay } from "../components/icons";
 import { fetchPublicGameClips, type PublicGame, type PublicGameClip } from "../services/games";
+import { fetchClipPlayback } from "../services/social";
 import { downloadUrlToFile } from "../services/tauri";
+import { useAuthStore } from "../stores/authStore";
 import { useDetectionStore } from "../stores/detectionStore";
 import { useToastStore } from "../stores/toastStore";
+import { waitForCloudDownloadReady } from "../utils/cloudDownload";
 import { suggestedFileName } from "../utils/files";
 import { formatDuration, invokeErrorMessage } from "../utils/format";
 
@@ -65,6 +68,19 @@ export function GamePage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [playing]);
 
+  async function play(clip: PublicGameClip) {
+    if (clip.playbackUrl) {
+      setPlaying(clip);
+      return;
+    }
+    try {
+      const next = await fetchClipPlayback(clip.slug);
+      setPlaying({ ...clip, playbackUrl: next.playbackUrl, watermark: next.watermark ?? clip.watermark });
+    } catch (caught) {
+      useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not play that clip");
+    }
+  }
+
   async function copyLink(clip: PublicGameClip) {
     try {
       await navigator.clipboard.writeText(clipShareUrl(clip.slug));
@@ -75,17 +91,29 @@ export function GamePage() {
   }
 
   async function download(clip: PublicGameClip) {
-    if (!clip.playbackUrl) {
-      useToastStore.getState().show("That clip is not ready to download");
-      return;
-    }
     try {
+      const token = useAuthStore.getState().session?.access_token ?? null;
+      const downloadUrl = `${publicAppUrl()}/v1/clips/${clip.slug}/download`;
       const dest = await save({
         defaultPath: suggestedFileName(clip.title, "clip", "mp4"),
         title: "Download public clip",
       });
       if (!dest) return;
-      await downloadUrlToFile(clip.playbackUrl, dest);
+      useToastStore.getState().show(
+        "Download will begin within about 30 seconds… Upgrade to Premium for instant downloads without watermarks.",
+      );
+      await waitForCloudDownloadReady(downloadUrl, token, {
+        onProgress: (update) => {
+          if (update.attempt === 1 || update.attempt % 3 === 0 || update.progress >= 1) {
+            useToastStore.getState().show(
+              update.progress >= 1
+                ? "Starting download…"
+                : `${update.message} Upgrade to Premium for instant downloads / no watermarks.`,
+            );
+          }
+        },
+      });
+      await downloadUrlToFile(downloadUrl, dest, { skipWatermark: true, accessToken: token });
       useToastStore.getState().show("Saved to disk");
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not download clip"));
@@ -133,7 +161,7 @@ export function GamePage() {
         <div className="clip-grid">
           {clips.map((clip) => (
             <article key={clip.id} className="clip-card live">
-              <button type="button" className="clip-open" onClick={() => setPlaying(clip)}>
+              <button type="button" className="clip-open" onClick={() => void play(clip)}>
                 <div className="clip-thumb">
                   {clip.thumbnailUrl ? <img src={clip.thumbnailUrl} alt="" /> : null}
                   <div className="clip-play">

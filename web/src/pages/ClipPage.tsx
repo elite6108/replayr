@@ -15,6 +15,10 @@ export function ClipPage() {
   const [clip, setClip] = useState<PlaybackClip | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<{
+    message: string;
+    progress: number;
+  } | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const { session } = useAuth();
@@ -79,12 +83,20 @@ export function ClipPage() {
                 void (async () => {
                   setDownloading(true);
                   setError(null);
+                  setDownloadProgress({
+                    message: "Download will begin within about 30 seconds…",
+                    progress: 0.12,
+                  });
                   try {
                     const token = supabaseConfigured()
                       ? (await getSupabase().auth.getSession()).data.session?.access_token
                       : undefined;
-                    await downloadCloudClip(clip.slug, clip.title, token);
+                    await downloadCloudClip(clip.slug, clip.title, token, (update) => {
+                      setDownloadProgress({ message: update.message, progress: update.progress });
+                    });
+                    setDownloadProgress(null);
                   } catch (caught) {
+                    setDownloadProgress(null);
                     setError(caught instanceof Error ? caught.message : "Could not download that clip.");
                   } finally {
                     setDownloading(false);
@@ -92,7 +104,7 @@ export function ClipPage() {
                 })();
               }}
             >
-              {downloading ? "Downloading…" : "Download"}
+              {downloading ? "Preparing…" : "Download"}
             </button>
             {session ? (
               <button className="btn" type="button" onClick={() => setSendOpen(true)}>
@@ -100,6 +112,28 @@ export function ClipPage() {
               </button>
             ) : null}
           </div>
+          {downloadProgress ? (
+            <aside className="download-prep" aria-live="polite">
+              <div className="download-prep-copy">
+                <strong>{downloadProgress.message}</strong>
+                {!billing?.premium ? (
+                  <p className="muted">
+                    Upgrade to Premium for instant downloads without a watermark.{" "}
+                    <Link to="/pricing">View Premium</Link>
+                  </p>
+                ) : null}
+              </div>
+              <div
+                className="download-prep-bar"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(downloadProgress.progress * 100)}
+              >
+                <span style={{ width: `${Math.round(downloadProgress.progress * 100)}%` }} />
+              </div>
+            </aside>
+          ) : null}
           <div className="player-stage">
             <PlayerVideo showWatermark={clip.watermark !== false}>
               <video className="player" src={clip.playbackUrl} controls playsInline autoPlay />

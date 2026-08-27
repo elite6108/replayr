@@ -24,6 +24,12 @@ pub struct OverlayLayout {
     pub shape: String,
     #[serde(default = "default_width")]
     pub width: f32,
+    /// Normalized left edge (0–1). When set with `y`, overrides corner placement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<f32>,
+    /// Normalized top edge (0–1). When set with `x`, overrides corner placement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<f32>,
 }
 
 fn default_placement() -> String {
@@ -44,6 +50,8 @@ impl Default for OverlayLayout {
             placement: default_placement(),
             shape: default_shape(),
             width: default_width(),
+            x: None,
+            y: None,
         }
     }
 }
@@ -54,6 +62,8 @@ impl OverlayLayout {
             placement: placement.to_string(),
             shape: shape.to_string(),
             width,
+            x: None,
+            y: None,
         };
         layout.sanitize();
         layout
@@ -73,6 +83,18 @@ impl OverlayLayout {
         } else {
             default_width()
         };
+        self.x = self
+            .x
+            .filter(|value| value.is_finite())
+            .map(|value| value.clamp(0.0, 1.0));
+        self.y = self
+            .y
+            .filter(|value| value.is_finite())
+            .map(|value| value.clamp(0.0, 1.0));
+        if self.x.is_none() || self.y.is_none() {
+            self.x = None;
+            self.y = None;
+        }
     }
 
     pub fn from_json(raw: Option<&str>) -> Self {
@@ -133,13 +155,20 @@ pub fn overlay_box(canvas_w: u32, canvas_h: u32, source_aspect: f32, layout: &Ov
     let margin_y = ((canvas_h as f32) * MARGIN).round() as u32;
     let max_x = canvas_w.saturating_sub(width);
     let max_y = canvas_h.saturating_sub(height);
-    let x = match layout.placement.as_str() {
-        "top-left" | "bottom-left" => margin_x.min(max_x),
-        _ => max_x.saturating_sub(margin_x.min(max_x)),
-    };
-    let y = match layout.placement.as_str() {
-        "top-left" | "top-right" => margin_y.min(max_y),
-        _ => max_y.saturating_sub(margin_y.min(max_y)),
+    let (x, y) = if let (Some(nx), Some(ny)) = (layout.x, layout.y) {
+        let x = ((canvas_w as f32) * nx.clamp(0.0, 1.0)).round() as u32;
+        let y = ((canvas_h as f32) * ny.clamp(0.0, 1.0)).round() as u32;
+        (x.min(max_x), y.min(max_y))
+    } else {
+        let x = match layout.placement.as_str() {
+            "top-left" | "bottom-left" => margin_x.min(max_x),
+            _ => max_x.saturating_sub(margin_x.min(max_x)),
+        };
+        let y = match layout.placement.as_str() {
+            "top-left" | "top-right" => margin_y.min(max_y),
+            _ => max_y.saturating_sub(margin_y.min(max_y)),
+        };
+        (x, y)
     };
     (x, y, width, height)
 }
@@ -314,5 +343,17 @@ mod tests {
         assert_eq!(w, h);
         assert_eq!(pixel(&canvas, x, y), [255, 0, 0, 255]);
         assert_eq!(pixel(&canvas, x + w / 2, y + h / 2), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn overlay_box_respects_free_xy() {
+        let mut layout = OverlayLayout::new("bottom-right", "rounded", 0.20);
+        layout.x = Some(0.10);
+        layout.y = Some(0.20);
+        layout.sanitize();
+        let (x, y, w, _) = overlay_box(1000, 1000, 1.0, &layout);
+        assert_eq!(w, 200);
+        assert_eq!(x, 100);
+        assert_eq!(y, 200);
     }
 }

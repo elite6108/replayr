@@ -47,6 +47,21 @@ function normalize(clip: PublicFeedClip): PublicFeedClip {
   };
 }
 
+export async function fetchClipPlayback(
+  slug: string,
+  accessToken?: string | null,
+): Promise<{ playbackUrl: string; watermark?: boolean }> {
+  const response = await fetch(`${publicApiUrl()}/v1/clips/${encodeURIComponent(slug)}`, {
+    headers: authHeaders(accessToken),
+  });
+  const body = await readApiJson<{ playbackUrl?: string; watermark?: boolean }>(
+    response,
+    "Could not load that clip.",
+  );
+  if (!body.playbackUrl) throw new Error("Playback is unavailable.");
+  return { playbackUrl: body.playbackUrl, watermark: body.watermark };
+}
+
 export async function fetchPublicFeed(accessToken?: string | null): Promise<PublicFeedClip[]> {
   const response = await fetch(`${publicApiUrl()}/v1/clips/public?limit=24`, {
     headers: authHeaders(accessToken),

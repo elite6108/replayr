@@ -2565,3 +2565,42 @@ code {
 }
 
 
+
+.download-prep {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 18px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(22, 26, 36, 0.9);
+}
+
+.download-prep-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.download-prep-copy strong {
+  font-size: 0.98rem;
+}
+
+.download-prep-copy .muted {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.download-prep-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.download-prep-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-strong), var(--accent));
+  transition: width 0.35s ease;
+}

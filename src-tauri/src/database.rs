@@ -18,6 +18,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (5, include_str!("../migrations/005_clip_lineage.sql")),
     (6, include_str!("../migrations/006_editor_crop.sql")),
     (7, include_str!("../migrations/007_clip_sources.sql")),
+    (8, include_str!("../migrations/008_upload_resume.sql")),
 ];
 
 pub fn database_path(app: &AppHandle) -> AppResult<PathBuf> {

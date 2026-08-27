@@ -293,9 +293,24 @@ export async function fetchGameClips(
 export async function downloadClipBytes(slug: string, accessToken?: string | null): Promise<ArrayBuffer> {
   const headers: HeadersInit = { accept: "application/octet-stream, application/json" };
   if (accessToken) headers.authorization = `Bearer ${accessToken}`;
-  const response = await fetch(apiUrl(`/v1/clips/${slug}/download`), { headers });
-  if (!response.ok) throw new Error(await readApiError(response, "Could not download that clip."));
-  return response.arrayBuffer();
+  const url = apiUrl(`/v1/clips/${slug}/download`);
+  let lastMessage = "Preparing branded download…";
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const response = await fetch(url, { headers, redirect: "follow" });
+    if (response.status === 202) {
+      try {
+        const body = (await response.json()) as { message?: string };
+        if (body.message) lastMessage = body.message;
+      } catch {
+        /* ignore */
+      }
+      if (attempt < 7) await new Promise((resolve) => setTimeout(resolve, 4000));
+      continue;
+    }
+    if (!response.ok) throw new Error(await readApiError(response, "Could not download that clip."));
+    return response.arrayBuffer();
+  }
+  throw new Error(lastMessage);
 }
 
 export interface BillingStatus {

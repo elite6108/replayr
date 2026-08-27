@@ -526,7 +526,8 @@ pub fn delete_local_clip(state: State<AppState>, local_id: String) -> AppResult<
 }
 
 #[tauri::command]
-pub fn reveal_local_clip(file_path: String) -> AppResult<()> {
+pub fn reveal_local_clip(app: AppHandle, file_path: String) -> AppResult<()> {
+    crate::paths::assert_reveal_allowed(&app, &file_path)?;
     library::reveal(&file_path)
 }
 
@@ -550,8 +551,20 @@ pub fn export_local_clip(
 }
 
 #[tauri::command]
-pub fn download_url_to_file(app: AppHandle, url: String, dest: String) -> AppResult<()> {
-    crate::upload::download_url_to_file(&app, &url, &dest)
+pub fn download_url_to_file(
+    app: AppHandle,
+    url: String,
+    dest: String,
+    skip_watermark: Option<bool>,
+    access_token: Option<String>,
+) -> AppResult<()> {
+    crate::upload::download_url_to_file(
+        &app,
+        &url,
+        &dest,
+        skip_watermark.unwrap_or(false),
+        access_token.as_deref(),
+    )
 }
 
 #[tauri::command]

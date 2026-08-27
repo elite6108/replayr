@@ -1,11 +1,12 @@
 import { AwsClient } from "aws4fetch";
 import type { AuthUser, Env } from "./env";
 import { HttpError } from "./http";
+import { recordProductEvent } from "./metrics";
 
 export type { AuthUser, Env } from "./env";
 
 export const PUBLIC_CLIP_SELECT =
-  "select=id,user_id,title,description,slug,duration_ms,created_at,view_count,storage_key,thumbnail_key,like_count,comment_count,watermark,games(name,slug,cover_url)";
+  "select=id,user_id,title,description,slug,duration_ms,created_at,view_count,storage_key,thumbnail_key,like_count,comment_count,watermark,visibility,games(name,slug,cover_url)";
 
 export interface PublicClipRow {
   id: string;
@@ -21,6 +22,7 @@ export interface PublicClipRow {
   like_count?: number;
   comment_count?: number;
   watermark?: boolean;
+  visibility?: string;
   games:
     | { name: string; slug: string; cover_url: string | null }
     | { name: string; slug: string; cover_url: string | null }[]
@@ -59,11 +61,18 @@ interface ClipAuthor {
   verified?: boolean;
 }
 
+const AUTH_CACHE_TTL_MS = 45_000;
+const authUserCache = new Map<string, { user: AuthUser; expiresAt: number }>();
+
 export async function requireUser(request: Request, env: Env): Promise<AuthUser> {
   const header = request.headers.get("authorization") || "";
-  const token = header.toLowerCase().startsWith("bearer ") ? header.slice(7) : "";
+  const token = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
   if (!token) {
     throw new HttpError(401, "Sign in required.");
+  }
+  const cached = authUserCache.get(token);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { ...cached.user, token };
   }
   const response = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     headers: {
@@ -72,13 +81,22 @@ export async function requireUser(request: Request, env: Env): Promise<AuthUser>
     },
   });
   if (!response.ok) {
+    authUserCache.delete(token);
     throw new HttpError(401, "Session expired. Sign in again.");
   }
   const user = (await response.json()) as { id?: string };
   if (!user.id) {
     throw new HttpError(401, "Session expired. Sign in again.");
   }
-  return { id: user.id, token };
+  const authUser = { id: user.id, token };
+  authUserCache.set(token, { user: authUser, expiresAt: Date.now() + AUTH_CACHE_TTL_MS });
+  if (authUserCache.size > 2_000) {
+    const now = Date.now();
+    for (const [key, entry] of authUserCache) {
+      if (entry.expiresAt <= now) authUserCache.delete(key);
+    }
+  }
+  return authUser;
 }
 
 export async function optionalUser(request: Request, env: Env): Promise<AuthUser | null> {
@@ -132,8 +150,8 @@ export function objectUrl(env: Env, key: string) {
   return `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET_NAME}/${key}`;
 }
 
-function signObject(env: Env, key: string, method: "GET" | "PUT", headers?: Record<string, string>) {
-  return r2Client(env).sign(`${objectUrl(env, key)}?X-Amz-Expires=3600`, {
+function signObject(env: Env, key: string, method: "GET" | "PUT", headers?: Record<string, string>, expires = 3600) {
+  return r2Client(env).sign(`${objectUrl(env, key)}?X-Amz-Expires=${expires}`, {
     method,
     headers,
     aws: { signQuery: true },
@@ -146,9 +164,26 @@ export async function signedOwnedUrl(
   key: string | null | undefined,
   method: "GET" | "PUT",
   headers?: Record<string, string>,
+  expires = 3600,
 ): Promise<string | null> {
   if (!ownedObjectKey(userId, key)) return null;
-  return (await signObject(env, key, method, headers)).url;
+  return (await signObject(env, key, method, headers, expires)).url;
+}
+
+/** Run async work with a fixed concurrency cap. */
+export async function mapPool<T, R>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const runners = Array.from({ length: Math.min(concurrency, Math.max(1, items.length)) }, async () => {
+    while (true) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return results;
 }
 
 export async function serviceRestCount(env: Env, path: string): Promise<number> {
@@ -242,11 +277,13 @@ export async function presentPublicClips(request: Request, env: Env, rows: Publi
   requireR2(env);
   const viewer = await optionalUser(request, env);
   const social = await loadSocial(env, rows, viewer?.id ?? null);
-  const clips = [];
-  for (const row of rows) {
+  // List cards only need thumbs — mint playback on open via GET /v1/clips/:slug.
+  const thumbs = await mapPool(rows, 12, (row) => signedOwnedUrl(env, row.user_id, row.thumbnail_key, "GET"));
+  void recordProductEvent(env, "sign_count", thumbs.length, { route: "presentPublicClips" });
+  return rows.map((row, index) => {
     const game = Array.isArray(row.games) ? row.games[0] : row.games;
     const extra = social.get(row.id);
-    clips.push({
+    return {
       id: row.id,
       title: row.title,
       description: row.description,
@@ -254,17 +291,16 @@ export async function presentPublicClips(request: Request, env: Env, rows: Publi
       durationMs: row.duration_ms,
       createdAt: row.created_at,
       viewCount: row.view_count ?? 0,
-      thumbnailUrl: await signedOwnedUrl(env, row.user_id, row.thumbnail_key, "GET"),
-      playbackUrl: await signedOwnedUrl(env, row.user_id, row.storage_key, "GET"),
+      thumbnailUrl: thumbs[index],
+      playbackUrl: null as string | null,
       game: game ? { name: game.name, slug: game.slug, coverUrl: game.cover_url } : null,
       author: extra?.author ?? anonymousAuthor(),
       likeCount: extra?.likeCount ?? row.like_count ?? 0,
       commentCount: extra?.commentCount ?? row.comment_count ?? 0,
       liked: extra?.liked ?? false,
       watermark: row.watermark !== false,
-    });
-  }
-  return clips;
+    };
+  });
 }
 
 export async function loadSocial(

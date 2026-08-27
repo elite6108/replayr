@@ -8,7 +8,7 @@ import { useCloudStore } from "../../stores/cloudStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useBillingStore } from "../../stores/billingStore";
 import { formatBytes, formatClipDate, formatDuration, isVideoPath } from "../../utils/format";
-import { clipWebcamSource, parseSourceLayout } from "../../utils/clips";
+import { clipWebcamSource, parseSourceLayout, webcamOverlayStyle } from "../../utils/clips";
 
 export function ClipPlayer() {
   const clips = useLibraryStore((state) => state.clips);
@@ -75,7 +75,8 @@ export function ClipPlayer() {
     const cam = webcamRef.current;
     if (!cam) return;
     const drift = Math.abs(cam.currentTime - master.currentTime);
-    if (drift > 0.12) {
+    // Keep cam tight to gameplay/audio; seeking is async so re-check next tick.
+    if (drift > 0.05) {
       cam.currentTime = master.currentTime;
     }
     if (master.paused) {
@@ -122,8 +123,8 @@ export function ClipPlayer() {
               />
               {webcamMedia ? (
                 <div
-                  className={`editor-webcam place-${webcamLayout.placement} shape-${webcamLayout.shape}`}
-                  style={{ width: `${webcamLayout.width * 100}%` }}
+                  className={`editor-webcam place-${webcamLayout.placement} shape-${webcamLayout.shape}${webcamLayout.x != null && webcamLayout.y != null ? " free" : ""}`}
+                  style={webcamOverlayStyle(webcamLayout)}
                 >
                   <video
                     ref={webcamRef}

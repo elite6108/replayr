@@ -13,6 +13,7 @@ export function CloudClipCard({
   onDelete,
   onDownload,
   onCopyLink,
+  onVisibility,
 }: {
   clip: CloudClip;
   selected?: boolean;
@@ -22,6 +23,7 @@ export function CloudClipCard({
   onDelete?: (clip: CloudClip) => void;
   onDownload?: (clip: CloudClip) => void;
   onCopyLink?: (clip: CloudClip) => void;
+  onVisibility?: (clip: CloudClip, visibility: CloudClip["visibility"]) => void;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -106,9 +108,27 @@ export function CloudClipCard({
           </button>
         )}
         <div className="clip-date">
-          {date || clip.visibility}
+          {date || "Cloud"}
           {clip.fileSizeBytes ? ` · ${formatBytes(clip.fileSizeBytes)}` : ""}
         </div>
+        {onVisibility && ready ? (
+          <label className="clip-visibility">
+            <select
+              value={clip.visibility}
+              aria-label="Clip visibility"
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) =>
+                onVisibility(clip, event.target.value as CloudClip["visibility"])
+              }
+            >
+              <option value="private">Private — only you</option>
+              <option value="unlisted">Unlisted — link only</option>
+              <option value="public">Public — everyone</option>
+            </select>
+          </label>
+        ) : (
+          <div className="clip-date">{clip.visibility}</div>
+        )}
       </div>
       {menu ? (
         <ContextMenu
@@ -130,7 +150,11 @@ export function CloudClipCard({
               },
             },
             { label: "Download", disabled: !ready, onClick: () => onDownload?.(clip) },
-            { label: "Copy link", disabled: !ready, onClick: () => onCopyLink?.(clip) },
+            {
+              label: "Copy link",
+              disabled: !ready || clip.visibility === "private",
+              onClick: () => onCopyLink?.(clip),
+            },
             { label: "Delete", danger: true, onClick: remove },
           ]}
         />

@@ -46,6 +46,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const downloadCloud = useCloudStore((state) => state.download);
   const downloadCloudMany = useCloudStore((state) => state.downloadMany);
   const copyCloudLink = useCloudStore((state) => state.copyLink);
+  const setCloudVisibility = useCloudStore((state) => state.setVisibility);
   const playCloud = useCloudStore((state) => state.play);
   const toggleCloudSelect = useCloudStore((state) => state.toggleSelect);
   const selectAllCloud = useCloudStore((state) => state.selectAll);
@@ -233,6 +234,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
                     onDelete={(item) => void removeCloud(item.id)}
                     onDownload={(item) => void downloadCloud(item.id)}
                     onCopyLink={(item) => void copyCloudLink(item.id)}
+                    onVisibility={(item, visibility) => void setCloudVisibility(item.id, visibility)}
                   />
                 ))}
               </div>

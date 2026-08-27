@@ -105,12 +105,23 @@ export function LibraryPage() {
 
   async function setVisibility(clip: ManagedClip, visibility: ManagedClip["visibility"]) {
     setNotice(null);
+    setError(null);
     const { error: next } = await getSupabase().from("clips").update({ visibility }).eq("id", clip.id).eq("user_id", userId);
     if (next) {
       setError(next.message);
       return;
     }
     setClips((current) => current.map((item) => (item.id === clip.id ? { ...item, visibility } : item)));
+    if (playing && activeId === clip.id) {
+      setPlaying({ ...playing, visibility });
+    }
+    setNotice(
+      visibility === "private"
+        ? "Private — only you can watch"
+        : visibility === "unlisted"
+          ? "Unlisted — anyone with the link can watch"
+          : "Public — listed for everyone",
+    );
   }
 
   async function saveTitle(clip: ManagedClip) {
@@ -145,12 +156,16 @@ export function LibraryPage() {
     }
   }
 
-  async function copyLink(slug: string) {
+  async function copyLink(clip: ManagedClip) {
+    if (clip.visibility === "private") {
+      setNotice("Private clips have no share link. Set Unlisted or Public first.");
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(clipShareUrl(slug));
-      setNotice("Link copied");
+      await navigator.clipboard.writeText(clipShareUrl(clip.slug));
+      setNotice(clip.visibility === "public" ? "Public link copied" : "Unlisted link copied");
     } catch {
-      setNotice(clipShareUrl(slug));
+      setNotice(clipShareUrl(clip.slug));
     }
   }
 
@@ -293,10 +308,25 @@ export function LibraryPage() {
                 <div>
                   <h2>{playing.title || "Untitled clip"}</h2>
                   <p className="muted">
-                    {playing.visibility}
-                    {playing.width && playing.height ? ` · ${playing.width}×${playing.height}` : ""}
-                    {active?.durationMs ? ` · ${formatDurationMs(active.durationMs)}` : ""}
+                    {playing.width && playing.height ? `${playing.width}×${playing.height}` : ""}
+                    {active?.durationMs ? `${playing.width && playing.height ? " · " : ""}${formatDurationMs(active.durationMs)}` : ""}
                   </p>
+                  {active ? (
+                    <label className="player-visibility">
+                      Visibility
+                      <select
+                        value={active.visibility}
+                        aria-label="Clip visibility"
+                        onChange={(event) =>
+                          void setVisibility(active, event.target.value as ManagedClip["visibility"])
+                        }
+                      >
+                        <option value="private">Private — only you</option>
+                        <option value="unlisted">Unlisted — link only</option>
+                        <option value="public">Public — everyone</option>
+                      </select>
+                    </label>
+                  ) : null}
                 </div>
                 <button
                   className="btn"
@@ -399,9 +429,9 @@ export function LibraryPage() {
                       disabled={clip.status !== "ready"}
                       aria-label="Visibility"
                     >
-                      <option value="unlisted">Unlisted</option>
-                      <option value="private">Private</option>
-                      <option value="public">Public</option>
+                      <option value="private">Private — only you</option>
+                      <option value="unlisted">Unlisted — link only</option>
+                      <option value="public">Public — everyone</option>
                     </select>
                     <button
                       className="btn"
@@ -413,7 +443,13 @@ export function LibraryPage() {
                     >
                       Rename
                     </button>
-                    <button className="btn" type="button" onClick={() => void copyLink(clip.slug)} disabled={clip.status !== "ready"}>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => void copyLink(clip)}
+                      disabled={clip.status !== "ready" || clip.visibility === "private"}
+                      title={clip.visibility === "private" ? "Private clips have no share link" : "Copy share link"}
+                    >
                       Copy
                     </button>
                     <button

@@ -928,6 +928,18 @@ textarea {
   margin: 0 0 4px;
 }
 
+.player-visibility {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.player-visibility select {
+  max-width: 280px;
+}
+
 .library-rail h2 {
   margin: 0 0 12px;
   font-size: 1rem;

@@ -27,7 +27,7 @@ import {
   type PublicClipRow,
 } from "./shared";
 import { assertUploadAllowed, handleBilling } from "./billing";
-import { handleSocial, hasConversationClipGrant } from "./social";
+import { handleSocial } from "./social";
 
 export type {
   AddMembersBody,
@@ -856,12 +856,11 @@ async function recordClipView(env: Env, clipId: string, request: Request): Promi
 async function lookupPlayback(request: Request, env: Env, slug: string): Promise<PlaybackRow | null> {
   const clip = await lookupPlaybackRaw(env, slug);
   if (!clip) return null;
+  // public: anyone · unlisted: anyone with the link · private: owner only
   if (clip.visibility === "public" || clip.visibility === "unlisted") return clip;
   if (clip.visibility === "private") {
     const user = await optionalUser(request, env);
-    if (!user) return null;
-    if (user.id === clip.user_id) return clip;
-    if (await hasConversationClipGrant(env, clip.id, user.id)) return clip;
+    if (user?.id === clip.user_id) return clip;
   }
   return null;
 }

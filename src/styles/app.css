@@ -1425,6 +1425,16 @@ a {
   font-size: 12px;
 }
 
+.clip-visibility {
+  display: block;
+  margin-top: 8px;
+}
+
+.clip-visibility select {
+  width: 100%;
+  font-size: 12px;
+}
+
 .clip-line {
   display: block;
   height: 8px;

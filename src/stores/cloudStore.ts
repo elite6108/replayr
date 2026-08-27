@@ -242,8 +242,18 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       await updateOwnClipVisibility(user.id, clipId, visibility);
       set({
         clips: get().clips.map((clip) => (clip.id === clipId ? { ...clip, visibility } : clip)),
+        playing:
+          get().playing?.clip.id === clipId && get().playing
+            ? { ...get().playing!, clip: { ...get().playing!.clip, visibility } }
+            : get().playing,
       });
-      useToastStore.getState().show(visibility === "unlisted" ? "Link stays unlisted" : `Visibility set to ${visibility}`);
+      useToastStore.getState().show(
+        visibility === "private"
+          ? "Private — only you can watch"
+          : visibility === "unlisted"
+            ? "Unlisted — anyone with the link can watch"
+            : "Public — listed for everyone",
+      );
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not change visibility"));
     }
@@ -333,9 +343,15 @@ export const useCloudStore = create<CloudState>((set, get) => ({
   copyLink: async (clipId) => {
     const clip = get().clips.find((item) => item.id === clipId);
     if (!clip) return;
+    if (clip.visibility === "private") {
+      useToastStore.getState().show("Private clips have no share link. Set Unlisted or Public first.");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(clipShareUrl(clip.slug));
-      useToastStore.getState().show("Link copied");
+      useToastStore.getState().show(
+        clip.visibility === "public" ? "Public link copied" : "Unlisted link copied",
+      );
     } catch {
       useToastStore.getState().show("Could not copy link");
     }

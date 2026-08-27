@@ -11,6 +11,7 @@ export function CloudClipPlayer() {
   const remove = useCloudStore((state) => state.remove);
   const download = useCloudStore((state) => state.download);
   const copyLink = useCloudStore((state) => state.copyLink);
+  const setVisibility = useCloudStore((state) => state.setVisibility);
   const watermark = useBillingStore((state) => state.status?.watermark ?? true);
   const [title, setTitle] = useState(playing?.clip.title ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -62,12 +63,32 @@ export function CloudClipPlayer() {
             {clip.width && clip.height ? ` · ${clip.width}×${clip.height}` : ""}
             {clip.fileSizeBytes ? ` · ${formatBytes(clip.fileSizeBytes)}` : ""}
           </p>
-          <p className="muted">Cloud · {clip.visibility}</p>
+          <label>
+            Visibility
+            <select
+              value={clip.visibility}
+              aria-label="Clip visibility"
+              disabled={clip.status !== "ready"}
+              onChange={(event) =>
+                void setVisibility(clip.id, event.target.value as typeof clip.visibility)
+              }
+            >
+              <option value="private">Private — only you</option>
+              <option value="unlisted">Unlisted — link only</option>
+              <option value="public">Public — everyone</option>
+            </select>
+          </label>
           <div className="row">
             <button type="button" className="btn" disabled={clip.status !== "ready"} onClick={() => void download(clip.id)}>
               Download
             </button>
-            <button type="button" className="btn" disabled={clip.status !== "ready"} onClick={() => void copyLink(clip.id)}>
+            <button
+              type="button"
+              className="btn"
+              disabled={clip.status !== "ready" || clip.visibility === "private"}
+              title={clip.visibility === "private" ? "Private clips have no share link" : "Copy share link"}
+              onClick={() => void copyLink(clip.id)}
+            >
               Copy link
             </button>
           </div>

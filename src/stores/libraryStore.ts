@@ -383,14 +383,20 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     if (!cloud) {
       await useCloudStore.getState().refresh();
     }
-    const slug = useCloudStore.getState().clips.find((item) => item.id === clip.cloudClipId)?.slug;
-    if (!slug) {
+    const linked = useCloudStore.getState().clips.find((item) => item.id === clip.cloudClipId);
+    if (!linked?.slug) {
       useToastStore.getState().show("Could not find the cloud link yet");
       return;
     }
+    if (linked.visibility === "private") {
+      useToastStore.getState().show("Private clips have no share link. Set Unlisted or Public first.");
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(clipShareUrl(slug));
-      useToastStore.getState().show("Link copied");
+      await navigator.clipboard.writeText(clipShareUrl(linked.slug));
+      useToastStore.getState().show(
+        linked.visibility === "public" ? "Public link copied" : "Unlisted link copied",
+      );
     } catch {
       useToastStore.getState().show("Could not copy link");
     }

@@ -417,7 +417,7 @@ async function listUserSuggestions(request: Request, env: Env, url: URL): Promis
     const rows = await serviceRest<{ user_id: string; game_id: string }[]>(
       env,
       "GET",
-      `/clips?game_id=in.(${group.join(",")})&user_id=neq.${user.id}&status=eq.ready&or=(visibility.eq.public,visibility.eq.unlisted)&select=user_id,game_id&limit=400`,
+      `/clips?game_id=in.(${group.join(",")})&user_id=neq.${user.id}&status=eq.ready&visibility=eq.public&select=user_id,game_id&limit=400`,
     );
     const seen = new Set<string>();
     for (const row of rows) {
@@ -461,7 +461,7 @@ async function listFriendClips(request: Request, env: Env, url: URL): Promise<Re
     const rows = await serviceRest<PublicClipRow[]>(
       env,
       "GET",
-      `/clips?user_id=in.(${group.join(",")})&status=eq.ready&or=(visibility.eq.public,visibility.eq.unlisted)&${PUBLIC_CLIP_SELECT}&order=created_at.desc&limit=${limit}`,
+      `/clips?user_id=in.(${group.join(",")})&status=eq.ready&visibility=eq.public&${PUBLIC_CLIP_SELECT}&order=created_at.desc&limit=${limit}`,
     );
     for (const row of rows) byId.set(row.id, row);
   }
@@ -490,6 +490,7 @@ async function listFriendClips(request: Request, env: Env, url: URL): Promise<Re
       `/clips?id=in.(${group.join(",")})&status=eq.ready&${PUBLIC_CLIP_SELECT}`,
     );
     for (const row of rows) {
+      if (row.visibility === "private") continue;
       if (row.user_id === user.id || !friendSet.has(row.user_id)) continue;
       byId.set(row.id, row);
     }
@@ -1059,9 +1060,12 @@ async function loadSendableClip(env: Env, clipId: string, senderId: string): Pro
   );
   const clip = rows[0];
   if (!clip) throw new HttpError(404, "That clip is not available.");
+  if (clip.visibility === "private") {
+    throw new HttpError(403, "Private clips stay with you. Set Unlisted or Public before sending.");
+  }
   const shareable = clip.visibility === "public" || clip.visibility === "unlisted";
   if (clip.user_id !== senderId && !shareable) {
-    throw new HttpError(403, "You can only send your own private clips.");
+    throw new HttpError(403, "You can only send clips you own.");
   }
   return clip;
 }

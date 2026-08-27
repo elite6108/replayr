@@ -642,8 +642,19 @@ pub fn download_url_to_file(
         return Err(AppError::Message("Choose a download location.".into()));
     }
     crate::paths::assert_export_dest_allowed(app, dest)?;
+    let mut headers = reqwest::header::HeaderMap::new();
+    // Bunny pull zones return hotlink-block HTML without an allowed Referer.
+    headers.insert(
+        reqwest::header::REFERER,
+        reqwest::header::HeaderValue::from_static("https://www.replayr.tv/"),
+    );
+    headers.insert(
+        reqwest::header::ORIGIN,
+        reqwest::header::HeaderValue::from_static("https://www.replayr.tv"),
+    );
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(300))
+        .default_headers(headers)
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .map_err(map_reqwest)?;

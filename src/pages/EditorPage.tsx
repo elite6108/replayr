@@ -26,8 +26,8 @@ const SHORTS_WARN_MS = 60_000;
 // Part of the on-disk filmstrip cache key, so keep it stable across resizes.
 const STRIP_TILES = 12;
 const WEBCAM_DRIFT_S = 0.05;
-/** Webcam capture runs ahead of gameplay; delay overlay to match. */
-const WEBCAM_LAG_S = 1.0;
+/** Webcam vs gameplay offset (seconds). Positive = delay cam. */
+const WEBCAM_LAG_S = 0;
 const WEBCAM_PLACEMENTS: { id: WebcamPlacement; label: string }[] = [
   { id: "top-left", label: "Top Left" },
   { id: "top-right", label: "Top Right" },

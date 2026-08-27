@@ -10,8 +10,8 @@ import { useBillingStore } from "../../stores/billingStore";
 import { formatBytes, formatClipDate, formatDuration, isVideoPath } from "../../utils/format";
 import { clipWebcamSource, parseSourceLayout, webcamOverlayStyle } from "../../utils/clips";
 
-/** Webcam capture runs ahead of gameplay; delay overlay to match. */
-const WEBCAM_LAG_S = 1.0;
+/** Webcam vs gameplay offset (seconds). Positive = delay cam. */
+const WEBCAM_LAG_S = 0;
 
 export function ClipPlayer() {
   const clips = useLibraryStore((state) => state.clips);

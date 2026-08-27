@@ -121,6 +121,7 @@ export async function enqueueWatermarkVariant(
   env: Env,
   clipId: string,
   _request?: Request,
+  options?: { force?: boolean },
 ): Promise<"skipped" | "already" | "submitted" | "failed"> {
   if (!bunnyConfigured(env)) return "skipped";
   requireServiceRole(env);
@@ -131,7 +132,8 @@ export async function enqueueWatermarkVariant(
     `/clips?id=eq.${clipId}&select=id,user_id,slug,title,storage_key,height,watermark,watermark_variant_status,watermark_processor,watermark_processor_video_id,watermark_resolution,watermark_render_version,watermark_error,watermark_updated_at`,
   );
   const clip = clips[0];
-  if (!clip || !clip.watermark) return "skipped";
+  if (!clip) return "skipped";
+  if (!clip.watermark && !options?.force) return "skipped";
   if (
     clip.watermark_variant_status === "submitting" ||
     clip.watermark_variant_status === "processing" ||
@@ -140,6 +142,13 @@ export async function enqueueWatermarkVariant(
       clip.watermark_processor_video_id)
   ) {
     return "already";
+  }
+
+  // claim_watermark_variant requires watermark=true; flip the flag when forcing
+  // a branded download for free downloaders of clean/premium-owned rows.
+  if (options?.force && !clip.watermark) {
+    await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}`, { watermark: true });
+    clip.watermark = true;
   }
 
   const claimed = await claimWatermarkJob(env, clipId);
@@ -372,9 +381,65 @@ export async function brandedDownloadRedirect(
     throw new HttpError(502, "Could not fetch branded download.");
   }
   const contentType = object.headers.get("content-type") || "";
-  if (!/video|octet-stream|mp4/i.test(contentType)) {
+  if (/text\/html|application\/json/i.test(contentType)) {
     throw new HttpError(502, "Branded download returned a non-video response.");
   }
+  if (contentType && !/video|octet-stream|mp4/i.test(contentType)) {
+    throw new HttpError(502, "Branded download returned a non-video response.");
+  }
+
+  // Peek the first bytes so we never proxy Bunny hotlink-block HTML as an MP4.
+  const reader = object.body.getReader();
+  const first = await reader.read();
+  if (first.done || !first.value?.byteLength) {
+    throw new HttpError(502, "Could not fetch branded download.");
+  }
+  const prefix = first.value;
+  const head = new TextDecoder().decode(prefix.slice(0, Math.min(96, prefix.byteLength)));
+  const trimmed = head.trimStart();
+  const hasFtyp = (() => {
+    const limit = Math.min(64, Math.max(0, prefix.byteLength - 3));
+    for (let i = 0; i < limit; i += 1) {
+      if (
+        prefix[i] === 0x66 &&
+        prefix[i + 1] === 0x74 &&
+        prefix[i + 2] === 0x79 &&
+        prefix[i + 3] === 0x70
+      ) {
+        return true;
+      }
+    }
+    return false;
+  })();
+  if (trimmed.startsWith("<") || trimmed.startsWith("{") || !hasFtyp) {
+    try {
+      await reader.cancel();
+    } catch {
+      /* ignore */
+    }
+    throw new HttpError(502, "Branded download returned a non-video response.");
+  }
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(prefix);
+      return pump();
+      async function pump(): Promise<void> {
+        for (;;) {
+          const next = await reader.read();
+          if (next.done) {
+            controller.close();
+            return;
+          }
+          if (next.value) controller.enqueue(next.value);
+        }
+      }
+    },
+    cancel() {
+      return reader.cancel();
+    },
+  });
+
   const headers = new Headers();
   headers.set("content-type", "video/mp4");
   headers.set(
@@ -384,7 +449,7 @@ export async function brandedDownloadRedirect(
   const length = object.headers.get("content-length");
   if (length) headers.set("content-length", length);
   headers.set("cache-control", "private, no-store");
-  return new Response(object.body, { status: 200, headers });
+  return new Response(stream, { status: 200, headers });
 }
 
 export async function deleteBunnyAssetForClip(

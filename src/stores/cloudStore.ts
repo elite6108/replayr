@@ -1,7 +1,7 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
-import { clipShareUrl, publicAppUrl } from "../branding";
+import { clipShareUrl, publicApiUrl } from "../branding";
 import { fetchOwnClipStatuses, fetchOwnClips, updateOwnClipTitle, updateOwnClipVisibility } from "../services/supabase";
 import { deleteCloudClip, deleteLocalClip, downloadUrlToFile, listLocalClips, renameLocalClip } from "../services/tauri";
 import type { CloudClip } from "../types/clip";
@@ -87,7 +87,7 @@ export const useCloudStore = create<CloudState>((set, get) => ({
     try {
       const { useLibraryStore } = await import("./libraryStore");
       useLibraryStore.getState().closePlayer();
-      const response = await fetch(`${publicAppUrl()}/v1/clips/${clip.slug}`, {
+      const response = await fetch(`${publicApiUrl()}/v1/clips/${clip.slug}`, {
         headers: { authorization: `Bearer ${token}` },
       });
       const body = await readApiJson<{ playbackUrl?: string }>(response, "Could not get a playback URL");
@@ -107,7 +107,7 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       return;
     }
     try {
-      await deleteCloudClip(clipId, token, publicAppUrl());
+      await deleteCloudClip(clipId, token, publicApiUrl());
       set({
         clips: get().clips.filter((clip) => clip.id !== clipId),
         selectedIds: get().selectedIds.filter((id) => id !== clipId),
@@ -129,7 +129,7 @@ export const useCloudStore = create<CloudState>((set, get) => ({
     let removed = 0;
     for (const clipId of clipIds) {
       try {
-        await deleteCloudClip(clipId, token, publicAppUrl());
+        await deleteCloudClip(clipId, token, publicApiUrl());
         removed += 1;
       } catch (caught) {
         useToastStore.getState().show(invokeErrorMessage(caught, "Could not remove cloud clip"));
@@ -159,7 +159,7 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       return;
     }
     try {
-      await deleteCloudClip(clipId, token, publicAppUrl());
+      await deleteCloudClip(clipId, token, publicApiUrl());
       set({
         clips: get().clips.filter((clip) => clip.id !== clipId),
         selectedIds: get().selectedIds.filter((id) => id !== clipId),
@@ -181,7 +181,7 @@ export const useCloudStore = create<CloudState>((set, get) => ({
     let removed = 0;
     for (const clipId of clipIds) {
       try {
-        await deleteCloudClip(clipId, token, publicAppUrl());
+        await deleteCloudClip(clipId, token, publicApiUrl());
         removed += 1;
       } catch (caught) {
         useToastStore.getState().show(invokeErrorMessage(caught, "Could not remove cloud clip"));
@@ -280,7 +280,7 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       return;
     }
     try {
-      const downloadUrl = `${publicAppUrl()}/v1/clips/${clip.slug}/download`;
+      const downloadUrl = `${publicApiUrl()}/v1/clips/${clip.slug}/download`;
       const dest = await save({
         defaultPath: suggestedFileName(clip.title, "clip", "mp4"),
         title: "Download cloud clip",
@@ -330,7 +330,7 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       let saved = 0;
       for (const clip of clips) {
         try {
-          const downloadUrl = `${publicAppUrl()}/v1/clips/${clip.slug}/download`;
+          const downloadUrl = `${publicApiUrl()}/v1/clips/${clip.slug}/download`;
           const dest = joinPath(folder, uniqueFileName(used, suggestedFileName(clip.title, "clip", "mp4")));
           await waitForCloudDownloadReady(downloadUrl, token);
           await downloadUrlToFile(downloadUrl, dest, { skipWatermark: true, accessToken: token });

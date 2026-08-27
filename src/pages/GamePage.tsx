@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { save } from "@tauri-apps/plugin-dialog";
-import { clipShareUrl, publicAppUrl } from "../branding";
+import { clipShareUrl, publicApiUrl } from "../branding";
 import { GameCover } from "../components/common/GameCover";
 import { EmptyState } from "../components/common/EmptyState";
 import { PageHeader } from "../components/common/PageHeader";
@@ -93,7 +93,7 @@ export function GamePage() {
   async function download(clip: PublicGameClip) {
     try {
       const token = useAuthStore.getState().session?.access_token ?? null;
-      const downloadUrl = `${publicAppUrl()}/v1/clips/${clip.slug}/download`;
+      const downloadUrl = `${publicApiUrl()}/v1/clips/${clip.slug}/download`;
       const dest = await save({
         defaultPath: suggestedFileName(clip.title, "clip", "mp4"),
         title: "Download public clip",

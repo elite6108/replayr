@@ -25,6 +25,8 @@ export interface Env {
   BUNNY_STREAM_TOKEN_AUTH_KEY?: string;
   /** Optional override for Bunny remote-fetch origin (defaults to https://www.replayr.tv). */
   BUNNY_INGEST_PUBLIC_ORIGIN?: string;
+  /** Password that unlocks the full marketing site (coming-soon gate). Worker secret only. */
+  SITE_ACCESS_PASSWORD?: string;
 }
 
 export interface AuthUser {

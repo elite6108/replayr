@@ -29,7 +29,7 @@ import {
   type PlaybackRow,
   type PublicClipRow,
 } from "./shared";
-import { assertUploadAllowed, handleBilling } from "./billing";
+import { assertUploadAllowed, handleBilling, loadStatus } from "./billing";
 import { handleSocial } from "./social";
 import {
   brandedDownloadRedirect,
@@ -40,6 +40,15 @@ import {
   reconcileWatermarkJobs,
 } from "./watermark";
 import { bunnyConfigured } from "./bunny";
+import {
+  COMING_SOON_PUBLIC_PATHS,
+  comingSoonSecurityHeaders,
+  handleSiteAccess,
+  handleWaitlist,
+  hasValidSiteAccess,
+  isSiteGatedPath,
+  serveComingSoon,
+} from "./site-access";
 
 export type {
   AddMembersBody,
@@ -137,6 +146,27 @@ async function route(
       storage: Boolean(env.R2_BUCKET_NAME && env.R2_ACCESS_KEY_ID && env.R2_ACCOUNT_ID),
     });
   }
+  const siteAccess = await handleSiteAccess(request, env);
+  if (siteAccess) return siteAccess;
+  const waitlist = await handleWaitlist(request, env);
+  if (waitlist) return waitlist;
+
+  // Locked landing assets must bypass the gate (and avoid ASSETS↔worker recursion).
+  if (
+    (request.method === "GET" || request.method === "HEAD") &&
+    COMING_SOON_PUBLIC_PATHS.has(url.pathname) &&
+    env.ASSETS
+  ) {
+    const asset = await env.ASSETS.fetch(new URL(url.pathname, request.url).toString());
+    if (asset.ok) {
+      const headers = comingSoonSecurityHeaders(new Headers(asset.headers));
+      if (url.pathname.endsWith(".html")) {
+        headers.set("content-type", "text/html; charset=utf-8");
+      }
+      return new Response(asset.body, { status: asset.status, headers });
+    }
+  }
+
   if (request.method === "POST" && url.pathname === "/internal/webhooks/bunny") {
     return handleBunnyWebhook(request, env);
   }
@@ -227,8 +257,18 @@ async function route(
   if (request.method === "GET" && url.pathname === "/releases/latest.json") {
     return serveUpdaterManifest(request, env);
   }
+
+  // Coming-soon gate: marketing SPA stays hidden until the site-access cookie is set.
+  if (
+    (request.method === "GET" || request.method === "HEAD") &&
+    isSiteGatedPath(url.pathname) &&
+    !(await hasValidSiteAccess(request, env))
+  ) {
+    return serveComingSoon(request, env);
+  }
+
   if (request.method === "GET" && url.pathname === "/") {
-    if (env.ASSETS) return withWebSecurityHeaders(await env.ASSETS.fetch(request));
+    if (env.ASSETS) return serveMarketingSpa(request, env);
     return siteLanding(env);
   }
   if (
@@ -241,10 +281,7 @@ async function route(
       url.pathname === "/admin" ||
       url.pathname.startsWith("/admin/"))
   ) {
-    if (env.ASSETS) {
-      const index = new URL("/index.html", request.url);
-      return withWebSecurityHeaders(await env.ASSETS.fetch(new Request(index, request)));
-    }
+    if (env.ASSETS) return serveMarketingSpa(request, env);
   }
   if (url.pathname.startsWith("/v1/")) {
     return json({ error: "Not found." }, 404);
@@ -253,6 +290,29 @@ async function route(
     return withWebSecurityHeaders(await env.ASSETS.fetch(request));
   }
   return json({ error: "Not found." }, 404);
+}
+
+/**
+ * Serve the Vite SPA shell at the *current* URL (200).
+ * Workers Assets canonicalizes `/index.html` → `/` with 307; if we forward that
+ * redirect, `/c/:slug` becomes the homepage and React never mounts ClipPage.
+ */
+async function serveMarketingSpa(request: Request, env: Env): Promise<Response> {
+  // Fetch by URL string so run_worker_first does not re-enter the cookie gate.
+  let asset = await env.ASSETS!.fetch(new URL("/", request.url).toString());
+  if (!asset.ok) {
+    asset = await env.ASSETS!.fetch(new URL("/index.html", request.url).toString());
+    if (asset.status >= 300 && asset.status < 400) {
+      const loc = asset.headers.get("Location");
+      if (loc) asset = await env.ASSETS!.fetch(new URL(loc, request.url).toString());
+    }
+  }
+  const headers = new Headers(asset.headers);
+  headers.set("content-type", "text/html; charset=utf-8");
+  headers.set("cache-control", "no-store");
+  return withWebSecurityHeaders(
+    new Response(asset.body, { status: 200, statusText: "OK", headers }),
+  );
 }
 
 function withWebSecurityHeaders(response: Response): Response {
@@ -852,8 +912,19 @@ async function downloadClip(
     return json({ error: "That clip is not available." }, 404);
   }
 
-  // Pro / clean downloads: stream original from R2.
-  if (clip.watermark === false) {
+  // Clean originals only for premium downloaders — never for free/anonymous,
+  // regardless of the uploader's clips.watermark flag.
+  const viewer = await optionalUser(request, env);
+  let needsWatermark = true;
+  if (viewer) {
+    try {
+      const billing = await loadStatus(env, viewer.id);
+      needsWatermark = Boolean(billing.watermark);
+    } catch {
+      needsWatermark = true;
+    }
+  }
+  if (!needsWatermark) {
     return streamR2Original(env, clip);
   }
 
@@ -908,7 +979,8 @@ async function downloadClip(
     variant.watermark_variant_status === "none" ||
     variant.watermark_variant_status === "failed"
   ) {
-    ctx.waitUntil(enqueueWatermarkVariant(env, clip.id, request));
+    // Force Bunny even when the row was uploaded as clean (premium/legacy).
+    ctx.waitUntil(enqueueWatermarkVariant(env, clip.id, request, { force: !clip.watermark }));
   }
 
   return json(
@@ -1160,9 +1232,10 @@ async function serveUpdaterManifest(request: Request, env: Env): Promise<Respons
 }
 
 async function clipPlayerPage(request: Request, env: Env, slug: string): Promise<Response> {
+  // Always serve the SPA for /c/:slug so unlisted share links open ClipPage
+  // on both apex and www (gate still covers other marketing routes).
   if (env.ASSETS) {
-    const index = new URL("/index.html", request.url);
-    return withWebSecurityHeaders(await env.ASSETS.fetch(new Request(index, request)));
+    return serveMarketingSpa(request, env);
   }
   const origin = publicShareOrigin(env) || new URL(request.url).origin;
   const safeSlug = slug.replace(/[^a-z0-9]/g, "");
@@ -1174,14 +1247,13 @@ async function clipPlayerPage(request: Request, env: Env, slug: string): Promise
   <title>Replayr</title>
   <meta name="robots" content="noindex" />
   <style>
-    :root { color-scheme: dark; --bg:#0b0c0f; --text:#e8eaed; --muted:#8b929c; --accent:#6cb4d4; --raised:#161a21; --border:#262b34; }
+    :root { color-scheme: dark; --bg:#0b0c0f; --text:#e8eaed; --muted:#8b929c; --accent:#6cb4d4; --border:#262b34; }
     * { box-sizing: border-box; }
-    body { margin:0; font: 15px/1.45 "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--text); }
+    body { margin:0; font: 15px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); }
     main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
     a { color: var(--accent); }
     .muted { color: var(--muted); }
     video { width: 100%; background: #000; border-radius: 8px; border: 1px solid var(--border); }
-    h1 { font-size: 1.25rem; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -1207,6 +1279,7 @@ async function clipPlayerPage(request: Request, env: Env, slug: string): Promise
 </body>
 </html>`;
   return new Response(html, {
+    status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",

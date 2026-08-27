@@ -8,10 +8,9 @@
 
 use std::time::{Duration, Instant};
 
-/// Webcam often sits ~1s ahead of gameplay (camera pipeline vs WGC). Delay cam
-/// relative to the master clock so mouth/action line up. Used by dual-video UI
-/// and by compose (`WebcamFollow`).
-pub const WEBCAM_SYNC_DELAY_HNS: i64 = 10_000_000; // 1.0s
+/// Optional webcam delay vs gameplay/audio (HNS). 0 = use sidecar timestamps as-is.
+/// Positive values sample an earlier webcam frame (delay cam). Was overshooting at 4s.
+pub const WEBCAM_SYNC_DELAY_HNS: i64 = 0;
 
 pub const SEGMENT_HNS: i64 = 20_000_000;
 /// Webcam rolling files span multiple gameplay grids so encoder restarts

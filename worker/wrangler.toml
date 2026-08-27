@@ -18,7 +18,8 @@ PUBLIC_APP_URL = "http://127.0.0.1:8787"
 directory = "../web/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/v1/*", "/internal/*", "/releases/latest.json"]
+# Worker must run first so the coming-soon cookie gate can hide the SPA.
+run_worker_first = true
 
 [triggers]
 crons = ["15 * * * *"]
@@ -49,3 +50,6 @@ crons = ["15 * * * *"]
 # BUNNY_STREAM_TOKEN_AUTH_KEY    (optional; CDN token auth)
 # Webhook: https://www.replayr.tv/internal/webhooks/bunny
 # Ops: enable library watermark PNG + MP4 fallback / single-resolution before ingest
+#
+# Coming-soon site gate (never VITE_):
+# SITE_ACCESS_PASSWORD

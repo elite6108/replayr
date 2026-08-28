@@ -1176,6 +1176,53 @@ code {
   font-size: 13px;
 }
 
+.download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.download-menu {
+  position: relative;
+}
+
+.download-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 168px;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(12, 14, 18, 0.96);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  display: grid;
+  gap: 4px;
+  z-index: 40;
+}
+
+.download-menu-panel[hidden] {
+  display: none;
+}
+
+.download-menu-panel a {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.download-menu-panel a:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.landing-cta .download-actions {
+  justify-content: center;
+  margin-top: 18px;
+}
+
 .app-preview {
   border: 1px solid var(--border);
   border-radius: 22px;

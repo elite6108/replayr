@@ -4,7 +4,7 @@ import { ClipThumb } from "../components/ClipThumb";
 import { GameCover } from "../components/GameCover";
 import { Seo } from "../components/Seo";
 import { useAuth } from "../lib/auth";
-import { WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
+import { MAC_DOWNLOAD_PATH, WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
 import { formatCount, formatDurationMs, formatHandle } from "../lib/format";
 import { fetchGames, fetchPublicClips, type CatalogGame, type PublicClipCard } from "../lib/games";
 
@@ -25,8 +25,8 @@ export function HomePage() {
   return (
     <main className="landing">
       <Seo
-        title="Replayr — Windows gameplay clipper"
-        description="The play already happened. Replayr keeps Instant Replay rolling on Windows, saves the clip on this PC, and shares a quiet unlisted link — no username in the URL."
+        title="Replayr — gameplay clipper"
+        description="The play already happened. Replayr keeps Instant Replay rolling, saves the clip on this PC, and shares a quiet unlisted link — no username in the URL."
       />
 
       <section className="landing-hero">
@@ -37,10 +37,17 @@ export function HomePage() {
               The play is already in the buffer. One hotkey saves it to this PC. Share only when you want — an unlisted
               link, no name attached.
             </p>
-            <a className="btn glow" href={WINDOWS_DOWNLOAD_PATH}>
-              Download and open Replayr
-            </a>
-            <p className="hero-note">Windows — download and open, no setup wizard</p>
+            <div className="download-actions">
+              <a className="btn glow" href={WINDOWS_DOWNLOAD_PATH}>
+                Download for Windows
+              </a>
+              <a className="btn outline" href={MAC_DOWNLOAD_PATH}>
+                Download for macOS
+              </a>
+            </div>
+            <p className="hero-note">
+              Windows Instant Replay · macOS app for library &amp; sharing
+            </p>
           </div>
           <DesktopPreview />
         </div>
@@ -171,9 +178,14 @@ export function HomePage() {
       <section className="landing-cta">
         <div className="landing-wrap">
           <h2>Clip on the PC. Share a link when you want.</h2>
-          <a className="btn glow" href={WINDOWS_DOWNLOAD_PATH}>
-            Download and open Replayr
-          </a>
+          <div className="download-actions">
+            <a className="btn glow" href={WINDOWS_DOWNLOAD_PATH}>
+              Download for Windows
+            </a>
+            <a className="btn outline" href={MAC_DOWNLOAD_PATH}>
+              Download for macOS
+            </a>
+          </div>
         </div>
       </section>
     </main>

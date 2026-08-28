@@ -3,7 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { isAdminSession } from "../lib/admin";
 import { useAuth } from "../lib/auth";
 import { useSocialUnread } from "../lib/socialUnread";
-import { APP_NAME, WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
+import { APP_NAME, MAC_DOWNLOAD_PATH, WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
 import { NotificationBell } from "./NotificationBell";
 import { HeaderSearch } from "./HeaderSearch";
 
@@ -14,22 +14,29 @@ export function SiteHeader() {
   const admin = isAdminSession(session);
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
   const menuId = useId();
+  const downloadMenuId = useId();
 
   useEffect(() => {
     setOpen(false);
+    setDownloadOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open && !downloadOpen) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        setOpen(false);
+        setDownloadOpen(false);
+      }
     };
     const onPointerDown = (event: PointerEvent) => {
       if (headerRef.current && !headerRef.current.contains(event.target as Node)) {
         setOpen(false);
+        setDownloadOpen(false);
       }
     };
 
@@ -39,7 +46,7 @@ export function SiteHeader() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("pointerdown", onPointerDown);
     };
-  }, [open]);
+  }, [open, downloadOpen]);
 
   return (
     <header className={`site-header${open ? " is-open" : ""}`} ref={headerRef}>
@@ -85,9 +92,25 @@ export function SiteHeader() {
           <div className="header-actions">
             <HeaderSearch />
             <NotificationBell />
-            <a className="btn outline" href={WINDOWS_DOWNLOAD_PATH}>
-              Download and open
-            </a>
+            <div className={`download-menu${downloadOpen ? " is-open" : ""}`}>
+              <button
+                className="btn outline"
+                type="button"
+                aria-expanded={downloadOpen}
+                aria-controls={downloadMenuId}
+                onClick={() => setDownloadOpen((value) => !value)}
+              >
+                Download
+              </button>
+              <div className="download-menu-panel" id={downloadMenuId} hidden={!downloadOpen}>
+                <a href={WINDOWS_DOWNLOAD_PATH} onClick={() => setDownloadOpen(false)}>
+                  Windows (.exe)
+                </a>
+                <a href={MAC_DOWNLOAD_PATH} onClick={() => setDownloadOpen(false)}>
+                  macOS (.dmg)
+                </a>
+              </div>
+            </div>
           </div>
         </div>
       </div>

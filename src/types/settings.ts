@@ -7,6 +7,7 @@ export type CaptureFps = 30 | 60 | 120;
 export type BitratePreset = "low" | "medium" | "high" | "custom";
 export type CodecPreference = "h264" | "h265" | "av1";
 export type AutoUploadMode = "off" | "favorites" | "all";
+export type CloudUploadWhen = "immediate" | "afterGame";
 export type BandwidthLimit = "unlimited" | "50" | "25" | "10" | "5" | "1" | "custom";
 export type ThemePreference = "dark";
 
@@ -74,6 +75,7 @@ export interface AppSettings {
   saveLocation: string;
   hotkeys: Record<HotkeyAction, string>;
   autoUpload: AutoUploadMode;
+  cloudUploadWhen: CloudUploadWhen;
   uploadBandwidthLimit: BandwidthLimit;
   customBandwidthKbps: number;
   pauseUploadsWhileGaming: boolean;
@@ -84,6 +86,7 @@ export interface AppSettings {
   desktopShortcutPrompted: boolean;
   watermarkExports: boolean;
   clipSavedNotification: boolean;
+  discordRichPresence: boolean;
   webcam: WebcamSettings;
 }
 
@@ -111,6 +114,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   saveLocation: "",
   hotkeys: { ...DEFAULT_HOTKEYS },
   autoUpload: "all",
+  cloudUploadWhen: "afterGame",
   uploadBandwidthLimit: "unlimited",
   customBandwidthKbps: 10000,
   pauseUploadsWhileGaming: true,
@@ -121,5 +125,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   desktopShortcutPrompted: false,
   watermarkExports: true,
   clipSavedNotification: true,
+  discordRichPresence: true,
   webcam: { ...DEFAULT_WEBCAM_SETTINGS },
 };

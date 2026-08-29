@@ -78,8 +78,12 @@ pub struct AppSettings {
     pub save_location: String,
     pub hotkeys: Hotkeys,
     pub auto_upload: String,
+    /// When clips upload: "immediate" after save, or "afterGame" when the session ends.
+    #[serde(default = "default_cloud_upload_when")]
+    pub cloud_upload_when: String,
     pub upload_bandwidth_limit: String,
     pub custom_bandwidth_kbps: u32,
+    #[serde(default = "default_true")]
     pub pause_uploads_while_gaming: bool,
     pub min_free_disk_bytes: u64,
     pub theme: String,
@@ -94,6 +98,9 @@ pub struct AppSettings {
     /// In-game Replayr overlay after a clip is successfully saved. Default on.
     #[serde(default = "default_true")]
     pub clip_saved_notification: bool,
+    /// Show Replayr status on Discord via Rich Presence. Default on.
+    #[serde(default = "default_true")]
+    pub discord_rich_presence: bool,
     /// Optional webcam as a separate recording source. Off until the user opts in.
     #[serde(default)]
     pub webcam: WebcamSettings,
@@ -217,6 +224,7 @@ impl Default for AppSettings {
             save_location: String::new(),
             hotkeys: Hotkeys::default(),
             auto_upload: "all".into(),
+            cloud_upload_when: default_cloud_upload_when(),
             upload_bandwidth_limit: "unlimited".into(),
             custom_bandwidth_kbps: 10000,
             pause_uploads_while_gaming: true,
@@ -227,9 +235,14 @@ impl Default for AppSettings {
             desktop_shortcut_prompted: false,
             watermark_exports: true,
             clip_saved_notification: true,
+            discord_rich_presence: true,
             webcam: WebcamSettings::default(),
         }
     }
+}
+
+fn default_cloud_upload_when() -> String {
+    "afterGame".into()
 }
 
 fn default_mic_gain() -> f32 {
@@ -285,18 +298,38 @@ pub fn load(conn: &Connection) -> AppResult<AppSettings> {
 }
 
 fn parse_settings_json(json: &str) -> AppSettings {
-    if let Ok(settings) = serde_json::from_str::<AppSettings>(json) {
-        return settings;
-    }
-    let mut value = match serde_json::to_value(AppSettings::default()) {
-        Ok(value) => value,
-        Err(_) => return AppSettings::default(),
+    let mut settings = if let Ok(settings) = serde_json::from_str::<AppSettings>(json) {
+        settings
+    } else {
+        let mut value = match serde_json::to_value(AppSettings::default()) {
+            Ok(value) => value,
+            Err(_) => return AppSettings::default(),
+        };
+        if let Ok(mut stored) = serde_json::from_str::<Value>(json) {
+            strip_nulls(&mut stored);
+            merge_json(&mut value, stored);
+        }
+        serde_json::from_value(value).unwrap_or_default()
     };
-    if let Ok(mut stored) = serde_json::from_str::<Value>(json) {
-        strip_nulls(&mut stored);
-        merge_json(&mut value, stored);
+    migrate_cloud_upload_when(&mut settings, json);
+    settings
+}
+
+fn migrate_cloud_upload_when(settings: &mut AppSettings, json: &str) {
+    let missing = serde_json::from_str::<Value>(json)
+        .ok()
+        .and_then(|value| value.as_object().map(|map| !map.contains_key("cloudUploadWhen")))
+        .unwrap_or(false);
+    if missing {
+        settings.cloud_upload_when = if settings.pause_uploads_while_gaming {
+            "afterGame".into()
+        } else {
+            "immediate".into()
+        };
     }
-    serde_json::from_value(value).unwrap_or_default()
+    if settings.cloud_upload_when != "immediate" && settings.cloud_upload_when != "afterGame" {
+        settings.cloud_upload_when = default_cloud_upload_when();
+    }
 }
 
 fn strip_nulls(value: &mut Value) {
@@ -330,6 +363,9 @@ pub fn set_document(conn: &Connection, patch: Value) -> AppResult<AppSettings> {
     let mut current = serde_json::to_value(load(conn)?)?;
     merge_json(&mut current, patch);
     let mut settings: AppSettings = serde_json::from_value(current)?;
+    if settings.cloud_upload_when != "immediate" && settings.cloud_upload_when != "afterGame" {
+        settings.cloud_upload_when = default_cloud_upload_when();
+    }
     settings.mic_gain = settings.mic_gain.clamp(0.0, 2.0);
     settings.game_audio_gain = settings.game_audio_gain.clamp(0.0, 2.0);
     settings.discord_audio_gain = settings.discord_audio_gain.clamp(0.0, 2.0);
@@ -480,6 +516,35 @@ mod tests {
         object.remove("clipSavedNotification");
         let loaded: AppSettings = serde_json::from_value(value).unwrap();
         assert!(loaded.clip_saved_notification);
+    }
+
+    #[test]
+    fn cloud_upload_when_defaults_after_game_when_missing() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("cloudUploadWhen");
+        object.insert("pauseUploadsWhileGaming".into(), Value::Bool(true));
+        let loaded = parse_settings_json(&value.to_string());
+        assert_eq!(loaded.cloud_upload_when, "afterGame");
+    }
+
+    #[test]
+    fn cloud_upload_when_migrates_from_pause_off() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("cloudUploadWhen");
+        object.insert("pauseUploadsWhileGaming".into(), Value::Bool(false));
+        let loaded = parse_settings_json(&value.to_string());
+        assert_eq!(loaded.cloud_upload_when, "immediate");
+    }
+
+    #[test]
+    fn discord_rich_presence_defaults_on_when_missing() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("discordRichPresence");
+        let loaded: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(loaded.discord_rich_presence);
     }
 
     #[test]

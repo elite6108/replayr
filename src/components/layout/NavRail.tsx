@@ -50,7 +50,15 @@ export function NavRail() {
             key={item.to}
             to={item.to}
             end={item.end}
-            className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
+            className={({ isActive }) =>
+              [
+                "nav-item",
+                isActive ? "active" : "",
+                item.to === "/record" ? "nav-item-record" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")
+            }
           >
             <span className="nav-icon">
               <Glyph size={18} />

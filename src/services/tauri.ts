@@ -4,6 +4,7 @@ import type { AudioDevice, AudioEngineStatus, AudioSession } from "../types/audi
 import type { CameraDevice, CameraMode, CameraPreviewFrame, CameraStatus } from "../types/camera";
 import type { LocalClip } from "../types/clip";
 import type { DetectedGameSnapshot, GameCatalogEntry } from "../types/game";
+import type { DiscordPresenceStatus } from "../types/discord";
 import type { RecordingStatus, ReplayStatus } from "../types/recording";
 import { invokeErrorMessage } from "../utils/format";
 
@@ -228,6 +229,14 @@ export async function syncGames(games: GameCatalogEntry[]): Promise<GameCatalogE
 
 export async function getDetectedGame(): Promise<DetectedGameSnapshot> {
   return invoke("get_detected_game");
+}
+
+export async function getDiscordPresenceStatus(): Promise<DiscordPresenceStatus | null> {
+  try {
+    return await withTimeout(invoke<DiscordPresenceStatus>("get_discord_presence_status"), 4000, "get_discord_presence_status");
+  } catch {
+    return null;
+  }
 }
 
 export async function startRecording(): Promise<RecordingStatus> {

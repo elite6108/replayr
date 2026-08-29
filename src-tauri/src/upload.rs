@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use reqwest::blocking::Client;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
@@ -13,6 +14,9 @@ use crate::error::{AppError, AppResult};
 use crate::library::{self, LocalClipDto};
 
 const PART_SIZE: usize = 8 * 1024 * 1024;
+
+/// One compose+upload at a time so webcam re-encode cannot run in parallel.
+static UPLOAD_GATE: Mutex<()> = Mutex::new(());
 
 /// Temp composed upload file. Removed on drop so failed uploads do not litter disk.
 struct UploadComposeGuard(Option<PathBuf>);
@@ -81,6 +85,10 @@ pub fn upload_local_clip(
     if access_token.trim().is_empty() {
         return Err(AppError::Message("Sign in before uploading.".into()));
     }
+
+    let _gate = UPLOAD_GATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     let clip = {
         let db = app.state::<AppState>();
@@ -172,7 +180,7 @@ pub fn upload_local_clip(
             let _ = library::save_upload_resume(&conn, local_id, &text, 0);
         }
     }
-    emit(app, local_id, "uploading", None);
+    emit_progress(app, local_id, "uploading", None, Some(0), Some(file_size));
 
     let etags = match put_parts(
         app,
@@ -424,10 +432,7 @@ fn put_parts(
         let offset = (u64::from(part.part_number.saturating_sub(1))) * PART_SIZE as u64;
         let remaining = file_size.saturating_sub(offset);
         let take = remaining.min(PART_SIZE as u64) as usize;
-        let mut buf = vec![0u8; take];
-        file.seek(SeekFrom::Start(offset))?;
-        file.read_exact(&mut buf)?;
-        let etag = put_part_with_retry(client, &part.url, &buf, part.part_number)?;
+        let etag = put_part_with_retry(client, &part.url, &mut file, offset, take, part.part_number)?;
         completed.push(CompletedPart {
             part_number: part.part_number,
             etag,
@@ -451,21 +456,39 @@ fn put_parts(
                 let _ = library::save_upload_resume(&conn, local_id, &text, uploaded);
             };
         }
+        emit_progress(
+            app,
+            local_id,
+            "uploading",
+            None,
+            Some(uploaded),
+            Some(file_size),
+        );
     }
     completed.sort_by_key(|part| part.part_number);
     Ok(completed.clone())
 }
 
-fn put_part_with_retry(client: &Client, url: &str, buf: &[u8], part_number: u32) -> AppResult<String> {
+fn put_part_with_retry(
+    client: &Client,
+    url: &str,
+    file: &mut File,
+    offset: u64,
+    take: usize,
+    part_number: u32,
+) -> AppResult<String> {
     let mut last_err = String::new();
     for attempt in 0u64..3 {
         if attempt > 0 {
             std::thread::sleep(std::time::Duration::from_millis(250 * attempt));
         }
+        let mut buf = vec![0u8; take];
+        file.seek(SeekFrom::Start(offset))?;
+        file.read_exact(&mut buf)?;
         let response = match client
             .put(url)
             .header(CONTENT_TYPE, "video/mp4")
-            .body(buf.to_vec())
+            .body(buf)
             .send()
         {
             Ok(response) => response,
@@ -738,12 +761,26 @@ fn fail(app: &AppHandle, local_id: &str, error: &str) -> AppResult<LocalClipDto>
 }
 
 fn emit(app: &AppHandle, local_id: &str, status: &str, detail: Option<&str>) {
+    emit_progress(app, local_id, status, detail, None, None);
+}
+
+fn emit_progress(
+    app: &AppHandle,
+    local_id: &str,
+    status: &str,
+    detail: Option<&str>,
+    bytes_uploaded: Option<u64>,
+    bytes_total: Option<u64>,
+) {
     let _ = app.emit(
         "cloud-upload",
         json!({
             "localId": local_id,
             "status": status,
             "detail": detail,
+            "phase": status,
+            "bytesUploaded": bytes_uploaded,
+            "bytesTotal": bytes_total,
         }),
     );
 }

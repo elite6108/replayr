@@ -23,6 +23,7 @@ export function ClipPlayer() {
   const removeFromCloud = useLibraryStore((state) => state.removeFromCloud);
   const reveal = useLibraryStore((state) => state.reveal);
   const upload = useLibraryStore((state) => state.upload);
+  const ensureCloudUpload = useLibraryStore((state) => state.ensureCloudUpload);
   const user = useAuthStore((state) => state.user);
   const watermark = useBillingStore((state) => state.status?.watermark ?? true);
   const cloudClips = useCloudStore((state) => state.clips);
@@ -31,6 +32,7 @@ export function ClipPlayer() {
   const [title, setTitle] = useState(clip?.title ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [sending, setSending] = useState(false);
   const [wrapFullscreen, setWrapFullscreen] = useState(false);
   const gameplayRef = useRef<HTMLVideoElement>(null);
   const webcamRef = useRef<HTMLVideoElement>(null);
@@ -40,6 +42,7 @@ export function ClipPlayer() {
     setTitle(clip?.title ?? "");
     setConfirmDelete(false);
     setSendOpen(false);
+    setSending(false);
   }, [clip?.localId, clip?.title]);
 
   useEffect(() => {
@@ -226,9 +229,24 @@ export function ClipPlayer() {
               </Link>
             )
           ) : null}
-          {cloudSlug && user ? (
-            <button type="button" className="btn" onClick={() => setSendOpen(true)}>
-              Send
+          {video && user ? (
+            <button
+              type="button"
+              className="btn"
+              disabled={sending || uploading}
+              onClick={() => {
+                void (async () => {
+                  setSending(true);
+                  try {
+                    const ok = await ensureCloudUpload(clip.localId);
+                    if (ok) setSendOpen(true);
+                  } finally {
+                    setSending(false);
+                  }
+                })();
+              }}
+            >
+              {sending ? "Uploading…" : "Send"}
             </button>
           ) : null}
           {clip.cloudClipId && clip.uploadStatus === "completed" ? (

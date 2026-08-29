@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
-import { publicAppUrl, publicSiteUrl, APP_NAME } from "../branding";
+import { publicSiteUrl, APP_NAME } from "../branding";
+import { CloudSettings } from "../components/settings/CloudSettings";
 import { PageHeader } from "../components/common/PageHeader";
 import { HotkeyRecorder } from "../components/common/HotkeyRecorder";
 import { DEFAULT_HOTKEYS, findHotkeyConflicts, HOTKEY_ACTIONS, HOTKEY_LABELS } from "../utils/hotkeys";
@@ -12,9 +13,10 @@ import { useToastStore } from "../stores/toastStore";
 import { AudioSourceRow } from "../components/settings/AudioSourceRow";
 import { MicrophoneControls } from "../components/settings/MicrophoneControls";
 import { RecordingSources } from "../components/sources/RecordingSources";
-import { addExtraAudioApp, getAudioStatus, listAudioSessions } from "../services/tauri";
+import { addExtraAudioApp, getAudioStatus, getDiscordPresenceStatus, listAudioSessions } from "../services/tauri";
 import type { AudioEngineStatus, AudioSession } from "../types/audio";
 import type { AppSettings, ExtraAudioApp } from "../types/settings";
+import type { DiscordPresenceStatus } from "../types/discord";
 import { useUpdateStore, type UpdateStatus } from "../stores/updateStore";
 import { useAuthStore } from "../stores/authStore";
 import { useBillingStore } from "../stores/billingStore";
@@ -27,6 +29,7 @@ const SECTIONS = [
   { id: "recording", label: "Recording" },
   { id: "audio", label: "Audio" },
   { id: "storage", label: "Storage" },
+  { id: "cloud", label: "Cloud" },
   { id: "hotkeys", label: "Shortcuts" },
 ] as const;
 
@@ -140,6 +143,7 @@ export function SettingsPage() {
           {section === "storage" ? (
             <StoragePane settings={settings} onChange={onChange} onBrowse={() => void chooseSaveLocation()} />
           ) : null}
+          {section === "cloud" ? <CloudSettings settings={settings} onChange={onChange} /> : null}
           {section === "hotkeys" ? (
             <HotkeysPane settings={settings} conflicts={conflicts} onChange={onChange} />
           ) : null}
@@ -214,6 +218,37 @@ function AccountPane({
   );
 }
 
+function DiscordPresenceDebug({ enabled }: { enabled: boolean }) {
+  const [status, setStatus] = useState<DiscordPresenceStatus | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function tick() {
+      const next = await getDiscordPresenceStatus();
+      if (!cancelled) setStatus(next);
+    }
+    void tick();
+    const timer = window.setInterval(() => void tick(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [enabled]);
+
+  const updated = status?.lastPresenceUpdate
+    ? new Date(status.lastPresenceUpdate).toISOString()
+    : "—";
+
+  return (
+    <p className="muted">
+      discordConnected={String(status?.discordConnected ?? false)} · mode={status?.mode ?? "disconnected"} ·
+      currentPresenceGame={status?.currentPresenceGame ?? "—"} · lastDetails={status?.lastDetails ?? "—"} · lastState=
+      {status?.lastState ?? "—"} · lastLargeImage={status?.lastLargeImage ?? "—"} · lastPresenceUpdate={updated} ·
+      lastPresenceError={status?.lastPresenceError ?? "—"}
+    </p>
+  );
+}
+
 function GeneralPane({
   settings,
   catalogCount,
@@ -280,6 +315,16 @@ function GeneralPane({
             onChange={(event) => void onChange("desktopShortcut", event.target.checked)}
           />
         </label>
+        <label className="setting-row">
+          <span>Show Replayr status on Discord</span>
+          <input
+            className="switch"
+            type="checkbox"
+            checked={settings.discordRichPresence}
+            onChange={(event) => void onChange("discordRichPresence", event.target.checked)}
+          />
+        </label>
+        {import.meta.env.DEV ? <DiscordPresenceDebug enabled={settings.discordRichPresence} /> : null}
       </div>
 
       <div className="settings-group">
@@ -321,28 +366,6 @@ function GeneralPane({
           <a className="settings-link" href={`${publicSiteUrl()}/terms`} target="_blank" rel="noreferrer">
             Open
           </a>
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group-label">Cloud</div>
-        <div className="setting-row">
-          <span className="setting-copy">
-            Origin
-            <small>{publicAppUrl()}</small>
-          </span>
-          <Link className="settings-link" to="/profile">
-            Account
-          </Link>
-        </div>
-        <div className="setting-row">
-          <span className="setting-copy">
-            Replayr Premium
-            <small>$4.99/mo · 100 GB, original uploads, no watermark</small>
-          </span>
-          <Link className="settings-link" to="/profile">
-            Upgrade
-          </Link>
         </div>
       </div>
 
@@ -526,34 +549,6 @@ function StoragePane({
       <LocalSaveLocation path={settings.saveLocation} onBrowse={onBrowse} />
       <div className="settings-fields">
         <div className="field">
-          <label htmlFor="auto-upload">Automatically upload clips</label>
-          <select
-            id="auto-upload"
-            value={settings.autoUpload}
-            onChange={(event) => void onChange("autoUpload", event.target.value as AppSettings["autoUpload"])}
-          >
-            <option value="off">Off — keep clips on this PC only</option>
-            <option value="favorites">Favorites only</option>
-            <option value="all">All clips</option>
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="bandwidth">Upload bandwidth</label>
-          <select
-            id="bandwidth"
-            value={settings.uploadBandwidthLimit}
-            onChange={(event) => void onChange("uploadBandwidthLimit", event.target.value as AppSettings["uploadBandwidthLimit"])}
-          >
-            <option value="unlimited">Unlimited</option>
-            <option value="50">50 Mbps</option>
-            <option value="25">25 Mbps</option>
-            <option value="10">10 Mbps</option>
-            <option value="5">5 Mbps</option>
-            <option value="1">1 Mbps</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-        <div className="field">
           <label htmlFor="min-disk">Stop capture below</label>
           <select
             id="min-disk"
@@ -567,16 +562,6 @@ function StoragePane({
           </select>
         </div>
       </div>
-      <label className="setting-row">
-        <span>Pause uploads while gaming</span>
-        <input
-          className="switch"
-          type="checkbox"
-          checked={settings.pauseUploadsWhileGaming}
-          onChange={(event) => void onChange("pauseUploadsWhileGaming", event.target.checked)}
-        />
-      </label>
-      <p className="muted">Signed-in uploads go Desktop → R2. This PC still keeps the original file.</p>
     </>
   );
 }

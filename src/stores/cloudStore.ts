@@ -49,8 +49,11 @@ export const useCloudStore = create<CloudState>((set, get) => ({
     await get().refresh();
     if (!listening) {
       listening = true;
-      await listen("cloud-upload", () => {
-        void get().refresh();
+      await listen<{ status?: string }>("cloud-upload", (event) => {
+        const status = event.payload?.status;
+        if (status === "completed" || status === "failed" || status === "deleted") {
+          void get().refresh();
+        }
       });
     }
   },

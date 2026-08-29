@@ -21,6 +21,7 @@ mod commands;
 mod database;
 mod detection;
 mod disk;
+mod discord_presence;
 mod editor;
 mod error;
 mod games;
@@ -147,6 +148,7 @@ pub fn run() {
             }
             system::setup_tray(app.handle()).map_err(|err| err.to_string())?;
             crate::overlay_notification::prepare(app.handle());
+            crate::discord_presence::start(app.handle());
             detection::start(app.handle().clone());
             hotkeys::sync(app.handle()).map_err(|err| err.to_string())?;
             {
@@ -238,8 +240,14 @@ pub fn run() {
             commands::delete_cloud_clip,
             commands::create_desktop_shortcut,
             commands::remove_desktop_shortcut,
-            commands::desktop_shortcut_exists
+            commands::desktop_shortcut_exists,
+            commands::get_discord_presence_status
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Project Replay");
+        .build(tauri::generate_context!())
+        .expect("error while building Project Replay")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                crate::discord_presence::stop(app);
+            }
+        });
 }

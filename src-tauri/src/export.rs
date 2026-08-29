@@ -533,72 +533,131 @@ fn compose_webcam_mp4_inner(
     if first_ts >= end_hns {
         return Err("That range did not include any video.".into());
     }
-    let width = first.width.max(16);
-    let height = first.height.max(16);
     let fps = fps.clamp(24, 60);
-    let bitrate = ((width as u64 * height as u64 * u64::from(fps)) / 6).clamp(4_000_000, 25_000_000) as u32;
-    // Single-thread BGRA decode+encode deadlocks with MF sink throttling on (WriteSample
-    // waits forever while the encoder never drains). Disable throttling + HW transforms.
-    let mut writer = crate::encode::MfWriter::create(
-        output,
-        width,
-        height,
-        fps,
-        bitrate,
-        has_audio,
-        None,
-        true,
-        crate::encode::VideoInput::Bgra,
-        false,
-    )?;
+    let layout = layout.clone();
+    let dest = output.to_path_buf();
+    let (frames_tx, frames_rx) = std::sync::mpsc::sync_channel::<ComposeFrame>(COMPOSE_QUEUE_CAP);
+    let (spare_tx, spare_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+
+    // Decode and encode on separate threads so the sink writer can stay throttled
+    // (WriteSample blocks) instead of queuing the whole clip in memory.
+    let encoder = std::thread::Builder::new()
+        .name("compose-encode".into())
+        .spawn(move || -> Result<(i64, u32), String> {
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            }
+            let mut writer: Option<crate::encode::MfWriter> = None;
+            let mut clock = 0_i64;
+            let mut frames = 0_u32;
+            while let Ok(frame) = frames_rx.recv() {
+                let writer = match writer {
+                    Some(ref mut writer) => writer,
+                    None => {
+                        let bitrate = ((u64::from(frame.width) * u64::from(frame.height) * u64::from(fps)) / 6)
+                            .clamp(4_000_000, 25_000_000) as u32;
+                        writer.insert(crate::encode::MfWriter::create(
+                            &dest,
+                            frame.width,
+                            frame.height,
+                            fps,
+                            bitrate,
+                            has_audio,
+                            None,
+                            false,
+                            crate::encode::VideoInput::Bgra,
+                            false,
+                        )?)
+                    }
+                };
+                writer.write_bgra(
+                    &frame.bgra,
+                    frame.pitch,
+                    frame.width,
+                    frame.height,
+                    clock,
+                    frames == 0,
+                )?;
+                clock += frame.duration.max(1);
+                frames += 1;
+                let _ = spare_tx.send(frame.bgra);
+            }
+            let Some(mut writer) = writer else {
+                return Err("That clip has no video.".into());
+            };
+            if has_audio {
+                let mut audio = pcm;
+                let _ = fit_pcm_to_video(&mut audio, writer.timestamp());
+                writer.write_pcm_closing(&audio)?;
+            } else {
+                let _ = writer.write_pcm_closing(&[]);
+            }
+            let written_ms = (writer.timestamp() / 10_000).max(0);
+            writer.finish()?;
+            Ok((written_ms, frames))
+        })
+        .map_err(|err| format!("Could not start the compose encoder: {err}"))?;
 
     let mut frame = first;
     let mut timestamp = first_ts;
     let mut duration = first_duration;
-    let mut clock = 0_i64;
-    let mut frames = 0_u32;
+    let mut decode_error = None;
     loop {
         follow.ensure_at(timestamp);
         if let Some(cam) = follow.current_frame() {
-            crate::overlay::overlay_webcam_bgra(&mut frame, cam, layout);
+            crate::overlay::overlay_webcam_bgra(&mut frame, cam, &layout);
         }
         if watermark {
             crate::still::composite_watermark(&mut frame);
         }
-        writer.write_bgra(
-            &frame.bgra,
-            frame.pitch,
-            frame.width,
-            frame.height,
-            clock,
-            frames == 0,
-        )?;
-        clock += duration.max(1);
-        frames += 1;
-        let Some((next, next_ts, next_duration)) = crate::thumb::read_rgb_sample(&reader)? else {
-            break;
+        let bgra = if let Ok(mut spare) = spare_rx.try_recv() {
+            if spare.len() == frame.bgra.len() {
+                spare.copy_from_slice(&frame.bgra);
+                spare
+            } else {
+                std::mem::take(&mut frame.bgra)
+            }
+        } else {
+            std::mem::take(&mut frame.bgra)
         };
-        if next_ts >= end_hns {
+        let queued = ComposeFrame {
+            bgra,
+            width: frame.width,
+            height: frame.height,
+            pitch: frame.pitch,
+            duration,
+        };
+        if frames_tx.send(queued).is_err() {
             break;
         }
-        frame = next;
-        timestamp = next_ts;
-        duration = next_duration;
+        match crate::thumb::read_rgb_sample(&reader) {
+            Ok(Some((next, next_ts, next_duration))) => {
+                if next_ts >= end_hns {
+                    break;
+                }
+                frame = next;
+                timestamp = next_ts;
+                duration = next_duration;
+            }
+            Ok(None) => break,
+            Err(err) => {
+                decode_error = Some(err);
+                break;
+            }
+        }
     }
+    drop(frames_tx);
     drop(reader);
+
+    let (written_ms, frames) = encoder
+        .join()
+        .map_err(|_| "The compose encoder stopped unexpectedly.".to_string())??;
+    if let Some(err) = decode_error {
+        return Err(err);
+    }
     if frames == 0 {
         return Err("That range did not include any video.".into());
     }
-    let video_hns = writer.timestamp();
-    if has_audio {
-        let mut audio = pcm;
-        let _ = fit_pcm_to_video(&mut audio, video_hns);
-        writer.write_pcm_closing(&audio)?;
-    } else {
-        let _ = writer.write_pcm_closing(&[]);
-    }
-    let written_ms = (writer.timestamp() / 10_000).max(0);
-    writer.finish()?;
     tracing::info!(
         "composed {} + {} -> {} ({} ms, {} frames) in {} ms",
         gameplay.display(),
@@ -638,6 +697,18 @@ pub fn write_watermarked_mp4(input: &Path, output: &Path, fps: u32) -> Result<i6
         }
     }
 }
+
+/// One composed BGRA frame between the decode and encode threads.
+struct ComposeFrame {
+    bgra: Vec<u8>,
+    width: u32,
+    height: u32,
+    pitch: u32,
+    duration: i64,
+}
+
+/// Four 1080p BGRA frames is about 32 MB — enough overlap without hoarding the clip.
+const COMPOSE_QUEUE_CAP: usize = 4;
 
 /// One decoded frame in flight between the decode and encode threads.
 struct WatermarkFrame {
@@ -849,6 +920,13 @@ fn decode_audio_range(path: &Path, start_hns: i64, end_hns: i64) -> Result<Vec<u
     }
     let start = hns_to_pcm_bytes(start_hns).min(pcm.len());
     let end = hns_to_pcm_bytes(end_hns).min(pcm.len()).max(start);
+    if start == 0 && end == pcm.len() {
+        return Ok(pcm);
+    }
+    if start == 0 {
+        pcm.truncate(end);
+        return Ok(pcm);
+    }
     Ok(pcm[start..end].to_vec())
 }
 

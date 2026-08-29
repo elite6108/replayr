@@ -96,6 +96,7 @@ fn poll_once(app: &AppHandle) {
 
     let _ = app.emit("detected-game", &next);
     update_tray_tooltip(app, next.name.as_deref());
+    crate::discord_presence::refresh(app);
     let rec = app.state::<crate::capture::RecordingState>();
     if let Err(err) = crate::capture::sync_replay(app, &rec, next.pid, next.name.clone(), next.slug.clone()) {
         tracing::warn!("replay retarget: {err}");

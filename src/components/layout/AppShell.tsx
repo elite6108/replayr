@@ -8,6 +8,7 @@ import { AnnouncementHost } from "./AnnouncementHost";
 import { ClipPlayer } from "../common/ClipPlayer";
 import { CloudClipPlayer } from "../common/CloudClipPlayer";
 import { ToastRegion } from "../common/ToastRegion";
+import { UploadQueuePanel } from "./UploadQueuePanel";
 import { MicDisconnectToasts } from "./MicDisconnectToasts";
 import { CameraDisconnectToasts } from "./CameraDisconnectToasts";
 
@@ -42,7 +43,10 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
-      <ToastRegion />
+      <div className="app-dock">
+        <UploadQueuePanel />
+        <ToastRegion />
+      </div>
         <MicDisconnectToasts />
         <CameraDisconnectToasts />
       <DesktopShortcutPrompt />

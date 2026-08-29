@@ -1,0 +1,95 @@
+.app-dock {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 20;
+  align-items: flex-end;
+  max-width: min(380px, calc(100vw - 32px));
+}
+
+.app-dock .toast-region {
+  position: static;
+  right: auto;
+  bottom: auto;
+}
+
+.upload-queue {
+  background: #1c2027;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 14px;
+  min-width: 240px;
+  max-width: 360px;
+  box-shadow: var(--shadow);
+}
+
+.upload-queue-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.upload-queue-summary {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.upload-queue-bar {
+  display: block;
+  height: 4px;
+  border-radius: 99px;
+  background: #10141a;
+  overflow: hidden;
+}
+
+.upload-queue-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent, #4aa3c2);
+  border-radius: 99px;
+}
+
+.upload-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.upload-queue-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.upload-queue-row .btn {
+  align-self: flex-start;
+}
+
+.upload-queue-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.upload-queue-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.upload-queue-copy small {
+  color: var(--muted, #9aa3ad);
+  font-size: 12px;
+}

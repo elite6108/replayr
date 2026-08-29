@@ -75,6 +75,7 @@ fn after_settings(
     keys: &[String],
 ) -> AppResult<()> {
     let _ = rec;
+    crate::discord_presence::refresh(app);
     let hotkeys_changed = keys.iter().any(|key| key == "hotkeys");
     let audio_changed = keys.iter().any(|key| LIVE_AUDIO_KEYS.contains(&key.as_str()));
     let capture_changed = keys.iter().any(|key| CAPTURE_KEYS.contains(&key.as_str()));
@@ -650,6 +651,11 @@ pub fn sync_games(state: State<AppState>, games: Vec<GameInput>) -> AppResult<Ve
 #[tauri::command]
 pub fn get_detected_game(state: State<DetectionState>) -> DetectedGameSnapshot {
     detection::current_snapshot(&state)
+}
+
+#[tauri::command]
+pub fn get_discord_presence_status(app: AppHandle) -> crate::discord_presence::DiscordPresenceStatus {
+    crate::discord_presence::status(&app)
 }
 
 #[tauri::command]

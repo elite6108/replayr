@@ -141,7 +141,7 @@ export function EditorPage() {
   const closePlayer = useLibraryStore((state) => state.closePlayer);
   const play = useLibraryStore((state) => state.play);
   const rename = useLibraryStore((state) => state.rename);
-  const upload = useLibraryStore((state) => state.upload);
+  const ensureCloudUpload = useLibraryStore((state) => state.ensureCloudUpload);
   const copyLink = useLibraryStore((state) => state.copyLink);
   const download = useLibraryStore((state) => state.download);
   const refresh = useLibraryStore((state) => state.refresh);
@@ -507,7 +507,6 @@ export function EditorPage() {
           return;
         }
         setSharing(true);
-        await upload(next.localId);
         await copyLink(next.localId);
       } else {
         showToast(kind === "short" ? "Saved as a Short" : "Saved as a new clip");
@@ -529,9 +528,6 @@ export function EditorPage() {
     }
     setSharing(true);
     try {
-      if (uploadStatus !== "completed") {
-        await upload(savedClip.localId);
-      }
       await copyLink(savedClip.localId);
     } finally {
       setSharing(false);
@@ -542,6 +538,9 @@ export function EditorPage() {
     if (!savedClip) return;
     setSharingFile(true);
     try {
+      if (user) {
+        void ensureCloudUpload(savedClip.localId);
+      }
       const how = await shareLocalClip({ localId: savedClip.localId, filePath: savedClip.filePath });
       if (how === "clipboard") {
         showToast("Clip copied. Paste it into TikTok, CapCut, Explorer, or an upload dialog.");

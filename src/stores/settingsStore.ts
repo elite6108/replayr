@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AppSettings } from "../types/settings";
+import type { AppSettings, CloudUploadWhen } from "../types/settings";
 import { DEFAULT_SETTINGS } from "../types/settings";
 import { createDesktopShortcut, getAllSettings, getDefaultSaveLocation, removeDesktopShortcut, setSetting, setSettings } from "../services/tauri";
 import { enable as enableAutostart, disable as disableAutostart } from "@tauri-apps/plugin-autostart";
@@ -46,10 +46,18 @@ function persistOnboardingCompleted(value: boolean) {
   }
 }
 
+function resolveCloudUploadWhen(settings: AppSettings): CloudUploadWhen {
+  if (settings.cloudUploadWhen === "immediate" || settings.cloudUploadWhen === "afterGame") {
+    return settings.cloudUploadWhen;
+  }
+  return settings.pauseUploadsWhileGaming === false ? "immediate" : "afterGame";
+}
+
 function normalizeSettings(settings: AppSettings): AppSettings {
   return {
     ...DEFAULT_SETTINGS,
     ...settings,
+    cloudUploadWhen: resolveCloudUploadWhen(settings),
     micGain: typeof settings.micGain === "number" ? settings.micGain : DEFAULT_SETTINGS.micGain,
     gameAudioEnabled: settings.gameAudioEnabled ?? DEFAULT_SETTINGS.gameAudioEnabled,
     gameAudioGain: typeof settings.gameAudioGain === "number" ? settings.gameAudioGain : DEFAULT_SETTINGS.gameAudioGain,
@@ -59,6 +67,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     hotkeys: { ...DEFAULT_SETTINGS.hotkeys, ...settings.hotkeys },
     watermarkExports: settings.watermarkExports ?? DEFAULT_SETTINGS.watermarkExports,
     clipSavedNotification: settings.clipSavedNotification ?? DEFAULT_SETTINGS.clipSavedNotification,
+    discordRichPresence: settings.discordRichPresence ?? DEFAULT_SETTINGS.discordRichPresence,
     webcam: {
       ...DEFAULT_SETTINGS.webcam,
       ...(settings.webcam ?? {}),
@@ -83,13 +92,29 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   loaded: false,
   load: async () => {
     try {
-      let settings = normalizeSettings(await getAllSettings());
+      const incoming = await getAllSettings();
+      let settings = normalizeSettings(incoming);
       if (!settings.saveLocation) {
         try {
           const saveLocation = await withTimeout(getDefaultSaveLocation(), 3000, "save location");
           settings = await withTimeout(setSetting("saveLocation", saveLocation), 4000, "save location write");
         } catch {
           // Keep defaults even if the first write fails.
+        }
+      }
+      if (
+        incoming.cloudUploadWhen !== "immediate" &&
+        incoming.cloudUploadWhen !== "afterGame" &&
+        settings.cloudUploadWhen
+      ) {
+        try {
+          settings = await withTimeout(
+            setSetting("cloudUploadWhen", settings.cloudUploadWhen),
+            4000,
+            "cloud upload when write",
+          );
+        } catch {
+          // Keep the migrated in-memory value if the first write fails.
         }
       }
       if (settings.autoUpload === "off" && localStorage.getItem("replay.autoUploadWired") !== "1") {

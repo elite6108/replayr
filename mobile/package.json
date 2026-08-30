@@ -22,6 +22,7 @@
     "expo-splash-screen": "~57.0.7",
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.2",
+    "expo-updates": "~57.0.19",
     "expo-video": "~57.0.2",
     "expo-web-browser": "~57.0.2",
     "react": "19.2.3",

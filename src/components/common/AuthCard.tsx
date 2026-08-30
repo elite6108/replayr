@@ -72,13 +72,13 @@ export function AuthCard({ compact = false }: { compact?: boolean }) {
           return (
             <button
               key={provider.id}
-              className="btn"
+              className="auth-social-icon"
               type="button"
               disabled={busy}
+              aria-label={provider.label}
               onClick={() => void run(() => signInWithProvider(provider.id), "Finish sign-in in your browser")}
             >
-              <Icon size={16} />
-              {provider.label}
+              <Icon size={20} />
             </button>
           );
         })}

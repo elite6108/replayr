@@ -140,11 +140,14 @@ function applyUploadEvent(payload: CloudUploadEvent) {
   const bytesUploaded = typeof payload.bytesUploaded === "number" ? payload.bytesUploaded : existing?.bytesUploaded ?? 0;
   const bytesTotal = typeof payload.bytesTotal === "number" ? payload.bytesTotal : existing?.bytesTotal ?? clip?.fileSize ?? 0;
   const startedAt =
-    status === "uploading" ? existing?.startedAt ?? Date.now() : status === "preparing" ? null : existing?.startedAt ?? null;
+    status === "uploading" || status === "preparing"
+      ? existing?.startedAt ?? Date.now()
+      : existing?.startedAt ?? null;
   const nextItem: UploadQueueItem = {
     localId,
     title: existing?.title || clipTitle(clip),
     phase: status,
+    detail: payload.detail ?? existing?.detail ?? null,
     bytesUploaded,
     bytesTotal,
     startedAt,

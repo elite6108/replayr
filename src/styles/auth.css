@@ -21,11 +21,29 @@
 
 .auth-social {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
-.auth-social .btn,
+.auth-social-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised, #141821);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.auth-social-icon:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .auth-card form .btn.primary {
   width: 100%;
 }

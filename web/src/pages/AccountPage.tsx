@@ -11,6 +11,7 @@ import { getSupabase } from "../lib/supabase";
 interface ProfileRow {
   username: string | null;
   display_name: string | null;
+  is_private: boolean | null;
 }
 
 export function AccountPage() {
@@ -28,7 +29,7 @@ export function AccountPage() {
     void (async () => {
       const supabase = getSupabase();
       const [profileResult, billingResult] = await Promise.all([
-        supabase.from("profiles").select("username, display_name").eq("id", userId).maybeSingle(),
+        supabase.from("profiles").select("username, display_name, is_private").eq("id", userId).maybeSingle(),
         fetchBillingStatus(session.access_token).catch(() => null),
       ]);
       if (cancelled) return;
@@ -84,6 +85,31 @@ export function AccountPage() {
         <dd>{profile?.username || "Not set yet — choose one in the desktop app."}</dd>
         <dt>Display name</dt>
         <dd>{profile?.display_name || "—"}</dd>
+        <dt>Private account</dt>
+        <dd>
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={Boolean(profile?.is_private)}
+              disabled={busy || !userId}
+              onChange={(event) => {
+                const next = event.target.checked;
+                void (async () => {
+                  setBusy(true);
+                  setError(null);
+                  const { error: updateError } = await getSupabase()
+                    .from("profiles")
+                    .update({ is_private: next })
+                    .eq("id", userId);
+                  if (updateError) setError(updateError.message);
+                  else setProfile((current) => (current ? { ...current, is_private: next } : current));
+                  setBusy(false);
+                })();
+              }}
+            />
+            Only friends can see your clips, posts, and bio.
+          </label>
+        </dd>
         <dt>Plan</dt>
         <dd>
           {billing ? planLabel(billing.plan) : "—"}
@@ -103,6 +129,11 @@ export function AccountPage() {
         </div>
       ) : null}
       <div className="row">
+        {profile?.username ? (
+          <Link className="btn" to={`/u/${encodeURIComponent(profile.username)}`}>
+            View profile
+          </Link>
+        ) : null}
         {billing?.premium ? (
           <button className="btn" type="button" disabled={busy} onClick={() => void onPortal()}>
             Manage billing

@@ -1,16 +1,11 @@
 import { FormEvent, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { Seo } from "../components/Seo";
+import { SocialAuthIcons } from "../components/SocialAuthIcons";
 import { useAuth } from "../lib/auth";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
 
-type SocialProvider = "google" | "discord" | "twitter";
-
-const PROVIDERS: { id: SocialProvider; label: string }[] = [
-  { id: "google", label: "Continue with Google" },
-  { id: "discord", label: "Continue with Discord" },
-  { id: "twitter", label: "Continue with X" },
-];
+type SocialProvider = "google" | "apple" | "discord" | "twitter";
 
 export function SignInPage() {
   const { session } = useAuth();
@@ -92,13 +87,7 @@ export function SignInPage() {
           Create account
         </button>
       </div>
-      <div className="auth-social" style={{ marginTop: 16 }}>
-        {PROVIDERS.map((provider) => (
-          <button key={provider.id} className="btn" type="button" disabled={busy} onClick={() => void startSocial(provider.id)}>
-            {provider.label}
-          </button>
-        ))}
-      </div>
+      <SocialAuthIcons disabled={busy} onProvider={(provider) => void startSocial(provider)} />
       <div className="auth-divider" style={{ margin: "18px 0" }}>
         or email
       </div>

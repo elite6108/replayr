@@ -13,8 +13,6 @@
       "usesAppleSignIn": true,
       "associatedDomains": [
         "applinks:replayr.tv",
-        "applinks:www.replayr.tv",
-        "applinks:replayr.tv",
         "applinks:www.replayr.tv"
       ],
       "infoPlist": {
@@ -106,6 +104,12 @@
     "experiments": {
       "typedRoutes": true
     },
-    "owner": "elite6108"
+    "owner": "elite6108",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/90989ccf-3954-4736-b4e6-8602e8f7d1a0"
+    }
   }
 }

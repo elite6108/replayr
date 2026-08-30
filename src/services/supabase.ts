@@ -44,7 +44,7 @@ export async function fetchOwnProfile(userId: string): Promise<Profile | null> {
 
 export async function updateOwnProfile(
   userId: string,
-  patch: Partial<Pick<Profile, "username" | "display_name" | "bio">>,
+  patch: Partial<Pick<Profile, "username" | "display_name" | "bio" | "is_private">>,
 ): Promise<Profile> {
   const { data, error } = await getSupabase()
     .from("profiles")

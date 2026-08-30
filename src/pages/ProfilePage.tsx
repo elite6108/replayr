@@ -24,12 +24,14 @@ export function ProfilePage() {
   const [username, setUsername] = useState(profile?.username ?? "");
   const [displayName, setDisplayName] = useState(profile?.display_name ?? "");
   const [bio, setBio] = useState(profile?.bio ?? "");
+  const [isPrivate, setIsPrivate] = useState(Boolean(profile?.is_private));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setUsername(profile?.username ?? "");
     setDisplayName(profile?.display_name ?? "");
     setBio(profile?.bio ?? "");
+    setIsPrivate(Boolean(profile?.is_private));
   }, [profile]);
 
   async function onSaveProfile(event: FormEvent) {
@@ -45,6 +47,7 @@ export function ProfilePage() {
         username: username.trim(),
         display_name: displayName.trim() || username.trim(),
         bio: bio.trim() || null,
+        is_private: isPrivate,
       });
       showToast("Profile saved");
     } catch (caught) {
@@ -157,10 +160,25 @@ export function ProfilePage() {
             <label htmlFor="bio">Bio</label>
             <textarea id="bio" rows={3} value={bio} onChange={(event) => setBio(event.target.value)} />
           </div>
+          <label className="row" htmlFor="private-account">
+            <input
+              id="private-account"
+              type="checkbox"
+              checked={isPrivate}
+              onChange={(event) => setIsPrivate(event.target.checked)}
+            />
+            Private account
+          </label>
+          <p className="muted">Only friends can see your clips, posts, and bio.</p>
           <div className="row">
             <button className="btn primary" type="submit" disabled={busy}>
               Save profile
             </button>
+            {username.trim() ? (
+              <Link className="btn" to={`/u/${encodeURIComponent(username.trim())}`}>
+                View profile
+              </Link>
+            ) : null}
             <Link className="btn" to="/library/cloud">
               Cloud library
             </Link>

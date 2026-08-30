@@ -16,6 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ClipThumb } from "@/components/ClipThumb";
 import { Button } from "@/components/ui";
 import { deleteCloudClip, fetchLibrary, type ManagedClip } from "@/lib/api";
+import { seedClipFeed } from "@/lib/clipFeed";
 import { useAuth } from "@/lib/auth";
 import { formatSectionLabel } from "@/lib/format";
 import { colors } from "@/lib/theme";
@@ -119,6 +120,15 @@ export default function LibraryScreen() {
       return;
     }
     if (clip.status !== "ready") return;
+    const ready = visible.filter((item) => item.status === "ready");
+    seedClipFeed({
+      source: "library",
+      items: ready.map((item) => ({ slug: item.slug, clipId: item.id })),
+      startSlug: clip.slug,
+      page: Math.max(1, Math.ceil(clips.length / PAGE_SIZE)),
+      hasMore: clips.length < total,
+      libraryFilter: { visibility: filter, query },
+    });
     router.push({ pathname: "/c/[slug]", params: { slug: clip.slug, clipId: clip.id } });
   }
 

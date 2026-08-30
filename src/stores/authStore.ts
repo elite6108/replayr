@@ -27,7 +27,7 @@ interface AuthState {
   signInWithProvider: (provider: SocialProvider) => Promise<void>;
   completeOAuthFromUrl: (url: string) => Promise<void>;
   signOut: () => Promise<void>;
-  saveProfile: (patch: Partial<Pick<Profile, "username" | "display_name" | "bio">>) => Promise<void>;
+  saveProfile: (patch: Partial<Pick<Profile, "username" | "display_name" | "bio" | "is_private">>) => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
 

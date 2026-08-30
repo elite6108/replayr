@@ -176,6 +176,15 @@ export function IconX(props: IconProps) {
   );
 }
 
+export function IconApple(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M16.2 8.6c-.9 0-2 .6-2.6.6-.7 0-1.7-.6-2.8-.6-2.3.1-4.4 2-4.4 5.1 0 2 .7 4.1 1.7 5.5.8 1.1 1.6 2.2 2.8 2.2 1.1 0 1.5-.7 2.8-.7s1.6.7 2.8.7c1.2 0 1.9-1.1 2.7-2.2.8-1.2 1.1-2.4 1.1-2.5 0 0-2.2-.8-2.2-3.3 0-2.1 1.7-3 1.8-3.1-1-.1-2.2.6-2.7.6z" />
+      <path d="M14.8 6.6c.6-.7 1-1.7.9-2.6-1 .1-2.1.7-2.7 1.5-.6.7-1 1.6-.9 2.5 1.1 0 2.1-.6 2.7-1.4z" />
+    </Icon>
+  );
+}
+
 export function IconPlay(props: IconProps) {
   return (
     <Icon {...props}>

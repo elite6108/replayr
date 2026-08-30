@@ -13,6 +13,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Avatar } from "@/components/Avatar";
+import { ProfileAvatarLink } from "@/components/ProfileAvatarLink";
 import { Button, Notice } from "@/components/ui";
 import { fetchFriends, socialName, type Friend } from "@/lib/api.friends";
 import {
@@ -183,7 +184,12 @@ export default function MessagesScreen() {
             const title = conversationTitle(item, userId);
             return (
               <Pressable style={styles.row} onPress={() => router.push(threadHref(item.id))}>
-                <Avatar name={title} uri={peer?.avatarUrl} size={48} />
+                <ProfileAvatarLink
+                  username={item.type === "dm" ? peer?.username : null}
+                  name={title}
+                  uri={item.type === "dm" ? peer?.avatarUrl : undefined}
+                  size={48}
+                />
                 <View style={styles.copy}>
                   <View style={styles.rowTop}>
                     <Text style={styles.name} numberOfLines={1}>

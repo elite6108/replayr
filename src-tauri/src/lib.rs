@@ -5,25 +5,24 @@ mod audio_capture;
 mod audio_resolve;
 #[cfg(windows)]
 mod audio_timeline;
-#[cfg(windows)]
-mod encode;
-#[cfg(windows)]
-mod encode_pump;
-#[cfg(windows)]
-mod export;
-#[cfg(windows)]
-mod thumb;
 mod auth;
 mod branding;
 mod buffer;
+mod camera;
 mod capture;
 mod commands;
 mod database;
 mod detection;
-mod disk;
 mod discord_presence;
+mod disk;
 mod editor;
+#[cfg(windows)]
+mod encode;
+#[cfg(windows)]
+mod encode_pump;
 mod error;
+#[cfg(windows)]
+mod export;
 mod games;
 mod hotkeys;
 mod library;
@@ -34,12 +33,13 @@ mod process;
 #[cfg(windows)]
 mod process_loopback;
 mod settings;
-mod shortcut;
 mod share;
+mod shortcut;
 mod still;
 mod system;
+#[cfg(windows)]
+mod thumb;
 mod upload;
-mod camera;
 
 use database::AppState;
 use std::sync::Mutex;
@@ -59,7 +59,11 @@ fn init_logging() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_logging();
-    tracing::info!("{} ({}) starting", branding::APP_NAME, branding::APP_IDENTIFIER);
+    tracing::info!(
+        "{} ({}) starting",
+        branding::APP_NAME,
+        branding::APP_IDENTIFIER
+    );
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -92,7 +96,9 @@ pub fn run() {
         )
         .setup(|app| {
             let conn = database::open_for_app(app.handle()).map_err(|err| err.to_string())?;
-            app.manage(AppState { db: Mutex::new(conn) });
+            app.manage(AppState {
+                db: Mutex::new(conn),
+            });
             app.manage(detection::DetectionState::default());
             app.manage(capture::RecordingState::default());
             app.manage(hotkeys::HotkeyMap::default());
@@ -114,7 +120,9 @@ pub fn run() {
                                 .and_then(|conn| crate::settings::load(&conn).ok())
                         };
                         if let Some(settings) = loaded {
-                            handle.state::<crate::audio::AudioRuntime>().apply(&settings);
+                            handle
+                                .state::<crate::audio::AudioRuntime>()
+                                .apply(&settings);
                         }
                     })
                     .ok();
@@ -250,4 +258,48 @@ pub fn run() {
                 crate::discord_presence::stop(app);
             }
         });
+}
+
+/// Offline 1920x1080 blank DXGI → direct async H.264 MFT long-run probe.
+#[cfg(windows)]
+pub fn blank_direct_mft_long_test(frames: u64) -> Result<String, String> {
+    export::blank_direct_mft_long_test(frames)
+}
+
+/// Relocate `moov` before `mdat` without re-encoding.
+#[cfg(windows)]
+pub fn faststart_mp4_in_place(path: &std::path::Path) -> Result<bool, String> {
+    export::faststart_mp4_in_place(path)
+}
+
+/// Copy-remux a composed MP4 with a standards-compliant ISO-BMFF writer.
+/// Does not decode or re-encode. Writes `dest` and leaves `src` untouched.
+#[cfg(windows)]
+pub fn remux_composed_mp4(
+    src: &std::path::Path,
+    dest: &std::path::Path,
+) -> Result<export::CopyRemuxStats, String> {
+    export::remux_composed_mp4(src, dest)
+}
+
+/// Offline NV12 compose used by `compose-nv12` to time a local clip.
+#[cfg(windows)]
+pub fn compose_webcam_clip(
+    gameplay: &std::path::Path,
+    webcam: &std::path::Path,
+    output: &std::path::Path,
+    timeout: std::time::Duration,
+) -> Result<i64, String> {
+    export::compose_webcam_mp4_timed(
+        gameplay,
+        webcam,
+        output,
+        &overlay::OverlayLayout::default(),
+        0,
+        0,
+        60,
+        false,
+        timeout,
+        export::WebcamComposeOpts::cloud(None),
+    )
 }

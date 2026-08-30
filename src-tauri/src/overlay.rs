@@ -127,7 +127,12 @@ impl OverlayLayout {
 
 /// Pixel box for the webcam overlay on a `canvas_w`×`canvas_h` frame.
 /// `source_aspect` is width/height of the webcam frame (ignored for circle).
-pub fn overlay_box(canvas_w: u32, canvas_h: u32, source_aspect: f32, layout: &OverlayLayout) -> (u32, u32, u32, u32) {
+pub fn overlay_box(
+    canvas_w: u32,
+    canvas_h: u32,
+    source_aspect: f32,
+    layout: &OverlayLayout,
+) -> (u32, u32, u32, u32) {
     let mut layout = layout.clone();
     layout.sanitize();
     let canvas_w = canvas_w.max(1);
@@ -178,6 +183,29 @@ pub fn overlay_box(canvas_w: u32, canvas_h: u32, source_aspect: f32, layout: &Ov
     (x, y, width, height)
 }
 
+/// Cover-fit source rectangle inside the webcam frame for `box_w`×`box_h`.
+pub fn overlay_cover_source(
+    webcam_w: u32,
+    webcam_h: u32,
+    box_w: u32,
+    box_h: u32,
+) -> (u32, u32, u32, u32) {
+    if webcam_w == 0 || webcam_h == 0 || box_w == 0 || box_h == 0 {
+        return (0, 0, webcam_w.max(1), webcam_h.max(1));
+    }
+    let scale = (box_w as f32 / webcam_w as f32).max(box_h as f32 / webcam_h as f32);
+    if scale <= 0.0 {
+        return (0, 0, webcam_w, webcam_h);
+    }
+    let src_w = (box_w as f32 / scale).min(webcam_w as f32).max(1.0);
+    let src_h = (box_h as f32 / scale).min(webcam_h as f32).max(1.0);
+    let src_x = ((webcam_w as f32 - src_w) * 0.5).floor().max(0.0) as u32;
+    let src_y = ((webcam_h as f32 - src_h) * 0.5).floor().max(0.0) as u32;
+    let src_w = (src_w as u32).min(webcam_w.saturating_sub(src_x)).max(1);
+    let src_h = (src_h as u32).min(webcam_h.saturating_sub(src_y)).max(1);
+    (src_x, src_y, src_w, src_h)
+}
+
 /// Blit `webcam` onto `canvas` using placement, shape, and width from `layout`.
 /// Circle and rounded masks keep the underlying gameplay pixels.
 pub fn overlay_webcam_bgra(canvas: &mut StillFrame, webcam: &StillFrame, layout: &OverlayLayout) {
@@ -185,7 +213,8 @@ pub fn overlay_webcam_bgra(canvas: &mut StillFrame, webcam: &StillFrame, layout:
         return;
     }
     let aspect = webcam.width as f32 / webcam.height.max(1) as f32;
-    let (origin_x, origin_y, box_w, box_h) = overlay_box(canvas.width, canvas.height, aspect, layout);
+    let (origin_x, origin_y, box_w, box_h) =
+        overlay_box(canvas.width, canvas.height, aspect, layout);
     if box_w == 0 || box_h == 0 {
         return;
     }
@@ -242,7 +271,103 @@ pub fn overlay_webcam_bgra(canvas: &mut StillFrame, webcam: &StillFrame, layout:
     }
 }
 
-fn mask_inside(dx: u32, dy: u32, box_w: u32, box_h: u32, shape: &str, radius: f32, cx: f32, cy: f32) -> bool {
+/// Blit `webcam` onto a packed or pitched NV12 frame. Gameplay luma/chroma
+/// outside the overlay box is left untouched.
+pub fn overlay_webcam_nv12(
+    planes: &mut [u8],
+    pitch: u32,
+    width: u32,
+    height: u32,
+    webcam: &StillFrame,
+    layout: &OverlayLayout,
+) {
+    if width == 0 || height == 0 || webcam.width == 0 || webcam.height == 0 {
+        return;
+    }
+    let pitch = pitch.max(width) as usize;
+    let y_size = pitch * height as usize;
+    if planes.len() < y_size + pitch * (height as usize / 2) {
+        return;
+    }
+    let aspect = webcam.width as f32 / webcam.height.max(1) as f32;
+    let (origin_x, origin_y, box_w, box_h) = overlay_box(width, height, aspect, layout);
+    if box_w == 0 || box_h == 0 {
+        return;
+    }
+    let scale = (box_w as f32 / webcam.width as f32).max(box_h as f32 / webcam.height as f32);
+    if scale <= 0.0 {
+        return;
+    }
+    let src_w = (box_w as f32 / scale).min(webcam.width as f32).max(1.0);
+    let src_h = (box_h as f32 / scale).min(webcam.height as f32).max(1.0);
+    let src_x0 = (webcam.width as f32 - src_w) * 0.5;
+    let src_y0 = (webcam.height as f32 - src_h) * 0.5;
+    let radius = if layout.shape == "circle" {
+        box_w.min(box_h) as f32 * 0.5
+    } else if layout.shape == "rounded" {
+        box_w.min(box_h) as f32 * ROUNDED_RADIUS
+    } else {
+        0.0
+    };
+    let cx = box_w as f32 * 0.5;
+    let cy = box_h as f32 * 0.5;
+    let webcam_pitch = webcam.pitch as usize;
+
+    for dy in 0..box_h {
+        for dx in 0..box_w {
+            if !mask_inside(dx, dy, box_w, box_h, &layout.shape, radius, cx, cy) {
+                continue;
+            }
+            let sx = (src_x0 + (dx as f32 + 0.5) * src_w / box_w as f32).floor() as i64;
+            let sy = (src_y0 + (dy as f32 + 0.5) * src_h / box_h as f32).floor() as i64;
+            if sx < 0 || sy < 0 {
+                continue;
+            }
+            let sx = sx as u32;
+            let sy = sy as u32;
+            if sx >= webcam.width || sy >= webcam.height {
+                continue;
+            }
+            let src = (sy as usize) * webcam_pitch + (sx as usize) * 4;
+            let dst_x = origin_x + dx;
+            let dst_y = origin_y + dy;
+            if dst_x >= width || dst_y >= height {
+                continue;
+            }
+            if src + 4 > webcam.bgra.len() {
+                continue;
+            }
+            let (y_val, u, v) = crate::camera::color::rgb_to_yuv(
+                webcam.bgra[src + 2],
+                webcam.bgra[src + 1],
+                webcam.bgra[src],
+            );
+            let luma = (dst_y as usize) * pitch + dst_x as usize;
+            if luma >= y_size {
+                continue;
+            }
+            planes[luma] = y_val;
+            if dst_x % 2 == 0 && dst_y % 2 == 0 {
+                let chroma = y_size + (dst_y as usize / 2) * pitch + (dst_x as usize & !1);
+                if chroma + 1 < planes.len() {
+                    planes[chroma] = u;
+                    planes[chroma + 1] = v;
+                }
+            }
+        }
+    }
+}
+
+fn mask_inside(
+    dx: u32,
+    dy: u32,
+    box_w: u32,
+    box_h: u32,
+    shape: &str,
+    radius: f32,
+    cx: f32,
+    cy: f32,
+) -> bool {
     match shape {
         "circle" => {
             let px = dx as f32 + 0.5 - cx;
@@ -299,7 +424,9 @@ mod tests {
         assert_eq!(layout.placement, "bottom-right");
         assert_eq!(layout.shape, "rounded");
         assert_eq!(layout.width, MAX_WIDTH);
-        let parsed = OverlayLayout::from_json(Some(r#"{"placement":"top-left","shape":"circle","width":0.18}"#));
+        let parsed = OverlayLayout::from_json(Some(
+            r#"{"placement":"top-left","shape":"circle","width":0.18}"#,
+        ));
         assert_eq!(parsed.placement, "top-left");
         assert_eq!(parsed.shape, "circle");
         assert!((parsed.width - 0.18).abs() < f32::EPSILON);
@@ -348,6 +475,15 @@ mod tests {
         assert_eq!(w, h);
         assert_eq!(pixel(&canvas, x, y), [255, 0, 0, 255]);
         assert_eq!(pixel(&canvas, x + w / 2, y + h / 2), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn overlay_cover_source_centers_wide_cam() {
+        let (x, y, w, h) = overlay_cover_source(1920, 1080, 400, 400);
+        assert!(w > 0 && h > 0);
+        assert!(x + w <= 1920);
+        assert!(y + h <= 1080);
+        assert_eq!(w, h);
     }
 
     #[test]

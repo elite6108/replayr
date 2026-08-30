@@ -74,6 +74,14 @@ export type PublicClipCard = {
   liked: boolean;
 };
 
+export type ProfilePost = {
+  id: string;
+  body: string;
+  createdAt: string;
+  clip: PublicClipCard | null;
+  author: SocialUser;
+};
+
 export type UserProfileResponse = {
   user: SocialUser & {
     bio: string | null;
@@ -81,7 +89,10 @@ export type UserProfileResponse = {
     createdAt: string;
   };
   relationship: Relationship;
+  isPrivate: boolean;
+  locked: boolean;
   clips: PublicClipCard[];
+  posts: ProfilePost[];
 };
 
 export type NotificationItem = {
@@ -198,11 +209,51 @@ export async function searchUsers(accessToken: string, query: string): Promise<U
   return body.users ?? [];
 }
 
+function normalizeProfile(body: UserProfileResponse): UserProfileResponse {
+  return {
+    ...body,
+    isPrivate: Boolean(body.isPrivate),
+    locked: Boolean(body.locked),
+    clips: body.clips ?? [],
+    posts: body.posts ?? [],
+  };
+}
+
 export async function fetchUserProfile(username: string, accessToken?: string | null): Promise<UserProfileResponse> {
   const headers: HeadersInit = { accept: "application/json" };
   if (accessToken) (headers as Record<string, string>).authorization = `Bearer ${accessToken}`;
   const response = await fetch(apiUrl(`/v1/users/${encodeURIComponent(username)}`), { headers });
-  return readApiJson<UserProfileResponse>(response, "That account was not found.");
+  return normalizeProfile(await readApiJson<UserProfileResponse>(response, "That account was not found."));
+}
+
+export async function fetchUserPosts(username: string, accessToken?: string | null, page = 1, limit = 24) {
+  const headers: HeadersInit = { accept: "application/json" };
+  if (accessToken) (headers as Record<string, string>).authorization = `Bearer ${accessToken}`;
+  const response = await fetch(
+    apiUrl(`/v1/users/${encodeURIComponent(username)}/posts?page=${page}&limit=${limit}`),
+    { headers },
+  );
+  const payload = await readApiJson<{ posts?: ProfilePost[] }>(response, "Could not load posts.");
+  return payload.posts ?? [];
+}
+
+export async function createProfilePost(accessToken: string, body: string, clipId?: string) {
+  const response = await fetch(apiUrl("/v1/posts"), {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "content-type": "application/json" },
+    body: JSON.stringify({ body, clipId }),
+  });
+  const payload = await readApiJson<{ post?: ProfilePost }>(response, "Could not publish that post.");
+  if (!payload.post) throw new Error("Could not publish that post.");
+  return payload.post;
+}
+
+export async function deleteProfilePost(accessToken: string, postId: string) {
+  const response = await fetch(apiUrl(`/v1/posts/${postId}`), {
+    method: "DELETE",
+    headers: authHeaders(accessToken),
+  });
+  await readApiJson<{ ok?: boolean }>(response, "Could not delete that post.");
 }
 
 export async function fetchUserSuggestions(accessToken: string): Promise<UsersSearchResponse["users"]> {

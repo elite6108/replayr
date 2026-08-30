@@ -10,20 +10,14 @@ import {
 import { Redirect, useRouter } from "expo-router";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
-import { AppleSignInButton } from "@/components/AppleSignInButton";
 import { Image } from "expo-image";
+import { SocialAuthRow } from "@/components/SocialAuthRow";
 import { Button, Field, Notice } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 
-type SocialProvider = "google" | "discord" | "twitter";
-
-const PROVIDERS: { id: SocialProvider; label: string }[] = [
-  { id: "google", label: "Continue with Google" },
-  { id: "discord", label: "Continue with Discord" },
-  { id: "twitter", label: "Continue with X" },
-];
+type SocialProvider = "google" | "discord" | "twitter" | "apple";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -129,20 +123,19 @@ export default function SignInScreen() {
           <Button label="Sign in" kind={mode === "in" ? "primary" : "default"} onPress={() => setMode("in")} />
           <Button label="Create account" kind={mode === "up" ? "primary" : "default"} onPress={() => setMode("up")} />
         </View>
-        <AppleSignInButton
+        <SocialAuthRow
           disabled={busy}
-          onError={setError}
-          onBusy={(next) => {
+          onProvider={(provider) => void startSocial(provider)}
+          onAppleError={setError}
+          onAppleBusy={(next) => {
             setBusy(next);
             if (next) {
               setError(null);
               setNotice(null);
             }
           }}
+          onAppleOAuth={() => startSocial("apple")}
         />
-        {PROVIDERS.map((provider) => (
-          <Button key={provider.id} label={provider.label} disabled={busy} onPress={() => void startSocial(provider.id)} />
-        ))}
         <Text style={styles.muted}>or email</Text>
         <Field
           label="Email"

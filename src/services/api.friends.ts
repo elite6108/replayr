@@ -9,6 +9,7 @@ import type {
   NotificationItem,
   NotificationsResponse,
   ReadNotificationsResponse,
+  ProfilePost,
   UserProfileResponse,
   UserSuggestionsResponse,
   UsersSearchResponse,
@@ -108,7 +109,44 @@ export async function fetchUserProfile(accessToken: string | null | undefined, u
   const headers: Record<string, string> = { accept: "application/json" };
   if (accessToken) headers.authorization = `Bearer ${accessToken}`;
   const response = await fetch(`${publicApiUrl()}/v1/users/${encodeURIComponent(username)}`, { headers });
-  return readApi<UserProfileResponse>(response, "That account was not found.");
+  const body = await readApi<UserProfileResponse>(response, "That account was not found.");
+  return {
+    ...body,
+    isPrivate: Boolean(body.isPrivate),
+    locked: Boolean(body.locked),
+    clips: body.clips ?? [],
+    posts: body.posts ?? [],
+  };
+}
+
+export async function fetchUserPosts(accessToken: string | null | undefined, username: string, page = 1, limit = 24) {
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (accessToken) headers.authorization = `Bearer ${accessToken}`;
+  const response = await fetch(
+    `${publicApiUrl()}/v1/users/${encodeURIComponent(username)}/posts?page=${page}&limit=${limit}`,
+    { headers },
+  );
+  const payload = await readApi<{ posts?: ProfilePost[] }>(response, "Could not load posts.");
+  return payload.posts ?? [];
+}
+
+export async function createProfilePost(accessToken: string, body: string, clipId?: string) {
+  const response = await fetch(`${publicApiUrl()}/v1/posts`, {
+    method: "POST",
+    headers: authHeaders(accessToken, true),
+    body: JSON.stringify({ body, clipId }),
+  });
+  const payload = await readApi<{ post?: ProfilePost }>(response, "Could not publish that post.");
+  if (!payload.post) throw new Error("Could not publish that post.");
+  return payload.post;
+}
+
+export async function deleteProfilePost(accessToken: string, postId: string) {
+  const response = await fetch(`${publicApiUrl()}/v1/posts/${postId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken),
+  });
+  await readApi<{ ok?: boolean }>(response, "Could not delete that post.");
 }
 
 export async function fetchUserSuggestions(accessToken: string): Promise<UserSuggestionsResponse["users"]> {

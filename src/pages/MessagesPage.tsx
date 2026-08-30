@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { AuthCard } from "../components/common/AuthCard";
 import { EmptyState } from "../components/common/EmptyState";
 import { PageHeader } from "../components/common/PageHeader";
+import { ProfileAvatarLink } from "../components/common/ProfileAvatarLink";
 import { SocialAvatar } from "../components/common/SocialAvatar";
 import { IconFriends, IconSearch } from "../components/icons";
 import { clipShareUrl } from "../branding";
@@ -342,21 +343,23 @@ export function MessagesPage() {
                 const preview = lastMessagePreview(conversation.lastMessage);
                 return (
                   <li key={conversation.id}>
-                    <button
-                      className={`conv-item ${conversation.id === conversationId ? "active" : ""}`}
-                      type="button"
-                      onClick={() => navigate(`/messages/${conversation.id}`)}
-                    >
+                    <div className={`conv-item ${conversation.id === conversationId ? "active" : ""}`}>
                       <span className="conv-avatar">
-                        <SocialAvatar person={peer} size="md" />
+                        <ProfileAvatarLink person={peer} size="md" />
                         {conversation.unreadCount > 0 ? <span className="unread-pip" /> : null}
                       </span>
-                      <span className="conv-copy">
-                        <strong>{conversationTitle(conversation, user.id)}</strong>
-                        <span className="muted">{preview}</span>
-                      </span>
-                      <span className="muted conv-time">{conversation.lastMessage ? formatClipDate(conversation.lastMessage.createdAt) : ""}</span>
-                    </button>
+                      <button
+                        className="conv-open"
+                        type="button"
+                        onClick={() => navigate(`/messages/${conversation.id}`)}
+                      >
+                        <span className="conv-copy">
+                          <strong>{conversationTitle(conversation, user.id)}</strong>
+                          <span className="muted">{preview}</span>
+                        </span>
+                        <span className="muted conv-time">{conversation.lastMessage ? formatClipDate(conversation.lastMessage.createdAt) : ""}</span>
+                      </button>
+                    </div>
                   </li>
                 );
               })}
@@ -377,7 +380,7 @@ export function MessagesPage() {
             <>
               <header className="thread-head">
                 <div className="row">
-                  <SocialAvatar person={conversationPeer(selected, user.id)} size="md" />
+                  <ProfileAvatarLink person={conversationPeer(selected, user.id)} size="md" />
                   <div>
                     <strong>{conversationTitle(selected, user.id)}</strong>
                     <div className="muted">
@@ -418,7 +421,7 @@ export function MessagesPage() {
                     const mine = message.senderId === user.id;
                     return (
                       <article key={message.id} className={`bubble-row ${mine ? "mine" : ""}`}>
-                        {!mine ? <SocialAvatar person={message.sender} size="sm" /> : null}
+                        {!mine ? <ProfileAvatarLink person={message.sender} size="sm" /> : null}
                         <div className={`bubble ${mine ? "mine" : ""}`}>
                           {!mine ? <span className="bubble-name">{message.sender.displayName}</span> : null}
                           {message.body ? <p>{message.body}</p> : null}

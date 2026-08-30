@@ -31,6 +31,7 @@ import {
   type CatalogGame,
   type PublicClipCard,
 } from "@/lib/api";
+import { seedClipFeed } from "@/lib/clipFeed";
 import { useAuth } from "@/lib/auth";
 import { formatCount, formatDurationMs, formatHandle, formatTimeAgo } from "@/lib/format";
 import { shareClipUrl } from "@/lib/media";
@@ -140,6 +141,19 @@ export default function HomeScreen() {
     router.push(`/c/${slug}`);
   }
 
+  function openForYou(slug: string) {
+    const items = feed.map((clip) => ({ slug: clip.slug }));
+    if (!items.some((item) => item.slug === slug)) items.unshift({ slug });
+    seedClipFeed({
+      source: "foryou",
+      items,
+      startSlug: slug,
+      page: 1,
+      hasMore: true,
+    });
+    router.push(`/c/${slug}`);
+  }
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView
@@ -210,7 +224,7 @@ export default function HomeScreen() {
                 <Pressable
                   key={clip.id}
                   style={[styles.featured, { width: featuredWidth }]}
-                  onPress={() => openClip(clip.slug)}
+                  onPress={() => openForYou(clip.slug)}
                 >
                   <ClipThumb title={clip.title || "Clip"} thumbnailUrl={clip.thumbnailUrl} radius={22} />
                   <View style={styles.featuredScrim} />
@@ -329,7 +343,7 @@ export default function HomeScreen() {
             <View style={styles.feed}>
               {feed.map((clip) => (
                 <View key={clip.id} style={styles.feedCard}>
-                  <Pressable style={styles.feedThumb} onPress={() => openClip(clip.slug)}>
+                  <Pressable style={styles.feedThumb} onPress={() => openForYou(clip.slug)}>
                     <ClipThumb title={clip.title || "Clip"} thumbnailUrl={clip.thumbnailUrl} radius={12} />
                     <View style={styles.playCenter}>
                       <Ionicons name="play" size={16} color="#fff" />
@@ -345,7 +359,7 @@ export default function HomeScreen() {
                       {clip.author.verified ? <Ionicons name="checkmark-circle" size={14} color={colors.accent} /> : null}
                       {clip.createdAt ? <Text style={styles.time}>{formatTimeAgo(clip.createdAt)}</Text> : null}
                     </View>
-                    <Pressable onPress={() => openClip(clip.slug)}>
+                    <Pressable onPress={() => openForYou(clip.slug)}>
                       <Text style={styles.feedTitle} numberOfLines={2}>
                         {clip.title || "Untitled clip"}
                       </Text>

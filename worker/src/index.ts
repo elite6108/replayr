@@ -30,6 +30,7 @@ import {
   type PublicClipRow,
 } from "./shared";
 import { assertUploadAllowed, handleBilling, loadStatus } from "./billing";
+import { handlePosts } from "./posts";
 import { handleSocial } from "./social";
 import {
   brandedDownloadRedirect,
@@ -183,10 +184,14 @@ async function route(
     (url.pathname.startsWith("/v1/friends") ||
       url.pathname.startsWith("/v1/conversations") ||
       url.pathname.startsWith("/v1/notifications") ||
+      url.pathname === "/v1/posts" ||
+      /^\/v1\/posts\/[^/]+$/.test(url.pathname) ||
       /^\/v1\/clips\/[^/]+\/send$/.test(url.pathname))
   ) {
     assertRateLimit(request, "social-write", 60);
   }
+  const posts = await handlePosts(request, env, url);
+  if (posts) return posts;
   const social = await handleSocial(request, env, url);
   if (social) return social;
   const announcements = await handlePublicAnnouncements(request, env, url);
@@ -856,17 +861,20 @@ async function listGameClips(request: Request, env: Env, slug: string): Promise<
 }
 
 async function listPublicClips(request: Request, env: Env, url: URL): Promise<Response> {
+  const rawPage = Number(url.searchParams.get("page"));
   const rawLimit = Number(url.searchParams.get("limit"));
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1;
   const limit = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(48, Math.floor(rawLimit)) : 24;
+  const offset = (page - 1) * limit;
   const trending = url.searchParams.get("sort") === "trending";
   const rows = trending
     ? await listTrendingPublicRows(env, limit)
     : await serviceRest<PublicClipRow[]>(
         env,
         "GET",
-        `/clips?visibility=eq.public&status=eq.ready&${PUBLIC_CLIP_SELECT}&order=created_at.desc&limit=${limit}`,
+        `/clips?visibility=eq.public&status=eq.ready&${PUBLIC_CLIP_SELECT}&order=created_at.desc&limit=${limit}&offset=${offset}`,
       );
-  return json({ clips: await presentPublicClips(request, env, rows) });
+  return json({ clips: await presentPublicClips(request, env, rows), page, limit });
 }
 
 async function listTrendingPublicRows(env: Env, limit: number): Promise<PublicClipRow[]> {

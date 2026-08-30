@@ -126,6 +126,58 @@ pub fn yuy2_to_nv12(src: &[u8], width: u32, height: u32, stride: usize) -> Optio
     Some(out)
 }
 
+/// Nearest-neighbor scale of packed or strided NV12. Width and height must be even.
+pub fn scale_nv12(
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    src_stride: usize,
+    dst_w: u32,
+    dst_h: u32,
+) -> Option<Vec<u8>> {
+    if src_w == 0
+        || src_h == 0
+        || dst_w == 0
+        || dst_h == 0
+        || src_w % 2 == 1
+        || src_h % 2 == 1
+        || dst_w % 2 == 1
+        || dst_h % 2 == 1
+    {
+        return None;
+    }
+    let compact = compact_nv12(src, src_w, src_h, src_stride)?;
+    if src_w == dst_w && src_h == dst_h {
+        return Some(compact);
+    }
+    let src_w = src_w as usize;
+    let src_h = src_h as usize;
+    let dst_w = dst_w as usize;
+    let dst_h = dst_h as usize;
+    let mut out = vec![0u8; dst_w * dst_h * 3 / 2];
+    for y in 0..dst_h {
+        let sy = y * src_h / dst_h;
+        let src_row = sy * src_w;
+        let dst_row = y * dst_w;
+        for x in 0..dst_w {
+            out[dst_row + x] = compact[src_row + x * src_w / dst_w];
+        }
+    }
+    let src_uv = src_w * src_h;
+    let dst_uv = dst_w * dst_h;
+    for y in 0..dst_h / 2 {
+        let sy = y * (src_h / 2) / (dst_h / 2);
+        for x in 0..dst_w / 2 {
+            let sx = x * (src_w / 2) / (dst_w / 2);
+            let src_i = src_uv + sy * src_w + sx * 2;
+            let dst_i = dst_uv + y * dst_w + x * 2;
+            out[dst_i] = compact[src_i];
+            out[dst_i + 1] = compact[src_i + 1];
+        }
+    }
+    Some(out)
+}
+
 /// Compact a possibly-strided NV12 buffer to width-pitched NV12.
 pub fn compact_nv12(src: &[u8], width: u32, height: u32, stride: usize) -> Option<Vec<u8>> {
     let width = width as usize;
@@ -252,7 +304,9 @@ pub fn encode_png_bgra(pixels: &[u8], width: u32, height: u32) -> Result<Vec<u8>
         encoder.set_depth(png::BitDepth::Eight);
         encoder.set_compression(png::Compression::Fast);
         let mut writer = encoder.write_header().map_err(|err| err.to_string())?;
-        writer.write_image_data(&rgb).map_err(|err| err.to_string())?;
+        writer
+            .write_image_data(&rgb)
+            .map_err(|err| err.to_string())?;
     }
     Ok(encoded)
 }
@@ -281,7 +335,7 @@ pub fn base64_encode(data: &[u8]) -> String {
     out
 }
 
-fn rgb_to_yuv(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
+pub fn rgb_to_yuv(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
     let r = i32::from(r);
     let g = i32::from(g);
     let b = i32::from(b);
@@ -332,9 +386,7 @@ mod tests {
 
     #[test]
     fn horizontal_flip_swaps_pixels() {
-        let mut pixels = vec![
-            1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255,
-        ];
+        let mut pixels = vec![1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255];
         flip_bgra_horizontal(&mut pixels, 2, 2);
         assert_eq!(&pixels[0..4], &[4, 5, 6, 255]);
         assert_eq!(&pixels[4..8], &[1, 2, 3, 255]);
@@ -353,7 +405,9 @@ mod tests {
 
     #[test]
     fn yuy2_compacts_to_nv12_with_even_dims() {
-        let yuy2 = vec![16u8, 128, 32, 128, 16, 128, 32, 128, 16, 128, 32, 128, 16, 128, 32, 128];
+        let yuy2 = vec![
+            16u8, 128, 32, 128, 16, 128, 32, 128, 16, 128, 32, 128, 16, 128, 32, 128,
+        ];
         let nv12 = yuy2_to_nv12(&yuy2, 2, 2, 4).unwrap();
         assert_eq!(nv12.len(), 6);
         assert_eq!(nv12[0], 16);
@@ -372,14 +426,39 @@ mod tests {
         let nv12 = vec![16u8, 16, 16, 16, 128, 128];
         let compact = compact_nv12(&nv12, 2, 2, 2).unwrap();
         assert_eq!(compact.len(), 6);
-        let bgra = vec![0u8, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255];
+        let bgra = vec![
+            0u8, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255,
+        ];
         let converted = bgra_to_nv12(&bgra, 2, 2, 8).unwrap();
         assert_eq!(converted.len(), 6);
     }
 
     #[test]
+    fn scale_nv12_keeps_same_size() {
+        let src = vec![16u8, 32, 48, 64, 80, 96];
+        let out = scale_nv12(&src, 2, 2, 2, 2, 2).unwrap();
+        assert_eq!(out, src);
+    }
+
+    #[test]
+    fn scale_nv12_doubles_even_gray() {
+        let src = vec![40u8, 40, 40, 40, 128, 128];
+        let out = scale_nv12(&src, 2, 2, 2, 4, 4).unwrap();
+        assert_eq!(out.len(), 24);
+        assert!(out[..16].iter().all(|value| *value == 40));
+        assert!(out[16..].iter().all(|value| *value == 128));
+    }
+
+    #[test]
+    fn scale_nv12_rejects_odd_dims() {
+        assert!(scale_nv12(&[0u8; 6], 2, 2, 2, 3, 2).is_none());
+    }
+
+    #[test]
     fn png_and_base64_round_trip_length() {
-        let pixels = vec![0u8, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 255, 255, 255, 255];
+        let pixels = vec![
+            0u8, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 255, 255, 255, 255,
+        ];
         let png = encode_png_bgra(&pixels, 2, 2).unwrap();
         assert!(png.starts_with(&[137, 80, 78, 71]));
         let encoded = base64_encode(&png);

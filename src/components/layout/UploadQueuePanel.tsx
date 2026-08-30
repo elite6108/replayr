@@ -12,7 +12,7 @@ function formatEta(seconds: number | null): string | null {
 }
 
 function etaSeconds(item: UploadQueueItem, now: number): number | null {
-  if (item.phase !== "uploading" || item.startedAt == null) return null;
+  if ((item.phase !== "uploading" && item.phase !== "preparing") || item.startedAt == null) return null;
   if (item.bytesUploaded <= 0 || item.bytesTotal <= item.bytesUploaded) return null;
   const elapsed = (now - item.startedAt) / 1000;
   if (elapsed < 1) return null;
@@ -25,7 +25,15 @@ function phaseLabel(item: UploadQueueItem, now: number, waitingIndex: number): s
   if (item.phase === "queued") {
     return waitingIndex >= 0 ? `#${waitingIndex + 2} in queue` : "Waiting";
   }
-  if (item.phase === "preparing") return "Preparing…";
+  if (item.phase === "preparing") {
+    const label = item.detail?.trim() || "Adding webcam…";
+    if (item.bytesUploaded > 0 && item.bytesTotal > 0) {
+      const pct = progressPct(item);
+      const eta = formatEta(etaSeconds(item, now));
+      return eta ? `${label} ${pct}% · ${eta}` : `${label} ${pct}%`;
+    }
+    return label;
+  }
   if (item.phase === "processing") return "Finishing…";
   return formatEta(etaSeconds(item, now)) || "Uploading…";
 }
@@ -34,6 +42,10 @@ function progressPct(item: UploadQueueItem): number {
   if (item.phase === "processing") return 100;
   if (item.bytesTotal <= 0) return item.phase === "uploading" ? 4 : 0;
   return Math.min(100, Math.round((item.bytesUploaded / item.bytesTotal) * 100));
+}
+
+function isIndeterminate(item: UploadQueueItem): boolean {
+  return item.phase === "preparing" && item.bytesUploaded <= 0;
 }
 
 export function UploadQueuePanel() {
@@ -53,7 +65,7 @@ export function UploadQueuePanel() {
   );
 
   useEffect(() => {
-    if (!queue.some((item) => item.phase === "uploading" && item.startedAt)) return;
+    if (!queue.some((item) => (item.phase === "uploading" || item.phase === "preparing") && item.startedAt)) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [queue]);
@@ -78,7 +90,10 @@ export function UploadQueuePanel() {
       >
         <span className="upload-queue-summary">{collapsed}</span>
         <span className="upload-queue-bar" aria-hidden="true">
-          <span className="upload-queue-bar-fill" style={{ width: `${progressPct(active)}%` }} />
+          <span
+            className={`upload-queue-bar-fill${isIndeterminate(active) ? " indeterminate" : ""}`}
+            style={isIndeterminate(active) ? undefined : { width: `${progressPct(active)}%` }}
+          />
         </span>
       </button>
       {open ? (
@@ -94,7 +109,10 @@ export function UploadQueuePanel() {
               </small>
             </div>
             <span className="upload-queue-bar" aria-hidden="true">
-              <span className="upload-queue-bar-fill" style={{ width: `${progressPct(active)}%` }} />
+              <span
+                className={`upload-queue-bar-fill${isIndeterminate(active) ? " indeterminate" : ""}`}
+                style={isIndeterminate(active) ? undefined : { width: `${progressPct(active)}%` }}
+              />
             </span>
           </div>
           {waiting.map((item, index) => (

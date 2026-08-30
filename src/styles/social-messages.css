@@ -129,7 +129,7 @@
 .conv-item {
   width: 100%;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   padding: 8px;
@@ -138,6 +138,20 @@
   background: transparent;
   color: inherit;
   text-align: left;
+}
+
+.conv-open {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .conv-item:hover {
@@ -151,6 +165,13 @@
 
 .conv-avatar {
   position: relative;
+}
+
+.profile-avatar-link {
+  display: inline-flex;
+  line-height: 0;
+  text-decoration: none;
+  color: inherit;
 }
 
 .unread-pip {

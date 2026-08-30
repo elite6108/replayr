@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ClipThumb } from "../components/ClipThumb";
 import { Seo } from "../components/Seo";
-import { SocialAvatar } from "../components/SocialAvatar";
+import { ProfileAvatarLink } from "../components/ProfileAvatarLink";
 import { fetchFriends, personName, type Friend } from "../lib/api.friends";
 import {
   addConversationMembers,
@@ -349,17 +349,20 @@ export function MessagesPage() {
                 const selected = conversation.id === id;
                 return (
                   <li key={conversation.id}>
-                    <Link className={`conv-item${selected ? " is-active" : ""}`} to={`/messages/${conversation.id}`}>
-                      <SocialAvatar
+                    <div className={`conv-item${selected ? " is-active" : ""}`}>
+                      <ProfileAvatarLink
+                        username={conversation.type === "dm" ? other?.username : null}
                         name={label}
                         avatarUrl={conversation.type === "dm" ? other?.avatarUrl : null}
                       />
-                      <span className="conv-copy">
-                        <strong>{label}</strong>
-                        <span className="muted">{lastMessagePreview(conversation.lastMessage)}</span>
-                      </span>
-                      {conversation.unreadCount > 0 ? <span className="unread-pip" aria-label="Unread" /> : null}
-                    </Link>
+                      <Link className="conv-open" to={`/messages/${conversation.id}`}>
+                        <span className="conv-copy">
+                          <strong>{label}</strong>
+                          <span className="muted">{lastMessagePreview(conversation.lastMessage)}</span>
+                        </span>
+                        {conversation.unreadCount > 0 ? <span className="unread-pip" aria-label="Unread" /> : null}
+                      </Link>
+                    </div>
                   </li>
                 );
               })}
@@ -387,7 +390,8 @@ export function MessagesPage() {
                 <Link className="btn ghost thread-back" to="/messages">
                   Back
                 </Link>
-                <SocialAvatar
+                <ProfileAvatarLink
+                  username={active?.type === "dm" ? peer?.username : null}
                   name={title}
                   avatarUrl={active?.type === "dm" ? peer?.avatarUrl : null}
                   size={36}
@@ -459,7 +463,12 @@ export function MessagesPage() {
                   return (
                     <article key={message.id} className={`chat-row${mine ? " is-mine" : ""}`}>
                       {!mine ? (
-                        <SocialAvatar name={personName(message.sender)} avatarUrl={message.sender.avatarUrl} size={28} />
+                        <ProfileAvatarLink
+                          username={message.sender.username}
+                          name={personName(message.sender)}
+                          avatarUrl={message.sender.avatarUrl}
+                          size={28}
+                        />
                       ) : null}
                       <div className="chat-bubble">
                         {!mine ? <strong>{personName(message.sender)}</strong> : null}

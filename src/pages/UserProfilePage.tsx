@@ -8,7 +8,9 @@ import {
   acceptFriendRequest,
   cancelFriendRequest,
   createFriendRequest,
+  createProfilePost,
   declineFriendRequest,
+  deleteProfilePost,
   fetchFriendRequests,
   fetchUserProfile,
 } from "../services/api.friends";
@@ -31,6 +33,9 @@ export function UserProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [openClip, setOpenClip] = useState<PublicClipCard | null>(null);
+  const [tab, setTab] = useState<"clips" | "posts">("clips");
+  const [draft, setDraft] = useState("");
+  const [attachId, setAttachId] = useState("");
 
   async function load() {
     const next = await fetchUserProfile(token, username);
@@ -86,7 +91,16 @@ export function UserProfilePage() {
 
   return (
     <>
-      <PageHeader title={missing ? "Profile unavailable" : name} subtitle={missing ? "That account was not found." : profile?.user.bio || undefined} />
+      <PageHeader
+        title={missing ? "Profile unavailable" : name}
+        subtitle={
+          missing
+            ? "That account was not found."
+            : profile?.locked
+              ? "This account is private."
+              : profile?.user.bio || undefined
+        }
+      />
       {error && !profile ? <p className="error-text">{error}</p> : null}
       {!missing && !profile && !error ? <p className="muted">Loading…</p> : null}
       {profile ? (
@@ -100,10 +114,15 @@ export function UserProfilePage() {
                   {name}
                   {profile.user.verified ? <span className="verified-dot" title="Verified" /> : null}
                 </div>
-                <p className="muted">
-                  {formatCount(profile.user.clipCount)} public clips
-                  {mine ? " · This is you" : ""}
-                </p>
+                {profile.isPrivate ? <p className="muted">Private account</p> : null}
+                {profile.locked ? (
+                  <p className="muted">This account is private.</p>
+                ) : (
+                  <p className="muted">
+                    {formatCount(profile.user.clipCount)} public clips
+                    {mine ? " · This is you" : ""}
+                  </p>
+                )}
                 {error ? <p className="error-text">{error}</p> : null}
                 <div className="row">
                   {mine ? (
@@ -178,12 +197,21 @@ export function UserProfilePage() {
             </div>
           </section>
 
-          <PageHeader title="Public clips" />
-          {profile.clips.length === 0 ? (
+          {profile.locked ? null : (
+            <>
+          <div className="row">
+            <button className={`btn ${tab === "clips" ? "primary" : ""}`} type="button" onClick={() => setTab("clips")}>
+              Clips
+            </button>
+            <button className={`btn ${tab === "posts" ? "primary" : ""}`} type="button" onClick={() => setTab("posts")}>
+              Posts
+            </button>
+          </div>
+          {tab === "clips" && profile.clips.length === 0 ? (
             <section className="panel">
               <p className="muted">Only public uploads show here. Unlisted links stay off this profile.</p>
             </section>
-          ) : (
+          ) : tab === "clips" ? (
             <div className="explore-grid">
               {profile.clips.map((clip) => (
                 <article key={clip.id} className="feed-card">
@@ -219,6 +247,104 @@ export function UserProfilePage() {
                 </article>
               ))}
             </div>
+          ) : tab === "posts" ? (
+            <>
+              {mine && token ? (
+                <section className="panel">
+                  <textarea
+                    rows={3}
+                    maxLength={500}
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    placeholder="Write a post"
+                  />
+                  {profile.clips.length > 0 ? (
+                    <select value={attachId} onChange={(event) => setAttachId(event.target.value)}>
+                      <option value="">No clip attached</option>
+                      {profile.clips.map((clip) => (
+                        <option key={clip.id} value={clip.id}>
+                          {clip.title || "Untitled clip"}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <button
+                    className="btn primary"
+                    type="button"
+                    disabled={!draft.trim()}
+                    onClick={() =>
+                      void (async () => {
+                        try {
+                          await createProfilePost(token, draft.trim(), attachId || undefined);
+                          setDraft("");
+                          setAttachId("");
+                          setProfile(await fetchUserProfile(token, username));
+                        } catch (caught) {
+                          useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not publish");
+                        }
+                      })()
+                    }
+                  >
+                    Post
+                  </button>
+                </section>
+              ) : null}
+              {profile.posts.length === 0 ? (
+                <section className="panel">
+                  <p className="muted">No posts yet.</p>
+                </section>
+              ) : (
+                profile.posts.map((post) => (
+                  <article className="panel" key={post.id}>
+                    <p>{post.body}</p>
+                    <p className="muted">{new Date(post.createdAt).toLocaleString()}</p>
+                    {mine && token ? (
+                      <button
+                        className="btn"
+                        type="button"
+                        onClick={() =>
+                          void (async () => {
+                            try {
+                              await deleteProfilePost(token, post.id);
+                              setProfile(await fetchUserProfile(token, username));
+                            } catch (caught) {
+                              useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not delete");
+                            }
+                          })()
+                        }
+                      >
+                        Delete
+                      </button>
+                    ) : null}
+                    {post.clip ? (
+                      <button
+                        className="clip-open"
+                        type="button"
+                        onClick={() => {
+                          void (async () => {
+                            if (post.clip?.playbackUrl) {
+                              setOpenClip(post.clip);
+                              return;
+                            }
+                            try {
+                              const next = await fetchClipPlayback(post.clip!.slug, token);
+                              setOpenClip({ ...post.clip!, playbackUrl: next.playbackUrl, watermark: next.watermark ?? post.clip!.watermark });
+                            } catch (caught) {
+                              useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not play that clip");
+                            }
+                          })();
+                        }}
+                      >
+                        {post.clip.thumbnailUrl ? <img src={post.clip.thumbnailUrl} alt="" /> : <div className="feed-thumb-empty" />}
+                        <h2>{post.clip.title || "Untitled clip"}</h2>
+                      </button>
+                    ) : null}
+                  </article>
+                ))
+              )}
+            </>
+          ) : null}
+            </>
           )}
         </>
       ) : null}

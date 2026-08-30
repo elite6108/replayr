@@ -152,10 +152,11 @@ function authHeaders(accessToken?: string | null): HeadersInit {
 
 export async function fetchPublicClips(
   accessToken?: string | null,
-  options?: { limit?: number; sort?: "latest" | "trending" },
+  options?: { limit?: number; page?: number; sort?: "latest" | "trending" },
 ): Promise<PublicClipCard[]> {
   const query = new URLSearchParams();
   query.set("limit", String(options?.limit ?? 24));
+  if (options?.page && options.page > 1) query.set("page", String(options.page));
   if (options?.sort === "trending") query.set("sort", "trending");
   const response = await fetch(apiUrl(`/v1/clips/public?${query}`), { headers: authHeaders(accessToken) });
   const body = await readApiJson<{ clips?: PublicClipCard[] }>(response, "Could not load public clips.");

@@ -78,6 +78,19 @@ export type FriendClipsResponse = {
   clips: PublicClipCard[];
 };
 
+export type ProfilePost = {
+  id: string;
+  body: string;
+  createdAt: string;
+  clip: PublicClipCard | null;
+  author: SocialUser;
+};
+
+export type CreatePostBody = {
+  body: string;
+  clipId?: string;
+};
+
 export type UserProfileResponse = {
   user: SocialUser & {
     bio: string | null;
@@ -85,7 +98,16 @@ export type UserProfileResponse = {
     createdAt: string;
   };
   relationship: Relationship;
+  isPrivate: boolean;
+  locked: boolean;
   clips: PublicClipCard[];
+  posts: ProfilePost[];
+};
+
+export type ProfilePostsResponse = {
+  posts: ProfilePost[];
+  page: number;
+  limit: number;
 };
 
 export type MessageClip = {

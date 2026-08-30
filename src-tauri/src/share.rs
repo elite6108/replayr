@@ -8,7 +8,11 @@ use crate::library;
 use crate::overlay::OverlayLayout;
 
 /// How the file was handed off: native share UI, clipboard file drop, or Explorer.
-pub fn share_clip(app: &AppHandle, local_id: Option<&str>, file_path: Option<&str>) -> AppResult<String> {
+pub fn share_clip(
+    app: &AppHandle,
+    local_id: Option<&str>,
+    file_path: Option<&str>,
+) -> AppResult<String> {
     let path = outgoing_media(app, local_id, file_path, None)?;
     share_file(app, &path.to_string_lossy())
 }
@@ -35,7 +39,10 @@ fn outgoing_media(
 ) -> AppResult<PathBuf> {
     let clip = if let Some(id) = local_id {
         let db = app.state::<crate::database::AppState>();
-        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        let conn = db
+            .db
+            .lock()
+            .map_err(|err| AppError::Message(err.to_string()))?;
         Some(library::get(&conn, id)?)
     } else {
         None
@@ -77,21 +84,18 @@ fn outgoing_media(
                 fps,
                 watermark,
                 compose_timeout(clip.as_ref().and_then(|item| item.duration_ms)),
+                crate::export::WebcamComposeOpts::native(),
             ) {
                 Ok(_) => return Ok(output),
                 Err(err) => {
-                    if dest.is_some() {
-                        let _ = std::fs::remove_file(&output);
-                    }
-                    return Err(AppError::Message(format!(
-                        "Could not burn webcam into this clip: {err}"
-                    )));
+                    tracing::warn!(%err, "webcam compose failed; sharing gameplay only");
                 }
             }
         }
         if let Some(dest) = dest {
             if watermark {
-                crate::export::write_watermarked_mp4(&gameplay, dest, fps).map_err(AppError::Message)?;
+                crate::export::write_watermarked_mp4(&gameplay, dest, fps)
+                    .map_err(AppError::Message)?;
             } else {
                 library::export_copy(&gameplay.display().to_string(), &dest.display().to_string())?;
             }
@@ -126,10 +130,10 @@ fn is_mp4(path: &Path) -> bool {
 fn compose_timeout(duration_ms: Option<i64>) -> std::time::Duration {
     let secs = duration_ms
         .unwrap_or(30_000)
-        .max(5_000)
-        .saturating_mul(4)
+        .max(15_000)
+        .saturating_mul(6)
         .saturating_div(1000)
-        .clamp(120, 600) as u64;
+        .clamp(180, 900) as u64;
     std::time::Duration::from_secs(secs)
 }
 
@@ -140,7 +144,11 @@ fn composed_temp_path(source: &Path, layout: &OverlayLayout, watermark: bool) ->
         .and_then(|name| name.to_str())
         .unwrap_or("clip");
     let width = (layout.width * 100.0).round() as u32;
-    let kind = if watermark { "composed.watermark" } else { "composed" };
+    let kind = if watermark {
+        "composed.watermark"
+    } else {
+        "composed"
+    };
     source.with_file_name(format!(
         "{stem}.{}.{}.{}.{kind}.mp4",
         layout.placement, layout.shape, width
@@ -203,23 +211,30 @@ fn show_share_ui(app: &AppHandle, path: &Path) -> Result<(), String> {
     let class = HSTRING::from("Windows.ApplicationModel.DataTransfer.DataTransferManager");
     let interop: IDataTransferManagerInterop =
         unsafe { RoGetActivationFactory(&class) }.map_err(|err| err.to_string())?;
-    let manager: DataTransferManager = unsafe { interop.GetForWindow(hwnd) }.map_err(|err| err.to_string())?;
+    let manager: DataTransferManager =
+        unsafe { interop.GetForWindow(hwnd) }.map_err(|err| err.to_string())?;
 
-    let handler = TypedEventHandler::<DataTransferManager, DataRequestedEventArgs>::new(move |_, args| {
-        let Some(args) = args.as_ref() else {
-            return Ok(());
-        };
-        let item = item.resolve()?;
-        let request = args.Request()?;
-        let data = request.Data()?;
-        data.Properties()?.SetTitle(&HSTRING::from(title.as_str()))?;
-        let storage_items: IIterable<IStorageItem> = vec![Some(item)].into();
-        data.SetStorageItemsReadOnly(&storage_items)?;
-        Ok(())
-    });
-    let _token = manager.DataRequested(&handler).map_err(|err| err.to_string())?;
+    let handler =
+        TypedEventHandler::<DataTransferManager, DataRequestedEventArgs>::new(move |_, args| {
+            let Some(args) = args.as_ref() else {
+                return Ok(());
+            };
+            let item = item.resolve()?;
+            let request = args.Request()?;
+            let data = request.Data()?;
+            data.Properties()?
+                .SetTitle(&HSTRING::from(title.as_str()))?;
+            let storage_items: IIterable<IStorageItem> = vec![Some(item)].into();
+            data.SetStorageItemsReadOnly(&storage_items)?;
+            Ok(())
+        });
+    let _token = manager
+        .DataRequested(&handler)
+        .map_err(|err| err.to_string())?;
     unsafe {
-        interop.ShowShareUIForWindow(hwnd).map_err(|err| err.to_string())?;
+        interop
+            .ShowShareUIForWindow(hwnd)
+            .map_err(|err| err.to_string())?;
     }
     // DataRequested fires after this returns; keep the manager alive for the flyout.
     std::mem::forget(manager);
@@ -230,8 +245,12 @@ fn show_share_ui(app: &AppHandle, path: &Path) -> Result<(), String> {
 fn copy_file_drop(path: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
-    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE, GMEM_ZEROINIT};
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    use windows::Win32::System::Memory::{
+        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE, GMEM_ZEROINIT,
+    };
 
     const CF_HDROP: u32 = 15;
 
@@ -250,7 +269,8 @@ fn copy_file_drop(path: &Path) -> Result<(), String> {
     let header = std::mem::size_of::<Dropfiles>();
     let bytes = header + wide.len() * 2;
     unsafe {
-        let handle = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes).map_err(|err| err.to_string())?;
+        let handle =
+            GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes).map_err(|err| err.to_string())?;
         if handle.is_invalid() {
             return Err("Could not copy that clip.".into());
         }

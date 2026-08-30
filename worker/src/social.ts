@@ -26,7 +26,7 @@ import type {
 } from "./social-types";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const USERNAME = /^[A-Za-z0-9_]{3,24}$/;
+export const USERNAME = /^[A-Za-z0-9_]{3,24}$/;
 const MAX_GROUP = 32;
 const MESSAGE_LIMIT_MAX = 100;
 const PROFILE_SELECT = "id,username,display_name,avatar_url,is_verified,bio,clip_count,created_at,is_private";
@@ -36,7 +36,7 @@ const MESSAGE_SELECT = "id,conversation_id,sender_id,body,clip_id,created_at";
 const CLIP_CARD_SELECT =
   "id,user_id,slug,title,duration_ms,visibility,thumbnail_key,games(name,slug)";
 
-type ProfileRow = {
+export type ProfileRow = {
   id: string;
   username: string | null;
   display_name: string | null;
@@ -132,7 +132,7 @@ export async function handleSocial(request: Request, env: Env, url: URL): Promis
   if (path === "/v1/users/search" && method === "GET") return searchUsers(request, env, url);
   if (path === "/v1/users/suggestions" && method === "GET") return listUserSuggestions(request, env, url);
   const profile = path.match(/^\/v1\/users\/([^/]+)$/);
-  if (profile?.[1] && method === "GET") return getUserProfile(request, env, profile[1]);
+  if (profile?.[1] && method === "GET") return getUserProfile(request, env, url, profile[1]);
 
   if (path === "/v1/conversations" && method === "GET") return listConversations(request, env);
   if (path === "/v1/conversations" && method === "POST") return createConversation(request, env);
@@ -502,7 +502,17 @@ async function listFriendClips(request: Request, env: Env, url: URL): Promise<Re
   return json({ clips: await presentPublicClips(request, env, rows) });
 }
 
-async function getUserProfile(request: Request, env: Env, username: string): Promise<Response> {
+export async function resolveUserProfileAccess(
+  request: Request,
+  env: Env,
+  username: string,
+): Promise<{
+  profile: ProfileRow;
+  viewerId: string | null;
+  relationship: Relationship;
+  locked: boolean;
+  isPrivate: boolean;
+}> {
   const decoded = decodeURIComponent(username);
   if (!USERNAME.test(decoded)) throw new HttpError(404, "That account was not found.");
   const rows = await serviceRest<ProfileRow[]>(
@@ -515,15 +525,60 @@ async function getUserProfile(request: Request, env: Env, username: string): Pro
   const viewer = await optionalUser(request, env);
   const rel = viewer ? relationshipOf(await loadFriendship(env, viewer.id, profile.id), viewer.id) : "none";
   if (rel === "blocked") throw new HttpError(404, "That account was not found.");
-  if (profile.is_private && viewer?.id !== profile.id && rel !== "friends") {
-    throw new HttpError(404, "That account was not found.");
+  const isPrivate = Boolean(profile.is_private);
+  const locked = isPrivate && viewer?.id !== profile.id && rel !== "friends";
+  return {
+    profile,
+    viewerId: viewer?.id ?? null,
+    relationship: viewer?.id === profile.id ? "none" : rel,
+    locked,
+    isPrivate,
+  };
+}
+
+export function toSocialUser(row: ProfileRow): SocialUser {
+  return {
+    id: row.id,
+    username: row.username,
+    displayName: row.display_name || row.username || "Player",
+    avatarUrl: row.avatar_url,
+    verified: Boolean(row.is_verified),
+  };
+}
+
+async function getUserProfile(request: Request, env: Env, url: URL, username: string): Promise<Response> {
+  const access = await resolveUserProfileAccess(request, env, username);
+  const { profile, relationship, locked, isPrivate } = access;
+  if (locked) {
+    return json({
+      user: {
+        ...toSocialUser(profile),
+        bio: null,
+        clipCount: 0,
+        createdAt: profile.created_at ?? new Date().toISOString(),
+      },
+      relationship,
+      isPrivate: true,
+      locked: true,
+      clips: [],
+      posts: [],
+    });
   }
+  const rawPage = Number(url.searchParams.get("page"));
+  const rawLimit = Number(url.searchParams.get("limit"));
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1;
+  const limit = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(48, Math.floor(rawLimit)) : 24;
+  const offset = (page - 1) * limit;
   const clipRows = await serviceRest<PublicClipRow[]>(
     env,
     "GET",
-    `/clips?user_id=eq.${profile.id}&visibility=eq.public&status=eq.ready&${PUBLIC_CLIP_SELECT}&order=created_at.desc&limit=24`,
+    `/clips?user_id=eq.${profile.id}&visibility=eq.public&status=eq.ready&${PUBLIC_CLIP_SELECT}&order=created_at.desc&limit=${limit}&offset=${offset}`,
   );
-  const clips = await presentPublicClips(request, env, clipRows);
+  const { presentProfilePosts } = await import("./posts");
+  const [clips, posts] = await Promise.all([
+    presentPublicClips(request, env, clipRows),
+    presentProfilePosts(request, env, profile, 1, 24),
+  ]);
   return json({
     user: {
       ...toSocialUser(profile),
@@ -531,8 +586,11 @@ async function getUserProfile(request: Request, env: Env, username: string): Pro
       clipCount: profile.clip_count ?? 0,
       createdAt: profile.created_at ?? new Date().toISOString(),
     },
-    relationship: viewer?.id === profile.id ? "none" : rel,
+    relationship,
+    isPrivate,
+    locked: false,
     clips,
+    posts,
   });
 }
 
@@ -1218,16 +1276,6 @@ async function insertNotifications(
     }));
   if (payload.length === 0) return;
   await serviceRest(env, "POST", "/notifications", payload);
-}
-
-function toSocialUser(row: ProfileRow): SocialUser {
-  return {
-    id: row.id,
-    username: row.username,
-    displayName: row.display_name || row.username || "Player",
-    avatarUrl: row.avatar_url,
-    verified: Boolean(row.is_verified),
-  };
 }
 
 function relationshipOf(row: FriendshipRow | null, me: string): Relationship {

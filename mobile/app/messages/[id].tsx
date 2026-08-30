@@ -13,12 +13,12 @@ import {
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Avatar } from "@/components/Avatar";
+import { ProfileAvatarLink } from "@/components/ProfileAvatarLink";
 import { ClipThumb } from "@/components/ClipThumb";
 import { Notice } from "@/components/ui";
 import { socialName } from "@/lib/api.friends";
 import {
+  conversationPeer,
   conversationTitle,
   fetchConversation,
   fetchMessages,
@@ -40,7 +40,6 @@ function firstParam(value: string | string[] | undefined) {
 
 export default function ThreadScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const conversationId = firstParam(params.id);
   const { session } = useAuth();
@@ -57,6 +56,7 @@ export default function ThreadScreen() {
   const [busy, setBusy] = useState(false);
 
   const title = conversation ? conversationTitle(conversation, userId) : "Chat";
+  const peer = conversation ? conversationPeer(conversation, userId) : null;
 
   const load = useCallback(async () => {
     if (!token || !conversationId) return;
@@ -166,6 +166,20 @@ export default function ThreadScreen() {
       <Stack.Screen
         options={{
           title,
+          headerTitle:
+            conversation?.type === "dm"
+              ? () => (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <ProfileAvatarLink
+                      username={peer?.username}
+                      name={peer ? socialName(peer) : title}
+                      uri={peer?.avatarUrl}
+                      size={28}
+                    />
+                    <Text style={{ color: colors.text, fontWeight: "700", fontSize: 16 }}>{title}</Text>
+                  </View>
+                )
+              : undefined,
           headerRight:
             conversation?.type === "group"
               ? () => (
@@ -199,7 +213,7 @@ export default function ThreadScreen() {
           )}
         />
       )}
-      <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+      <View style={[styles.composer, { paddingBottom: 10 }]}>
         <TextInput
           style={styles.input}
           value={draft}
@@ -229,7 +243,14 @@ function Bubble({
 }) {
   return (
     <View style={[styles.bubbleWrap, mine && styles.bubbleMine]}>
-      {!mine ? <Avatar name={socialName(message.sender)} uri={message.sender.avatarUrl} size={28} /> : null}
+      {!mine ? (
+        <ProfileAvatarLink
+          username={message.sender.username}
+          name={socialName(message.sender)}
+          uri={message.sender.avatarUrl}
+          size={28}
+        />
+      ) : null}
       <View style={[styles.bubble, mine ? styles.mine : styles.theirs]}>
         {!mine ? <Text style={styles.sender}>{socialName(message.sender)}</Text> : null}
         {message.clip ? (

@@ -5,20 +5,24 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use windows::core::PCWSTR;
+use windows::core::{Interface, GUID, PCWSTR};
 use windows::Win32::Media::MediaFoundation::{
-    IMFMediaType, IMFSample, IMFSinkWriter, MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer,
-    MFCreateSample, MFCreateSinkWriterFromURL, MFMediaType_Audio, MFMediaType_Video, MFStartup,
-    MFAudioFormat_AAC, MFAudioFormat_PCM, MFVideoFormat_H264, MFVideoFormat_NV12, MFVideoFormat_RGB32,
-    MFVideoInterlace_Progressive,
-    MF_MT_AAC_AUDIO_PROFILE_LEVEL_INDICATION, MF_MT_AAC_PAYLOAD_TYPE, MF_MT_AUDIO_AVG_BYTES_PER_SECOND,
-    MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_BLOCK_ALIGNMENT, MF_MT_AUDIO_NUM_CHANNELS,
-    MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
+    IMFDXGIDeviceManager, IMFMediaType, IMFSample, IMFSinkWriter, IMFSinkWriterEx, IMFTransform,
+    MFAudioFormat_AAC, MFAudioFormat_PCM, MFCreateAttributes, MFCreateDXGISurfaceBuffer,
+    MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL,
+    MFMediaType_Audio, MFMediaType_Video, MFSampleExtension_CleanPoint, MFStartup,
+    MFT_FRIENDLY_NAME_Attribute, MFVideoFormat_H264, MFVideoFormat_NV12, MFVideoFormat_RGB32,
+    MFVideoInterlace_Progressive, MFSTARTUP_FULL, MF_MT_AAC_AUDIO_PROFILE_LEVEL_INDICATION,
+    MF_MT_AAC_PAYLOAD_TYPE, MF_MT_AUDIO_AVG_BYTES_PER_SECOND, MF_MT_AUDIO_BITS_PER_SAMPLE,
+    MF_MT_AUDIO_BLOCK_ALIGNMENT, MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND,
+    MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
     MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_MAX_KEYFRAME_SPACING, MF_MT_MPEG2_PROFILE,
     MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
-    MF_SINK_WRITER_DISABLE_THROTTLING, MFSampleExtension_CleanPoint, MFSTARTUP_FULL, MF_VERSION,
+    MF_SINK_WRITER_D3D_MANAGER, MF_SINK_WRITER_DISABLE_THROTTLING, MF_VERSION,
 };
 
+const MF_READWRITE_DISABLE_CONVERTERS: GUID =
+    GUID::from_u128(0x98d5b065_1374_4847_8d5d_31520fee7156);
 const H264_PROFILE_BASELINE: u32 = 66;
 const AUDIO_RATE: u32 = 48_000;
 const AUDIO_CHANNELS: u32 = 2;
@@ -34,6 +38,16 @@ const JOIN_FADE_FRAMES: usize = 240;
 pub enum VideoInput {
     Bgra,
     Nv12,
+    /// Already-encoded H.264. SinkWriter muxes only; it does not encode.
+    H264,
+}
+
+/// How the sink writer should take audio. Copy keeps compressed packets.
+#[derive(Clone)]
+pub enum WriterAudio {
+    None,
+    PcmEncode,
+    Copy(IMFMediaType),
 }
 
 pub struct MfWriter {
@@ -53,6 +67,8 @@ pub struct MfWriter {
     /// writes everything immediately and holds nothing.
     aac_pending: Vec<u8>,
     pcm_file: Option<File>,
+    video_in: IMFMediaType,
+    d3d_manager_set: bool,
 }
 
 // Used only on the dedicated encode thread; required because the pump type is Send.
@@ -61,7 +77,9 @@ unsafe impl Send for MfWriter {}
 fn ensure_mf() -> Result<(), String> {
     static START: OnceLock<Result<(), String>> = OnceLock::new();
     START
-        .get_or_init(|| unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL) }.map_err(|err| err.to_string()))
+        .get_or_init(|| {
+            unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL) }.map_err(|err| err.to_string())
+        })
         .clone()
 }
 
@@ -70,10 +88,18 @@ fn pack(high: u32, low: u32) -> u64 {
 }
 
 fn wide_path(path: &Path) -> Vec<u16> {
-    OsStr::new(path).encode_wide().chain(std::iter::once(0)).collect()
+    OsStr::new(path)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }
 
-fn video_output_type(width: u32, height: u32, fps: u32, bitrate: u32) -> Result<IMFMediaType, String> {
+fn video_output_type(
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate: u32,
+) -> Result<IMFMediaType, String> {
     unsafe {
         let media_type = MFCreateMediaType().map_err(|err| err.to_string())?;
         media_type
@@ -107,14 +133,21 @@ fn video_output_type(width: u32, height: u32, fps: u32, bitrate: u32) -> Result<
     }
 }
 
-fn video_input_type(width: u32, height: u32, fps: u32, input: VideoInput) -> Result<IMFMediaType, String> {
+fn video_input_type(
+    width: u32,
+    height: u32,
+    fps: u32,
+    input: VideoInput,
+) -> Result<IMFMediaType, String> {
     let subtype = match input {
         VideoInput::Bgra => MFVideoFormat_RGB32,
         VideoInput::Nv12 => MFVideoFormat_NV12,
+        VideoInput::H264 => MFVideoFormat_H264,
     };
     let stride = match input {
-        VideoInput::Bgra => width * 4,
-        VideoInput::Nv12 => width,
+        VideoInput::Bgra => Some(width * 4),
+        VideoInput::Nv12 => Some(width),
+        VideoInput::H264 => None,
     };
     unsafe {
         let media_type = MFCreateMediaType().map_err(|err| err.to_string())?;
@@ -136,9 +169,11 @@ fn video_input_type(width: u32, height: u32, fps: u32, input: VideoInput) -> Res
         media_type
             .SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, pack(1, 1))
             .map_err(|err| err.to_string())?;
-        media_type
-            .SetUINT32(&MF_MT_DEFAULT_STRIDE, stride)
-            .map_err(|err| err.to_string())?;
+        if let Some(stride) = stride {
+            media_type
+                .SetUINT32(&MF_MT_DEFAULT_STRIDE, stride)
+                .map_err(|err| err.to_string())?;
+        }
         Ok(media_type)
     }
 }
@@ -230,17 +265,22 @@ impl MfWriter {
         live: bool,
         input: VideoInput,
     ) -> Result<Self, String> {
-        Self::create(
+        Self::create_ex(
             path,
             width,
             height,
             fps,
             bitrate,
-            with_audio,
+            if with_audio {
+                WriterAudio::PcmEncode
+            } else {
+                WriterAudio::None
+            },
             pcm_path,
             live,
             input,
             true,
+            None,
         )
     }
 
@@ -258,6 +298,38 @@ impl MfWriter {
         input: VideoInput,
         hardware_transforms: bool,
     ) -> Result<Self, String> {
+        Self::create_ex(
+            path,
+            width,
+            height,
+            fps,
+            bitrate,
+            if with_audio {
+                WriterAudio::PcmEncode
+            } else {
+                WriterAudio::None
+            },
+            pcm_path,
+            live,
+            input,
+            hardware_transforms,
+            None,
+        )
+    }
+
+    pub fn create_ex(
+        path: &Path,
+        width: u32,
+        height: u32,
+        fps: u32,
+        bitrate: u32,
+        audio: WriterAudio,
+        pcm_path: Option<&Path>,
+        live: bool,
+        input: VideoInput,
+        hardware_transforms: bool,
+        d3d: Option<&IMFDXGIDeviceManager>,
+    ) -> Result<Self, String> {
         ensure_mf()?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
@@ -266,23 +338,62 @@ impl MfWriter {
         let fps = fps.clamp(24, 60);
         let mut width = width.max(16);
         let mut height = height.max(16);
-        if input == VideoInput::Nv12 {
-            // NV12 subsamples chroma 2x2, so both dimensions have to be even.
+        if input == VideoInput::Nv12 || input == VideoInput::H264 {
+            // NV12 and H.264 both require even dimensions.
             width &= !1;
             height &= !1;
         }
         let wide = wide_path(path);
+        let mux_h264 = input == VideoInput::H264;
 
         unsafe {
             let mut attrs = None;
-            MFCreateAttributes(&mut attrs, 2).map_err(|err| err.to_string())?;
-            let attrs = attrs.ok_or_else(|| "Could not create Media Foundation attributes.".to_string())?;
-            attrs
-                .SetUINT32(
-                    &MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
-                    u32::from(hardware_transforms),
-                )
-                .map_err(|err| err.to_string())?;
+            MFCreateAttributes(&mut attrs, 4).map_err(|err| err.to_string())?;
+            let attrs =
+                attrs.ok_or_else(|| "Could not create Media Foundation attributes.".to_string())?;
+            if mux_h264 {
+                // H.264 in/out passthrough. Hardware-transform + disable-converters
+                // is E_INVALIDARG on some machines.
+                attrs
+                    .SetUINT32(&MF_READWRITE_DISABLE_CONVERTERS, 1)
+                    .map_err(|err| err.to_string())?;
+            } else {
+                attrs
+                    .SetUINT32(
+                        &MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
+                        u32::from(hardware_transforms),
+                    )
+                    .map_err(|err| err.to_string())?;
+            }
+            let d3d_manager_set = d3d.is_some() && !mux_h264;
+            if d3d_manager_set {
+                if let Some(manager) = d3d {
+                    attrs
+                        .SetUnknown(&MF_SINK_WRITER_D3D_MANAGER, manager)
+                        .map_err(|err| format!("Could not attach the DXGI device manager: {err}"))?;
+                }
+            }
+            let attrs_manager: Option<windows::core::IUnknown> =
+                attrs.GetUnknown(&MF_SINK_WRITER_D3D_MANAGER).ok();
+            let attrs_hw = attrs
+                .GetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS)
+                .ok();
+            tracing::info!(
+                mf_sink_writer_d3d_manager_set = d3d_manager_set,
+                attrs_manager = attrs_manager
+                    .as_ref()
+                    .map(|unk| format!("{:#x}", unk.as_raw() as usize))
+                    .unwrap_or_else(|| "missing".into()),
+                passed_manager = d3d
+                    .map(|manager| format!("{:#x}", manager.as_raw() as usize))
+                    .unwrap_or_else(|| "none".into()),
+                manager_ptrs_match = match (d3d, attrs_manager.as_ref()) {
+                    (Some(passed), Some(stored)) => passed.as_raw() == stored.as_raw(),
+                    _ => false,
+                },
+                hardware_transforms = attrs_hw,
+                "SinkWriter attributes before MFCreateSinkWriterFromURL"
+            );
             if live {
                 // Live capture must not block WGC. Offline re-encodes (watermark,
                 // editor export) leave throttling on so MF cannot queue the whole
@@ -304,21 +415,43 @@ impl MfWriter {
                 .SetInputMediaType(video_stream, &video_in, None)
                 .map_err(|err| format!("Could not set the video input type: {err}"))?;
 
-            let audio_stream = if with_audio {
-                match configure_audio(&writer) {
+            let audio_stream = match audio {
+                WriterAudio::None => None,
+                WriterAudio::PcmEncode => match configure_audio(&writer) {
                     Ok(index) => Some(index),
                     Err(err) => {
                         tracing::warn!("recording without audio: {err}");
                         None
                     }
+                },
+                WriterAudio::Copy(media_type) => {
+                    match writer.AddStream(&media_type).and_then(|index| {
+                        writer
+                            .SetInputMediaType(index, &media_type, None)
+                            .map(|()| index)
+                    }) {
+                        Ok(index) => Some(index),
+                        Err(err) => {
+                            tracing::warn!("recording without copied audio: {err}");
+                            None
+                        }
+                    }
                 }
-            } else {
-                None
             };
 
-            writer
-                .BeginWriting()
-                .map_err(|err| format!("Could not begin writing the MP4: {err}"))?;
+            match writer.BeginWriting() {
+                Ok(()) => {
+                    tracing::info!(begin_writing_hr = "0x0", "SinkWriter BeginWriting succeeded");
+                }
+                Err(err) => {
+                    tracing::error!(
+                        begin_writing_hr = format!("{:#x}", err.code().0 as u32),
+                        %err,
+                        "SinkWriter BeginWriting failed"
+                    );
+                    return Err(format!("Could not begin writing the MP4: {err}"));
+                }
+            }
 
             let pcm_file = match pcm_path {
                 Some(sidecar) => {
@@ -347,6 +480,8 @@ impl MfWriter {
                 last_capture_hns: None,
                 aac_pending: Vec::new(),
                 pcm_file,
+                video_in,
+                d3d_manager_set,
             })
         }
     }
@@ -382,7 +517,8 @@ impl MfWriter {
         let buffer_size = dst_pitch * self.height as usize;
 
         unsafe {
-            let media_buffer = MFCreateMemoryBuffer(buffer_size as u32).map_err(|err| err.to_string())?;
+            let media_buffer =
+                MFCreateMemoryBuffer(buffer_size as u32).map_err(|err| err.to_string())?;
             let mut data = std::ptr::null_mut();
             media_buffer
                 .Lock(&mut data, None, None)
@@ -435,7 +571,14 @@ impl MfWriter {
         force_keyframe: bool,
     ) -> Result<(), String> {
         let duration = self.preview_duration(capture_hns);
-        self.write_nv12_timed(planes, row_pitch, src_height, capture_hns, duration, force_keyframe)
+        self.write_nv12_timed(
+            planes,
+            row_pitch,
+            src_height,
+            capture_hns,
+            duration,
+            force_keyframe,
+        )
     }
 
     /// Writes one NV12 frame using an explicit sample duration (webcam path).
@@ -458,7 +601,8 @@ impl MfWriter {
         let dst_chroma = dst_pitch * dst_height;
 
         unsafe {
-            let media_buffer = MFCreateMemoryBuffer(buffer_size as u32).map_err(|err| err.to_string())?;
+            let media_buffer =
+                MFCreateMemoryBuffer(buffer_size as u32).map_err(|err| err.to_string())?;
             let mut data = std::ptr::null_mut();
             media_buffer
                 .Lock(&mut data, None, None)
@@ -510,12 +654,172 @@ impl MfWriter {
         Ok(())
     }
 
+    /// Writes an NV12 texture that already lives on the shared D3D11 device.
+    pub fn write_dxgi_nv12(
+        &mut self,
+        texture: &windows::Win32::Graphics::Direct3D11::ID3D11Texture2D,
+        subresource: u32,
+        duration_hns: i64,
+        force_keyframe: bool,
+    ) -> Result<(), String> {
+        let (_, sample) =
+            self.wrap_dxgi_nv12_sample(texture, subresource, duration_hns, force_keyframe)?;
+        self.write_video_sample(&sample, duration_hns)
+    }
+
+    /// Wraps a D3D11 NV12 texture as an MF DXGI sample. Does not call WriteSample.
+    pub fn wrap_dxgi_nv12_sample(
+        &self,
+        texture: &windows::Win32::Graphics::Direct3D11::ID3D11Texture2D,
+        subresource: u32,
+        duration_hns: i64,
+        force_keyframe: bool,
+    ) -> Result<
+        (
+            windows::Win32::Media::MediaFoundation::IMFMediaBuffer,
+            IMFSample,
+        ),
+        String,
+    > {
+        unsafe {
+            let media_buffer = MFCreateDXGISurfaceBuffer(
+                &windows::Win32::Graphics::Direct3D11::ID3D11Texture2D::IID,
+                texture,
+                subresource,
+                false,
+            )
+            .map_err(|err| {
+                format!(
+                    "wrap_hr={:#x} Could not wrap the DXGI compose surface: {err}",
+                    err.code().0 as u32
+                )
+            })?;
+            let time = self.video_time;
+            let duration = duration_hns.max(10_000);
+            let keyframe = self.first_video || force_keyframe;
+            let sample = make_sample(media_buffer.clone(), time, duration, keyframe)?;
+            Ok((media_buffer, sample))
+        }
+    }
+
+    pub fn write_video_sample(
+        &mut self,
+        sample: &IMFSample,
+        duration_hns: i64,
+    ) -> Result<(), String> {
+        let duration = duration_hns.max(10_000);
+        let time = self.video_time;
+        unsafe {
+            self.writer
+                .WriteSample(self.video_stream, sample)
+                .map_err(|err| format!("write_hr={:#x} {err}", err.code().0 as u32))?;
+        }
+        self.first_video = false;
+        self.video_time = time + duration;
+        Ok(())
+    }
+
+    pub fn log_video_input_media_type(&self, label: &str) {
+        log_media_type(label, "sink_writer_set", &self.video_in);
+        unsafe {
+            if let Some(transform) = self.h264_transform() {
+                match transform.GetInputCurrentType(0) {
+                    Ok(media) => log_media_type(label, "encoder_mft_input", &media),
+                    Err(err) => tracing::warn!(
+                        label,
+                        hr = format!("{:#x}", err.code().0 as u32),
+                        %err,
+                        "encoder MFT GetInputCurrentType failed"
+                    ),
+                }
+            }
+        }
+    }
+
+    pub fn d3d_manager_set(&self) -> bool {
+        self.d3d_manager_set
+    }
+
+    pub fn h264_transform(&self) -> Option<IMFTransform> {
+        unsafe {
+            let ex: IMFSinkWriterEx = self.writer.cast().ok()?;
+            let mut category = GUID::zeroed();
+            let mut transform: Option<IMFTransform> = None;
+            ex.GetTransformForStream(
+                self.video_stream,
+                0,
+                Some(&mut category as *mut _),
+                &mut transform,
+            )
+            .ok()?;
+            transform
+        }
+    }
+
+    pub fn write_copied_audio(
+        &mut self,
+        sample: &IMFSample,
+        duration_hns: i64,
+    ) -> Result<(), String> {
+        let Some(audio_stream) = self.audio_stream else {
+            return Ok(());
+        };
+        let duration = duration_hns.max(10_000);
+        unsafe {
+            sample
+                .SetSampleTime(self.audio_time)
+                .map_err(|err| err.to_string())?;
+            sample
+                .SetSampleDuration(duration)
+                .map_err(|err| err.to_string())?;
+            self.writer
+                .WriteSample(audio_stream, sample)
+                .map_err(|err| err.to_string())?;
+        }
+        self.audio_time += duration;
+        Ok(())
+    }
+
     pub fn video_stream_index(&self) -> u32 {
         self.video_stream
     }
 
     pub fn sink_writer(&self) -> &IMFSinkWriter {
         &self.writer
+    }
+
+    /// Friendly name of the H.264 MFT Media Foundation actually bound, if any.
+    /// `MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS` is only a request.
+    pub fn h264_transform_name(&self) -> Option<String> {
+        unsafe {
+            let ex: IMFSinkWriterEx = self.writer.cast().ok()?;
+            let mut category = GUID::zeroed();
+            let mut transform: Option<IMFTransform> = None;
+            ex.GetTransformForStream(
+                self.video_stream,
+                0,
+                Some(&mut category as *mut _),
+                &mut transform,
+            )
+            .ok()?;
+            let transform = transform?;
+            let attrs = transform.GetAttributes().ok()?;
+            let mut pwstr = windows::core::PWSTR::null();
+            let mut len = 0u32;
+            attrs
+                .GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute, &mut pwstr, &mut len)
+                .ok()?;
+            if pwstr.is_null() {
+                return None;
+            }
+            let value = pwstr.to_string().unwrap_or_default();
+            windows::Win32::System::Com::CoTaskMemFree(Some(pwstr.0 as *const std::ffi::c_void));
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        }
     }
 
     pub fn write_pcm(&mut self, pcm: &[u8]) -> Result<(), String> {
@@ -578,7 +882,8 @@ impl MfWriter {
             }
             let duration = bytes_to_hns(len);
             unsafe {
-                let media_buffer = MFCreateMemoryBuffer(len as u32).map_err(|err| err.to_string())?;
+                let media_buffer =
+                    MFCreateMemoryBuffer(len as u32).map_err(|err| err.to_string())?;
                 let mut data = std::ptr::null_mut();
                 media_buffer
                     .Lock(&mut data, None, None)
@@ -618,6 +923,51 @@ impl MfWriter {
             let _ = file.flush();
         }
         unsafe { self.writer.Finalize().map_err(|err| err.to_string()) }
+    }
+}
+
+fn log_media_type(label: &str, source: &str, media: &IMFMediaType) {
+    unsafe {
+        let subtype = media.GetGUID(&MF_MT_SUBTYPE).ok();
+        let frame_size = media.GetUINT64(&MF_MT_FRAME_SIZE).ok();
+        let frame_rate = media.GetUINT64(&MF_MT_FRAME_RATE).ok();
+        let stride = media.GetUINT32(&MF_MT_DEFAULT_STRIDE).ok();
+        let interlace = media.GetUINT32(&MF_MT_INTERLACE_MODE).ok();
+        let par = media.GetUINT64(&MF_MT_PIXEL_ASPECT_RATIO).ok();
+        let (width, height) = frame_size
+            .map(|packed| ((packed >> 32) as u32, packed as u32))
+            .unwrap_or((0, 0));
+        let (rate_n, rate_d) = frame_rate
+            .map(|packed| ((packed >> 32) as u32, packed as u32))
+            .unwrap_or((0, 0));
+        let (par_n, par_d) = par
+            .map(|packed| ((packed >> 32) as u32, packed as u32))
+            .unwrap_or((0, 0));
+        let subtype_name = subtype
+            .map(|guid| {
+                if guid == MFVideoFormat_NV12 {
+                    "NV12".into()
+                } else if guid == MFVideoFormat_RGB32 {
+                    "RGB32".into()
+                } else if guid == MFVideoFormat_H264 {
+                    "H264".into()
+                } else {
+                    format!("{guid:?}")
+                }
+            })
+            .unwrap_or_else(|| "missing".into());
+        tracing::info!(
+            label,
+            source,
+            subtype = %subtype_name,
+            width,
+            height,
+            frame_rate = format!("{rate_n}/{rate_d}"),
+            interlace,
+            pixel_aspect_ratio = format!("{par_n}/{par_d}"),
+            stride,
+            "SinkWriter video input media type"
+        );
     }
 }
 

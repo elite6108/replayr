@@ -51,7 +51,10 @@ pub fn write_bgra_bmp(path: &Path, frame: &StillFrame) -> Result<(), String> {
         for px in bytes[start..].chunks_exact_mut(4) {
             px[3] = 255;
         }
-        bytes.resize(bytes.len() + (row_stride as usize).saturating_sub(copy_width), 0);
+        bytes.resize(
+            bytes.len() + (row_stride as usize).saturating_sub(copy_width),
+            0,
+        );
     }
 
     if let Some(parent) = path.parent() {
@@ -88,7 +91,12 @@ pub fn crop_window_9x16(width: u32, height: u32, pan: f32) -> (u32, u32, u32, u3
 }
 
 /// Crops a 9:16 window then nearest-neighbor scales to `out_width`×`out_height`.
-pub fn crop_and_scale_9x16(frame: &StillFrame, pan: f32, out_width: u32, out_height: u32) -> StillFrame {
+pub fn crop_and_scale_9x16(
+    frame: &StillFrame,
+    pan: f32,
+    out_width: u32,
+    out_height: u32,
+) -> StillFrame {
     let out_width = out_width.max(1);
     let out_height = out_height.max(1);
     let (x, y, crop_w, crop_h) = crop_window_9x16(frame.width, frame.height, pan);
@@ -138,12 +146,22 @@ fn decode_watermark_png(bytes: &[u8]) -> Option<WatermarkLogo> {
     let src = &buf[..info.buffer_size()];
     let rgba = match info.color_type {
         png::ColorType::Rgba => src.to_vec(),
-        png::ColorType::Rgb => src.chunks_exact(3).flat_map(|px| [px[0], px[1], px[2], 255]).collect(),
+        png::ColorType::Rgb => src
+            .chunks_exact(3)
+            .flat_map(|px| [px[0], px[1], px[2], 255])
+            .collect(),
         png::ColorType::Grayscale => src.iter().flat_map(|v| [*v, *v, *v, 255]).collect(),
-        png::ColorType::GrayscaleAlpha => src.chunks_exact(2).flat_map(|px| [px[0], px[0], px[0], px[1]]).collect(),
+        png::ColorType::GrayscaleAlpha => src
+            .chunks_exact(2)
+            .flat_map(|px| [px[0], px[0], px[0], px[1]])
+            .collect(),
         png::ColorType::Indexed => return None,
     };
-    if rgba.len() < (info.width as usize).saturating_mul(info.height as usize).saturating_mul(4) {
+    if rgba.len()
+        < (info.width as usize)
+            .saturating_mul(info.height as usize)
+            .saturating_mul(4)
+    {
         return None;
     }
     Some(WatermarkLogo {
@@ -155,7 +173,11 @@ fn decode_watermark_png(bytes: &[u8]) -> Option<WatermarkLogo> {
 
 /// Where the bottom-right logo lands for a frame of this size, as
 /// `(origin_x, origin_y, mark_w, mark_h)`.
-fn watermark_box(width: u32, height: u32, logo: &WatermarkLogo) -> Option<(usize, usize, usize, usize)> {
+fn watermark_box(
+    width: u32,
+    height: u32,
+    logo: &WatermarkLogo,
+) -> Option<(usize, usize, usize, usize)> {
     if width < 64 || height < 32 || logo.width == 0 || logo.height == 0 {
         return None;
     }
@@ -179,13 +201,21 @@ pub fn composite_watermark(frame: &mut StillFrame) {
     let Some(logo) = watermark_logo() else {
         return;
     };
-    let Some((origin_x, origin_y, mark_w, mark_h)) = watermark_box(frame.width, frame.height, logo) else {
+    let Some((origin_x, origin_y, mark_w, mark_h)) = watermark_box(frame.width, frame.height, logo)
+    else {
         return;
     };
     blit_logo(frame, origin_x, origin_y, mark_w, mark_h, logo);
 }
 
-fn blit_logo(frame: &mut StillFrame, origin_x: usize, origin_y: usize, mark_w: usize, mark_h: usize, logo: &WatermarkLogo) {
+fn blit_logo(
+    frame: &mut StillFrame,
+    origin_x: usize,
+    origin_y: usize,
+    mark_w: usize,
+    mark_h: usize,
+    logo: &WatermarkLogo,
+) {
     let pitch = frame.pitch as usize;
     let src_w = logo.width as usize;
     let src_h = logo.height as usize;
@@ -207,13 +237,7 @@ fn blit_logo(frame: &mut StillFrame, origin_x: usize, origin_y: usize, mark_w: u
             if r < 18 && g < 18 && b < 18 {
                 continue;
             }
-            blend_pixel(
-                frame,
-                pitch,
-                origin_x + dx,
-                origin_y + dy,
-                [b, g, r, alpha],
-            );
+            blend_pixel(frame, pitch, origin_x + dx, origin_y + dy, [b, g, r, alpha]);
         }
     }
 }
@@ -361,7 +385,8 @@ pub fn composite_watermark_nv12(planes: &mut [u8], pitch: usize, width: u32, hei
             }
             let target = row + origin_x + dx;
             let under = u32::from(planes[target]);
-            planes[target] = ((u32::from(mark.luma[at]) * alpha + under * (255 - alpha)) / 255) as u8;
+            planes[target] =
+                ((u32::from(mark.luma[at]) * alpha + under * (255 - alpha)) / 255) as u8;
         }
     }
 
@@ -377,7 +402,8 @@ pub fn composite_watermark_nv12(planes: &mut [u8], pitch: usize, width: u32, hei
             let target = row + (origin_x / 2 + cx) * 2;
             let under_u = u32::from(planes[target]);
             let under_v = u32::from(planes[target + 1]);
-            planes[target] = ((u32::from(mark.chroma_u[at]) * alpha + under_u * (255 - alpha)) / 255) as u8;
+            planes[target] =
+                ((u32::from(mark.chroma_u[at]) * alpha + under_u * (255 - alpha)) / 255) as u8;
             planes[target + 1] =
                 ((u32::from(mark.chroma_v[at]) * alpha + under_v * (255 - alpha)) / 255) as u8;
         }
@@ -395,8 +421,10 @@ fn blend_pixel(frame: &mut StillFrame, pitch: usize, x: usize, y: usize, color: 
     let alpha = u16::from(color[3]);
     let inv = 255 - alpha;
     frame.bgra[i] = ((u16::from(color[0]) * alpha + u16::from(frame.bgra[i]) * inv) / 255) as u8;
-    frame.bgra[i + 1] = ((u16::from(color[1]) * alpha + u16::from(frame.bgra[i + 1]) * inv) / 255) as u8;
-    frame.bgra[i + 2] = ((u16::from(color[2]) * alpha + u16::from(frame.bgra[i + 2]) * inv) / 255) as u8;
+    frame.bgra[i + 1] =
+        ((u16::from(color[1]) * alpha + u16::from(frame.bgra[i + 1]) * inv) / 255) as u8;
+    frame.bgra[i + 2] =
+        ((u16::from(color[2]) * alpha + u16::from(frame.bgra[i + 2]) * inv) / 255) as u8;
     frame.bgra[i + 3] = 255;
 }
 
@@ -405,7 +433,8 @@ pub fn scale_bgra(frame: &StillFrame, max_width: u32) -> StillFrame {
         return frame.clone();
     }
     let width = max_width.max(1);
-    let height = ((u64::from(frame.height) * u64::from(width)) / u64::from(frame.width)).max(1) as u32;
+    let height =
+        ((u64::from(frame.height) * u64::from(width)) / u64::from(frame.width)).max(1) as u32;
     let dst_pitch = width * 4;
     let mut bgra = vec![0_u8; (dst_pitch * height) as usize];
     for y in 0..height {
@@ -505,7 +534,8 @@ pub fn fit_bgra_contain(frame: StillFrame, out_width: u32, out_height: u32) -> S
             pitch: out_width * 4,
         };
     }
-    let scale = (out_width as f64 / frame.width as f64).min(out_height as f64 / frame.height as f64);
+    let scale =
+        (out_width as f64 / frame.width as f64).min(out_height as f64 / frame.height as f64);
     let fit_w = ((frame.width as f64) * scale).round().max(1.0) as u32;
     let fit_h = ((frame.height as f64) * scale).round().max(1.0) as u32;
     let scaled = scale_bgra_to(frame, fit_w, fit_h);
@@ -542,7 +572,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("frame.bmp");
         let frame = StillFrame {
-            bgra: vec![0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 255, 255, 255, 255],
+            bgra: vec![
+                0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 255, 255, 255, 255,
+            ],
             width: 2,
             height: 2,
             pitch: 8,
@@ -583,7 +615,10 @@ mod tests {
         let logo = load_watermark_logo().expect("watermark png");
         assert!(logo.width > 100);
         assert!(logo.height > 40);
-        assert_eq!(logo.rgba.len(), logo.width as usize * logo.height as usize * 4);
+        assert_eq!(
+            logo.rgba.len(),
+            logo.width as usize * logo.height as usize * 4
+        );
     }
 
     #[test]
@@ -605,7 +640,10 @@ mod tests {
                 }
             }
         }
-        assert!(marked > 80, "expected logo pixels in the bottom-right, got {marked}");
+        assert!(
+            marked > 80,
+            "expected logo pixels in the bottom-right, got {marked}"
+        );
     }
 
     #[test]

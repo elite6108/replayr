@@ -1,6 +1,8 @@
 node_modules/
 dist/
 src-tauri/target/
+src-tauri/target-faststart/
+src-tauri/target-compose/
 .env
 .env.*
 !.env.example

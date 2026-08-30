@@ -4,6 +4,7 @@ export interface UploadQueueItem {
   localId: string;
   title: string;
   phase: UploadQueuePhase;
+  detail?: string | null;
   bytesUploaded: number;
   bytesTotal: number;
   startedAt: number | null;

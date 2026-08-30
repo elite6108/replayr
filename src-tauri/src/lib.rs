@@ -282,6 +282,17 @@ pub fn remux_composed_mp4(
     export::remux_composed_mp4(src, dest)
 }
 
+/// Decode-only webcam follow audit used by `compose-nv12 --sync-audit`.
+#[cfg(windows)]
+pub fn audit_webcam_timeline(
+    gameplay: &std::path::Path,
+    webcam: &std::path::Path,
+    start_hns: i64,
+    end_hns: i64,
+) -> Result<String, String> {
+    export::audit_webcam_timeline(gameplay, webcam, start_hns, end_hns)
+}
+
 /// Offline NV12 compose used by `compose-nv12` to time a local clip.
 #[cfg(windows)]
 pub fn compose_webcam_clip(

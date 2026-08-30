@@ -9,8 +9,10 @@
 use std::time::{Duration, Instant};
 
 /// Optional webcam delay vs gameplay/audio (HNS). 0 = use sidecar timestamps as-is.
-/// Positive values sample an earlier webcam frame (delay cam). Was overshooting at 4s.
+/// Positive values sample an earlier webcam frame (delay cam).
 pub const WEBCAM_SYNC_DELAY_HNS: i64 = 0;
+/// Extra webcam PTS vs gameplay during compose. Keep 0; do not guess a delay.
+pub const WEBCAM_FOLLOW_LEAD_HNS: i64 = 0;
 
 pub const SEGMENT_HNS: i64 = 20_000_000;
 /// Webcam rolling files span multiple gameplay grids so encoder restarts
@@ -24,6 +26,10 @@ const MIN_DURATION_HNS: i64 = 10_000; // 100 µs
 const MAX_DURATION_HNS: i64 = HNS_PER_SECOND; // 1 s
 const SKEW_WARN_HNS: i64 = 500_000; // 50 ms
 const SKEW_LOG_INTERVAL: Duration = Duration::from_secs(2);
+/// QPC since boot is hours; a 0-based MF camera clock is seconds.
+const QPC_EPOCH_MIN_HNS: i64 = 1_000_000_000;
+/// Capture-to-ReadSample slack. Larger than this is a different clock, not pipeline.
+const PIPELINE_SLACK_HNS: i64 = 20_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentHealth {
@@ -146,8 +152,17 @@ impl CameraClockMap {
             Some(camera_hns) if is_usable_timestamp(camera_hns, self.last_camera_hns) => {
                 let arrival_session = self.arrival_session(arrival_qpc_hns);
                 if self.camera_origin_hns.is_none() {
-                    self.camera_origin_hns = Some(camera_hns);
-                    self.session_at_origin_hns = Some(arrival_session);
+                    let (origin, session_at_origin) =
+                        first_sample_anchor(camera_hns, arrival_qpc_hns, arrival_session, self.session_origin_hns);
+                    tracing::info!(
+                        camera_hns,
+                        arrival_session,
+                        session_at_origin,
+                        pipeline_hns = arrival_session.saturating_sub(session_at_origin),
+                        "webcam session map origin"
+                    );
+                    self.camera_origin_hns = Some(origin);
+                    self.session_at_origin_hns = Some(session_at_origin);
                 }
                 let origin = self.camera_origin_hns.unwrap_or(camera_hns);
                 let session_at_origin = self.session_at_origin_hns.unwrap_or(arrival_session);
@@ -294,6 +309,32 @@ pub fn webcam_sidecar_path(clip: &std::path::Path) -> std::path::PathBuf {
     clip.with_file_name(format!("{stem}-webcam.{ext}"))
 }
 
+/// Anchor the first camera sample on capture time when the source clock is
+/// already on session QPC, or is a 0-based clock that started with the session.
+/// Arrival-only anchoring made the overlay late by the USB/MF pipeline.
+fn first_sample_anchor(
+    camera_hns: i64,
+    arrival_qpc_hns: i64,
+    arrival_session: i64,
+    session_origin_hns: i64,
+) -> (i64, i64) {
+    if sample_on_session_qpc(camera_hns, arrival_qpc_hns) {
+        return (
+            camera_hns,
+            camera_hns.saturating_sub(session_origin_hns).max(0),
+        );
+    }
+    // 0-based MF clocks start at 0 while the first image is already "now".
+    // Treating that as session time puts current webcam at t=0 (cam ahead).
+    (camera_hns, arrival_session)
+}
+
+fn sample_on_session_qpc(camera_hns: i64, arrival_qpc_hns: i64) -> bool {
+    camera_hns >= QPC_EPOCH_MIN_HNS
+        && arrival_qpc_hns >= QPC_EPOCH_MIN_HNS
+        && (arrival_qpc_hns - camera_hns).unsigned_abs() <= PIPELINE_SLACK_HNS as u64
+}
+
 fn is_usable_timestamp(camera_hns: i64, last: Option<i64>) -> bool {
     if camera_hns < 0 {
         return false;
@@ -335,6 +376,17 @@ mod tests {
         assert!(first.used_source_timestamp);
         assert_eq!(second.session_hns, 2_333_333);
         assert!(!clock.is_fallback());
+    }
+
+    #[test]
+    fn qpc_epoch_sample_maps_minus_session_origin() {
+        let origin = 80_000_000_000;
+        let mut clock = CameraClockMap::new(origin, 30);
+        let capture = origin + 5_000_000;
+        let arrival = capture + 7_000_000;
+        let first = clock.map_sample(Some(capture), Some(333_333), arrival);
+        assert_eq!(first.session_hns, 5_000_000);
+        assert!(first.used_source_timestamp);
     }
 
     #[test]

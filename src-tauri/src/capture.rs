@@ -847,13 +847,21 @@ mod windows_impl {
             if !camera.wait_for_rotate(webcam_gen, crate::camera::WEBCAM_ROTATE_TIMEOUT) {
                 tracing::warn!("webcam rotate timed out; saving the recording without the latest webcam segment");
             }
-            let window = state
-                .shared
-                .buffer
-                .lock()
-                .map_err(|err| AppError::Message(err.to_string()))?
-                .session_window();
-            let paths = window.paths;
+            let (window, concat) = {
+                let buffer = state
+                    .shared
+                    .buffer
+                    .lock()
+                    .map_err(|err| AppError::Message(err.to_string()))?;
+                let mut window = buffer.session_window();
+                window.paths.retain(|path| {
+                    std::fs::metadata(path).map(|meta| meta.len() > 0).unwrap_or(false)
+                });
+                buffer.align_window_to_paths(&mut window);
+                let concat = buffer.concat_segments(&window);
+                (window, concat)
+            };
+            let paths = window.paths.clone();
             let (output, elapsed, width, height, fps, game_id, title) = {
                 let mut inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
                 let active = inner.as_mut().ok_or_else(|| AppError::Message("Not recording.".into()))?;
@@ -871,7 +879,15 @@ mod windows_impl {
             if paths.is_empty() {
                 return Err(AppError::Message("Recording did not capture any video yet.".into()));
             }
-            crate::export::concat_mp4s(&paths, &output).map_err(AppError::Message)?;
+            let segments: Vec<crate::export::ConcatSegment> = concat
+                .into_iter()
+                .map(|(path, start_hns, end_hns)| crate::export::ConcatSegment {
+                    path,
+                    start_hns,
+                    end_hns,
+                })
+                .collect();
+            crate::export::concat_mp4s(&segments, &output, window.start_hns).map_err(AppError::Message)?;
             camera.save_overlap_sidecar(&output, window.start_hns, window.end_hns);
             if let Ok(mut buffer) = state.shared.buffer.lock() {
                 buffer.unlock_all();
@@ -1069,7 +1085,7 @@ mod windows_impl {
             tracing::warn!("webcam rotate timed out; saving the gameplay clip without the latest webcam segment");
         }
         let duration_ms = u64::from(settings.replay_duration_seconds) * 1000;
-        let window = {
+        let (window, concat) = {
             let mut buffer = state.shared.buffer.lock().map_err(|err| AppError::Message(err.to_string()))?;
             if buffer.total_ms() < 400 {
                 buffer.unlock_all();
@@ -1077,13 +1093,23 @@ mod windows_impl {
             }
             let mut window = buffer.clip_window(duration_ms);
             window.paths.retain(|path| std::fs::metadata(path).map(|meta| meta.len() > 0).unwrap_or(false));
-            window
+            buffer.align_window_to_paths(&mut window);
+            let concat = buffer.concat_segments(&window);
+            (window, concat)
         };
         if window.paths.is_empty() {
             return Err(AppError::Message("Replay buffer is still filling.".into()));
         }
         let output = output_path(&save, "clip", "mp4");
-        let result = crate::export::concat_mp4s(&window.paths, &output);
+        let segments: Vec<crate::export::ConcatSegment> = concat
+            .into_iter()
+            .map(|(path, start_hns, end_hns)| crate::export::ConcatSegment {
+                path,
+                start_hns,
+                end_hns,
+            })
+            .collect();
+        let result = crate::export::concat_mp4s(&segments, &output, window.start_hns);
         if let Ok(mut buffer) = state.shared.buffer.lock() {
             buffer.unlock_all();
         }
@@ -1092,12 +1118,18 @@ mod windows_impl {
             return Err(AppError::Message(err));
         }
         camera.save_overlap_sidecar(&output, window.start_hns, window.end_hns);
-        let clip_ms = window.paths.len() as u64 * 2_000;
+        let clip_ms = window.duration_ms();
+        tracing::info!(
+            session_window_duration_hns = window.duration_hns(),
+            saved_duration_ms = clip_ms,
+            segments = window.paths.len(),
+            "instant replay clip duration from session window"
+        );
         let local_id = insert_local_clip(
             app,
             state,
             &output,
-            clip_ms.min(duration_ms),
+            clip_ms,
             width,
             height,
             fps,

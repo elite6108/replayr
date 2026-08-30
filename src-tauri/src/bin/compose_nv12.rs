@@ -7,6 +7,28 @@ fn main() {
         .compact()
         .init();
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--sync-audit") {
+        if args.len() < 4 {
+            eprintln!("usage: compose-nv12 --sync-audit <gameplay.mp4> <webcam.mp4> [end_hns]");
+            std::process::exit(2);
+        }
+        let end_hns = args.get(4).and_then(|value| value.parse().ok()).unwrap_or(0);
+        match replay_lib::audit_webcam_timeline(
+            std::path::Path::new(&args[2]),
+            std::path::Path::new(&args[3]),
+            0,
+            end_hns,
+        ) {
+            Ok(report) => {
+                println!("{report}");
+                return;
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+        }
+    }
     if args.get(1).map(String::as_str) == Some("--copy-remux") {
         if args.len() < 4 {
             eprintln!("usage: compose-nv12 --copy-remux <src.mp4> <dest.mp4>");
@@ -72,6 +94,7 @@ fn main() {
     }
     if args.len() < 4 {
         eprintln!("usage: compose-nv12 <gameplay.mp4> <webcam.mp4> <output.mp4>");
+        eprintln!("       compose-nv12 --sync-audit <gameplay.mp4> <webcam.mp4> [end_hns]");
         eprintln!("       compose-nv12 --blank-mft [frames]");
         eprintln!("       compose-nv12 --faststart <file.mp4>");
         eprintln!("       compose-nv12 --copy-remux <src.mp4> <dest.mp4>");

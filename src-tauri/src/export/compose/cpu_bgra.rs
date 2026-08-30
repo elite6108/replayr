@@ -41,7 +41,7 @@ pub(crate) fn compose_webcam_rgb32(
     if start_hns > 0 {
         crate::thumb::seek_hns(&reader, start_hns)?;
     }
-    let mut follow = WebcamFollow::open(webcam, start_hns)?;
+    let mut follow = WebcamFollow::open(webcam, start_hns, end_hns)?;
     let Some((first, first_ts, first_duration)) = crate::thumb::read_rgb_sample(&reader)? else {
         return Err("That clip has no video.".into());
     };
@@ -132,6 +132,7 @@ pub(crate) fn compose_webcam_rgb32(
             frame = crate::still::scale_bgra_to(frame, out_w, out_h);
         }
         follow.ensure_at(timestamp);
+        follow.log_sample(timestamp.saturating_sub(first_ts).max(0), false);
         if let Some(cam) = follow.current_frame() {
             overlay_webcam_bgra(&mut frame, cam, &layout);
         }

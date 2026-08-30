@@ -64,6 +64,7 @@ use super::super::audio::{probe_copyable_audio, AacFeeder};
 use super::super::mux::H264Mp4Mux;
 use super::super::progress::expected_compose_frames;
 use super::super::types::{ComposeMode, ComposeQuality, ComposeReport, WebcamComposeOpts};
+use super::super::webcam::{decide_webcam_advance, FollowTimeline, WebcamAdvance};
 use super::sizing::fit_compose_size;
 
 const BOUNDARY_ENCODER: &str = "dxgi_sample_to_encoder";
@@ -124,6 +125,9 @@ struct DxgiFrame {
 struct DxgiWebcam {
     reader: IMFSourceReader,
     current: Option<DxgiFrame>,
+    pending: Option<DxgiFrame>,
+    timeline: FollowTimeline,
+    frames: u64,
 }
 
 pub fn compose(
@@ -143,7 +147,7 @@ pub fn compose(
     if start_hns > 0 {
         seek_hns(&gameplay_reader, start_hns)?;
     }
-    let mut cam = DxgiWebcam::open(webcam, &gpu.manager, start_hns)?;
+    let mut cam = DxgiWebcam::open(webcam, &gpu.manager, start_hns, end_hns)?;
     let first =
         read_dxgi_sample(&gameplay_reader)?.ok_or_else(|| "That clip has no video.".to_string())?;
     if first.timestamp >= end_hns {
@@ -967,6 +971,7 @@ fn run_direct_compose_loop(
                                 );
                                 let source_time = frame.timestamp;
                                 let time = encoder_sample_time_hns(stats.composed, fps);
+                                cam.log_sample(time, false);
                                 let duration = frame_duration;
                                 let time_delta = if prev_encoder_time == i64::MIN {
                                     0
@@ -1216,11 +1221,15 @@ fn run_direct_compose_loop(
                                     Ok(Some(next)) => {
                                         if next.timestamp >= end_hns {
                                             gameplay_done = true;
+                                            cam.log_sample(time, true);
                                         } else {
                                             current = Some(next);
                                         }
                                     }
-                                    Ok(None) => gameplay_done = true,
+                                    Ok(None) => {
+                                        gameplay_done = true;
+                                        cam.log_sample(time, true);
+                                    }
                                     Err(err) => return Err(err),
                                 }
                             }
@@ -2252,47 +2261,74 @@ fn dxgi_texture(dxgi: &IMFDXGIBuffer) -> Result<ID3D11Texture2D, String> {
 }
 
 impl DxgiWebcam {
-    fn open(path: &Path, manager: &IMFDXGIDeviceManager, start_hns: i64) -> Result<Self, String> {
+    fn open(
+        path: &Path,
+        manager: &IMFDXGIDeviceManager,
+        start_hns: i64,
+        end_hns: i64,
+    ) -> Result<Self, String> {
         let reader = open_dxgi_reader(path, manager)?;
-        let seek = start_hns
-            .saturating_sub(crate::camera::WEBCAM_SYNC_DELAY_HNS)
-            .max(0);
-        if seek > 0 {
-            seek_hns(&reader, seek)?;
+        if start_hns > 0 {
+            seek_hns(&reader, start_hns)?;
         }
         Ok(Self {
             reader,
             current: None,
+            pending: None,
+            timeline: FollowTimeline::new(start_hns, end_hns),
+            frames: 0,
         })
     }
 
-    fn ensure_at(&mut self, target_hns: i64) {
-        let target_hns = target_hns
-            .saturating_sub(crate::camera::WEBCAM_SYNC_DELAY_HNS)
-            .max(0);
+    fn ensure_at(&mut self, gameplay_source: i64) {
+        let target = self
+            .timeline
+            .gameplay_pts(gameplay_source)
+            .saturating_add(crate::camera::WEBCAM_FOLLOW_LEAD_HNS);
         let mut last_ts = self.current.as_ref().map(|frame| frame.timestamp);
         loop {
-            if let Some(frame) = &self.current {
-                if frame.timestamp + 10_000 >= target_hns {
+            let Some(frame) = self.take_sample() else {
+                return;
+            };
+            let ts = frame.timestamp;
+            let next_norm = self.timeline.webcam_pts(ts);
+            match decide_webcam_advance(self.current.is_some(), last_ts, ts, next_norm, target) {
+                WebcamAdvance::Adopt => {
+                    let non_monotonic = last_ts.is_some_and(|previous| ts <= previous);
+                    last_ts = Some(ts);
+                    self.current = Some(frame);
+                    if non_monotonic {
+                        return;
+                    }
+                }
+                WebcamAdvance::KeepCurrent | WebcamAdvance::RejectFuture => {
+                    self.pending = Some(frame);
                     return;
                 }
             }
-            match read_dxgi_sample(&self.reader) {
-                Ok(Some(frame)) => {
-                    if last_ts.is_some_and(|previous| frame.timestamp <= previous) {
-                        self.current = Some(frame);
-                        return;
-                    }
-                    last_ts = Some(frame.timestamp);
-                    let caught_up = frame.timestamp >= target_hns;
-                    self.current = Some(frame);
-                    if caught_up {
-                        return;
-                    }
-                }
-                _ => return,
-            }
         }
+    }
+
+    fn take_sample(&mut self) -> Option<DxgiFrame> {
+        if let Some(pending) = self.pending.take() {
+            return Some(pending);
+        }
+        read_dxgi_sample(&self.reader).ok().flatten()
+    }
+
+    fn log_sample(&mut self, output_pts: i64, at_end: bool) {
+        self.timeline.note_output_pts(output_pts);
+        let webcam_source = self.current.as_ref().map(|frame| frame.timestamp);
+        let webcam_norm = webcam_source.map(|ts| self.timeline.webcam_pts(ts));
+        self.timeline.log_follow(
+            self.frames,
+            self.timeline.last_gameplay_source(),
+            self.timeline.last_gameplay_norm(),
+            webcam_source,
+            webcam_norm,
+            at_end,
+        );
+        self.frames = self.frames.saturating_add(1);
     }
 }
 

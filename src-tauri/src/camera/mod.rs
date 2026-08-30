@@ -28,7 +28,7 @@ mod roll;
 #[allow(unused_imports)]
 pub use clock::{
     overlapping_segments, remux_paths, segment_bounds, segment_index, webcam_sidecar_path,
-    CameraClockMap, SessionClock, SEGMENT_HNS, WEBCAM_SYNC_DELAY_HNS,
+    CameraClockMap, SessionClock, SEGMENT_HNS, WEBCAM_FOLLOW_LEAD_HNS, WEBCAM_SYNC_DELAY_HNS,
 };
 #[allow(unused_imports)]
 pub use engine::{estimate_storage_mb_per_minute, CameraEngine};

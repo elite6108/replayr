@@ -225,6 +225,27 @@ pub(super) fn hns_to_pcm_bytes(hns: i64) -> usize {
     bytes - (bytes % PCM_ALIGN)
 }
 
+pub(super) fn append_silence_file(
+    file: &mut std::fs::File,
+    dest_len: &mut u64,
+    hns: i64,
+) -> Result<(), String> {
+    let want = hns_to_pcm_bytes(hns) as u64;
+    if want == 0 {
+        return Ok(());
+    }
+    let zeros = [0u8; 8192];
+    let mut remain = want;
+    while remain > 0 {
+        let n = remain.min(zeros.len() as u64) as usize;
+        file.write_all(&zeros[..n])
+            .map_err(|err| format!("Could not write silence: {err}"))?;
+        remain -= n as u64;
+    }
+    *dest_len += want;
+    Ok(())
+}
+
 /// Pins `pcm` to the duration of the video it accompanies. Returns how far off
 /// it was, in bytes; anything but a rounding error means audio went missing
 /// upstream.
@@ -504,6 +525,30 @@ impl AacFeeder {
     /// Drains whatever audio remains once the video encode has finished.
     pub(crate) fn finish(&mut self, mux: &mut super::mux::H264Mp4Mux) -> Result<(), String> {
         self.feed_until(mux, i64::MAX)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gameplay_audio_gap_is_exact_silence_and_does_not_shift() {
+        let gap = 1_000_000; // 100 ms
+        let silence = hns_to_pcm_bytes(gap);
+        assert_eq!(silence, 19_200);
+        let first = vec![1u8; hns_to_pcm_bytes(20_000_000)];
+        let second = vec![2u8; hns_to_pcm_bytes(20_000_000)];
+        let mut stitched = first.clone();
+        stitched.resize(stitched.len() + silence, 0);
+        stitched.extend_from_slice(&second);
+        assert_eq!(
+            stitched.len(),
+            first.len() + silence + second.len()
+        );
+        assert!(stitched[first.len()..first.len() + silence].iter().all(|byte| *byte == 0));
+        assert_eq!(&stitched[first.len() + silence..], second.as_slice());
+        assert_eq!(&stitched[..first.len()], first.as_slice());
     }
 }
 

@@ -898,33 +898,36 @@ fn remux_overlap_inner(
     );
     #[cfg(windows)]
     {
-        let paths: Vec<PathBuf> = existing.iter().map(|segment| PathBuf::from(&segment.path)).collect();
-        let tmp = output.with_extension("overlap-tmp.mp4");
-        let result: Result<(), String> = (|| {
-            crate::export::concat_mp4s_preserve_timeline(&paths, &tmp)?;
-            let first_start = existing[0].start_hns;
-            let window = (end_hns - start_hns).max(10_000);
-            // Align sidecar t=0 to the gameplay window, not the first webcam segment.
-            let trim_start = (start_hns - first_start).max(0);
-            let trim_end = trim_start.saturating_add(window);
-            match crate::export::trim_mp4(&tmp, output, trim_start, trim_end) {
-                Ok(_) => {
-                    let _ = std::fs::remove_file(&tmp);
-                    Ok(())
-                }
-                Err(err) => {
-                    // If trim fails (short source), keep the concat so the clip still has a sidecar.
-                    tracing::warn!(%err, "webcam window trim failed; using full overlap concat");
-                    std::fs::rename(&tmp, output).map_err(|rename_err| rename_err.to_string())?;
-                    Ok(())
-                }
-            }
-        })();
+        let mut existing = existing;
+        existing.sort_by_key(|segment| segment.start_hns);
+        let concat: Vec<crate::export::ConcatSegment> = existing
+            .iter()
+            .map(|segment| crate::export::ConcatSegment {
+                path: PathBuf::from(&segment.path),
+                start_hns: segment.start_hns,
+                end_hns: segment.end_hns,
+            })
+            .collect();
+        let window_duration_hns = (end_hns - start_hns).max(0);
+        let first_webcam_segment_start_hns = existing[0].start_hns;
+        tracing::info!(
+            window_start_hns = start_hns,
+            window_end_hns = end_hns,
+            window_duration_hns,
+            first_webcam_segment_start_hns,
+            origin_delta_hns = first_webcam_segment_start_hns - start_hns,
+            "webcam sidecar clip origin"
+        );
+        let result = crate::export::concat_mp4s_preserve_timeline(
+            &concat,
+            output,
+            start_hns,
+            end_hns,
+        );
         if let Ok(mut buffer) = inner.webcam_buffer.lock() {
             buffer.unlock_all();
         }
         if let Err(err) = result {
-            let _ = std::fs::remove_file(&tmp);
             let _ = std::fs::remove_file(output);
             return Err(err);
         }

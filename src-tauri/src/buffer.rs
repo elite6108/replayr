@@ -21,6 +21,17 @@ pub struct ClipWindow {
     pub end_hns: i64,
 }
 
+impl ClipWindow {
+    /// Session span after align — not `paths.len() * 2000`.
+    pub fn duration_hns(&self) -> i64 {
+        self.end_hns.saturating_sub(self.start_hns).max(0)
+    }
+
+    pub fn duration_ms(&self) -> u64 {
+        u64::try_from(self.duration_hns() / 10_000).unwrap_or(0)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ReplayBuffer {
     segments: VecDeque<Segment>,
@@ -95,6 +106,41 @@ impl ReplayBuffer {
         }
         chosen.reverse();
         window_from_segments(&chosen)
+    }
+
+    /// After dropping missing segment files, keep webcam trim on the same
+    /// session span as the gameplay concat. A stale first path left start_hns
+    /// one 2s grid early and made the sidecar 2s late vs mic/gameplay.
+    pub fn align_window_to_paths(&self, window: &mut ClipWindow) {
+        let mut start = None;
+        let mut end = None;
+        for path in &window.paths {
+            let Some(segment) = self.segments.iter().find(|segment| segment.path == *path) else {
+                continue;
+            };
+            if start.is_none() {
+                start = Some(segment.start_hns);
+            }
+            end = Some(segment.end_hns);
+        }
+        if let (Some(start_hns), Some(end_hns)) = (start, end) {
+            if end_hns > start_hns {
+                window.start_hns = start_hns;
+                window.end_hns = end_hns;
+            }
+        }
+    }
+
+    pub fn concat_segments(&self, window: &ClipWindow) -> Vec<(PathBuf, i64, i64)> {
+        window
+            .paths
+            .iter()
+            .filter_map(|path| {
+                self.segments.iter().find(|segment| segment.path == *path).map(|segment| {
+                    (segment.path.clone(), segment.start_hns, segment.end_hns)
+                })
+            })
+            .collect()
     }
 
     pub fn session_window(&self) -> ClipWindow {
@@ -243,6 +289,34 @@ mod tests {
     }
 
     #[test]
+    fn clip_window_duration_is_session_span() {
+        let mut buffer = ReplayBuffer::new(60_000);
+        for id in 0..3 {
+            let start_hns = i64::from(id) * 20_000_000;
+            let end_hns = if id == 2 {
+                start_hns + 15_000_000
+            } else {
+                start_hns + 20_000_000
+            };
+            buffer.push(Segment {
+                path: PathBuf::from(format!("seg-{id}.mp4")),
+                duration_ms: 2_000,
+                width: 1920,
+                height: 1080,
+                fps: 60,
+                pinned: false,
+                locked: false,
+                start_hns,
+                end_hns,
+            });
+        }
+        let window = buffer.clip_window(5_000);
+        assert_eq!(window.duration_hns(), 55_000_000);
+        assert_eq!(window.duration_ms(), 5_500);
+        assert_ne!(window.duration_ms(), window.paths.len() as u64 * 2_000);
+    }
+
+    #[test]
     fn clip_window_uses_actual_gameplay_hns() {
         let mut buffer = ReplayBuffer::new(60_000);
         for id in 0..5 {
@@ -251,6 +325,20 @@ mod tests {
         let window = buffer.clip_window(5_000);
         assert_eq!(window.paths.len(), 3);
         assert_eq!(window.start_hns, 40_000_000);
+        assert_eq!(window.end_hns, 100_000_000);
+    }
+
+    #[test]
+    fn align_window_drops_missing_head_segment_hns() {
+        let mut buffer = ReplayBuffer::new(60_000);
+        for id in 0..5 {
+            buffer.push(seg(id, 2_000, false));
+        }
+        let mut window = buffer.clip_window(5_000);
+        assert_eq!(window.start_hns, 40_000_000);
+        window.paths.remove(0);
+        buffer.align_window_to_paths(&mut window);
+        assert_eq!(window.start_hns, 60_000_000);
         assert_eq!(window.end_hns, 100_000_000);
     }
 

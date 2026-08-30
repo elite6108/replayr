@@ -3,6 +3,7 @@ dist/
 src-tauri/target/
 src-tauri/target-faststart/
 src-tauri/target-compose/
+/target-sync-audit/
 .env
 .env.*
 !.env.example

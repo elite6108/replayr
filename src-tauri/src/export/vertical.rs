@@ -58,7 +58,7 @@ pub fn write_vertical_mp4(
         crate::thumb::seek_hns(&reader, start_hns)?;
     }
     let mut webcam = match overlay {
-        Some(overlay) => match WebcamFollow::open(&overlay.path, start_hns) {
+        Some(overlay) => match WebcamFollow::open(&overlay.path, start_hns, end_hns) {
             Ok(follow) => Some(follow),
             Err(err) => {
                 tracing::warn!(%err, "webcam overlay skipped for this Short; encoding gameplay only");

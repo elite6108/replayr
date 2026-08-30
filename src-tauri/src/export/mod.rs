@@ -5,6 +5,7 @@ mod faststart;
 mod mux;
 mod progress;
 mod remux;
+mod session_place;
 mod types;
 mod vertical;
 mod watermark;
@@ -20,7 +21,8 @@ pub(crate) use compose::{blank_direct_mft_long_test, compose_webcam_nv12, compos
 pub(crate) use progress::expected_compose_frames;
 pub use copy_remux::{remux_composed_mp4, remux_composed_mp4_in_place, CopyRemuxStats};
 pub use faststart::faststart_mp4_in_place;
-pub use remux::{concat_mp4s, concat_mp4s_preserve_timeline, trim_mp4};
+pub use remux::{concat_mp4s, concat_mp4s_preserve_timeline, trim_mp4, ConcatSegment};
+pub use session_place::TimelineBasis;
 #[allow(unused_imports)]
 pub use types::{
     ComposeProgress, ComposeQuality, WebcamCompose, WebcamComposeOpts, CLOUD_COMPOSE_MAX_HEIGHT,
@@ -32,6 +34,19 @@ pub use watermark::{should_watermark_exports, watermarked_temp, write_watermarke
 use std::path::Path;
 
 use windows::Win32::Media::MediaFoundation::{MFStartup, MFSTARTUP_FULL, MF_VERSION};
+
+/// Decode-only webcam follow audit. Does not encode or remux.
+pub fn audit_webcam_timeline(
+    gameplay: &Path,
+    webcam: &Path,
+    start_hns: i64,
+    end_hns: i64,
+) -> Result<String, String> {
+    unsafe {
+        MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|err| err.to_string())?;
+    }
+    webcam::audit_webcam_timeline(gameplay, webcam, start_hns, end_hns)
+}
 
 /// Timeline-driven compositor. Gameplay PTS is the master clock; webcam is
 /// sampled at the same timestamp and blitted with `layout`. Optional watermark

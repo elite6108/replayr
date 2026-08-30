@@ -527,6 +527,7 @@ pub(super) fn read_nv12_frame(
             )
             .map_err(|err| permission_message(&err.to_string()))?;
     }
+    let arrival_qpc = qpc_hns();
     if flags & MF_SOURCE_READERF_ERROR.0 as u32 != 0 {
         return Err("The camera disconnected.".into());
     }
@@ -566,14 +567,14 @@ pub(super) fn read_nv12_frame(
     if mirror {
         flip_nv12_horizontal(&mut nv12, width, height);
     }
-    let _ = timestamp;
+    let sample_time = sample_time.or(Some(timestamp)).filter(|value| *value >= 0);
     Ok(Some(Nv12Frame {
         planes: nv12,
         width,
         height,
-        sample_time: sample_time.filter(|value| *value >= 0),
+        sample_time,
         sample_duration: sample_duration.filter(|value| *value > 0),
-        arrival_qpc: qpc_hns(),
+        arrival_qpc,
     }))
 }
 

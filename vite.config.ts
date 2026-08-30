@@ -26,7 +26,13 @@ export default defineConfig({
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
     watch: {
-      ignored: ["**/src-tauri/**", "**/web/dist/**", "**/worker/.wrangler/**", "**/*.exe"],
+      ignored: [
+        "**/src-tauri/**",
+        "**/target-sync-audit/**",
+        "**/web/dist/**",
+        "**/worker/.wrangler/**",
+        "**/*.exe",
+      ],
     },
   },
 });

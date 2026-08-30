@@ -30,7 +30,7 @@ pub(crate) fn compose_webcam_nv12(
     if start_hns > 0 {
         crate::thumb::seek_hns(&reader, start_hns)?;
     }
-    let mut follow = WebcamFollow::open(webcam, start_hns)?;
+    let mut follow = WebcamFollow::open(webcam, start_hns, end_hns)?;
     let mut planes = Vec::new();
     let Some(first) = crate::thumb::read_nv12_sample(&reader, &mut planes)? else {
         return Err("That clip has no video.".into());
@@ -114,6 +114,7 @@ pub(crate) fn compose_webcam_nv12(
         })
         .map_err(|err| format!("Could not start the compose encoder: {err}"))?;
 
+    let first_ts = first.timestamp;
     let mut info = first;
     let mut decode_error = None;
     let mut done = 0_u32;
@@ -139,6 +140,7 @@ pub(crate) fn compose_webcam_nv12(
             planes.clone()
         };
         follow.ensure_at(info.timestamp);
+        follow.log_sample(info.timestamp.saturating_sub(first_ts).max(0), false);
         if let Some(cam) = follow.current_frame() {
             overlay_webcam_nv12(&mut packed, out_w, out_w, out_h, cam, &layout);
         }

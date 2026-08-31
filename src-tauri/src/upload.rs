@@ -374,6 +374,7 @@ fn prepare_cloud_upload_mp4(
 /// Copy-remux the GPU compose through a standards-compliant ISO-BMFF writer.
 /// Does not re-encode. The original compose file is replaced only after
 /// verification succeeds; on failure it is left untouched.
+#[cfg(windows)]
 fn finalize_composed_upload(path: &Path) -> AppResult<()> {
     match crate::export::remux_composed_mp4_in_place(path) {
         Ok(stats) => {

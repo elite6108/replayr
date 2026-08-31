@@ -12,7 +12,10 @@ on:
       - main
     paths:
       - ".github/workflows/macos-dmg.yml"
-      - "src-tauri/tauri.macos.conf.json"
+      - "src-tauri/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
       - "scripts/stage-macos-dmg.mjs"
 
 permissions:
@@ -26,9 +29,9 @@ jobs:
   macos-dmg:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
@@ -48,7 +51,7 @@ jobs:
         run: npm run installer:stage:macos
 
       - name: Upload DMG artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Replayr-macos-dmg
           path: web/public/releases/Replayr.dmg

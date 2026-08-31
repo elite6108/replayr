@@ -1778,9 +1778,10 @@ impl VideoCompositor {
                     };
                 }
             }
+            let stream_count = if streams[1].Enable.0 != 0 { 2 } else { 1 };
             let blt = gpu
                 .video_ctx
-                .VideoProcessorBlt(&self.processor, &output_view, 0, &streams);
+                .VideoProcessorBlt(&self.processor, &output_view, 0, &streams[..stream_count]);
             drop(ManuallyDrop::into_inner(std::ptr::read(
                 &streams[0].pInputSurface,
             )));

@@ -44,6 +44,7 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
+      # Client-safe Vite keys from repo secrets; fail before a long Tauri build if unset.
       - name: Require desktop Vite secrets
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}

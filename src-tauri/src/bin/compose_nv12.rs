@@ -1,3 +1,10 @@
+#[cfg(not(windows))]
+fn main() {
+    eprintln!("compose-nv12 is Windows-only");
+    std::process::exit(1);
+}
+
+#[cfg(windows)]
 fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));

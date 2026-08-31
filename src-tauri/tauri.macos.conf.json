@@ -6,6 +6,7 @@
     "createUpdaterArtifacts": false,
     "macOS": {
       "minimumSystemVersion": "12.0",
+      "signingIdentity": "-",
       "dmg": {
         "appPosition": { "x": 180, "y": 170 },
         "applicationFolderPosition": { "x": 480, "y": 170 },

@@ -612,6 +612,14 @@ pub fn reveal(path: &str) -> AppResult<()> {
             .spawn()
             .map_err(|err| AppError::Message(err.to_string()))?;
     }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+            .map_err(|err| AppError::Message(err.to_string()))?;
+    }
     Ok(())
 }
 

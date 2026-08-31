@@ -27,12 +27,16 @@ export function useSocialUnreadSync() {
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, (payload) => {
         const row = payload.new as { kind?: string; conversation_id?: string | null; actor_id?: string | null };
-        if (row.kind === "friend_request") noteFriendRequest();
+        if (row.kind === "friend_request" || row.kind === "follow_request") noteFriendRequest();
         if (
           (row.kind === "friend_request" ||
             row.kind === "friend_accept" ||
+            row.kind === "follow_request" ||
+            row.kind === "follow_accept" ||
             row.kind === "message" ||
-            row.kind === "group_invite") &&
+            row.kind === "group_invite" ||
+            row.kind === "folder_invite" ||
+            row.kind === "folder_invite_accepted") &&
           row.actor_id !== userId
         ) {
           noteNotification();

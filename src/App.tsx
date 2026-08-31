@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/layout/AppShell";
 import { HomePage } from "./pages/HomePage";
+import { FolderPage } from "./pages/FolderPage";
+import { FoldersPage } from "./pages/FoldersPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { RecordPage } from "./pages/RecordPage";
 import { ExplorePage } from "./pages/ExplorePage";
@@ -24,6 +26,7 @@ import { useDetectionStore } from "./stores/detectionStore";
 import { useRecordingStore } from "./stores/recordingStore";
 import { useLibraryStore } from "./stores/libraryStore";
 import { useCloudStore } from "./stores/cloudStore";
+import { useFolderStore } from "./stores/folderStore";
 import { useUpdateStore } from "./stores/updateStore";
 import { useSocialUnreadSync } from "./hooks/useSocialUnreadSync";
 
@@ -36,11 +39,13 @@ export default function App() {
   const initializeRecording = useRecordingStore((state) => state.initialize);
   const initializeLibrary = useLibraryStore((state) => state.initialize);
   const initializeCloud = useCloudStore((state) => state.initialize);
+  const initializeFolders = useFolderStore((state) => state.initialize);
   const initializeUpdates = useUpdateStore((state) => state.initialize);
   const userId = useAuthStore((state) => state.user?.id);
   const accessToken = useAuthStore((state) => state.session?.access_token ?? null);
   const loadBilling = useBillingStore((state) => state.load);
   const refreshCloud = useCloudStore((state) => state.refresh);
+  const refreshFolders = useFolderStore((state) => state.refresh);
   useSocialUnreadSync();
 
   useEffect(() => {
@@ -50,13 +55,15 @@ export default function App() {
     void initializeRecording();
     void initializeLibrary();
     void initializeCloud();
+    void initializeFolders();
     void initializeUpdates();
-  }, [loadSettings, initializeAuth, initializeDetection, initializeRecording, initializeLibrary, initializeCloud, initializeUpdates]);
+  }, [loadSettings, initializeAuth, initializeDetection, initializeRecording, initializeLibrary, initializeCloud, initializeFolders, initializeUpdates]);
 
   useEffect(() => {
     void refreshCloud();
+    void refreshFolders();
     void loadBilling(accessToken);
-  }, [userId, accessToken, refreshCloud, loadBilling]);
+  }, [userId, accessToken, refreshCloud, refreshFolders, loadBilling]);
 
   useEffect(() => {
     function onVisible() {
@@ -92,6 +99,8 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/library" element={<LibraryPage view="local" />} />
           <Route path="/library/cloud" element={<LibraryPage view="cloud" />} />
+          <Route path="/library/folders" element={<FoldersPage />} />
+          <Route path="/library/folders/:folderId" element={<FolderPage />} />
           <Route path="/games" element={<GamesPage />} />
           <Route path="/games/:slug" element={<GamePage />} />
           <Route path="/record" element={<RecordPage />} />

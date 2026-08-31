@@ -20,9 +20,11 @@ function actorName(item: NotificationItem) {
 
 function copyFor(item: NotificationItem) {
   const name = actorName(item);
-  if (item.kind === "friend_request") return `${name} sent a friend request`;
-  if (item.kind === "friend_accept") return `${name} accepted your request`;
+  if (item.kind === "friend_request" || item.kind === "follow_request") return `${name} requested to follow you`;
+  if (item.kind === "friend_accept" || item.kind === "follow_accept") return `${name} accepted your follow request`;
   if (item.kind === "group_invite") return `${name} invited you to a group`;
+  if (item.kind === "folder_invite") return `${name} invited you to a folder`;
+  if (item.kind === "folder_invite_accepted") return `${name} accepted your folder invite`;
   return `${name} sent you a message`;
 }
 
@@ -131,6 +133,13 @@ export function NotificationBell() {
     }
     if ((item.kind === "message" || item.kind === "group_invite") && item.conversationId) {
       navigate(`/messages/${item.conversationId}`);
+    }
+    if (item.kind === "folder_invite") {
+      navigate("/library/folders");
+      return;
+    }
+    if (item.kind === "folder_invite_accepted" && item.folderId) {
+      navigate(`/library/folders/${item.folderId}`);
     }
   }
 

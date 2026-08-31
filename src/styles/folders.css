@@ -1,0 +1,217 @@
+.folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.folder-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--bg-raised);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.folder-card:hover,
+.folder-card:focus-visible {
+  border-color: rgba(127, 208, 239, 0.28);
+  transform: translateY(-3px);
+}
+
+.folder-card-cover {
+  aspect-ratio: 16 / 9;
+  background: #0c0e14;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.folder-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.folder-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px 14px;
+}
+
+.add-clips-sheet {
+  width: min(560px, 94vw);
+  max-height: 86vh;
+}
+
+.add-clips-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 180px;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.add-clips-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+  overflow: visible;
+}
+
+.add-clip-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-input);
+}
+
+.add-clip-row.is-picked {
+  border-color: var(--accent);
+}
+
+.add-clip-thumb {
+  flex: 0 0 96px;
+  width: 96px;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #0c0e14;
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.add-clip-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.add-clip-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.add-clip-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-clip-row input[type="checkbox"] {
+  flex: 0 0 auto;
+}
+
+.folder-clip-card .clip-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.folder-card-avatars {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.folder-empty-note {
+  padding: 0 16px 16px;
+}
+
+.folder-invite-list,
+.folder-share-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.folder-invite-row,
+.folder-share-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.folder-share-row {
+  justify-content: flex-start;
+}
+
+.folder-share-sheet {
+  width: min(520px, 92vw);
+  max-height: 86vh;
+  overflow: auto;
+}
+
+.folder-public-access,
+.folder-ownership {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.folder-ownership {
+  margin-top: 8px;
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.folder-ownership-notes {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.folder-public-url {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+}
+
+.folder-share-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: inherit;
+  padding: 8px 10px;
+  cursor: pointer;
+}

@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useEffect, useMemo } from "react";
 import { AuthCard } from "../components/common/AuthCard";
 import { ClipCard } from "../components/common/ClipCard";
@@ -6,6 +6,7 @@ import { ClipGrid } from "../components/common/ClipGrid";
 import { CloudClipCard } from "../components/common/CloudClipCard";
 import { PageHeader } from "../components/common/PageHeader";
 import { SelectionBar } from "../components/common/SelectionBar";
+import { LibraryTabs } from "../components/library/LibraryTabs";
 import { useAuthStore } from "../stores/authStore";
 import { useCloudStore } from "../stores/cloudStore";
 import { useLibraryStore } from "../stores/libraryStore";
@@ -74,14 +75,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
         title="Library"
         subtitle="This PC and cloud copies stay separate. Select clips to download or delete more than one."
       >
-        <nav className="tabs" aria-label="Library view">
-          <NavLink to="/library" end className={({ isActive }) => (isActive ? "active" : undefined)}>
-            This PC
-          </NavLink>
-          <NavLink to="/library/cloud" className={({ isActive }) => (isActive ? "active" : undefined)}>
-            Cloud
-          </NavLink>
-        </nav>
+        <LibraryTabs />
         {view === "local" ? (
           <button
             type="button"

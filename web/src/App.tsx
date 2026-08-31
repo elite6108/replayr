@@ -18,6 +18,7 @@ import { LegalPage } from "./pages/LegalPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { MessagesPage } from "./pages/MessagesPage";
 import { PricingPage } from "./pages/PricingPage";
+import { PublicFolderPage } from "./pages/PublicFolderPage";
 import { UserProfilePage } from "./pages/UserProfilePage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { AuthDesktopPage } from "./pages/AuthDesktopPage";
@@ -106,6 +107,7 @@ function AppShell() {
             }
           />
           <Route path="/c/:slug" element={<ClipPage />} />
+          <Route path="/f/:token" element={<PublicFolderPage />} />
           <Route
             path="/admin"
             element={

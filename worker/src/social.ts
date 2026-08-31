@@ -11,11 +11,29 @@ import {
   type PublicClipRow,
 } from "./shared";
 import { HttpError, json } from "./http";
+import {
+  acceptIncomingFollow,
+  blockTargetById,
+  declineIncomingFollow,
+  emptyFollowState,
+  followStateFromIndex,
+  followTarget,
+  handleFollows,
+  listMutualUserIds,
+  loadFollowIndex,
+  loadFollowProfile,
+  loadFollowState,
+  relationshipFromFollow,
+  requireMutualFollow,
+  unfollowTarget,
+  unfriendBoth,
+} from "./follows";
 import type {
   ChatMessage,
   ConversationRole,
   ConversationSummary,
   ConversationType,
+  FollowState,
   Friend,
   FriendRequest,
   FriendshipStatus,
@@ -105,11 +123,15 @@ type NotificationRow = {
   friendship_id: string | null;
   conversation_id: string | null;
   message_id: string | null;
+  folder_id: string | null;
   read_at: string | null;
   created_at: string;
 };
 
 export async function handleSocial(request: Request, env: Env, url: URL): Promise<Response | null> {
+  const follows = await handleFollows(request, env, url);
+  if (follows) return follows;
+
   const path = url.pathname;
   const method = request.method;
 
@@ -179,22 +201,17 @@ export async function hasConversationClipGrant(env: Env, clipId: string, userId:
 
 async function listFriends(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  const rows = await serviceRest<FriendshipRow[]>(
-    env,
-    "GET",
-    `/friendships?or=(user_a.eq.${user.id},user_b.eq.${user.id})&status=eq.accepted&select=${FRIENDSHIP_SELECT}&order=updated_at.desc`,
-  );
-  const otherIds = rows.map((row) => otherUser(row, user.id));
+  const otherIds = await listMutualUserIds(env, user.id);
   const people = await loadSocialUsers(env, otherIds);
   const dms = await dmIdsForUser(env, user.id);
   const friends: Friend[] = [];
-  for (const row of rows) {
-    const other = people.get(otherUser(row, user.id));
+  for (const otherId of otherIds) {
+    const other = people.get(otherId);
     if (!other) continue;
     friends.push({
       ...other,
-      friendshipId: row.id,
-      since: row.updated_at,
+      friendshipId: other.id,
+      since: new Date().toISOString(),
       dmId: dms.get(other.id) ?? null,
     });
   }
@@ -203,25 +220,27 @@ async function listFriends(request: Request, env: Env): Promise<Response> {
 
 async function listFriendRequests(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  const rows = await serviceRest<FriendshipRow[]>(
-    env,
-    "GET",
-    `/friendships?or=(user_a.eq.${user.id},user_b.eq.${user.id})&status=eq.pending&select=${FRIENDSHIP_SELECT}&order=created_at.desc`,
-  );
-  const people = await loadSocialUsers(
-    env,
-    rows.flatMap((row) => [row.user_a, row.user_b]),
-  );
+  const index = await loadFollowIndex(env, user.id);
+  const pendingIds = [
+    ...[...index.outgoing.entries()].filter(([, status]) => status === "pending").map(([id]) => id),
+    ...[...index.incoming.entries()].filter(([, status]) => status === "pending").map(([id]) => id),
+  ];
+  const people = await loadSocialUsers(env, [user.id, ...pendingIds]);
+  const me = people.get(user.id);
   const incoming: FriendRequest[] = [];
   const outgoing: FriendRequest[] = [];
-  for (const row of rows) {
-    const from = people.get(row.requested_by);
-    const toId = otherUser(row, row.requested_by);
-    const to = people.get(toId);
-    if (!from || !to) continue;
-    const item = { id: row.id, createdAt: row.created_at, from, to };
-    if (row.requested_by === user.id) outgoing.push(item);
-    else incoming.push(item);
+  if (!me) return json({ incoming, outgoing });
+  for (const [otherId, status] of index.outgoing) {
+    if (status !== "pending") continue;
+    const to = people.get(otherId);
+    if (!to) continue;
+    outgoing.push({ id: otherId, createdAt: new Date().toISOString(), from: me, to });
+  }
+  for (const [otherId, status] of index.incoming) {
+    if (status !== "pending") continue;
+    const from = people.get(otherId);
+    if (!from) continue;
+    incoming.push({ id: otherId, createdAt: new Date().toISOString(), from, to: me });
   }
   return json({ incoming, outgoing });
 }
@@ -230,149 +249,68 @@ async function createFriendRequest(request: Request, env: Env): Promise<Response
   const user = await requireUser(request, env);
   const body = await readJson(request);
   const target = await resolveTargetUser(env, body);
-  if (target.id === user.id) {
-    throw new HttpError(400, "You cannot friend yourself.");
-  }
-  const existing = await loadFriendship(env, user.id, target.id);
-  if (existing?.status === "accepted") {
-    throw new HttpError(409, "You are already friends.");
-  }
-  if (existing?.status === "blocked") {
-    throw new HttpError(403, "You cannot send a friend request to that account.");
-  }
-  if (existing?.status === "pending") {
-    if (existing.requested_by === user.id) {
-      const people = await loadSocialUsers(env, [user.id, target.id]);
-      const from = people.get(user.id);
-      const to = people.get(target.id);
-      if (!from || !to) throw new HttpError(404, "That account was not found.");
-      return json({ request: { id: existing.id, createdAt: existing.created_at, from, to } });
-    }
-    throw new HttpError(409, "They already sent you a friend request.");
-  }
-  const pair = ordered(user.id, target.id);
-  const id = crypto.randomUUID();
-  await serviceRest(env, "POST", "/friendships", {
-    id,
-    user_a: pair.user_a,
-    user_b: pair.user_b,
-    requested_by: user.id,
-    status: "pending",
-  });
-  await insertNotifications(env, [
-    {
-      user_id: target.id,
-      kind: "friend_request",
-      actor_id: user.id,
-      friendship_id: id,
-    },
-  ]);
-  const me = (await loadSocialUsers(env, [user.id])).get(user.id);
-  if (!me) throw new HttpError(500, "Could not load your profile.");
+  const result = await followTarget(env, user.id, target);
+  const people = await loadSocialUsers(env, [user.id, target.id]);
+  const from = people.get(user.id);
+  const to = people.get(target.id);
+  if (!from || !to) throw new HttpError(404, "That account was not found.");
   return json({
     request: {
-      id,
+      id: target.id,
       createdAt: new Date().toISOString(),
-      from: me,
-      to: toSocialUser(target),
+      from,
+      to,
     },
+    follow: result.follow,
+    status: result.status,
   });
 }
 
 async function acceptFriendRequest(request: Request, env: Env, requestId: string): Promise<Response> {
   const user = await requireUser(request, env);
-  const row = await requireFriendship(env, requestId);
-  if (row.status !== "pending") throw new HttpError(404, "That friend request was not found.");
-  if (row.requested_by === user.id || !involves(row, user.id)) {
-    throw new HttpError(403, "You can only accept a request sent to you.");
-  }
-  await serviceRest(env, "PATCH", `/friendships?id=eq.${row.id}`, { status: "accepted", blocked_by: null });
-  await insertNotifications(env, [
-    {
-      user_id: row.requested_by,
-      kind: "friend_accept",
-      actor_id: user.id,
-      friendship_id: row.id,
-    },
-  ]);
-  const otherId = otherUser(row, user.id);
-  const people = await loadSocialUsers(env, [otherId]);
-  const friend = people.get(otherId);
+  const followerId = await resolveLegacyRequestActor(env, requestId, user.id, "accept");
+  const follow = await acceptIncomingFollow(env, user.id, followerId);
+  const people = await loadSocialUsers(env, [followerId]);
+  const friend = people.get(followerId);
   if (!friend) throw new HttpError(404, "That account was not found.");
   const dms = await dmIdsForUser(env, user.id);
   return json({
     ok: true,
+    follow,
     friend: {
       ...friend,
-      friendshipId: row.id,
+      friendshipId: followerId,
       since: new Date().toISOString(),
-      dmId: dms.get(otherId) ?? null,
+      dmId: dms.get(followerId) ?? null,
     },
   });
 }
 
 async function declineFriendRequest(request: Request, env: Env, requestId: string): Promise<Response> {
   const user = await requireUser(request, env);
-  const row = await requireFriendship(env, requestId);
-  if (row.status !== "pending") throw new HttpError(404, "That friend request was not found.");
-  if (row.requested_by === user.id || !involves(row, user.id)) {
-    throw new HttpError(403, "You can only decline a request sent to you.");
-  }
-  await serviceRest(env, "DELETE", `/friendships?id=eq.${row.id}`);
+  const followerId = await resolveLegacyRequestActor(env, requestId, user.id, "decline");
+  await declineIncomingFollow(env, user.id, followerId);
   return json({ ok: true });
 }
 
 async function cancelFriendRequest(request: Request, env: Env, requestId: string): Promise<Response> {
   const user = await requireUser(request, env);
-  const row = await requireFriendship(env, requestId);
-  if (row.status !== "pending" || row.requested_by !== user.id) {
-    throw new HttpError(403, "You can only cancel a request you sent.");
-  }
-  await serviceRest(env, "DELETE", `/friendships?id=eq.${row.id}`);
+  const targetId = await resolveLegacyRequestTarget(env, requestId, user.id);
+  await unfollowTarget(env, user.id, targetId);
   return json({ ok: true });
 }
 
 async function unfriendUser(request: Request, env: Env, userId: string): Promise<Response> {
   const user = await requireUser(request, env);
-  requireUuid(userId);
-  if (userId === user.id) throw new HttpError(400, "You cannot unfriend yourself.");
-  const row = await loadFriendship(env, user.id, userId);
-  if (!row) throw new HttpError(404, "You are not friends with that account.");
-  if (row.status === "blocked") {
-    if (row.blocked_by !== user.id) {
-      throw new HttpError(403, "You cannot unfriend that account.");
-    }
-    await serviceRest(env, "DELETE", `/friendships?id=eq.${row.id}`);
-    return json({ ok: true });
-  }
-  if (row.status !== "accepted") throw new HttpError(404, "You are not friends with that account.");
-  await serviceRest(env, "DELETE", `/friendships?id=eq.${row.id}`);
+  await unfriendBoth(env, user.id, userId);
   return json({ ok: true });
 }
 
 async function blockUser(request: Request, env: Env, userId: string): Promise<Response> {
   const user = await requireUser(request, env);
-  requireUuid(userId);
-  if (userId === user.id) throw new HttpError(400, "You cannot block yourself.");
-  const target = await loadProfile(env, userId);
+  const target = await loadFollowProfile(env, userId);
   if (!target) throw new HttpError(404, "That account was not found.");
-  const pair = ordered(user.id, userId);
-  const existing = await loadFriendship(env, user.id, userId);
-  if (existing) {
-    await serviceRest(env, "PATCH", `/friendships?id=eq.${existing.id}`, {
-      status: "blocked",
-      blocked_by: user.id,
-    });
-  } else {
-    await serviceRest(env, "POST", "/friendships", {
-      id: crypto.randomUUID(),
-      user_a: pair.user_a,
-      user_b: pair.user_b,
-      requested_by: user.id,
-      blocked_by: user.id,
-      status: "blocked",
-    });
-  }
+  await blockTargetById(env, user.id, target.id);
   return json({ ok: true });
 }
 
@@ -389,13 +327,13 @@ async function searchUsers(request: Request, env: Env, url: URL): Promise<Respon
     "GET",
     `/profiles?username_normalized=like.*${encodeURIComponent(like)}*&username=not.is.null&select=${PROFILE_SELECT}&limit=20`,
   );
-  const index = await friendshipIndex(env, user.id);
+  const index = await loadFollowIndex(env, user.id);
   const users = [];
   for (const row of rows) {
     if (row.id === user.id) continue;
-    const rel = relationshipOf(index.get(row.id) ?? null, user.id);
-    if (rel === "blocked") continue;
-    users.push({ ...toSocialUser(row), relationship: rel });
+    const follow = followStateFromIndex(index, row.id);
+    if (follow.blocked) continue;
+    users.push({ ...toSocialUser(row), follow, relationship: relationshipFromFollow(follow) });
   }
   return json({ users });
 }
@@ -430,8 +368,10 @@ async function listUserSuggestions(request: Request, env: Env, url: URL): Promis
 
   const ranked = [...overlap.entries()].sort((a, b) => b[1] - a[1]);
   if (ranked.length === 0) return json({ users: [] });
-  const index = await friendshipIndex(env, user.id);
-  const candidateIds = ranked.map(([id]) => id).filter((id) => relationshipOf(index.get(id) ?? null, user.id) === "none");
+  const index = await loadFollowIndex(env, user.id);
+  const candidateIds = ranked
+    .map(([id]) => id)
+    .filter((id) => relationshipFromFollow(followStateFromIndex(index, id)) === "none");
   const people = await loadSocialUsers(env, candidateIds.slice(0, Math.max(limit * 3, 24)));
   const users = [];
   for (const id of candidateIds) {
@@ -447,12 +387,7 @@ async function listFriendClips(request: Request, env: Env, url: URL): Promise<Re
   const user = await requireUser(request, env);
   const rawLimit = Number(url.searchParams.get("limit"));
   const limit = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(48, Math.floor(rawLimit)) : 24;
-  const friendships = await serviceRest<FriendshipRow[]>(
-    env,
-    "GET",
-    `/friendships?or=(user_a.eq.${user.id},user_b.eq.${user.id})&status=eq.accepted&select=${FRIENDSHIP_SELECT}`,
-  );
-  const friendIds = friendships.map((row) => otherUser(row, user.id));
+  const friendIds = await listMutualUserIds(env, user.id);
   if (friendIds.length === 0) return json({ clips: [] });
   const friendSet = new Set(friendIds);
 
@@ -509,6 +444,7 @@ export async function resolveUserProfileAccess(
 ): Promise<{
   profile: ProfileRow;
   viewerId: string | null;
+  follow: FollowState;
   relationship: Relationship;
   locked: boolean;
   isPrivate: boolean;
@@ -523,14 +459,16 @@ export async function resolveUserProfileAccess(
   const profile = rows[0];
   if (!profile) throw new HttpError(404, "That account was not found.");
   const viewer = await optionalUser(request, env);
-  const rel = viewer ? relationshipOf(await loadFriendship(env, viewer.id, profile.id), viewer.id) : "none";
-  if (rel === "blocked") throw new HttpError(404, "That account was not found.");
+  const follow =
+    viewer && viewer.id !== profile.id ? await loadFollowState(env, viewer.id, profile.id) : emptyFollowState();
+  if (follow.blocked) throw new HttpError(404, "That account was not found.");
   const isPrivate = Boolean(profile.is_private);
-  const locked = isPrivate && viewer?.id !== profile.id && rel !== "friends";
+  const locked = isPrivate && viewer?.id !== profile.id && !follow.viewerFollows;
   return {
     profile,
     viewerId: viewer?.id ?? null,
-    relationship: viewer?.id === profile.id ? "none" : rel,
+    follow,
+    relationship: viewer?.id === profile.id ? "none" : relationshipFromFollow(follow),
     locked,
     isPrivate,
   };
@@ -548,7 +486,7 @@ export function toSocialUser(row: ProfileRow): SocialUser {
 
 async function getUserProfile(request: Request, env: Env, url: URL, username: string): Promise<Response> {
   const access = await resolveUserProfileAccess(request, env, username);
-  const { profile, relationship, locked, isPrivate } = access;
+  const { profile, follow, relationship, locked, isPrivate } = access;
   if (locked) {
     return json({
       user: {
@@ -557,6 +495,7 @@ async function getUserProfile(request: Request, env: Env, url: URL, username: st
         clipCount: 0,
         createdAt: profile.created_at ?? new Date().toISOString(),
       },
+      follow,
       relationship,
       isPrivate: true,
       locked: true,
@@ -586,6 +525,7 @@ async function getUserProfile(request: Request, env: Env, url: URL, username: st
       clipCount: profile.clip_count ?? 0,
       createdAt: profile.created_at ?? new Date().toISOString(),
     },
+    follow,
     relationship,
     isPrivate,
     locked: false,
@@ -624,7 +564,7 @@ async function createConversation(request: Request, env: Env): Promise<Response>
   if (type === "dm") {
     const userId = typeof body.userId === "string" ? body.userId : "";
     requireUuid(userId);
-    await requireAcceptedFriend(env, user.id, userId);
+    await requireMutualFollow(env, user.id, userId);
     const conversation = await getOrCreateDm(env, user.id, userId);
     return json({ conversation: await presentConversationOrThrow(env, user.id, conversation) });
   }
@@ -633,13 +573,13 @@ async function createConversation(request: Request, env: Env): Promise<Response>
   }
   const memberIds = uniqueIds(body.memberIds, body.userId).filter((id) => id !== user.id);
   if (memberIds.length < 1) {
-    throw new HttpError(400, "Invite at least one friend to create a group.");
+    throw new HttpError(400, "Invite at least one person you both follow to create a group.");
   }
   if (memberIds.length + 1 > MAX_GROUP) {
     throw new HttpError(400, "Groups can have at most 32 members.");
   }
   for (const memberId of memberIds) {
-    await requireAcceptedFriend(env, user.id, memberId);
+    await requireMutualFollow(env, user.id, memberId);
   }
   const title = optionalTitle(body.title);
   const conversationId = crypto.randomUUID();
@@ -678,18 +618,18 @@ async function addMembers(request: Request, env: Env, conversationId: string): P
   const user = await requireUser(request, env);
   const conversation = await requireMemberConversation(env, user.id, conversationId);
   if (conversation.type !== "group") {
-    throw new HttpError(400, "You can only invite friends to a group.");
+    throw new HttpError(400, "You can only invite people you both follow to a group.");
   }
   const body = await readJson(request);
   const memberIds = uniqueIds(body.memberIds, body.userId).filter((id) => id !== user.id);
-  if (memberIds.length < 1) throw new HttpError(400, "Choose a friend to invite.");
+  if (memberIds.length < 1) throw new HttpError(400, "Choose someone you both follow to invite.");
   const members = await conversationMembers(env, conversationId);
   if (members.length + memberIds.length > MAX_GROUP) {
     throw new HttpError(400, "Groups can have at most 32 members.");
   }
   const existing = new Set(members.map((row) => row.user_id));
   for (const memberId of memberIds) {
-    await requireAcceptedFriend(env, user.id, memberId);
+    await requireMutualFollow(env, user.id, memberId);
     if (existing.has(memberId)) continue;
     await serviceRest(env, "POST", "/conversation_members", {
       conversation_id: conversationId,
@@ -715,7 +655,7 @@ async function leaveConversation(request: Request, env: Env, conversationId: str
   const user = await requireUser(request, env);
   const conversation = await requireMemberConversation(env, user.id, conversationId);
   if (conversation.type === "dm") {
-    throw new HttpError(400, "Leave a group, or unfriend to close this chat.");
+    throw new HttpError(400, "Leave a group, or unfollow each other to close this chat.");
   }
   const members = await conversationMembers(env, conversationId);
   await serviceRest(
@@ -856,7 +796,7 @@ async function listNotifications(request: Request, env: Env, url: URL): Promise<
   const rows = await serviceRest<NotificationRow[]>(
     env,
     "GET",
-    `/notifications?user_id=eq.${user.id}&select=id,user_id,kind,actor_id,friendship_id,conversation_id,message_id,read_at,created_at&order=created_at.desc&limit=${limit}`,
+    `/notifications?user_id=eq.${user.id}&select=id,user_id,kind,actor_id,friendship_id,conversation_id,message_id,folder_id,read_at,created_at&order=created_at.desc&limit=${limit}`,
   );
   const actors = await loadSocialUsers(
     env,
@@ -872,6 +812,7 @@ async function listNotifications(request: Request, env: Env, url: URL): Promise<
       friendshipId: row.friendship_id,
       conversationId: row.conversation_id,
       messageId: row.message_id,
+      folderId: row.folder_id,
     })),
   });
 }
@@ -920,7 +861,7 @@ async function presentConversationsBatch(
   memberships: MemberRow[],
 ): Promise<ConversationSummary[]> {
   if (conversations.length === 0) return [];
-  const friendshipIdx = await friendshipIndex(env, userId);
+  const followIdx = await loadFollowIndex(env, userId);
   const memberIds = [...new Set(memberships.map((row) => row.user_id))];
   const people = await loadSocialUsers(env, memberIds);
   const conversationIds = conversations.map((row) => row.id);
@@ -947,7 +888,7 @@ async function presentConversationsBatch(
     if (conversation.type === "dm") {
       const otherId = conversation.dm_user_a === userId ? conversation.dm_user_b : conversation.dm_user_a;
       if (!otherId) continue;
-      if (relationshipOf(friendshipIdx.get(otherId) ?? null, userId) !== "friends") continue;
+      if (!followStateFromIndex(followIdx, otherId).mutual) continue;
     }
     const lastRow = lastByConversation.get(conversation.id) ?? null;
     const lastMessage = lastRow ? lastMessageById.get(lastRow.id) ?? null : null;
@@ -1111,16 +1052,6 @@ async function conversationMembers(env: Env, conversationId: string): Promise<Me
   );
 }
 
-async function requireAcceptedFriend(env: Env, me: string, other: string): Promise<FriendshipRow> {
-  requireUuid(other);
-  if (me === other) throw new HttpError(400, "You cannot message yourself.");
-  const row = await loadFriendship(env, me, other);
-  if (!row || row.status !== "accepted") {
-    throw new HttpError(403, "You can only message accepted friends.");
-  }
-  return row;
-}
-
 async function grantClip(env: Env, conversationId: string, clipId: string, grantedBy: string) {
   try {
     await serviceRest(env, "POST", "/conversation_clips", {
@@ -1181,27 +1112,6 @@ async function dmIdsForUser(env: Env, userId: string): Promise<Map<string, strin
   return map;
 }
 
-async function friendshipIndex(env: Env, userId: string): Promise<Map<string, FriendshipRow>> {
-  const rows = await serviceRest<FriendshipRow[]>(
-    env,
-    "GET",
-    `/friendships?or=(user_a.eq.${userId},user_b.eq.${userId})&select=${FRIENDSHIP_SELECT}`,
-  );
-  const map = new Map<string, FriendshipRow>();
-  for (const row of rows) map.set(otherUser(row, userId), row);
-  return map;
-}
-
-async function loadFriendship(env: Env, a: string, b: string): Promise<FriendshipRow | null> {
-  const pair = ordered(a, b);
-  const rows = await serviceRest<FriendshipRow[]>(
-    env,
-    "GET",
-    `/friendships?user_a=eq.${pair.user_a}&user_b=eq.${pair.user_b}&select=${FRIENDSHIP_SELECT}`,
-  );
-  return rows[0] ?? null;
-}
-
 async function requireFriendship(env: Env, id: string): Promise<FriendshipRow> {
   requireUuid(id);
   const rows = await serviceRest<FriendshipRow[]>(
@@ -1211,6 +1121,34 @@ async function requireFriendship(env: Env, id: string): Promise<FriendshipRow> {
   );
   if (!rows[0]) throw new HttpError(404, "That friend request was not found.");
   return rows[0];
+}
+
+async function resolveLegacyRequestActor(
+  env: Env,
+  requestId: string,
+  actorId: string,
+  action: "accept" | "decline",
+): Promise<string> {
+  requireUuid(requestId);
+  const asUser = await loadFollowProfile(env, requestId);
+  if (asUser) return asUser.id;
+  const row = await requireFriendship(env, requestId);
+  if (row.status !== "pending") throw new HttpError(404, "That follow request was not found.");
+  if (row.requested_by === actorId || !involves(row, actorId)) {
+    throw new HttpError(403, `You can only ${action} a request sent to you.`);
+  }
+  return row.requested_by;
+}
+
+async function resolveLegacyRequestTarget(env: Env, requestId: string, actorId: string): Promise<string> {
+  requireUuid(requestId);
+  const asUser = await loadFollowProfile(env, requestId);
+  if (asUser) return asUser.id;
+  const row = await requireFriendship(env, requestId);
+  if (row.status !== "pending" || row.requested_by !== actorId) {
+    throw new HttpError(403, "You can only cancel a request you sent.");
+  }
+  return otherUser(row, actorId);
 }
 
 async function resolveTargetUser(env: Env, body: Record<string, unknown>): Promise<ProfileRow> {
@@ -1252,7 +1190,7 @@ async function loadSocialUsers(env: Env, ids: string[]): Promise<Map<string, Soc
   return users;
 }
 
-async function insertNotifications(
+export async function insertNotifications(
   env: Env,
   rows: Array<{
     user_id: string;
@@ -1261,6 +1199,7 @@ async function insertNotifications(
     friendship_id?: string | null;
     conversation_id?: string | null;
     message_id?: string | null;
+    folder_id?: string | null;
   }>,
 ) {
   const payload = rows
@@ -1273,17 +1212,10 @@ async function insertNotifications(
       friendship_id: row.friendship_id ?? null,
       conversation_id: row.conversation_id ?? null,
       message_id: row.message_id ?? null,
+      folder_id: row.folder_id ?? null,
     }));
   if (payload.length === 0) return;
   await serviceRest(env, "POST", "/notifications", payload);
-}
-
-function relationshipOf(row: FriendshipRow | null, me: string): Relationship {
-  if (!row) return "none";
-  if (row.status === "accepted") return "friends";
-  if (row.status === "blocked") return "blocked";
-  if (row.status === "pending") return row.requested_by === me ? "outgoing" : "incoming";
-  return "none";
 }
 
 function otherUser(row: FriendshipRow, me: string) {

@@ -3,10 +3,28 @@
  */
 
 export type FriendshipStatus = "pending" | "accepted" | "blocked";
-export type Relationship = "none" | "outgoing" | "incoming" | "friends" | "blocked";
+export type FollowStatus = "pending" | "accepted";
+export type Relationship = "none" | "outgoing" | "incoming" | "friends" | "following" | "follower" | "blocked";
 export type ConversationType = "dm" | "group";
 export type ConversationRole = "owner" | "member";
-export type NotificationKind = "friend_request" | "friend_accept" | "message" | "group_invite";
+export type NotificationKind =
+  | "friend_request"
+  | "friend_accept"
+  | "follow_request"
+  | "follow_accept"
+  | "message"
+  | "group_invite"
+  | "folder_invite"
+  | "folder_invite_accepted";
+
+export type FollowState = {
+  viewerFollows: boolean;
+  viewerFollowPending: boolean;
+  followsViewer: boolean;
+  incomingPending: boolean;
+  mutual: boolean;
+  blocked: boolean;
+};
 
 export type SocialUser = {
   id: string;
@@ -67,10 +85,13 @@ export type PublicClipCard = {
     displayName: string | null;
     avatarUrl: string | null;
     verified?: boolean;
+    isPrivate?: boolean;
   };
   likeCount: number;
   commentCount: number;
   liked: boolean;
+  following?: boolean;
+  followPending?: boolean;
   watermark?: boolean;
 };
 
@@ -97,11 +118,30 @@ export type UserProfileResponse = {
     clipCount: number;
     createdAt: string;
   };
+  follow: FollowState;
   relationship: Relationship;
   isPrivate: boolean;
   locked: boolean;
   clips: PublicClipCard[];
   posts: ProfilePost[];
+};
+
+export type FollowListItem = SocialUser & {
+  since: string;
+};
+
+export type FollowListResponse = {
+  users: FollowListItem[];
+};
+
+export type FollowRequestsResponse = {
+  incoming: FriendRequest[];
+  outgoing: FriendRequest[];
+};
+
+export type FollowActionResponse = {
+  follow: FollowState;
+  status: FollowStatus | null;
 };
 
 export type ProfilePostsResponse = {
@@ -189,6 +229,7 @@ export type NotificationItem = {
   friendshipId: string | null;
   conversationId: string | null;
   messageId: string | null;
+  folderId: string | null;
 };
 
 export type NotificationsResponse = {
@@ -201,4 +242,189 @@ export type ReadNotificationsBody = {
 
 export type ReadNotificationsResponse = {
   read: true;
+};
+
+export type FolderRole = "owner" | "manager" | "editor" | "viewer" | "public";
+export type FolderMemberRole = "manager" | "editor" | "viewer";
+export type FolderVisibility = "private" | "public_link";
+export type FolderInviteStatus = "pending" | "accepted" | "declined";
+
+export type FolderPermissions = {
+  view: boolean;
+  download: boolean;
+  addClips: boolean;
+  removeClips: boolean;
+  editClips: boolean;
+  manageFolder: boolean;
+  manageMembers: boolean;
+  managePublicShare: boolean;
+  deleteFolder: boolean;
+  transferOwnership: boolean;
+};
+
+export type FolderPublicShare = {
+  enabled: boolean;
+  url: string | null;
+  allowDownloads: boolean;
+};
+
+export type Folder = {
+  id: string;
+  name: string;
+  description: string | null;
+  visibility: FolderVisibility;
+  allowDownloads: boolean;
+  clipCount: number;
+  coverThumbnailUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  role: FolderRole;
+  permissions: FolderPermissions;
+  owner: SocialUser | null;
+  membersPreview: SocialUser[];
+  publicShare?: FolderPublicShare | null;
+};
+
+export type FolderClip = {
+  id: string;
+  title: string | null;
+  slug: string;
+  status: "uploading" | "processing" | "ready" | "failed" | "deleted";
+  visibility: "public" | "unlisted" | "private";
+  durationMs: number | null;
+  createdAt: string;
+  addedAt: string;
+  thumbnailUrl: string | null;
+};
+
+export type FolderMember = {
+  user: SocialUser;
+  role: FolderMemberRole;
+  createdAt: string;
+  invitedBy: SocialUser | null;
+  canChangeRole: boolean;
+  allowedRoles: FolderMemberRole[];
+  canRemove: boolean;
+};
+
+export type FolderInvite = {
+  id: string;
+  folderId: string;
+  folderName?: string;
+  role: FolderMemberRole;
+  status: FolderInviteStatus;
+  createdAt: string;
+  invitee: SocialUser;
+  inviter: SocialUser;
+  canRevoke?: boolean;
+};
+
+export type FolderDetail = Folder & {
+  clips: FolderClip[];
+};
+
+export type FoldersResponse = {
+  folders: Folder[];
+};
+
+export type FolderResponse = {
+  folder: FolderDetail;
+};
+
+export type CreateFolderBody = {
+  name: string;
+  description?: string;
+};
+
+export type UpdateFolderBody = {
+  name?: string;
+  description?: string | null;
+};
+
+export type AddFolderClipsBody = {
+  clipIds: string[];
+};
+
+export type FolderMembersResponse = {
+  owner: SocialUser;
+  members: FolderMember[];
+  inviteRoles: FolderMemberRole[];
+  permissions: FolderPermissions;
+};
+
+export type FolderInvitesResponse = {
+  invites: FolderInvite[];
+};
+
+export type IncomingFolderInvitesResponse = {
+  invites: FolderInvite[];
+};
+
+export type CreateFolderInviteBody = {
+  username?: string;
+  userId?: string;
+  role: FolderMemberRole;
+};
+
+export type FolderInviteResponse = {
+  invite: FolderInvite | null;
+  alreadyMember: boolean;
+  role?: FolderRole;
+};
+
+export type UpdateFolderMemberBody = {
+  role: FolderMemberRole;
+};
+
+export type TransferFolderOwnershipBody = {
+  userId?: string;
+  username?: string;
+};
+
+export type FolderPlaybackResponse = {
+  playbackUrl: string;
+};
+
+export type FolderPublicLinkResponse = {
+  publicShare: FolderPublicShare;
+};
+
+export type UpdateFolderPublicLinkBody = {
+  allowDownloads: boolean;
+};
+
+export type PublicFolderOwner = {
+  username: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+};
+
+export type PublicFolderClip = {
+  id: string;
+  title: string | null;
+  durationMs: number | null;
+  createdAt: string;
+  thumbnailUrl: string | null;
+};
+
+export type PublicFolder = {
+  name: string;
+  description: string | null;
+  owner: PublicFolderOwner | null;
+  clipCount: number;
+  allowDownloads: boolean;
+  coverThumbnailUrl: string | null;
+  clips: PublicFolderClip[];
+};
+
+export type PublicFolderResponse = {
+  folder: PublicFolder;
+};
+
+export type PublicFolderPlaybackResponse = {
+  playbackUrl: string;
+};
+
+export type PublicFolderDownloadResponse = {
+  downloadUrl: string;
 };

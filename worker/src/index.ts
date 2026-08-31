@@ -30,6 +30,8 @@ import {
   type PublicClipRow,
 } from "./shared";
 import { assertUploadAllowed, handleBilling, loadStatus } from "./billing";
+import { handleFolders } from "./folders";
+import { handlePublicFolders } from "./folderPublic";
 import { handlePosts } from "./posts";
 import { handleSocial } from "./social";
 import {
@@ -182,8 +184,14 @@ async function route(
     request.method !== "HEAD" &&
     request.method !== "OPTIONS" &&
     (url.pathname.startsWith("/v1/friends") ||
+      url.pathname.startsWith("/v1/follow-requests") ||
+      url.pathname.startsWith("/v1/follows") ||
+      url.pathname.startsWith("/v1/following") ||
+      url.pathname.startsWith("/v1/followers") ||
+      /\/v1\/users\/[^/]+\/(follow|block)$/.test(url.pathname) ||
       url.pathname.startsWith("/v1/conversations") ||
       url.pathname.startsWith("/v1/notifications") ||
+      url.pathname.startsWith("/v1/folders") ||
       url.pathname === "/v1/posts" ||
       /^\/v1\/posts\/[^/]+$/.test(url.pathname) ||
       /^\/v1\/clips\/[^/]+\/send$/.test(url.pathname))
@@ -194,6 +202,10 @@ async function route(
   if (posts) return posts;
   const social = await handleSocial(request, env, url);
   if (social) return social;
+  const folders = await handleFolders(request, env, url);
+  if (folders) return folders;
+  const publicFolders = await handlePublicFolders(request, env, url);
+  if (publicFolders) return publicFolders;
   const announcements = await handlePublicAnnouncements(request, env, url);
   if (announcements) return announcements;
   if (request.method === "GET" && url.pathname === "/v1/library") {
@@ -258,6 +270,10 @@ async function route(
   const share = url.pathname.match(/^\/c\/([^/]+)\/?$/);
   if (request.method === "GET" && share?.[1]) {
     return clipPlayerPage(request, env, share[1]);
+  }
+  const folderShare = url.pathname.match(/^\/f\/([^/]+)\/?$/);
+  if ((request.method === "GET" || request.method === "HEAD") && folderShare?.[1] && env.ASSETS) {
+    return serveMarketingSpa(request, env);
   }
   if (request.method === "GET" && url.pathname === "/releases/latest.json") {
     return serveUpdaterManifest(request, env);
@@ -854,6 +870,8 @@ async function listGameClips(request: Request, env: Env, slug: string): Promise<
       likeCount: extra?.likeCount ?? row.like_count ?? 0,
       commentCount: extra?.commentCount ?? row.comment_count ?? 0,
       liked: extra?.liked ?? false,
+      following: extra?.following ?? false,
+      followPending: extra?.followPending ?? false,
       watermark: row.watermark !== false,
     };
   });
@@ -1069,6 +1087,9 @@ async function getPlayback(
     likeCount: extra?.likeCount ?? clip.like_count ?? 0,
     commentCount: extra?.commentCount ?? clip.comment_count ?? 0,
     liked: extra?.liked ?? false,
+    following: extra?.following ?? false,
+    followPending: extra?.followPending ?? false,
+    mine: viewer?.id === clip.user_id,
     watermark: clip.watermark !== false,
   });
 }

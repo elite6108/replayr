@@ -22,6 +22,7 @@ interface CloudState {
   initialize: () => Promise<void>;
   refresh: () => Promise<void>;
   play: (clipId: string) => Promise<void>;
+  playRemote: (clip: CloudClip, url: string) => Promise<void>;
   closePlayer: () => void;
   remove: (clipId: string) => Promise<void>;
   removeMany: (clipIds: string[]) => Promise<void>;
@@ -77,10 +78,18 @@ export const useCloudStore = create<CloudState>((set, get) => ({
     }
   },
   play: async (clipId) => {
-    const clip = get().clips.find((item) => item.id === clipId);
     const token = useAuthStore.getState().session?.access_token;
-    if (!clip || !token) {
+    if (!token) {
       useToastStore.getState().show("Sign in to play a cloud clip");
+      return;
+    }
+    let clip = get().clips.find((item) => item.id === clipId);
+    if (!clip) {
+      await get().refresh();
+      clip = get().clips.find((item) => item.id === clipId);
+    }
+    if (!clip) {
+      useToastStore.getState().show("That clip is not in your cloud library");
       return;
     }
     if (clip.status !== "ready") {
@@ -101,6 +110,11 @@ export const useCloudStore = create<CloudState>((set, get) => ({
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not play that cloud clip"));
     }
+  },
+  playRemote: async (clip, url) => {
+    const { useLibraryStore } = await import("./libraryStore");
+    useLibraryStore.getState().closePlayer();
+    set({ playing: { clip, url } });
   },
   closePlayer: () => set({ playing: null }),
   remove: async (clipId) => {

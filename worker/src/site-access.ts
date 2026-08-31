@@ -5,7 +5,7 @@ import { requireServiceRole, serviceRest } from "./shared";
 const COOKIE_NAME = "replayr_site_access";
 const COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 30; // 30 days
 
-const ALWAYS_OPEN_PREFIXES = ["/v1/", "/internal/", "/releases/", "/c/", "/assets/"];
+const ALWAYS_OPEN_PREFIXES = ["/v1/", "/internal/", "/releases/", "/c/", "/f/", "/assets/"];
 
 /** Static files the locked coming-soon page needs (must stay ungated). */
 export const COMING_SOON_PUBLIC_PATHS = new Set([

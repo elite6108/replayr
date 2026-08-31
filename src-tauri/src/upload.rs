@@ -400,6 +400,11 @@ fn finalize_composed_upload(path: &Path) -> AppResult<()> {
     }
 }
 
+#[cfg(not(windows))]
+fn finalize_composed_upload(_path: &Path) -> AppResult<()> {
+    Ok(())
+}
+
 fn composed_upload_size(clip: &LocalClipDto, composed: bool) -> (Option<i64>, Option<i64>) {
     #[cfg(windows)]
     if composed {

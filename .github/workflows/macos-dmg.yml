@@ -28,6 +28,7 @@ env:
 jobs:
   macos-dmg:
     runs-on: macos-latest
+    environment: Replayr
     steps:
       - uses: actions/checkout@v5
 

@@ -72,6 +72,29 @@ export type FolderAccess = {
 
 export const OWNER_LEAVE_MESSAGE = "You must transfer ownership or delete the folder before leaving.";
 
+const NO_EDITS = {
+  viewEdits: false,
+  createEdits: false,
+  modifyEdits: false,
+  deleteOwnEdits: false,
+  deleteAnyEdits: false,
+  renderEdits: false,
+} as const;
+
+const EDITOR_EDITS = {
+  viewEdits: true,
+  createEdits: true,
+  modifyEdits: true,
+  deleteOwnEdits: true,
+  deleteAnyEdits: false,
+  renderEdits: true,
+} as const;
+
+const MANAGE_EDITS = {
+  ...EDITOR_EDITS,
+  deleteAnyEdits: true,
+} as const;
+
 const DENIED: FolderPermissions = {
   view: false,
   download: false,
@@ -83,6 +106,7 @@ const DENIED: FolderPermissions = {
   managePublicShare: false,
   deleteFolder: false,
   transferOwnership: false,
+  ...NO_EDITS,
 };
 
 export function permissionsFromRole(role: FolderRole | null, allowDownloads: boolean): FolderPermissions {
@@ -99,6 +123,7 @@ export function permissionsFromRole(role: FolderRole | null, allowDownloads: boo
       managePublicShare: true,
       deleteFolder: true,
       transferOwnership: true,
+      ...MANAGE_EDITS,
     };
   }
   if (role === "manager") {
@@ -113,6 +138,7 @@ export function permissionsFromRole(role: FolderRole | null, allowDownloads: boo
       managePublicShare: true,
       deleteFolder: false,
       transferOwnership: false,
+      ...MANAGE_EDITS,
     };
   }
   if (role === "editor") {
@@ -123,12 +149,14 @@ export function permissionsFromRole(role: FolderRole | null, allowDownloads: boo
       addClips: true,
       removeClips: true,
       editClips: true,
+      ...EDITOR_EDITS,
     };
   }
   return {
     ...DENIED,
     view: true,
     download: allowDownloads,
+    viewEdits: role === "viewer",
   };
 }
 
@@ -260,6 +288,9 @@ export async function handleFolders(request: Request, env: Env, url: URL): Promi
   const { handleFolderCollab } = await import("./folderCollab");
   const collab = await handleFolderCollab(request, env, url);
   if (collab) return collab;
+  const { handleFolderEdits } = await import("./folderEdits");
+  const edits = await handleFolderEdits(request, env, url);
+  if (edits) return edits;
   if (url.pathname === "/v1/folders" && request.method === "GET") return listMyFolders(request, env);
   if (url.pathname === "/v1/folders" && request.method === "POST") return createFolder(request, env);
   const clipRemove = url.pathname.match(/^\/v1\/folders\/([^/]+)\/clips\/([^/]+)$/);
@@ -376,6 +407,13 @@ async function addFolderClips(request: Request, env: Env, folderId: string): Pro
     if (!(caught instanceof HttpError) || caught.status !== 409) throw caught;
   }
   const memberships = await loadFolderClipRows(env, [folderId]);
+  const { logFolderActivity } = await import("./folderActivity");
+  void logFolderActivity(env, {
+    folderId,
+    actorId: user.id,
+    kind: "clip_added",
+    metadata: { clipIds },
+  });
   return json({ folder: await presentFolderDetail(env, access.folder, access.role, memberships) });
 }
 
@@ -384,6 +422,13 @@ async function removeFolderClip(request: Request, env: Env, folderId: string, cl
   if (!FOLDER_UUID.test(clipId)) throw new HttpError(404, "That clip was not found in this folder.");
   await requireFolderPermission(env, folderId, user.id, "removeClips");
   await serviceRest(env, "DELETE", `/folder_clips?folder_id=eq.${folderId}&clip_id=eq.${clipId}`);
+  const { logFolderActivity } = await import("./folderActivity");
+  void logFolderActivity(env, {
+    folderId,
+    actorId: user.id,
+    kind: "clip_removed",
+    entityId: clipId,
+  });
   return json({ ok: true });
 }
 
@@ -450,7 +495,7 @@ export async function presentFolderDetail(
 ): Promise<FolderDetail> {
   const mine = memberships.filter((row) => row.folder_id === folder.id);
   const [clips, owners, previews, secrets] = await Promise.all([
-    loadFolderClips(env, mine),
+    loadFolderClips(env, mine, folder.id),
     loadFolderOwners(env, [folder]),
     loadMembersPreview(env, [folder.id]),
     loadPublicSecrets(env, [folder.id]),
@@ -517,14 +562,26 @@ async function loadMembersPreview(env: Env, folderIds: string[]): Promise<Map<st
   return preview;
 }
 
-async function loadFolderClips(env: Env, memberships: FolderClipRow[]): Promise<FolderClip[]> {
-  if (memberships.length === 0) return [];
-  const clipIds = memberships.map((row) => row.clip_id);
-  const rows = await serviceRest<ClipRow[]>(
+async function loadRenderedClipIds(env: Env, folderId: string): Promise<Set<string>> {
+  const rows = await serviceRest<Array<{ rendered_clip_id: string | null }>>(
     env,
     "GET",
-    `/clips?id=in.(${clipIds.join(",")})&status=neq.deleted&select=${CLIP_SELECT}`,
+    `/folder_clip_edits?folder_id=eq.${folderId}&rendered_clip_id=not.is.null&select=rendered_clip_id`,
   );
+  return new Set(rows.map((row) => row.rendered_clip_id).filter((id): id is string => Boolean(id)));
+}
+
+async function loadFolderClips(env: Env, memberships: FolderClipRow[], folderId?: string): Promise<FolderClip[]> {
+  if (memberships.length === 0) return [];
+  const clipIds = memberships.map((row) => row.clip_id);
+  const [rows, rendered] = await Promise.all([
+    serviceRest<ClipRow[]>(
+      env,
+      "GET",
+      `/clips?id=in.(${clipIds.join(",")})&status=neq.deleted&select=${CLIP_SELECT}`,
+    ),
+    folderId ? loadRenderedClipIds(env, folderId) : Promise.resolve(new Set<string>()),
+  ]);
   const byId = new Map(rows.map((row) => [row.id, row]));
   requireR2(env);
   const presented: FolderClip[] = [];
@@ -541,6 +598,8 @@ async function loadFolderClips(env: Env, memberships: FolderClipRow[]): Promise<
       createdAt: clip.created_at,
       addedAt: membership.created_at,
       thumbnailUrl: await signedOwnedUrl(env, clip.user_id, clip.thumbnail_key, "GET"),
+      ownerId: clip.user_id,
+      kind: rendered.has(clip.id) ? "render" : "original",
     });
   }
   return presented;

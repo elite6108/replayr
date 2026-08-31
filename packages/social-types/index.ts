@@ -260,6 +260,12 @@ export type FolderPermissions = {
   managePublicShare: boolean;
   deleteFolder: boolean;
   transferOwnership: boolean;
+  viewEdits: boolean;
+  createEdits: boolean;
+  modifyEdits: boolean;
+  deleteOwnEdits: boolean;
+  deleteAnyEdits: boolean;
+  renderEdits: boolean;
 };
 
 export type FolderPublicShare = {
@@ -285,6 +291,8 @@ export type Folder = {
   publicShare?: FolderPublicShare | null;
 };
 
+export type FolderClipKind = "original" | "render";
+
 export type FolderClip = {
   id: string;
   title: string | null;
@@ -295,6 +303,8 @@ export type FolderClip = {
   createdAt: string;
   addedAt: string;
   thumbnailUrl: string | null;
+  ownerId: string;
+  kind: FolderClipKind;
 };
 
 export type FolderMember = {
@@ -380,6 +390,83 @@ export type TransferFolderOwnershipBody = {
   userId?: string;
   username?: string;
 };
+
+export type FolderEditDocument = {
+  version: 1;
+  trim?: { startMs: number; endMs: number };
+  composition?: {
+    cropX?: number;
+    webcam?: {
+      placement: string;
+      shape: string;
+      width: number;
+      x?: number | null;
+      y?: number | null;
+    };
+  };
+  visuals?: {
+    filter?: string;
+    overlays?: { recIndicator?: boolean; timestamp?: boolean };
+  };
+  webcam?: {
+    placement: string;
+    shape: string;
+    width: number;
+    x?: number | null;
+    y?: number | null;
+  };
+  overlays?: Array<Record<string, unknown>>;
+  audio?: Record<string, unknown>;
+};
+
+export type FolderEdit = {
+  id: string;
+  folderId: string;
+  clipId: string;
+  name: string;
+  revision: number;
+  editData: FolderEditDocument;
+  renderedClipId: string | null;
+  createdBy: SocialUser;
+  updatedBy: SocialUser;
+  createdAt: string;
+  updatedAt: string;
+  canModify: boolean;
+  canDelete: boolean;
+  canRender: boolean;
+};
+
+export type FolderEditsResponse = {
+  edits: FolderEdit[];
+};
+
+export type FolderEditResponse = {
+  edit: FolderEdit;
+};
+
+export type CreateFolderEditBody = {
+  name?: string;
+  editData?: FolderEditDocument;
+};
+
+export type UpdateFolderEditBody = {
+  expectedRevision: number;
+  name?: string;
+  editData?: FolderEditDocument;
+};
+
+export type RenderFolderEditBody = {
+  clipId: string;
+};
+
+export type FolderActivityKind =
+  | "edit_created"
+  | "edit_rendered"
+  | "edit_deleted"
+  | "clip_added"
+  | "clip_removed"
+  | "member_role_changed"
+  | "ownership_transferred";
 
 export type FolderPlaybackResponse = {
   playbackUrl: string;

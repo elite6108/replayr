@@ -202,6 +202,24 @@
   border: 1px solid var(--border);
 }
 
+.folder-edit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.folder-edit-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.editor-shared-badge {
+  margin-left: 8px;
+}
+
 .folder-share-pick {
   display: flex;
   align-items: center;

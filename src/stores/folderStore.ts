@@ -23,17 +23,27 @@ import {
   updateFolder,
   updateFolderMemberRole,
   updateFolderPublicDownloads,
+  createFolderEdit,
+  deleteFolderEdit,
+  duplicateFolderEdit,
+  getFolderEdit,
+  listFolderEdits,
+  renderFolderEdit,
+  updateFolderEdit,
 } from "../services/api.folders";
 import type {
+  CreateFolderEditBody,
   CreateFolderInviteBody,
   Folder,
   FolderDetail,
+  FolderEdit,
   FolderInvite,
   FolderMember,
   FolderMemberRole,
   FolderPermissions,
   FolderPublicShare,
   SocialUser,
+  UpdateFolderEditBody,
 } from "../services/social-types";
 import { useAuthStore } from "./authStore";
 import { useToastStore } from "./toastStore";
@@ -81,6 +91,15 @@ interface FolderState {
   disablePublicLink: (folderId: string) => Promise<void>;
   regeneratePublicLink: (folderId: string) => Promise<void>;
   setPublicDownloads: (folderId: string, allowDownloads: boolean) => Promise<void>;
+  editsByClip: Record<string, FolderEdit[]>;
+  editsLoading: boolean;
+  loadEdits: (folderId: string, clipId: string) => Promise<FolderEdit[]>;
+  createEdit: (folderId: string, clipId: string, payload?: CreateFolderEditBody) => Promise<FolderEdit | null>;
+  saveEdit: (folderId: string, clipId: string, editId: string, payload: UpdateFolderEditBody) => Promise<FolderEdit | null>;
+  getEdit: (folderId: string, clipId: string, editId: string) => Promise<FolderEdit | null>;
+  removeEdit: (folderId: string, clipId: string, editId: string) => Promise<void>;
+  duplicateEdit: (folderId: string, clipId: string, editId: string) => Promise<FolderEdit | null>;
+  attachRender: (folderId: string, clipId: string, editId: string, renderedClipId: string) => Promise<FolderEdit | null>;
 }
 
 const emptyShare = (): FolderShareState => ({
@@ -105,6 +124,8 @@ export const useFolderStore = create<FolderState>((set, get) => ({
   loading: false,
   detailLoading: false,
   shareLoading: false,
+  editsByClip: {},
+  editsLoading: false,
   error: null,
   initialize: async () => {
     await get().refresh();
@@ -449,6 +470,117 @@ export const useFolderStore = create<FolderState>((set, get) => ({
       useToastStore.getState().show("Public link regenerated.");
     } catch (caught) {
       useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not regenerate that link.");
+    }
+  },
+  loadEdits: async (folderId, clipId) => {
+    const access = token();
+    if (!access) return [];
+    set({ editsLoading: true });
+    try {
+      const edits = await listFolderEdits(access, folderId, clipId);
+      set({
+        editsByClip: { ...get().editsByClip, [clipId]: edits },
+        editsLoading: false,
+      });
+      return edits;
+    } catch (caught) {
+      set({ editsLoading: false });
+      useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not load folder edits.");
+      return [];
+    }
+  },
+  createEdit: async (folderId, clipId, payload) => {
+    const access = token();
+    if (!access) return null;
+    try {
+      const edit = await createFolderEdit(access, folderId, clipId, payload);
+      set({
+        editsByClip: {
+          ...get().editsByClip,
+          [clipId]: [edit, ...(get().editsByClip[clipId] ?? []).filter((item) => item.id !== edit.id)],
+        },
+      });
+      return edit;
+    } catch (caught) {
+      useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not create that edit.");
+      return null;
+    }
+  },
+  saveEdit: async (folderId, clipId, editId, payload) => {
+    const access = token();
+    if (!access) return null;
+    try {
+      const edit = await updateFolderEdit(access, folderId, clipId, editId, payload);
+      set({
+        editsByClip: {
+          ...get().editsByClip,
+          [clipId]: (get().editsByClip[clipId] ?? []).map((item) => (item.id === editId ? edit : item)),
+        },
+      });
+      return edit;
+    } catch (caught) {
+      useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not save that edit.");
+      return null;
+    }
+  },
+  getEdit: async (folderId, clipId, editId) => {
+    const access = token();
+    if (!access) return null;
+    try {
+      return await getFolderEdit(access, folderId, clipId, editId);
+    } catch (caught) {
+      useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not load that edit.");
+      return null;
+    }
+  },
+  removeEdit: async (folderId, clipId, editId) => {
+    const access = token();
+    if (!access) return;
+    try {
+      await deleteFolderEdit(access, folderId, clipId, editId);
+      set({
+        editsByClip: {
+          ...get().editsByClip,
+          [clipId]: (get().editsByClip[clipId] ?? []).filter((item) => item.id !== editId),
+        },
+      });
+    } catch (caught) {
+      useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not delete that edit.");
+    }
+  },
+  duplicateEdit: async (folderId, clipId, editId) => {
+    const access = token();
+    if (!access) return null;
+    try {
+      const edit = await duplicateFolderEdit(access, folderId, clipId, editId);
+      set({
+        editsByClip: {
+          ...get().editsByClip,
+          [clipId]: [edit, ...(get().editsByClip[clipId] ?? [])],
+        },
+      });
+      return edit;
+    } catch (caught) {
+      useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not duplicate that edit.");
+      return null;
+    }
+  },
+  attachRender: async (folderId, clipId, editId, renderedClipId) => {
+    const access = token();
+    if (!access) return null;
+    try {
+      const edit = await renderFolderEdit(access, folderId, clipId, editId, { clipId: renderedClipId });
+      set({
+        editsByClip: {
+          ...get().editsByClip,
+          [clipId]: (get().editsByClip[clipId] ?? []).map((item) => (item.id === editId ? edit : item)),
+        },
+      });
+      await get().open(folderId);
+      return edit;
+    } catch (caught) {
+      useToastStore.getState().show(caught instanceof Error ? caught.message : "Could not save that rendered copy.");
+      return null;
     }
   },
   setPublicDownloads: async (folderId, allowDownloads) => {

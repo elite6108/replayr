@@ -376,6 +376,14 @@ async function changeMemberRole(request: Request, env: Env, folderId: string, us
   );
   const updated = rows[0] ?? { ...member, role: next };
   const people = await loadProfileCards(env, [updated.user_id, updated.invited_by].filter((id): id is string => Boolean(id)));
+  const { logFolderActivity } = await import("./folderActivity");
+  void logFolderActivity(env, {
+    folderId,
+    actorId: user.id,
+    kind: "member_role_changed",
+    entityId: userId,
+    metadata: { role: next },
+  });
   return json({ member: presentMember(updated, people, access.role) });
 }
 
@@ -449,6 +457,13 @@ async function transferFolderOwnership(request: Request, env: Env, folderId: str
   const folder = folders[0];
   if (!folder) throw new HttpError(404, "That folder was not found.");
   const memberships = await loadFolderClipRows(env, [folderId]);
+  const { logFolderActivity } = await import("./folderActivity");
+  void logFolderActivity(env, {
+    folderId,
+    actorId: user.id,
+    kind: "ownership_transferred",
+    entityId: target.id,
+  });
   return json({ folder: await presentFolderDetail(env, folder, "manager", memberships) });
 }
 

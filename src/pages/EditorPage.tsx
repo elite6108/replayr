@@ -12,8 +12,11 @@ import {
   setClipSourceLayout,
   shareLocalClip,
 } from "../services/tauri";
+import type { FolderEditDocument } from "../services/social-types";
 import { useAuthStore } from "../stores/authStore";
 import { useCloudStore } from "../stores/cloudStore";
+import { useEditorContextStore } from "../stores/editorContextStore";
+import { useFolderStore } from "../stores/folderStore";
 import { useLibraryStore } from "../stores/libraryStore";
 import { useToastStore } from "../stores/toastStore";
 import type { ClipSourceLayout, CloudClip, LocalClip } from "../types/clip";
@@ -133,8 +136,17 @@ function panFromClientX(clientX: number, rect: DOMRect, windowPct: number): numb
   return clampPan(x / max);
 }
 
+function documentFromEditor(startMs: number, endMs: number, pan: number, webcam: ClipSourceLayout): FolderEditDocument {
+  return {
+    version: 1,
+    trim: { startMs: asMs(startMs), endMs: asMs(endMs) },
+    composition: { cropX: clampPan(pan), webcam },
+    webcam,
+  };
+}
+
 export function EditorPage() {
-  const { clipId } = useParams();
+  const { clipId, folderId, editId } = useParams();
   const navigate = useNavigate();
   const clips = useLibraryStore((state) => state.clips);
   const loaded = useLibraryStore((state) => state.loaded);
@@ -146,11 +158,55 @@ export function EditorPage() {
   const download = useLibraryStore((state) => state.download);
   const refresh = useLibraryStore((state) => state.refresh);
   const user = useAuthStore((state) => state.user);
+  const editorContext = useEditorContextStore((state) => state.context);
+  const setPersonal = useEditorContextStore((state) => state.setPersonal);
+  const patchFolderEdit = useEditorContextStore((state) => state.patchFolderEdit);
+  const setFolderEdit = useEditorContextStore((state) => state.setFolderEdit);
+  const saveFolderEdit = useFolderStore((state) => state.saveEdit);
+  const getFolderEdit = useFolderStore((state) => state.getEdit);
+  const attachRender = useFolderStore((state) => state.attachRender);
+  const playFolderClip = useFolderStore((state) => state.playClip);
+  const openFolder = useFolderStore((state) => state.open);
+  const activeFolder = useFolderStore((state) => state.activeFolder);
   const cloudClips = useCloudStore((state) => state.clips);
   const setVisibility = useCloudStore((state) => state.setVisibility);
   const showToast = useToastStore((state) => state.show);
 
-  const source = clips.find((item) => item.localId === clipId) ?? null;
+  const folderSession =
+    editorContext.kind === "folderEdit" && editorContext.folderId === folderId && editorContext.editId === editId
+      ? editorContext
+      : null;
+  const localSource = clipId
+    ? clips.find((item) => item.localId === clipId) ?? null
+    : folderSession
+      ? clips.find((item) => item.localId === folderSession.localId || item.cloudClipId === folderSession.sourceClipId) ??
+        null
+      : null;
+  const source =
+    localSource ??
+    (folderSession
+      ? ({
+          localId: `folder:${folderSession.editId}`,
+          cloudClipId: folderSession.sourceClipId,
+          filePath: folderSession.playbackUrl,
+          thumbnailPath: null,
+          gameId: null,
+          createdAt: new Date().toISOString(),
+          durationMs: folderSession.editData.trim?.endMs ?? null,
+          width: null,
+          height: null,
+          fps: null,
+          fileSize: null,
+          uploadStatus: "local",
+          favorite: false,
+          title: folderSession.sourceTitle,
+          description: null,
+          sourceClipId: folderSession.sourceClipId,
+          sourceStartMs: folderSession.editData.trim?.startMs ?? null,
+          sourceEndMs: folderSession.editData.trim?.endMs ?? null,
+          editorCropX: folderSession.editData.composition?.cropX,
+        } satisfies LocalClip)
+      : null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const webcamRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -231,11 +287,62 @@ export function EditorPage() {
   }, [closePlayer]);
 
   useEffect(() => {
+    if (!folderId || !editId) {
+      if (editorContext.kind === "folderEdit") setPersonal();
+      return;
+    }
+    if (folderSession) return;
+    let cancelled = false;
+    void (async () => {
+      const folder = activeFolder?.id === folderId ? activeFolder : (await openFolder(folderId), useFolderStore.getState().activeFolder);
+      let foundClipId: string | undefined;
+      if (folder) {
+        foundClipId = folder.clips.find((item) =>
+          (useFolderStore.getState().editsByClip[item.id] ?? []).some((edit) => edit.id === editId),
+        )?.id;
+        if (!foundClipId) {
+          for (const item of folder.clips) {
+            const loadedEdits = await useFolderStore.getState().loadEdits(folderId, item.id);
+            if (cancelled) return;
+            if (loadedEdits.some((edit) => edit.id === editId)) {
+              foundClipId = item.id;
+              break;
+            }
+          }
+        }
+      }
+      if (!foundClipId || cancelled) return;
+      const edit = await getFolderEdit(folderId, foundClipId, editId);
+      const playbackUrl = await playFolderClip(folderId, foundClipId);
+      const nextFolder = useFolderStore.getState().activeFolder;
+      if (!edit || !playbackUrl || !nextFolder || cancelled) return;
+      setFolderEdit({
+        kind: "folderEdit",
+        folderId,
+        folderName: nextFolder.name,
+        sourceClipId: foundClipId,
+        sourceTitle: nextFolder.clips.find((item) => item.id === foundClipId)?.title || "Untitled clip",
+        editId: edit.id,
+        editName: edit.name,
+        revision: edit.revision,
+        permissions: nextFolder.permissions,
+        playbackUrl,
+        localId: clips.find((item) => item.cloudClipId === foundClipId)?.localId ?? null,
+        editData: edit.editData,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeFolder, clips, editId, editorContext.kind, folderId, folderSession, getFolderEdit, openFolder, playFolderClip, setFolderEdit, setPersonal]);
+
+  useEffect(() => {
     if (!loaded) return;
+    if (folderId && editId) return;
     if (!source || !isVideoPath(source.filePath)) {
       navigate("/library", { replace: true });
     }
-  }, [loaded, source, navigate]);
+  }, [editId, folderId, loaded, source, navigate]);
 
   useEffect(() => {
     if (!source) return;
@@ -258,11 +365,34 @@ export function EditorPage() {
       video.currentTime = 0;
     }
     webcamRef.current?.pause();
-    setWebcamLayout(parseSourceLayout(clipWebcamSource(source)?.layoutJson));
-  }, [source?.localId]);
+    const stored = folderSession?.editData;
+    if (stored?.trim) {
+      const next = clampRange(stored.trim.startMs, stored.trim.endMs || duration, duration);
+      setStartMs(next.startMs);
+      setEndMs(next.endMs);
+      setStartText(formatClock(next.startMs, true));
+      setEndText(formatClock(next.endMs, true));
+      setPan(clampPan(stored.composition?.cropX ?? source.editorCropX ?? 0.5));
+    }
+    const webcam = stored?.webcam ?? stored?.composition?.webcam;
+    setWebcamLayout(
+      webcam
+        ? {
+            placement: (webcam.placement as ClipSourceLayout["placement"]) ?? "bottom-right",
+            shape: (webcam.shape as ClipSourceLayout["shape"]) ?? "rounded",
+            width: webcam.width ?? 0.22,
+            x: webcam.x,
+            y: webcam.y,
+          }
+        : parseSourceLayout(clipWebcamSource(source)?.layoutJson),
+    );
+  }, [source?.localId, folderSession?.editId]);
 
   useEffect(() => {
-    if (!source) return;
+    if (!source || (folderSession && !localSource)) {
+      setStripFrames([]);
+      return;
+    }
     let cancelled = false;
     setStripFrames([]);
     void (async () => {
@@ -272,7 +402,7 @@ export function EditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [source?.localId]);
+  }, [folderSession, localSource, source?.localId]);
 
   const applyRange = useCallback(
     (nextStart: number, nextEnd: number) => {
@@ -311,21 +441,23 @@ export function EditorPage() {
     (next: number) => {
       if (!source) return;
       const clamped = clampPan(next);
-      const previous = pan;
       setPan(clamped);
+      if (folderSession) return;
+      const previous = pan;
       void setClipEditorCrop(source.localId, clamped).catch((caught) => {
         setPan(previous);
         showToast(invokeErrorMessage(caught, "Could not save crop"));
       });
     },
-    [source?.localId, pan, showToast],
+    [folderSession, source?.localId, pan, showToast],
   );
 
   const persistWebcamLayout = useCallback(
     (next: ClipSourceLayout) => {
-      if (!source || !webcamSource) return;
-      const previous = webcamLayout;
+      if (!source) return;
       setWebcamLayout(next);
+      if (folderSession || !webcamSource) return;
+      const previous = webcamLayout;
       void setClipSourceLayout(source.localId, webcamSource.sourceInstanceId, next)
         .then((clip) => {
           useLibraryStore.setState({
@@ -337,7 +469,7 @@ export function EditorPage() {
           showToast(invokeErrorMessage(caught, "Could not save webcam layout"));
         });
     },
-    [source?.localId, webcamSource?.sourceInstanceId, webcamLayout, showToast],
+    [folderSession, source?.localId, webcamSource?.sourceInstanceId, webcamLayout, showToast],
   );
 
   useEffect(() => {
@@ -446,7 +578,11 @@ export function EditorPage() {
   const startPct = durationMs > 0 ? (startMs / durationMs) * 100 : 0;
   const endPct = durationMs > 0 ? (endMs / durationMs) * 100 : 100;
   const playheadPct = durationMs > 0 ? (playheadMs / durationMs) * 100 : 0;
-  const canSave = Boolean(source) && selectedMs >= MIN_TRIM_MS && !saving;
+  const canSave =
+    Boolean(source) &&
+    selectedMs >= MIN_TRIM_MS &&
+    !saving &&
+    (!folderSession || folderSession.permissions.modifyEdits);
   const longShort = selectedMs > SHORTS_WARN_MS;
 
   function togglePlay() {
@@ -491,6 +627,26 @@ export function EditorPage() {
 
   async function saveClip(kind: SaveKind, share: boolean) {
     if (!source || saving) return;
+    if (folderSession) {
+      if (!folderSession.permissions.modifyEdits) {
+        showToast("You do not have permission to edit this folder version.");
+        return;
+      }
+      setSavingKind(kind);
+      try {
+        const savedEdit = await saveFolderEdit(folderSession.folderId, folderSession.sourceClipId, folderSession.editId, {
+          expectedRevision: folderSession.revision,
+          editData: documentFromEditor(startMs, endMs, pan, webcamLayout),
+        });
+        if (savedEdit) {
+          patchFolderEdit({ revision: savedEdit.revision, editData: savedEdit.editData, editName: savedEdit.name });
+          showToast("Folder edit saved. The original clip was not changed.");
+        }
+      } finally {
+        setSavingKind(null);
+      }
+      return;
+    }
     setSavingKind(kind);
     try {
       const next =
@@ -554,7 +710,40 @@ export function EditorPage() {
     }
   }
 
-  const media = useMemo(() => (source ? convertFileSrc(source.filePath) : ""), [source]);
+  async function saveEditedCopy() {
+    if (!folderSession || !localSource || saving) return;
+    setSavingKind("trim");
+    try {
+      const next = await saveTrimmedClip(localSource.localId, asMs(startMs), asMs(endMs), folderSession.editName);
+      await refresh();
+      await ensureCloudUpload(next.localId);
+      let cloudId: string | null = null;
+      for (let attempt = 0; attempt < 40 && !cloudId; attempt += 1) {
+        const uploaded = useLibraryStore.getState().clips.find((item) => item.localId === next.localId);
+        if (uploaded?.cloudClipId && uploaded.uploadStatus === "completed") {
+          cloudId = uploaded.cloudClipId;
+          break;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+      }
+      if (!cloudId) {
+        showToast("Saved a local copy. Upload it to attach a rendered copy to the folder.");
+        return;
+      }
+      await attachRender(folderSession.folderId, folderSession.sourceClipId, folderSession.editId, cloudId);
+      showToast("Rendered copy added to the folder. The original is unchanged.");
+    } catch (caught) {
+      showToast(invokeErrorMessage(caught, "Could not save that edited copy"));
+    } finally {
+      setSavingKind(null);
+    }
+  }
+
+  const media = useMemo(() => {
+    if (!source) return "";
+    if (source.filePath.startsWith("http://") || source.filePath.startsWith("https://")) return source.filePath;
+    return convertFileSrc(source.filePath);
+  }, [source]);
 
   if (!source) {
     return <p className="muted">Loading clip…</p>;
@@ -569,8 +758,20 @@ export function EditorPage() {
           : undefined
       }
     >
-      <PageHeader title={source.title || "Untitled clip"} subtitle="Trim a new local MP4. The original file stays unchanged.">
-        <Link className="btn" to="/library" onClick={() => closePlayer()}>
+      <PageHeader
+        title={folderSession ? folderSession.editName : source.title || "Untitled clip"}
+        subtitle={
+          folderSession
+            ? `${folderSession.folderName} / ${folderSession.sourceTitle} · Shared Edit · the clean original is not overwritten`
+            : "Trim a new local MP4. The original file stays unchanged."
+        }
+      >
+        {folderSession ? <span className="badge editor-shared-badge">Shared Edit</span> : null}
+        <Link
+          className="btn"
+          to={folderSession ? `/library/folders/${folderSession.folderId}` : "/library"}
+          onClick={() => closePlayer()}
+        >
           Back
         </Link>
       </PageHeader>
@@ -864,9 +1065,22 @@ export function EditorPage() {
           disabled={!canSave}
           onClick={() => void saveClip(shortsMode ? "short" : "trim", false)}
         >
-          {saving ? (shortsMode ? "Saving Short…" : "Saving…") : "Save as New Clip"}
+          {saving
+            ? folderSession
+              ? "Saving…"
+              : shortsMode
+                ? "Saving Short…"
+                : "Saving…"
+            : folderSession
+              ? "Save Folder Edit"
+              : "Save as New Clip"}
         </button>
-        <button
+        {folderSession && localSource ? (
+          <button type="button" className="btn" disabled={!canSave || !folderSession.permissions.renderEdits} onClick={() => void saveEditedCopy()}>
+            Save Edited Copy
+          </button>
+        ) : null}
+        {folderSession ? null : <button
           type="button"
           className={`btn editor-short-btn ${shortsMode ? "on" : "primary"}`}
           disabled={shortsMode}
@@ -879,7 +1093,7 @@ export function EditorPage() {
             <IconYoutube className="logo-youtube" />
           </span>
           Save as Short
-        </button>
+        </button>}
       </div>
       {shortsMode ? (
         <p className="muted editor-hint editor-short-hint">

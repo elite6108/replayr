@@ -4,6 +4,7 @@ import { AuthCard } from "../components/common/AuthCard";
 import { ClipGrid } from "../components/common/ClipGrid";
 import { PageHeader } from "../components/common/PageHeader";
 import { AddClipsSheet } from "../components/library/AddClipsSheet";
+import { FolderEditsSheet } from "../components/library/FolderEditsSheet";
 import { FolderShareSheet } from "../components/library/FolderShareSheet";
 import { LibraryTabs } from "../components/library/LibraryTabs";
 import { folderAccessLabel, folderRoleLabel } from "../services/api.folders";
@@ -48,6 +49,7 @@ export function FolderPage() {
   const playRemote = useCloudStore((state) => state.playRemote);
   const [adding, setAdding] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [editingClip, setEditingClip] = useState<FolderClip | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -204,8 +206,14 @@ export function FolderPage() {
                     </button>
                     <div className="clip-meta">
                       <strong>{clip.title || "Untitled clip"}</strong>
-                      {permissions?.removeClips ? (
-                        <div className="row">
+                      <span className="badge">{clip.kind === "render" ? "Rendered Copy" : "Original"}</span>
+                      <div className="row">
+                        {permissions?.viewEdits ? (
+                          <button type="button" className="btn sm" onClick={() => setEditingClip(clip)}>
+                            {permissions.createEdits ? "Open in Editor" : "View Edits"}
+                          </button>
+                        ) : null}
+                        {permissions?.removeClips ? (
                           <button
                             type="button"
                             className="btn sm"
@@ -221,8 +229,8 @@ export function FolderPage() {
                           >
                             Remove from folder
                           </button>
-                        </div>
-                      ) : null}
+                        ) : null}
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -239,6 +247,14 @@ export function FolderPage() {
         />
       ) : null}
       {sharing && folder ? <FolderShareSheet folderId={folder.id} onClose={() => setSharing(false)} /> : null}
+      {editingClip && folder ? (
+        <FolderEditsSheet
+          folderId={folder.id}
+          folderName={folder.name}
+          clip={editingClip}
+          onClose={() => setEditingClip(null)}
+        />
+      ) : null}
     </>
   );
 }

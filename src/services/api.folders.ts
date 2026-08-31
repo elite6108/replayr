@@ -21,6 +21,12 @@ import type {
   TransferFolderOwnershipBody,
   UpdateFolderBody,
   UpdateFolderMemberBody,
+  CreateFolderEditBody,
+  FolderEdit,
+  FolderEditResponse,
+  FolderEditsResponse,
+  RenderFolderEditBody,
+  UpdateFolderEditBody,
 } from "./social-types";
 
 function authHeaders(accessToken: string, asJson = false): HeadersInit {
@@ -248,6 +254,101 @@ export async function updateFolderPublicDownloads(
   });
   const body = await readApiJson<FolderPublicLinkResponse>(response, "Could not update download access.");
   return body.publicShare;
+}
+
+export async function listFolderEdits(accessToken: string, folderId: string, clipId: string): Promise<FolderEdit[]> {
+  const response = await fetch(`${publicApiUrl()}/v1/folders/${folderId}/clips/${clipId}/edits`, {
+    headers: authHeaders(accessToken),
+  });
+  const body = await readApiJson<FolderEditsResponse>(response, "Could not load folder edits.");
+  return body.edits ?? [];
+}
+
+export async function createFolderEdit(
+  accessToken: string,
+  folderId: string,
+  clipId: string,
+  payload: CreateFolderEditBody = {},
+): Promise<FolderEdit> {
+  const response = await fetch(`${publicApiUrl()}/v1/folders/${folderId}/clips/${clipId}/edits`, {
+    method: "POST",
+    headers: authHeaders(accessToken, true),
+    body: JSON.stringify(payload),
+  });
+  const body = await readApiJson<FolderEditResponse>(response, "Could not create that edit.");
+  return body.edit;
+}
+
+export async function getFolderEdit(
+  accessToken: string,
+  folderId: string,
+  clipId: string,
+  editId: string,
+): Promise<FolderEdit> {
+  const response = await fetch(`${publicApiUrl()}/v1/folders/${folderId}/clips/${clipId}/edits/${editId}`, {
+    headers: authHeaders(accessToken),
+  });
+  const body = await readApiJson<FolderEditResponse>(response, "Could not load that edit.");
+  return body.edit;
+}
+
+export async function updateFolderEdit(
+  accessToken: string,
+  folderId: string,
+  clipId: string,
+  editId: string,
+  payload: UpdateFolderEditBody,
+): Promise<FolderEdit> {
+  const response = await fetch(`${publicApiUrl()}/v1/folders/${folderId}/clips/${clipId}/edits/${editId}`, {
+    method: "PATCH",
+    headers: authHeaders(accessToken, true),
+    body: JSON.stringify(payload),
+  });
+  const body = await readApiJson<FolderEditResponse>(response, "Could not save that edit.");
+  return body.edit;
+}
+
+export async function deleteFolderEdit(
+  accessToken: string,
+  folderId: string,
+  clipId: string,
+  editId: string,
+): Promise<void> {
+  const response = await fetch(`${publicApiUrl()}/v1/folders/${folderId}/clips/${clipId}/edits/${editId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken),
+  });
+  await readApiJson<{ ok?: boolean }>(response, "Could not delete that edit.");
+}
+
+export async function duplicateFolderEdit(
+  accessToken: string,
+  folderId: string,
+  clipId: string,
+  editId: string,
+): Promise<FolderEdit> {
+  const response = await fetch(`${publicApiUrl()}/v1/folders/${folderId}/clips/${clipId}/edits/${editId}/duplicate`, {
+    method: "POST",
+    headers: authHeaders(accessToken),
+  });
+  const body = await readApiJson<FolderEditResponse>(response, "Could not duplicate that edit.");
+  return body.edit;
+}
+
+export async function renderFolderEdit(
+  accessToken: string,
+  folderId: string,
+  clipId: string,
+  editId: string,
+  payload: RenderFolderEditBody,
+): Promise<FolderEdit> {
+  const response = await fetch(`${publicApiUrl()}/v1/folders/${folderId}/clips/${clipId}/edits/${editId}/render`, {
+    method: "POST",
+    headers: authHeaders(accessToken, true),
+    body: JSON.stringify(payload),
+  });
+  const body = await readApiJson<FolderEditResponse>(response, "Could not save that rendered copy.");
+  return body.edit;
 }
 
 export function folderAccessLabel(folder: { visibility: string; publicShare?: { enabled?: boolean } | null; membersPreview?: unknown[] }): "Public" | "Shared" | "Private" {

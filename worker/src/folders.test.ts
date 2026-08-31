@@ -11,6 +11,7 @@ import {
   permissionsFromRole,
   PUBLIC_FOLDER_TOKEN,
 } from "./folders";
+import { canDeleteFolderEdit, sanitizeEditDocument, sanitizeEditName } from "./folderEdits";
 
 describe("permissionsFromRole", () => {
   it("gives the owner every permission", () => {
@@ -105,6 +106,35 @@ describe("folder ownership transfer", () => {
 
   it("blocks the owner from leaving until they transfer or delete", () => {
     expect(OWNER_LEAVE_MESSAGE).toBe("You must transfer ownership or delete the folder before leaving.");
+  });
+});
+
+describe("folder collaborative edits", () => {
+  it("lets owner and manager manage any edit, and editors manage their own deletes", () => {
+    const owner = permissionsFromRole("owner", true);
+    const manager = permissionsFromRole("manager", true);
+    const editor = permissionsFromRole("editor", true);
+    const viewer = permissionsFromRole("viewer", true);
+    expect(owner.createEdits && owner.modifyEdits && owner.deleteAnyEdits && owner.renderEdits).toBe(true);
+    expect(manager.createEdits && manager.deleteAnyEdits).toBe(true);
+    expect(editor.createEdits && editor.modifyEdits && editor.renderEdits).toBe(true);
+    expect(editor.deleteAnyEdits).toBe(false);
+    expect(canDeleteFolderEdit(editor, "author", "author")).toBe(true);
+    expect(canDeleteFolderEdit(editor, "author", "other")).toBe(false);
+    expect(canDeleteFolderEdit(owner, "author", "other")).toBe(true);
+    expect(viewer.viewEdits).toBe(true);
+    expect(viewer.createEdits || viewer.modifyEdits || viewer.renderEdits).toBe(false);
+    expect(permissionsFromRole("public", true).viewEdits).toBe(false);
+  });
+
+  it("sanitizes edit names and keeps documents versioned", () => {
+    expect(sanitizeEditName("  Police Bodycam  ")).toBe("Police Bodycam");
+    expect(() => sanitizeEditName("")).toThrow();
+    expect(sanitizeEditDocument({ version: 1, trim: { startMs: 12.2, endMs: 4000 }, extra: "nope" })).toEqual({
+      version: 1,
+      trim: { startMs: 12, endMs: 4000 },
+    });
+    expect(() => sanitizeEditDocument({ version: 2 })).toThrow();
   });
 });
 

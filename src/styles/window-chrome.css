@@ -1,0 +1,45 @@
+.window-controls {
+  display: flex;
+  align-self: stretch;
+  flex: 0 0 auto;
+  height: 100%;
+}
+
+.window-ctrl {
+  width: 46px;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.window-ctrl svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.window-ctrl:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.window-ctrl.close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+.titlebar-slim .window-controls {
+  margin-right: 0;
+}
+
+.titlebar-slim {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  height: var(--topbar);
+  background: #08090d;
+  border-bottom: 1px solid var(--border);
+}

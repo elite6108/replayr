@@ -1,7 +1,7 @@
 {
   "name": "project-replay",
   "private": true,
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "Project Replay desktop application",
   "type": "module",
   "scripts": {

@@ -60,13 +60,14 @@ export const useCloudStore = create<CloudState>((set, get) => ({
   },
   refresh: async () => {
     const user = useAuthStore.getState().user;
-    if (!user) {
+    const token = useAuthStore.getState().session?.access_token;
+    if (!user || !token) {
       set({ clips: [], loading: false, error: null, playing: null });
       return;
     }
     set({ loading: true, error: null });
     try {
-      const clips = await fetchOwnClips(user.id);
+      const clips = await fetchOwnClips(token);
       set({ clips, loading: false, error: null });
       await reconcileDeletedCloudClips();
     } catch (caught) {

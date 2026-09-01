@@ -1,12 +1,10 @@
 import { NavLink } from "react-router-dom";
 import type { ComponentType, SVGProps } from "react";
-import { APP_NAME } from "../../branding";
 import { useAuthStore } from "../../stores/authStore";
 import { useBillingStore } from "../../stores/billingStore";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { useRecordingStore } from "../../stores/recordingStore";
-import logoMark from "../../assets/replayr-mark.png";
 import { IconAdmin, IconExplore, IconFriends, IconGames, IconHome, IconLibrary, IconMessages, IconProfile, IconRecord, IconSettings } from "../icons";
 import { isAdminUser } from "../../utils/admin";
 import { formatBytes } from "../../utils/format";
@@ -40,9 +38,6 @@ export function NavRail() {
 
   return (
     <nav className="nav-rail" aria-label="Primary">
-      <div className="nav-brand" title={APP_NAME}>
-        <img src={logoMark} alt={APP_NAME} width={36} height={36} />
-      </div>
       {items.map((item) => {
         const Glyph = item.icon;
         return (

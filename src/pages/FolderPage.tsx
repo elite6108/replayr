@@ -28,6 +28,8 @@ function toCloudClip(clip: FolderClip): CloudClip {
     height: null,
     fileSizeBytes: null,
     createdAt: clip.createdAt,
+    thumbnailUrl: clip.thumbnailUrl,
+    playbackUrl: null,
   };
 }
 

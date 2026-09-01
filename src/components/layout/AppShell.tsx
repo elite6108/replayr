@@ -35,9 +35,9 @@ export function AppShell() {
   return (
     <div className="app-shell">
       <TrayNavigation />
+      <TopBar />
       <NavRail />
       <div className="workspace">
-        <TopBar />
         <AnnouncementHost />
         <main className="page">
           <Outlet />

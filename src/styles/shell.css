@@ -1,9 +1,25 @@
 .app-shell {
   display: grid;
   grid-template-columns: var(--rail) 1fr;
+  grid-template-rows: var(--topbar) 1fr;
   height: 100%;
   overflow: hidden;
   background: var(--bg);
+}
+
+.app-shell .topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.app-shell .nav-rail {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.app-shell .workspace {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .workspace {
@@ -11,7 +27,7 @@
   min-height: 0;
   overflow: visible;
   display: grid;
-  grid-template-rows: var(--topbar) auto 1fr;
+  grid-template-rows: auto 1fr;
   background:
     radial-gradient(900px 380px at 12% -20%, rgba(127, 208, 239, 0.1), transparent 55%),
     radial-gradient(700px 280px at 90% 0%, rgba(111, 208, 138, 0.04), transparent 45%),

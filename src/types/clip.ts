@@ -21,6 +21,8 @@ export interface CloudClip {
   height: number | null;
   fileSizeBytes: number | null;
   createdAt: string;
+  thumbnailUrl: string | null;
+  playbackUrl: string | null;
 }
 
 export interface LocalClip {

@@ -5,7 +5,7 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding: 10px 8px 12px;
+  padding: 8px 8px 12px;
   border-right: 1px solid var(--border);
   background: #08090d;
   user-select: none;

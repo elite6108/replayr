@@ -1,8 +1,34 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { useState } from "react";
 import type { CloudClip } from "../../types/clip";
+import { useLibraryStore } from "../../stores/libraryStore";
 import { IconCloud, IconPlay } from "../icons";
 import { formatBytes, formatClipDate, formatDuration } from "../../utils/format";
 import { ContextMenu } from "./ContextMenu";
+
+function CloudThumb({ clip }: { clip: CloudClip }) {
+  const localThumb = useLibraryStore((state) => {
+    const local = state.clips.find((item) => item.cloudClipId === clip.id);
+    return local?.thumbnailPath ? convertFileSrc(local.thumbnailPath) : null;
+  });
+  const [remoteFailed, setRemoteFailed] = useState(false);
+  const remote = !remoteFailed ? clip.thumbnailUrl : null;
+  const src = remote || localThumb;
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        onError={remote ? () => setRemoteFailed(true) : undefined}
+      />
+    );
+  }
+  if (clip.playbackUrl) {
+    return <video src={`${clip.playbackUrl}#t=0.8`} muted playsInline preload="metadata" tabIndex={-1} aria-hidden="true" />;
+  }
+  return <IconPlay size={22} />;
+}
 
 export function CloudClipCard({
   clip,
@@ -72,11 +98,21 @@ export function CloudClipCard({
         title={ready ? "Play clip" : "Clip is not ready"}
       >
         <div className="clip-thumb">
-          <IconPlay size={22} />
+          <CloudThumb clip={clip} />
+          <span className="clip-play" aria-hidden="true">
+            <span>
+              <IconPlay size={18} />
+            </span>
+          </span>
           {clip.durationMs ? <span className="clip-duration">{formatDuration(clip.durationMs)}</span> : null}
+          {(clip.width ?? 0) > 0 && (clip.height ?? 0) > (clip.width ?? 0) ? (
+            <span className="clip-aspect-badge" title="Vertical 9:16">
+              9:16
+            </span>
+          ) : null}
           <span className={`clip-cloud-badge ${ready ? "ready" : "busy"}`} title="In the cloud">
-            <IconCloud size={14} fill="currentColor" />
-            <span>Cloud</span>
+            <IconCloud size={14} fill={ready ? "currentColor" : "none"} />
+            <span>{ready ? "Cloud" : "Uploading"}</span>
           </span>
         </div>
       </button>

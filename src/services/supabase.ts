@@ -1,8 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { publicApiUrl } from "../branding";
 import { credentialStorage } from "./tauri";
 import type { CloudClip } from "../types/clip";
 import type { CloudGame } from "../types/game";
 import type { Profile, UserStorage } from "../types/profile";
+import { readApiJson } from "../utils/http";
 
 let client: SupabaseClient | null = null;
 
@@ -103,26 +105,36 @@ export async function fetchOwnClipStatuses(
   return statuses;
 }
 
-export async function fetchOwnClips(userId: string): Promise<CloudClip[]> {
-  const { data, error } = await getSupabase()
-    .from("clips")
-    .select("id, title, slug, status, visibility, duration_ms, width, height, file_size_bytes, created_at")
-    .eq("user_id", userId)
-    .neq("status", "deleted")
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    title: row.title,
-    slug: row.slug,
-    status: row.status,
-    visibility: row.visibility,
-    durationMs: row.duration_ms,
-    width: row.width,
-    height: row.height,
-    fileSizeBytes: row.file_size_bytes,
-    createdAt: row.created_at,
-  }));
+export async function fetchOwnClips(accessToken: string): Promise<CloudClip[]> {
+  const clips: CloudClip[] = [];
+  let page = 1;
+  const limit = 48;
+  let total = Number.POSITIVE_INFINITY;
+  while (clips.length < total) {
+    const response = await fetch(`${publicApiUrl()}/v1/library?page=${page}&limit=${limit}`, {
+      headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
+    });
+    const body = await readApiJson<{ clips?: CloudClip[]; total?: number }>(response, "Could not load cloud clips");
+    const batch = (body.clips ?? []).map((row) => ({
+      id: row.id,
+      title: row.title,
+      slug: row.slug,
+      status: row.status,
+      visibility: row.visibility,
+      durationMs: row.durationMs,
+      width: row.width,
+      height: row.height,
+      fileSizeBytes: row.fileSizeBytes,
+      createdAt: row.createdAt,
+      thumbnailUrl: row.thumbnailUrl ?? null,
+      playbackUrl: row.playbackUrl ?? null,
+    }));
+    clips.push(...batch);
+    total = Number(body.total) || clips.length;
+    if (batch.length < limit) break;
+    page += 1;
+  }
+  return clips;
 }
 
 export async function fetchGames(): Promise<CloudGame[]> {

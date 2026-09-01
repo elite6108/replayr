@@ -58,8 +58,9 @@ export function ClipPlayer() {
   const [wrapFullscreen, setWrapFullscreen] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
   const [playPath, setPlayPath] = useState<string | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
-  const preparedRef = useRef(false);
+  const recoverStage = useRef<"none" | "file" | "blob">("none");
   const gameplayRef = useRef<HTMLVideoElement>(null);
   const webcamRef = useRef<HTMLVideoElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -72,7 +73,11 @@ export function ClipPlayer() {
     setPlayError(null);
     setPlayPath(null);
     setPreparing(false);
-    preparedRef.current = false;
+    recoverStage.current = "none";
+    setBlobUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
   }, [clip?.localId, clip?.title]);
 
   useEffect(() => {
@@ -101,7 +106,7 @@ export function ClipPlayer() {
 
   const playbackFile = playPath ?? clip.filePath;
   const localId = clip.localId;
-  const media = convertFileSrc(playbackFile);
+  const media = blobUrl ?? convertFileSrc(playbackFile);
   const video = isVideoPath(clip.filePath);
   const webcamSource = clipWebcamSource(clip);
   const webcamMedia = webcamSource ? convertFileSrc(webcamSource.filePath) : "";
@@ -125,28 +130,50 @@ export function ClipPlayer() {
     }
   }
 
+  async function playAsMp4Blob(path: string) {
+    const response = await fetch(convertFileSrc(path));
+    if (!response.ok) {
+      throw new Error(`Could not read clip (${response.status})`);
+    }
+    const bytes = await response.arrayBuffer();
+    return URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
+  }
+
   async function recoverLocalPlay(videoEl: HTMLVideoElement) {
     const code = videoEl.error?.code ?? 0;
-    const canRemux = (code === 3 || code === 4) && !preparedRef.current && !preparing;
-    if (!canRemux) {
-      const message = localPlayErrorMessage(videoEl);
-      setPlayError(message);
-      useToastStore.getState().showSticky(message, [{ label: "Dismiss", onClick: () => undefined }]);
-      return;
-    }
-    preparedRef.current = true;
-    setPreparing(true);
-    setPlayError("Preparing clip for playback…");
-    try {
-      const next = await prepareLocalClipPlayback(localId);
-      if (next === playbackFile) {
+    if (preparing || (code !== 3 && code !== 4)) {
+      if (!preparing) {
         const message = localPlayErrorMessage(videoEl);
         setPlayError(message);
         useToastStore.getState().showSticky(message, [{ label: "Dismiss", onClick: () => undefined }]);
+      }
+      return;
+    }
+    setPreparing(true);
+    setPlayError("Preparing clip for playback…");
+    try {
+      if (recoverStage.current === "none") {
+        recoverStage.current = "file";
+        const next = await prepareLocalClipPlayback(localId);
+        if (next !== playbackFile) {
+          setPlayPath(next);
+          setPlayError(null);
+          return;
+        }
+      }
+      if (recoverStage.current !== "blob") {
+        recoverStage.current = "blob";
+        const url = await playAsMp4Blob(playPath ?? playbackFile);
+        setBlobUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+        setPlayError(null);
         return;
       }
-      setPlayPath(next);
-      setPlayError(null);
+      const message = localPlayErrorMessage(videoEl);
+      setPlayError(message);
+      useToastStore.getState().showSticky(message, [{ label: "Dismiss", onClick: () => undefined }]);
     } catch (caught) {
       const message = invokeErrorMessage(caught, localPlayErrorMessage(videoEl));
       setPlayError(message);
@@ -181,6 +208,7 @@ export function ClipPlayer() {
                 key={media}
                 ref={gameplayRef}
                 src={media}
+                type="video/mp4"
                 controls
                 autoPlay
                 controlsList={webcamMedia ? "nofullscreen" : undefined}

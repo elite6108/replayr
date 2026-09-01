@@ -612,14 +612,16 @@ fn sidecar_is_current(src: &Path, dest: &Path) -> bool {
     }
 }
 
-/// Copy-remux a local MP4 into a WebView-playable sidecar. Original file is unchanged.
+/// Copy-remux into AppData (always inside the asset scope). Original file is unchanged.
 pub fn prepare_playback(app: &AppHandle, local_id: &str) -> AppResult<String> {
     let db = app.state::<AppState>();
     let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
     let clip = get(&conn, local_id)?;
     drop(conn);
     crate::paths::assert_reveal_allowed(app, &clip.file_path)?;
+    crate::paths::allow_clip_asset_roots(app);
     let src = PathBuf::from(&clip.file_path);
+    crate::paths::allow_asset_file(app, &src);
     if !src
         .extension()
         .and_then(|ext| ext.to_str())
@@ -627,14 +629,27 @@ pub fn prepare_playback(app: &AppHandle, local_id: &str) -> AppResult<String> {
     {
         return Ok(clip.file_path);
     }
-    let dest = playback_sidecar_path(&src);
-    if dest == src {
-        return Ok(clip.file_path);
-    }
+    let dest = crate::paths::playback_cache_dir(app)?.join(format!("{local_id}.play.mp4"));
+    crate::paths::allow_asset_file(app, &dest);
     if sidecar_is_current(&src, &dest) {
         return Ok(dest.to_string_lossy().into_owned());
     }
-    crate::export::remux_composed_mp4(&src, &dest).map_err(AppError::Message)?;
+    #[cfg(windows)]
+    {
+        if let Err(err) = crate::export::remux_composed_mp4(&src, &dest) {
+            tracing::warn!(path = %src.display(), error = %err, "local playback remux failed; copying original");
+            std::fs::copy(&src, &dest).map_err(|copy_err| {
+                AppError::Message(format!("Could not prepare that clip for playback. {err} ({copy_err})"))
+            })?;
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::copy(&src, &dest).map_err(|err| {
+            AppError::Message(format!("Could not prepare that clip for playback. {err}"))
+        })?;
+    }
+    crate::paths::allow_asset_file(app, &dest);
     Ok(dest.to_string_lossy().into_owned())
 }
 

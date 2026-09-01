@@ -62,6 +62,48 @@ pub fn reveal_roots(app: &AppHandle) -> AppResult<Vec<PathBuf>> {
     Ok(roots)
 }
 
+/// Let WebView2 read clip folders that sit outside the bundled `$HOME/$VIDEO` asset scope
+/// (custom save drive, non-English Videos path). Runtime-only; not persisted.
+pub fn allow_clip_asset_roots(app: &AppHandle) {
+    let scope = app.asset_protocol_scope();
+    if let Ok(dir) = app.path().app_data_dir() {
+        let playback = dir.join("playback");
+        let _ = std::fs::create_dir_all(&playback);
+        let _ = scope.allow_directory(&dir, true);
+        let _ = scope.allow_directory(&playback, true);
+    }
+    if let Ok(dir) = app.path().video_dir() {
+        let _ = scope.allow_directory(&dir, true);
+        let _ = scope.allow_directory(dir.join("Project Replay"), true);
+    }
+    if let Ok(roots) = reveal_roots(app) {
+        for root in roots {
+            if root.as_os_str().is_empty() {
+                continue;
+            }
+            let _ = scope.allow_directory(&root, true);
+        }
+    }
+}
+
+pub fn playback_cache_dir(app: &AppHandle) -> AppResult<PathBuf> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| AppError::Message(err.to_string()))?
+        .join("playback");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+pub fn allow_asset_file(app: &AppHandle, path: &Path) {
+    let scope = app.asset_protocol_scope();
+    if let Some(parent) = path.parent() {
+        let _ = scope.allow_directory(parent, true);
+    }
+    let _ = scope.allow_file(path);
+}
+
 pub fn assert_reveal_allowed(app: &AppHandle, path: &str) -> AppResult<()> {
     let candidate = PathBuf::from(path);
     if !candidate.exists() {

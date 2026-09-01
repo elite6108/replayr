@@ -154,6 +154,7 @@ pub fn run() {
                     engine.configure(&settings.webcam);
                 }
             }
+            crate::paths::allow_clip_asset_roots(app.handle());
             system::setup_tray(app.handle()).map_err(|err| err.to_string())?;
             crate::overlay_notification::prepare(app.handle());
             crate::discord_presence::start(app.handle());

@@ -100,6 +100,10 @@ fn after_settings(
         app.state::<CameraEngine>().configure(&settings.webcam);
     }
 
+    if keys.iter().any(|key| key == "saveLocation") {
+        crate::paths::allow_clip_asset_roots(app);
+    }
+
     if capture_changed {
         let handle = app.clone();
         let snapshot = detection::current_snapshot(detection);

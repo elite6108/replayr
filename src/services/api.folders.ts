@@ -11,7 +11,6 @@ import type {
   FolderInvitesResponse,
   FolderMember,
   FolderMembersResponse,
-  FolderMemberRole,
   FolderPlaybackResponse,
   FolderPublicLinkResponse,
   FolderPublicShare,
@@ -22,12 +21,16 @@ import type {
   UpdateFolderBody,
   UpdateFolderMemberBody,
   CreateFolderEditBody,
+  FolderActivity,
+  FolderActivityResponse,
   FolderEdit,
   FolderEditResponse,
   FolderEditsResponse,
   RenderFolderEditBody,
   UpdateFolderEditBody,
 } from "./social-types";
+
+export { folderAccessLabel, folderRoleLabel, isFolderEditConflict, mergeFolderEditDocument } from "./social-types";
 
 function authHeaders(accessToken: string, asJson = false): HeadersInit {
   const headers: Record<string, string> = {
@@ -351,16 +354,10 @@ export async function renderFolderEdit(
   return body.edit;
 }
 
-export function folderAccessLabel(folder: { visibility: string; publicShare?: { enabled?: boolean } | null; membersPreview?: unknown[] }): "Public" | "Shared" | "Private" {
-  if (folder.visibility === "public_link" || folder.publicShare?.enabled) return "Public";
-  if ((folder.membersPreview?.length ?? 0) > 0) return "Shared";
-  return "Private";
-}
-
-export function folderRoleLabel(role: FolderMemberRole | "owner" | "public"): string {
-  if (role === "owner") return "Owner";
-  if (role === "manager") return "Manager";
-  if (role === "editor") return "Editor";
-  if (role === "viewer") return "Viewer";
-  return "Public";
+export async function listFolderActivity(accessToken: string, folderId: string): Promise<FolderActivity[]> {
+  const response = await fetch(`${publicApiUrl()}/v1/folders/${folderId}/activity`, {
+    headers: authHeaders(accessToken),
+  });
+  const body = await readApiJson<FolderActivityResponse>(response, "Could not load folder activity.");
+  return body.activities ?? [];
 }

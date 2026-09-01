@@ -2,8 +2,28 @@ import { readApiError, readApiJson } from "./http";
 import { apiUrl } from "./supabase";
 
 export type FriendshipStatus = "pending" | "accepted" | "blocked";
-export type Relationship = "none" | "outgoing" | "incoming" | "friends" | "blocked";
-export type NotificationKind = "friend_request" | "friend_accept" | "message" | "group_invite";
+export type FollowStatus = "pending" | "accepted";
+export type Relationship = "none" | "outgoing" | "incoming" | "friends" | "following" | "follower" | "blocked";
+export type NotificationKind =
+  | "friend_request"
+  | "friend_accept"
+  | "follow_request"
+  | "follow_accept"
+  | "message"
+  | "group_invite"
+  | "folder_invite"
+  | "folder_invite_accepted"
+  | "folder_role_changed"
+  | "folder_ownership_transferred";
+
+export type FollowState = {
+  viewerFollows: boolean;
+  viewerFollowPending: boolean;
+  followsViewer: boolean;
+  incomingPending: boolean;
+  mutual: boolean;
+  blocked: boolean;
+};
 
 export type SocialUser = {
   id: string;
@@ -88,6 +108,7 @@ export type UserProfileResponse = {
     clipCount: number;
     createdAt: string;
   };
+  follow?: FollowState;
   relationship: Relationship;
   isPrivate: boolean;
   locked: boolean;
@@ -104,6 +125,7 @@ export type NotificationItem = {
   friendshipId: string | null;
   conversationId: string | null;
   messageId: string | null;
+  folderId?: string | null;
 };
 
 export type NotificationsResponse = {

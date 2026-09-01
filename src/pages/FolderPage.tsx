@@ -4,6 +4,7 @@ import { AuthCard } from "../components/common/AuthCard";
 import { ClipGrid } from "../components/common/ClipGrid";
 import { PageHeader } from "../components/common/PageHeader";
 import { AddClipsSheet } from "../components/library/AddClipsSheet";
+import { FolderActivitySheet } from "../components/library/FolderActivitySheet";
 import { FolderEditsSheet } from "../components/library/FolderEditsSheet";
 import { FolderShareSheet } from "../components/library/FolderShareSheet";
 import { LibraryTabs } from "../components/library/LibraryTabs";
@@ -49,6 +50,7 @@ export function FolderPage() {
   const playRemote = useCloudStore((state) => state.playRemote);
   const [adding, setAdding] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [editingClip, setEditingClip] = useState<FolderClip | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState("");
@@ -162,6 +164,9 @@ export function FolderPage() {
               <button type="button" className="btn" onClick={() => setSharing(true)}>
                 Share
               </button>
+              <button type="button" className="btn" onClick={() => setActivityOpen(true)}>
+                Activity
+              </button>
               {permissions?.manageFolder ? (
                 <button
                   type="button"
@@ -247,6 +252,7 @@ export function FolderPage() {
         />
       ) : null}
       {sharing && folder ? <FolderShareSheet folderId={folder.id} onClose={() => setSharing(false)} /> : null}
+      {activityOpen && folder ? <FolderActivitySheet folderId={folder.id} onClose={() => setActivityOpen(false)} /> : null}
       {editingClip && folder ? (
         <FolderEditsSheet
           folderId={folder.id}

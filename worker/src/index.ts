@@ -1,4 +1,7 @@
 import { handleAdmin } from "./admin";
+import { handleAnalytics, observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
+import { installerArtifact, recordClipDownloadEvent, serveInstallerDownload } from "./analyticsDownloads";
+import { runRecentAnalyticsRollup } from "./analyticsRollup";
 import { handlePublicAnnouncements } from "./announcements";
 import type { Env } from "./env";
 import { ingestClientError, recordWorkerError } from "./errors";
@@ -49,6 +52,7 @@ import {
   handleSiteAccess,
   handleWaitlist,
   hasValidSiteAccess,
+  isOAuthHandoff,
   isSiteGatedPath,
   serveComingSoon,
 } from "./site-access";
@@ -132,6 +136,27 @@ export default {
       (async () => {
         await cleanupExpiredUploadsGlobal(env);
         await reconcileWatermarkJobs(env);
+        try {
+          const result = await runRecentAnalyticsRollup(env);
+          console.log("analytics_scheduled_rollup_ok", JSON.stringify(result));
+          if (env.SUPABASE_SERVICE_ROLE_KEY) {
+            await fetch(`${env.SUPABASE_URL}/rest/v1/app_settings?id=eq.1`, {
+              method: "PATCH",
+              headers: {
+                apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+                authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+                "content-type": "application/json",
+                prefer: "return=minimal",
+              },
+              body: JSON.stringify({ analytics_last_scheduled_rollup_at: new Date().toISOString() }),
+            }).catch(() => undefined);
+          }
+        } catch (caught) {
+          console.error(
+            "analytics_scheduled_rollup_failed",
+            caught instanceof Error ? caught.message : "unknown",
+          );
+        }
       })(),
     );
   },
@@ -208,6 +233,8 @@ async function route(
   if (publicFolders) return publicFolders;
   const announcements = await handlePublicAnnouncements(request, env, url);
   if (announcements) return announcements;
+  const analytics = await handleAnalytics(request, env, url);
+  if (analytics) return analytics;
   if (request.method === "GET" && url.pathname === "/v1/library") {
     return listLibrary(request, env);
   }
@@ -278,11 +305,22 @@ async function route(
   if (request.method === "GET" && url.pathname === "/releases/latest.json") {
     return serveUpdaterManifest(request, env);
   }
+  if (env.ASSETS && installerArtifact(url.pathname)) {
+    const installer = await serveInstallerDownload(
+      request,
+      env,
+      url.pathname,
+      (assetRequest) => env.ASSETS!.fetch(assetRequest),
+      withWebSecurityHeaders,
+    );
+    if (installer) return installer;
+  }
 
   // Coming-soon gate: marketing SPA stays hidden until the site-access cookie is set.
   if (
     (request.method === "GET" || request.method === "HEAD") &&
     isSiteGatedPath(url.pathname) &&
+    !isOAuthHandoff(url) &&
     !(await hasValidSiteAccess(request, env))
   ) {
     return serveComingSoon(request, env);
@@ -614,6 +652,10 @@ async function completeUpload(
     return json({ error: "Clip upload was not found." }, 404);
   }
   if (clip.status === "ready") {
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadCompleted, {
+      userId: user.id,
+      entityId: clipId,
+    });
     return json({
       clipId,
       slug: clip.slug,
@@ -626,6 +668,11 @@ async function completeUpload(
   }
   if (!ownedObjectKey(user.id, clip.storage_key)) {
     await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, { status: "failed" });
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadFailed, {
+      userId: user.id,
+      entityId: clipId,
+      properties: { reason: "invalid_storage_key" },
+    });
     return json({ error: "Clip storage key is invalid." }, 403);
   }
 
@@ -661,6 +708,11 @@ async function completeUpload(
     await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`, {
       status: "aborted",
     });
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadFailed, {
+      userId: user.id,
+      entityId: clipId,
+      properties: { reason: "object_missing_or_size_mismatch" },
+    });
     return json({ error: "Uploaded object was not found in cloud storage." }, 400);
   }
 
@@ -673,6 +725,11 @@ async function completeUpload(
   });
 
   void recordProductEvent(env, "upload_success", 1, { clipId });
+  observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadCompleted, {
+    userId: user.id,
+    entityId: clipId,
+    properties: { bytes: size },
+  });
   if (typeof body.composeMs === "number" && Number.isFinite(body.composeMs) && body.composeMs >= 0) {
     void recordProductEvent(env, "compose_ms", Math.min(body.composeMs, 3_600_000), { clipId });
   }
@@ -951,7 +1008,11 @@ async function downloadClip(
     }
   }
   if (!needsWatermark) {
-    return streamR2Original(env, clip);
+    const response = await streamR2Original(env, clip);
+    if (response.ok) {
+      recordClipDownloadEvent(env, { clipId: clip.id, ownerId: clip.user_id, viewerId: viewer?.id });
+    }
+    return response;
   }
 
   if (!bunnyConfigured(env)) {
@@ -979,11 +1040,15 @@ async function downloadClip(
 
   if (variant.watermark_variant_status === "ready" && variant.watermark_processor_video_id) {
     try {
-      return await brandedDownloadRedirect(
+      const branded = await brandedDownloadRedirect(
         env,
         variant,
         downloadFileName(clip.title, clip.slug),
       );
+      if (branded.ok || branded.status === 302 || branded.status === 301) {
+        recordClipDownloadEvent(env, { clipId: clip.id, ownerId: clip.user_id, viewerId: viewer?.id });
+      }
+      return branded;
     } catch {
       return json({ error: "Could not download that branded clip." }, 502);
     }
@@ -1065,6 +1130,12 @@ async function getPlayback(
   });
   ctx.waitUntil(recordProductEvent(env, "sign_count", 2, { route: "playback" }));
   const viewer = await optionalUser(request, env);
+  observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.clipPlayed, {
+    userId: viewer?.id ?? null,
+    entityId: clip.id,
+    idempotencyKey: `clip.played:${clip.id}:${viewer?.id ?? "anon"}:${new Date().toISOString().slice(0, 10)}`,
+    properties: { visibility: clip.visibility },
+  });
   if (clipAllowsSocial(clip) && viewer?.id !== clip.user_id) {
     ctx.waitUntil(recordClipView(env, clip.id, request));
   }
@@ -1421,6 +1492,11 @@ async function releaseReservedBytes(env: Env, userId: string, bytes: number) {
 
 async function failClip(env: Env, userId: string, clipId: string) {
   await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${userId}`, { status: "failed" });
+  observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadFailed, {
+    userId,
+    entityId: clipId,
+    properties: { reason: "expired_or_aborted" },
+  });
 }
 
 async function abortMultipart(env: Env, key: string, uploadId: string | null) {

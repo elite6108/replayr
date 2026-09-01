@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { AppSettings, CloudUploadWhen } from "../types/settings";
 import { DEFAULT_SETTINGS } from "../types/settings";
+import { sanitizeRecordingVisuals } from "../recording/visualFilters";
 import { createDesktopShortcut, getAllSettings, getDefaultSaveLocation, removeDesktopShortcut, setSetting, setSettings } from "../services/tauri";
 import { enable as enableAutostart, disable as disableAutostart } from "@tauri-apps/plugin-autostart";
 
@@ -75,6 +76,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       mirrorPreview: settings.webcam?.mirrorPreview ?? true,
       mirrorRecording: settings.webcam?.mirrorRecording ?? false,
     },
+    recordingVisuals: sanitizeRecordingVisuals(settings.recordingVisuals),
   };
 }
 
@@ -145,7 +147,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     set((state) => ({ settings: { ...state.settings, [key]: value } }));
     if (key === "onboardingCompleted") persistOnboardingCompleted(Boolean(value));
     try {
-      const settings = await setSetting(key, value);
+      const settings = normalizeSettings(await setSetting(key, value));
       if (key === "launchAtStartup") await syncLaunchAtStartup(Boolean(value));
       if (key === "desktopShortcut") await syncDesktopShortcut(Boolean(value));
       set({ settings });
@@ -159,7 +161,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   patch: async (values) => {
     set((state) => ({ settings: { ...state.settings, ...values } }));
     try {
-      const settings = await setSettings(values);
+      const settings = normalizeSettings(await setSettings(values));
       if (Object.prototype.hasOwnProperty.call(values, "launchAtStartup")) {
         await syncLaunchAtStartup(settings.launchAtStartup);
       }

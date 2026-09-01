@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { startCheckout, type BillingStatus } from "../lib/billing";
+import { trackWebEvent } from "../lib/analytics";
 import { useAuth } from "../lib/auth";
 import { formatBytes, formatClipCap } from "../lib/format";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
@@ -23,6 +24,10 @@ export function PricingPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [billing, setBilling] = useState<BillingStatus | null>(null);
+
+  useEffect(() => {
+    trackWebEvent("pricing.viewed", { surface: "pricing_page" }, session?.access_token);
+  }, [session?.access_token]);
 
   useEffect(() => {
     if (!supabaseConfigured()) {

@@ -6,7 +6,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Avatar } from "@/components/Avatar";
 import { Notice } from "@/components/ui";
 import { deleteAccount, fetchBillingStatus, type BillingStatus } from "@/lib/api";
-import { fetchFriends } from "@/lib/api.friends";
+import { fetchFollowing } from "@/lib/api.follows";
 import { useAuth } from "@/lib/auth";
 import { formatBytes, planLabel } from "@/lib/format";
 import { publicShareUrl } from "@/lib/supabase";
@@ -73,8 +73,8 @@ export default function SettingsScreen() {
         setFriendCount(null);
         return;
       }
-      void fetchFriends(token)
-        .then((friends) => setFriendCount(friends.length))
+      void fetchFollowing(token)
+        .then((users) => setFriendCount(users.length))
         .catch(() => undefined);
     }, [token]),
   );
@@ -128,7 +128,7 @@ export default function SettingsScreen() {
   const displayName = profile?.display_name || profile?.username || session.user.email || "Player";
   const handle = profile?.username ? `@${profile.username}` : "Choose a username in the desktop app";
   const friendsSubtitle =
-    friendCount == null ? "See who you play with" : friendCount === 0 ? "No friends yet" : `${friendCount} friend${friendCount === 1 ? "" : "s"}`;
+    friendCount == null ? "Following, followers, and requests" : friendCount === 0 ? "Not following anyone" : `Following ${friendCount}`;
 
   return (
     <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
@@ -178,7 +178,7 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.copy}>
             <Text style={styles.rowTitle}>Private account</Text>
-            <Text style={styles.muted}>Only friends can see your clips, posts, and bio.</Text>
+            <Text style={styles.muted}>Only accepted followers can see your clips, posts, and bio.</Text>
           </View>
           <Switch
             value={Boolean(profile?.is_private)}
@@ -213,7 +213,7 @@ export default function SettingsScreen() {
       <View style={styles.card}>
         <SettingsRow
           icon="people-outline"
-          title="Friends"
+          title="Following"
           subtitle={friendsSubtitle}
           pip={friendsUnread}
           onPress={() => router.push("/friends")}

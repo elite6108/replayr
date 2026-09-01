@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { associateWebAcquisition, captureWebAttribution } from "./attribution";
 import { getSupabase, supabaseConfigured } from "./supabase";
 
 interface AuthValue {
@@ -27,6 +28,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(null);
         return;
       }
+      captureWebAttribution();
+      associateWebAcquisition(next.access_token);
       void mergeRemoteUser(next).then(setSession);
     });
     return () => data.subscription.unsubscribe();

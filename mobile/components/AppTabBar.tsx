@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSocialUnread } from "@/lib/socialUnread";
 import { colors } from "@/lib/theme";
 
-const HIDDEN = [/^\/c\//, /^\/signin/, /^\/auth\//];
+const HIDDEN = [/^\/c\//, /^\/signin/, /^\/auth\//, /\/folders\/.+\/play/];
 
 export function shouldShowAppTabBar(pathname: string) {
   return !HIDDEN.some((pattern) => pattern.test(pathname));
@@ -20,7 +20,7 @@ export function AppTabBar() {
   if (!shouldShowAppTabBar(pathname)) return null;
 
   const homeOn = pathname === "/" || pathname === "/index";
-  const clipsOn = pathname.startsWith("/library");
+  const clipsOn = pathname.startsWith("/library") || pathname.startsWith("/folders");
   const createOn = pathname.startsWith("/create");
   const messagesOn = pathname.startsWith("/messages");
   const profileOn = pathname.startsWith("/account") || pathname.startsWith("/settings");

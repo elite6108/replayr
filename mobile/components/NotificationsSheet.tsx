@@ -20,6 +20,8 @@ import {
   socialName,
   type NotificationItem,
 } from "@/lib/api.friends";
+import { acceptFollowRequest, declineFollowRequest } from "@/lib/api.follows";
+import { folderHref, foldersHref } from "@/lib/api.folders";
 import { threadHref } from "@/lib/api.messages";
 import { formatTimeAgo } from "@/lib/format";
 import { useSocialUnread } from "@/lib/socialUnread";
@@ -27,9 +29,13 @@ import { colors } from "@/lib/theme";
 
 function copyFor(item: NotificationItem) {
   const name = socialName(item.actor);
-  if (item.kind === "friend_request") return `${name} sent a friend request`;
-  if (item.kind === "friend_accept") return `${name} accepted your request`;
+  if (item.kind === "friend_request" || item.kind === "follow_request") return `${name} requested to follow you`;
+  if (item.kind === "friend_accept" || item.kind === "follow_accept") return `${name} accepted your follow request`;
   if (item.kind === "group_invite") return `${name} invited you to a group`;
+  if (item.kind === "folder_invite") return `${name} invited you to a folder`;
+  if (item.kind === "folder_invite_accepted") return `${name} accepted your folder invite`;
+  if (item.kind === "folder_role_changed") return `${name} changed your folder role`;
+  if (item.kind === "folder_ownership_transferred") return `${name} transferred a folder to you`;
   return `${name} sent you a message`;
 }
 
@@ -86,10 +92,12 @@ export function NotificationsSheet({
   }
 
   async function onAccept(item: NotificationItem) {
-    if (!token || !item.friendshipId) return;
+    if (!token) return;
     setBusyId(item.id);
     try {
-      await acceptFriendRequest(token, item.friendshipId);
+      if (item.actor?.username) await acceptFollowRequest(token, item.actor.username);
+      else if (item.friendshipId) await acceptFriendRequest(token, item.friendshipId);
+      else return;
       setItems((current) => current.filter((row) => row.id !== item.id));
       await refreshFriendsFlag();
     } catch (caught) {
@@ -100,10 +108,12 @@ export function NotificationsSheet({
   }
 
   async function onDecline(item: NotificationItem) {
-    if (!token || !item.friendshipId) return;
+    if (!token) return;
     setBusyId(item.id);
     try {
-      await declineFriendRequest(token, item.friendshipId);
+      if (item.actor?.username) await declineFollowRequest(token, item.actor.username);
+      else if (item.friendshipId) await declineFriendRequest(token, item.friendshipId);
+      else return;
       setItems((current) => current.filter((row) => row.id !== item.id));
       await refreshFriendsFlag();
     } catch (caught) {
@@ -115,16 +125,29 @@ export function NotificationsSheet({
 
   function openItem(item: NotificationItem) {
     onClose();
-    if (item.kind === "friend_request") {
+    if (item.kind === "friend_request" || item.kind === "follow_request") {
       router.push("/friends");
       return;
     }
-    if (item.kind === "friend_accept" && item.actor?.username) {
+    if ((item.kind === "friend_accept" || item.kind === "follow_accept") && item.actor?.username) {
       router.push(`/u/${item.actor.username}`);
       return;
     }
     if ((item.kind === "message" || item.kind === "group_invite") && item.conversationId) {
       router.push(threadHref(item.conversationId));
+      return;
+    }
+    if (item.kind === "folder_invite") {
+      router.push(foldersHref());
+      return;
+    }
+    if (
+      (item.kind === "folder_invite_accepted" ||
+        item.kind === "folder_role_changed" ||
+        item.kind === "folder_ownership_transferred") &&
+      item.folderId
+    ) {
+      router.push(folderHref(item.folderId));
     }
   }
 
@@ -157,7 +180,8 @@ export function NotificationsSheet({
                       <Text style={styles.body}>{copyFor(item)}</Text>
                       <Text style={styles.time}>{formatTimeAgo(item.createdAt)}</Text>
                     </View>
-                    {item.kind === "friend_request" && item.friendshipId ? (
+                    {(item.kind === "friend_request" || item.kind === "follow_request") &&
+                    (item.actor?.username || item.friendshipId) ? (
                       <View style={styles.actions}>
                         <Pressable
                           style={styles.pill}

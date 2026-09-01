@@ -18,28 +18,26 @@ import {
   cancelFriendRequest,
   declineFriendRequest,
   fetchFriendRequests,
-  fetchFriends,
   fetchUserSuggestions,
   searchUsers,
-  sendFriendRequest,
   socialHandle,
   socialName,
-  unfriendUser,
-  type Friend,
   type FriendRequest,
   type Relationship,
   type SocialUser,
 } from "@/lib/api.friends";
+import { fetchFollowers, fetchFollowing, followUser, unfollowUser, type FollowListItem } from "@/lib/api.follows";
 import { createConversation, threadHref } from "@/lib/api.messages";
 import { useAuth } from "@/lib/auth";
 import { useSocialUnread } from "@/lib/socialUnread";
 import { colors } from "@/lib/theme";
 
-type Tab = "friends" | "requests" | "find";
+type Tab = "following" | "followers" | "requests" | "find";
 type SearchHit = SocialUser & { relationship: Relationship };
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "friends", label: "Friends" },
+  { id: "following", label: "Following" },
+  { id: "followers", label: "Followers" },
   { id: "requests", label: "Requests" },
   { id: "find", label: "Find" },
 ];
@@ -49,8 +47,9 @@ export default function FriendsScreen() {
   const { session } = useAuth();
   const token = session?.access_token;
   const { setFriendsUnread } = useSocialUnread();
-  const [tab, setTab] = useState<Tab>("friends");
-  const [friends, setFriends] = useState<Friend[]>([]);
+  const [tab, setTab] = useState<Tab>("following");
+  const [following, setFollowing] = useState<FollowListItem[]>([]);
+  const [followers, setFollowers] = useState<FollowListItem[]>([]);
   const [incoming, setIncoming] = useState<FriendRequest[]>([]);
   const [outgoing, setOutgoing] = useState<FriendRequest[]>([]);
   const [query, setQuery] = useState("");
@@ -65,13 +64,18 @@ export default function FriendsScreen() {
     if (!token) return;
     setError(null);
     try {
-      const [nextFriends, requests] = await Promise.all([fetchFriends(token), fetchFriendRequests(token)]);
-      setFriends(nextFriends);
+      const [nextFollowing, nextFollowers, requests] = await Promise.all([
+        fetchFollowing(token),
+        fetchFollowers(token),
+        fetchFriendRequests(token),
+      ]);
+      setFollowing(nextFollowing);
+      setFollowers(nextFollowers);
       setIncoming(requests.incoming);
       setOutgoing(requests.outgoing);
       setFriendsUnread(requests.incoming.length > 0);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load friends.");
+      setError(caught instanceof Error ? caught.message : "Could not load follows.");
     } finally {
       setLoading(false);
     }
@@ -136,24 +140,27 @@ export default function FriendsScreen() {
     }
   }
 
-  function confirmFriendActions(friend: Friend) {
-    if (!token) return;
-    Alert.alert(socialName(friend), "Remove them from friends or block this account.", [
+  function confirmFollowActions(person: FollowListItem) {
+    if (!token || !person.username) return;
+    Alert.alert(socialName(person), "Unfollow or block this account.", [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Unfriend",
+        text: "Unfollow",
         onPress: () => {
-          void unfriendUser(token, friend.id)
-            .then(() => setFriends((current) => current.filter((item) => item.id !== friend.id)))
-            .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not remove that friend."));
+          void unfollowUser(token, person.username as string)
+            .then(() => setFollowing((current) => current.filter((item) => item.id !== person.id)))
+            .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not unfollow."));
         },
       },
       {
         text: "Block",
         style: "destructive",
         onPress: () => {
-          void blockUser(token, friend.id)
-            .then(() => setFriends((current) => current.filter((item) => item.id !== friend.id)))
+          void blockUser(token, person.id)
+            .then(() => {
+              setFollowing((current) => current.filter((item) => item.id !== person.id));
+              setFollowers((current) => current.filter((item) => item.id !== person.id));
+            })
             .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not block that account."));
         },
       },
@@ -164,9 +171,9 @@ export default function FriendsScreen() {
     if (!token) return;
     setBusyId(request.id);
     try {
-      const friend = await acceptFriendRequest(token, request.id);
+      await acceptFriendRequest(token, request.id);
       setIncoming((current) => current.filter((item) => item.id !== request.id));
-      setFriends((current) => [friend, ...current.filter((item) => item.id !== friend.id)]);
+      if (request.from) setFollowers((current) => [ { ...request.from, since: new Date().toISOString() }, ...current.filter((item) => item.id !== request.from.id)]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not accept that request.");
     } finally {
@@ -204,13 +211,15 @@ export default function FriendsScreen() {
     if (!token) return;
     setBusyId(user.id);
     try {
-      const request = await sendFriendRequest(token, user.username ? { username: user.username } : { userId: user.id });
-      setOutgoing((current) => [request, ...current]);
-      setResults((current) =>
-        current.map((item) => (item.id === user.id ? { ...item, relationship: "outgoing" } : item)),
-      );
+      if (!user.username) throw new Error("That account has no username.");
+      const result = await followUser(token, user.username);
+      const nextRel = result.follow.viewerFollowPending ? "outgoing" : result.follow.viewerFollows ? "following" : "none";
+      setResults((current) => current.map((item) => (item.id === user.id ? { ...item, relationship: nextRel } : item)));
+      if (result.follow.viewerFollows) {
+        setFollowing((current) => [{ ...user, since: new Date().toISOString() }, ...current.filter((item) => item.id !== user.id)]);
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not send that friend request.");
+      setError(caught instanceof Error ? caught.message : "Could not follow that account.");
     } finally {
       setBusyId(null);
     }
@@ -227,8 +236,8 @@ export default function FriendsScreen() {
   if (!session) {
     return (
       <View style={styles.center}>
-        <Text style={styles.title}>Friends</Text>
-        <Text style={styles.muted}>Sign in to add friends and send requests. This list stays empty until you do.</Text>
+        <Text style={styles.title}>Following</Text>
+        <Text style={styles.muted}>Sign in to follow people and see requests. This list stays empty until you do.</Text>
         <Button label="Sign in" kind="primary" onPress={() => router.push("/signin")} />
       </View>
     );
@@ -258,22 +267,26 @@ export default function FriendsScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={colors.accent} />
         </View>
-      ) : tab === "friends" ? (
+      ) : tab === "following" || tab === "followers" ? (
         <FlatList
-          data={friends}
+          data={tab === "following" ? following : followers}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={friends.length === 0 ? styles.emptyList : styles.list}
+          contentContainerStyle={(tab === "following" ? following : followers).length === 0 ? styles.emptyList : styles.list}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>No friends yet</Text>
-              <Text style={styles.muted}>Search by username on Find. Replayr does not invent people to follow.</Text>
-              <Button label="Find friends" kind="primary" onPress={() => setTab("find")} />
+              <Text style={styles.emptyTitle}>{tab === "following" ? "Not following anyone" : "No followers yet"}</Text>
+              <Text style={styles.muted}>
+                {tab === "following"
+                  ? "Search by username on Find. Replayr does not invent people to follow."
+                  : "When someone follows you, they show up here."}
+              </Text>
+              {tab === "following" ? <Button label="Find people" kind="primary" onPress={() => setTab("find")} /> : null}
             </View>
           }
           renderItem={({ item }) => (
             <Pressable
               style={styles.row}
-              onLongPress={() => confirmFriendActions(item)}
+              onLongPress={() => confirmFollowActions(item)}
               onPress={() => {
                 if (item.username) router.push(`/u/${item.username}`);
               }}
@@ -283,16 +296,23 @@ export default function FriendsScreen() {
                 <Text style={styles.name}>{socialName(item)}</Text>
                 {socialHandle(item) ? <Text style={styles.muted}>{socialHandle(item)}</Text> : null}
               </View>
-              <Pressable
-                style={styles.pill}
-                disabled={busyId === item.id}
-                onPress={(event) => {
-                  event.stopPropagation();
-                  void openDm(item.id, item.dmId);
-                }}
-              >
-                <Text style={styles.pillText}>{busyId === item.id ? "…" : "Message"}</Text>
-              </Pressable>
+              {tab === "following" ? (
+                <Text style={styles.muted}>Following</Text>
+              ) : following.some((entry) => entry.id === item.id) ? (
+                <Text style={styles.muted}>Following</Text>
+              ) : (
+                <Pressable
+                  style={styles.pill}
+                  disabled={busyId === item.id}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    if (!item.username) return;
+                    void onAdd({ ...item, relationship: "follower" });
+                  }}
+                >
+                  <Text style={styles.pillText}>{busyId === item.id ? "…" : "Follow back"}</Text>
+                </Pressable>
+              )}
             </Pressable>
           )}
         />
@@ -323,7 +343,7 @@ export default function FriendsScreen() {
                 <Avatar name={socialName(person)} uri={person.avatarUrl} size={44} />
                 <View style={styles.copy}>
                   <Text style={styles.name}>{socialName(person)}</Text>
-                  <Text style={styles.muted}>{row.kind === "in" ? "Wants to be friends" : "Request sent"}</Text>
+                  <Text style={styles.muted}>{row.kind === "in" ? "Wants to follow you" : "Requested"}</Text>
                 </View>
                 {row.kind === "in" ? (
                   <View style={styles.actions}>
@@ -415,8 +435,7 @@ export default function FriendsScreen() {
                 busy={busyId === item.id}
                 onAdd={() => void onAdd(item)}
                 onMessage={() => {
-                  const friend = friends.find((entry) => entry.id === item.id);
-                  void openDm(item.id, friend?.dmId);
+                  void openDm(item.id);
                 }}
               />
             </Pressable>
@@ -452,6 +471,9 @@ function RelationAction({
       </Pressable>
     );
   }
+  if (user.relationship === "following") {
+    return <Text style={styles.muted}>Following</Text>;
+  }
   if (user.relationship === "outgoing") {
     return <Text style={styles.muted}>Requested</Text>;
   }
@@ -467,7 +489,7 @@ function RelationAction({
         onAdd();
       }}
     >
-      <Text style={styles.pillText}>{busy ? "…" : "Add"}</Text>
+      <Text style={styles.pillText}>{busy ? "…" : user.relationship === "follower" ? "Follow back" : "Follow"}</Text>
     </Pressable>
   );
 }

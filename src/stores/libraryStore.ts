@@ -300,6 +300,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
           const localId = event.payload.localId;
           if (!localId) return;
           const clip = get().clips.find((item) => item.localId === localId);
+          const { trackClipSaved } = await import("../services/analytics");
+          trackClipSaved({ localId, kind: event.payload.kind, clip });
           enqueueOrUpload(localId, clip);
         })();
       });
@@ -576,6 +578,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
     try {
       await navigator.clipboard.writeText(clipShareUrl(linked.slug));
+      const { trackClipShared } = await import("../services/analytics");
+      trackClipShared({ channel: "copy_link", slug: linked.slug });
       useToastStore.getState().show(
         linked.visibility === "public" ? "Public link copied" : "Unlisted link copied",
       );

@@ -419,6 +419,9 @@ function FindActions({
   onCancel: (requestId: string) => void;
   onMessage: () => void;
 }) {
+  if (user.relationship === "following") {
+    return <span className="muted">Following</span>;
+  }
   if (user.relationship === "friends") {
     return (
       <button className="btn primary" type="button" disabled={busy} onClick={onMessage}>
@@ -448,7 +451,7 @@ function FindActions({
   }
   return (
     <button className="btn primary" type="button" disabled={busy} onClick={onAdd}>
-      Add friend
+      {user.relationship === "follower" ? "Follow back" : "Follow"}
     </button>
   );
 }

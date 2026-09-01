@@ -6,6 +6,7 @@ export interface ClipAuthor {
   displayName: string | null;
   avatarUrl: string | null;
   verified?: boolean;
+  isPrivate?: boolean;
 }
 
 export interface ClipComment {
@@ -32,6 +33,9 @@ export interface PlaybackClip {
   likeCount?: number;
   commentCount?: number;
   liked?: boolean;
+  following?: boolean;
+  followPending?: boolean;
+  mine?: boolean;
   watermark?: boolean;
 }
 
@@ -80,6 +84,8 @@ export interface PublicClipCard {
   likeCount: number;
   commentCount: number;
   liked: boolean;
+  following?: boolean;
+  followPending?: boolean;
 }
 
 export interface PublicGameClip {

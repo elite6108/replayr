@@ -130,9 +130,10 @@ describe("folder collaborative edits", () => {
   it("sanitizes edit names and keeps documents versioned", () => {
     expect(sanitizeEditName("  Police Bodycam  ")).toBe("Police Bodycam");
     expect(() => sanitizeEditName("")).toThrow();
-    expect(sanitizeEditDocument({ version: 1, trim: { startMs: 12.2, endMs: 4000 }, extra: "nope" })).toEqual({
+    expect(sanitizeEditDocument({ version: 1, trim: { startMs: 12.2, endMs: 4000 }, extra: "keep" })).toEqual({
       version: 1,
       trim: { startMs: 12, endMs: 4000 },
+      extra: "keep",
     });
     expect(() => sanitizeEditDocument({ version: 2 })).toThrow();
   });

@@ -144,66 +144,78 @@ export function UserProfilePage() {
                   </Link>
                 ) : !token ? (
                   <Link className="btn primary" to="/signin">
-                    Sign in to add friends
+                    Sign in to follow
                   </Link>
-                ) : profile.relationship === "friends" ? (
-                  <button
-                    className="btn primary"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      void createConversation(token, { type: "dm", userId: profile.user.id })
-                        .then((conversation) => navigate(`/messages/${conversation.id}`))
-                        .catch((caught) => {
-                          setError(caught instanceof Error ? caught.message : "Could not open that chat.");
-                        });
-                    }}
-                  >
-                    Message
-                  </button>
-                ) : profile.relationship === "outgoing" && outgoingRequest ? (
-                  <button
-                    className="btn"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void run(() => cancelFriendRequest(token, outgoingRequest.id))}
-                  >
-                    Cancel request
-                  </button>
-                ) : profile.relationship === "outgoing" ? (
-                  <span className="muted">Request sent</span>
-                ) : profile.relationship === "incoming" && incomingRequest ? (
-                  <>
-                    <button
-                      className="btn primary"
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void run(async () => {
-                        await acceptFriendRequest(token, incomingRequest.id);
-                      })}
-                    >
-                      Accept
-                    </button>
-                    <button
-                      className="btn"
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void run(() => declineFriendRequest(token, incomingRequest.id))}
-                    >
-                      Decline
-                    </button>
-                  </>
                 ) : (
-                  <button
-                    className="btn primary"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void run(async () => {
-                      await createFriendRequest(token, { userId: profile.user.id });
-                    })}
-                  >
-                    Add friend
-                  </button>
+                  <>
+                    {profile.relationship === "incoming" && incomingRequest ? (
+                      <>
+                        <button
+                          className="btn primary"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void run(async () => {
+                            await acceptFriendRequest(token, incomingRequest.id);
+                          })}
+                        >
+                          Accept
+                        </button>
+                        <button
+                          className="btn"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void run(() => declineFriendRequest(token, incomingRequest.id))}
+                        >
+                          Decline
+                        </button>
+                      </>
+                    ) : null}
+                    {profile.relationship === "outgoing" || profile.follow?.viewerFollowPending ? (
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(() =>
+                            outgoingRequest
+                              ? cancelFriendRequest(token, outgoingRequest.id)
+                              : Promise.resolve(),
+                          )
+                        }
+                      >
+                        Requested
+                      </button>
+                    ) : profile.relationship === "following" || profile.follow?.viewerFollows ? (
+                      <span className="muted">Following</span>
+                    ) : (
+                      <button
+                        className="btn primary"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void run(async () => {
+                          await createFriendRequest(token, { userId: profile.user.id });
+                        })}
+                      >
+                        {profile.relationship === "follower" || profile.follow?.followsViewer ? "Follow back" : "Follow"}
+                      </button>
+                    )}
+                    {profile.relationship === "friends" || profile.follow?.mutual ? (
+                      <button
+                        className="btn primary"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          void createConversation(token, { type: "dm", userId: profile.user.id })
+                            .then((conversation) => navigate(`/messages/${conversation.id}`))
+                            .catch((caught) => {
+                              setError(caught instanceof Error ? caught.message : "Could not open that chat.");
+                            });
+                        }}
+                      >
+                        Message
+                      </button>
+                    ) : null}
+                  </>
                 )}
               </div>
             </div>

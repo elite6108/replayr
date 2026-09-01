@@ -15,7 +15,9 @@ export type NotificationKind =
   | "message"
   | "group_invite"
   | "folder_invite"
-  | "folder_invite_accepted";
+  | "folder_invite_accepted"
+  | "folder_role_changed"
+  | "folder_ownership_transferred";
 
 export type FollowState = {
   viewerFollows: boolean;
@@ -397,27 +399,41 @@ export type FolderEditDocument = {
   composition?: {
     cropX?: number;
     webcam?: {
-      placement: string;
-      shape: string;
-      width: number;
+      placement?: string;
+      shape?: string;
+      width?: number;
       x?: number | null;
       y?: number | null;
+      [key: string]: unknown;
     };
+    [key: string]: unknown;
   };
   visuals?: {
     filter?: string;
     overlays?: { recIndicator?: boolean; timestamp?: boolean };
+    [key: string]: unknown;
   };
   webcam?: {
-    placement: string;
-    shape: string;
-    width: number;
+    placement?: string;
+    shape?: string;
+    width?: number;
     x?: number | null;
     y?: number | null;
+    [key: string]: unknown;
   };
   overlays?: Array<Record<string, unknown>>;
   audio?: Record<string, unknown>;
+  [key: string]: unknown;
 };
+
+export type FolderEditContext =
+  | { kind: "personal" }
+  | {
+      kind: "folderEdit";
+      folderId: string;
+      sourceClipId: string;
+      editId: string;
+    };
 
 export type FolderEdit = {
   id: string;
@@ -468,6 +484,154 @@ export type FolderActivityKind =
   | "member_role_changed"
   | "ownership_transferred";
 
+export type FolderActivity = {
+  id: string;
+  folderId: string;
+  kind: FolderActivityKind;
+  entityId: string | null;
+  actor: SocialUser;
+  createdAt: string;
+  summary: string;
+};
+
+export type FolderActivityResponse = {
+  activities: FolderActivity[];
+};
+
+export function folderRoleLabel(role: FolderRole | FolderMemberRole): string {
+  if (role === "owner") return "Owner";
+  if (role === "manager") return "Manager";
+  if (role === "editor") return "Editor";
+  if (role === "viewer") return "Viewer";
+  return "Public";
+}
+
+export function folderInviteRoles(folder: {
+  role?: FolderRole | string;
+  permissions?: Pick<FolderPermissions, "manageMembers"> | null;
+}): FolderMemberRole[] {
+  if (!folder.permissions?.manageMembers) return [];
+  if (folder.role === "owner") return ["manager", "editor", "viewer"];
+  if (folder.role === "manager") return ["editor", "viewer"];
+  return [];
+}
+
+export function folderAccessLabel(folder: {
+  visibility?: string;
+  publicShare?: { enabled?: boolean } | null;
+  membersPreview?: unknown[];
+}): "Public" | "Shared" | "Private" {
+  if (folder.visibility === "public_link" || folder.publicShare?.enabled) return "Public";
+  if ((folder.membersPreview?.length ?? 0) > 0) return "Shared";
+  return "Private";
+}
+
+export function mergeFolderEditDocument(
+  current: FolderEditDocument,
+  patch: Partial<FolderEditDocument>,
+): FolderEditDocument {
+  return {
+    ...current,
+    ...patch,
+    version: 1,
+    composition:
+      patch.composition || current.composition
+        ? ({ ...current.composition, ...patch.composition } as FolderEditDocument["composition"])
+        : undefined,
+    visuals:
+      patch.visuals || current.visuals
+        ? ({ ...current.visuals, ...patch.visuals } as FolderEditDocument["visuals"])
+        : undefined,
+    webcam:
+      patch.webcam || current.webcam
+        ? ({ ...current.webcam, ...patch.webcam } as FolderEditDocument["webcam"])
+        : undefined,
+    audio: patch.audio || current.audio ? { ...current.audio, ...patch.audio } : undefined,
+  };
+}
+
+export function isFolderEditConflict(error: unknown): boolean {
+  return error instanceof Error && /changed by another collaborator|updated elsewhere/i.test(error.message);
+}
+
+function fallbackPermissions(role: Folder["role"]): FolderPermissions {
+  const manageEdits = {
+    viewEdits: true,
+    createEdits: true,
+    modifyEdits: true,
+    deleteOwnEdits: true,
+    deleteAnyEdits: role === "owner" || role === "manager",
+    renderEdits: true,
+  };
+  if (role === "owner") {
+    return {
+      view: true,
+      download: true,
+      addClips: true,
+      removeClips: true,
+      editClips: true,
+      manageFolder: true,
+      manageMembers: true,
+      managePublicShare: true,
+      deleteFolder: true,
+      transferOwnership: true,
+      ...manageEdits,
+    };
+  }
+  if (role === "manager") {
+    return { ...fallbackPermissions("owner"), deleteFolder: false, transferOwnership: false };
+  }
+  if (role === "editor") {
+    return {
+      view: true,
+      download: true,
+      addClips: true,
+      removeClips: true,
+      editClips: true,
+      manageFolder: false,
+      manageMembers: false,
+      managePublicShare: false,
+      deleteFolder: false,
+      transferOwnership: false,
+      ...manageEdits,
+      deleteAnyEdits: false,
+    };
+  }
+  return {
+    view: true,
+    download: true,
+    addClips: false,
+    removeClips: false,
+    editClips: false,
+    manageFolder: false,
+    manageMembers: false,
+    managePublicShare: false,
+    deleteFolder: false,
+    transferOwnership: false,
+    viewEdits: true,
+    createEdits: false,
+    modifyEdits: false,
+    deleteOwnEdits: false,
+    deleteAnyEdits: false,
+    renderEdits: false,
+  };
+}
+
+export function normalizeFolder<T extends Folder>(folder: T): T {
+  return {
+    ...folder,
+    membersPreview: folder.membersPreview ?? [],
+    permissions: folder.permissions ?? fallbackPermissions(folder.role),
+  };
+}
+
+export function normalizeFolderDetail(folder: FolderDetail): FolderDetail {
+  return {
+    ...normalizeFolder(folder),
+    clips: folder.clips ?? [],
+  };
+}
+
 export type FolderPlaybackResponse = {
   playbackUrl: string;
 };
@@ -495,6 +659,7 @@ export type PublicFolderClip = {
 };
 
 export type PublicFolder = {
+  id: string;
   name: string;
   description: string | null;
   owner: PublicFolderOwner | null;

@@ -104,6 +104,55 @@ pub struct AppSettings {
     /// Optional webcam as a separate recording source. Off until the user opts in.
     #[serde(default)]
     pub webcam: WebcamSettings,
+    /// Recording Visuals defaults for the Record page preview. Export does not apply these yet.
+    /// Phase 3 may add optional per-filter params as siblings under this object.
+    #[serde(default)]
+    pub recording_visuals: RecordingVisualSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingOverlaySettings {
+    #[serde(default)]
+    pub rec_indicator: bool,
+    #[serde(default)]
+    pub timestamp: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingVisualSettings {
+    #[serde(default = "default_visual_filter")]
+    pub filter: String,
+    #[serde(default)]
+    pub overlays: RecordingOverlaySettings,
+}
+
+impl Default for RecordingOverlaySettings {
+    fn default() -> Self {
+        Self {
+            rec_indicator: false,
+            timestamp: false,
+        }
+    }
+}
+
+impl Default for RecordingVisualSettings {
+    fn default() -> Self {
+        Self {
+            filter: default_visual_filter(),
+            overlays: RecordingOverlaySettings::default(),
+        }
+    }
+}
+
+impl RecordingVisualSettings {
+    pub fn sanitize(&mut self) {
+        self.filter = match self.filter.as_str() {
+            "bodycam" | "dashcam" | "vhs" | "cinematic" => self.filter.clone(),
+            _ => default_visual_filter(),
+        };
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -237,6 +286,7 @@ impl Default for AppSettings {
             clip_saved_notification: true,
             discord_rich_presence: true,
             webcam: WebcamSettings::default(),
+            recording_visuals: RecordingVisualSettings::default(),
         }
     }
 }
@@ -277,6 +327,10 @@ fn default_webcam_overlay_width() -> f32 {
     0.22
 }
 
+fn default_visual_filter() -> String {
+    "none".into()
+}
+
 const SETTINGS_KEY: &str = "document";
 
 pub fn load(conn: &Connection) -> AppResult<AppSettings> {
@@ -312,6 +366,8 @@ fn parse_settings_json(json: &str) -> AppSettings {
         serde_json::from_value(value).unwrap_or_default()
     };
     migrate_cloud_upload_when(&mut settings, json);
+    settings.webcam.sanitize();
+    settings.recording_visuals.sanitize();
     settings
 }
 
@@ -370,6 +426,7 @@ pub fn set_document(conn: &Connection, patch: Value) -> AppResult<AppSettings> {
     settings.game_audio_gain = settings.game_audio_gain.clamp(0.0, 2.0);
     settings.discord_audio_gain = settings.discord_audio_gain.clamp(0.0, 2.0);
     settings.webcam.sanitize();
+    settings.recording_visuals.sanitize();
     for app in &mut settings.extra_apps {
         app.gain = app.gain.clamp(0.0, 2.0);
         if app.id.trim().is_empty() {
@@ -536,6 +593,50 @@ mod tests {
         object.insert("pauseUploadsWhileGaming".into(), Value::Bool(false));
         let loaded = parse_settings_json(&value.to_string());
         assert_eq!(loaded.cloud_upload_when, "immediate");
+    }
+
+    #[test]
+    fn recording_visuals_default_none_when_missing() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("recordingVisuals");
+        let loaded: AppSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.recording_visuals.filter, "none");
+        assert!(!loaded.recording_visuals.overlays.rec_indicator);
+        assert!(!loaded.recording_visuals.overlays.timestamp);
+    }
+
+    #[test]
+    fn parse_settings_json_fills_missing_recording_visuals() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("recordingVisuals");
+        let loaded = parse_settings_json(&value.to_string());
+        assert_eq!(loaded.recording_visuals.filter, "none");
+        assert!(!loaded.recording_visuals.overlays.rec_indicator);
+        assert!(!loaded.recording_visuals.overlays.timestamp);
+    }
+
+    #[test]
+    fn parse_settings_json_sanitizes_unknown_filter() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        value["recordingVisuals"]["filter"] = serde_json::json!("hdr-plus");
+        let loaded = parse_settings_json(&value.to_string());
+        assert_eq!(loaded.recording_visuals.filter, "none");
+    }
+
+    #[test]
+    fn recording_visuals_sanitize_rejects_unknown_filter() {
+        let mut visuals = RecordingVisualSettings {
+            filter: String::from("hdr-plus"),
+            overlays: RecordingOverlaySettings {
+                rec_indicator: true,
+                timestamp: true,
+            },
+        };
+        visuals.sanitize();
+        assert_eq!(visuals.filter, "none");
+        assert!(visuals.overlays.rec_indicator);
+        assert!(visuals.overlays.timestamp);
     }
 
     #[test]

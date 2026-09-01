@@ -25,7 +25,18 @@ const UnreadContext = createContext<UnreadValue>({
 });
 
 function isBellKind(kind?: string) {
-  return kind === "friend_request" || kind === "friend_accept" || kind === "message" || kind === "group_invite";
+  return (
+    kind === "friend_request" ||
+    kind === "friend_accept" ||
+    kind === "follow_request" ||
+    kind === "follow_accept" ||
+    kind === "message" ||
+    kind === "group_invite" ||
+    kind === "folder_invite" ||
+    kind === "folder_invite_accepted" ||
+    kind === "folder_role_changed" ||
+    kind === "folder_ownership_transferred"
+  );
 }
 
 export function SocialUnreadProvider({ children }: { children: ReactNode }) {
@@ -66,7 +77,7 @@ export function SocialUnreadProvider({ children }: { children: ReactNode }) {
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, (payload) => {
         const row = payload.new as { kind?: string; conversation_id?: string | null; actor_id?: string | null };
-        if (row.kind === "friend_request") setFriendsUnread(true);
+        if (row.kind === "friend_request" || row.kind === "follow_request") setFriendsUnread(true);
         if (isBellKind(row.kind) && row.actor_id !== userId) {
           setNotificationsUnread((current) => current + 1);
         }

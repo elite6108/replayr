@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView, type VideoPlayer } from "expo-video";
 import { CommentsSheet } from "@/components/CommentsSheet";
 import { PlayerTools } from "@/components/PlayerTools";
+import { PlayerAuthorBadge } from "@/components/player/PlayerAuthorBadge";
 import { PlayerVideoFrame, ReplayrWatermark } from "@/components/ReplayrWatermark";
 import { SendClipSheet } from "@/components/SendClipSheet";
 import { TimelineBar } from "@/components/TimelineBar";
@@ -122,6 +123,8 @@ function ReadyCell({
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(fallbackDuration);
   const [liked, setLiked] = useState(Boolean(clip.liked));
+  const [following, setFollowing] = useState(Boolean(clip.following));
+  const [followPending, setFollowPending] = useState(Boolean(clip.followPending));
   const [likeCount, setLikeCount] = useState(clip.likeCount ?? 0);
   const [commentCount, setCommentCount] = useState(clip.commentCount ?? 0);
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -271,6 +274,19 @@ function ReadyCell({
           likeCount={likeCount}
           commentCount={commentCount}
           bottom={insets.bottom + 88}
+          header={
+            <PlayerAuthorBadge
+              author={clip.author}
+              following={following}
+              followPending={followPending}
+              isOwn={Boolean(clip.mine)}
+              token={token}
+              onFollowed={(next) => {
+                setFollowing(next.following);
+                setFollowPending(next.followPending);
+              }}
+            />
+          }
           onLike={() => {
             if (!token) {
               router.push("/signin");

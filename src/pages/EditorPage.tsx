@@ -12,7 +12,7 @@ import {
   setClipSourceLayout,
   shareLocalClip,
 } from "../services/tauri";
-import type { FolderEditDocument } from "../services/social-types";
+import { mergeFolderEditDocument, type FolderEditDocument } from "../services/social-types";
 import { useAuthStore } from "../stores/authStore";
 import { useCloudStore } from "../stores/cloudStore";
 import { useEditorContextStore } from "../stores/editorContextStore";
@@ -22,6 +22,7 @@ import { useToastStore } from "../stores/toastStore";
 import type { ClipSourceLayout, CloudClip, LocalClip } from "../types/clip";
 import type { WebcamPlacement, WebcamShape } from "../types/settings";
 import { formatClock, formatDuration, invokeErrorMessage, isVideoPath, parseClock } from "../utils/format";
+import { trackClipRenderFailed, trackClipRendered, trackClipSaveFailed, trackEditorOpened } from "../services/analytics";
 import { clipWebcamSource, nearestWebcamPlacement, normalizeUploadStatus, parseSourceLayout, webcamOverlayStyle } from "../utils/clips";
 
 const MIN_TRIM_MS = 1000;
@@ -137,11 +138,12 @@ function panFromClientX(clientX: number, rect: DOMRect, windowPct: number): numb
 }
 
 function documentFromEditor(startMs: number, endMs: number, pan: number, webcam: ClipSourceLayout): FolderEditDocument {
+  const layout = { ...webcam } as FolderEditDocument["webcam"];
   return {
     version: 1,
     trim: { startMs: asMs(startMs), endMs: asMs(endMs) },
-    composition: { cropX: clampPan(pan), webcam },
-    webcam,
+    composition: { cropX: clampPan(pan), webcam: layout },
+    webcam: layout,
   };
 }
 
@@ -387,6 +389,17 @@ export function EditorPage() {
         : parseSourceLayout(clipWebcamSource(source)?.layoutJson),
     );
   }, [source?.localId, folderSession?.editId]);
+
+  useEffect(() => {
+    if (!source) return;
+    trackEditorOpened({
+      localId: source.localId,
+      folderId,
+      editId,
+      durationMs: source.durationMs,
+      webcamEnabled: Boolean(clipWebcamSource(source)),
+    });
+  }, [source?.localId, folderSession?.editId, folderId, editId]);
 
   useEffect(() => {
     if (!source || (folderSession && !localSource)) {
@@ -636,7 +649,7 @@ export function EditorPage() {
       try {
         const savedEdit = await saveFolderEdit(folderSession.folderId, folderSession.sourceClipId, folderSession.editId, {
           expectedRevision: folderSession.revision,
-          editData: documentFromEditor(startMs, endMs, pan, webcamLayout),
+          editData: mergeFolderEditDocument(folderSession.editData, documentFromEditor(startMs, endMs, pan, webcamLayout)),
         });
         if (savedEdit) {
           patchFolderEdit({ revision: savedEdit.revision, editData: savedEdit.editData, editName: savedEdit.name });
@@ -656,6 +669,7 @@ export function EditorPage() {
       setSaved(next);
       setSavedKind(kind);
       setSavedTitle(next.title || "");
+      if (kind === "short") trackClipRendered({ kind: "short", localId: next.localId });
       await refresh();
       if (share) {
         if (!user) {
@@ -668,7 +682,10 @@ export function EditorPage() {
         showToast(kind === "short" ? "Saved as a Short" : "Saved as a new clip");
       }
     } catch (caught) {
-      showToast(invokeErrorMessage(caught, kind === "short" ? "Could not save that Short" : "Could not save that trim"));
+      const message = invokeErrorMessage(caught, kind === "short" ? "Could not save that Short" : "Could not save that trim");
+      showToast(message);
+      trackClipSaveFailed(message);
+      if (kind === "short") trackClipRenderFailed({ kind: "short", message });
     } finally {
       setSavingKind(null);
       setSharing(false);
@@ -731,9 +748,12 @@ export function EditorPage() {
         return;
       }
       await attachRender(folderSession.folderId, folderSession.sourceClipId, folderSession.editId, cloudId);
+      trackClipRendered({ kind: "folder_edit", localId: next.localId, folderId: folderSession.folderId });
       showToast("Rendered copy added to the folder. The original is unchanged.");
     } catch (caught) {
-      showToast(invokeErrorMessage(caught, "Could not save that edited copy"));
+      const message = invokeErrorMessage(caught, "Could not save that edited copy");
+      showToast(message);
+      trackClipRenderFailed({ kind: "folder_edit", message });
     } finally {
       setSavingKind(null);
     }

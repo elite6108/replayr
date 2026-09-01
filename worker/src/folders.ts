@@ -1,3 +1,4 @@
+import { observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { requireR2, requireUser, serviceRest, signedOwnedUrl } from "./shared";
@@ -291,6 +292,9 @@ export async function handleFolders(request: Request, env: Env, url: URL): Promi
   const { handleFolderEdits } = await import("./folderEdits");
   const edits = await handleFolderEdits(request, env, url);
   if (edits) return edits;
+  const { handleFolderActivity } = await import("./folderActivity");
+  const activity = await handleFolderActivity(request, env, url);
+  if (activity) return activity;
   if (url.pathname === "/v1/folders" && request.method === "GET") return listMyFolders(request, env);
   if (url.pathname === "/v1/folders" && request.method === "POST") return createFolder(request, env);
   const clipRemove = url.pathname.match(/^\/v1\/folders\/([^/]+)\/clips\/([^/]+)$/);
@@ -339,6 +343,10 @@ async function createFolder(request: Request, env: Env): Promise<Response> {
   );
   const folder = rows[0];
   if (!folder) throw new HttpError(502, "Could not create that folder.");
+  observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.folderCreated, {
+    userId: user.id,
+    entityId: folder.id,
+  });
   return json({ folder: await presentFolderDetail(env, folder, "owner", []) }, 201);
 }
 
@@ -405,6 +413,13 @@ async function addFolderClips(request: Request, env: Env, folderId: string): Pro
     );
   } catch (caught) {
     if (!(caught instanceof HttpError) || caught.status !== 409) throw caught;
+  }
+  for (const clipId of clipIds) {
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.folderClipAdded, {
+      userId: user.id,
+      entityId: clipId,
+      idempotencyKey: `folder.clip_added:${folderId}:${clipId}`,
+    });
   }
   const memberships = await loadFolderClipRows(env, [folderId]);
   const { logFolderActivity } = await import("./folderActivity");
@@ -580,7 +595,7 @@ async function loadFolderClips(env: Env, memberships: FolderClipRow[], folderId?
       "GET",
       `/clips?id=in.(${clipIds.join(",")})&status=neq.deleted&select=${CLIP_SELECT}`,
     ),
-    folderId ? loadRenderedClipIds(env, folderId) : Promise.resolve(new Set<string>()),
+    folderId ? loadRenderedClipIds(env, folderId).catch(() => new Set<string>()) : Promise.resolve(new Set<string>()),
   ]);
   const byId = new Map(rows.map((row) => [row.id, row]));
   requireR2(env);

@@ -8,6 +8,7 @@ import {
   sendClipToConversation,
   type ConversationSummary,
 } from "../lib/api.messages";
+import { trackWebEvent } from "../lib/analytics";
 import { useAuth } from "../lib/auth";
 import { SocialAvatar } from "./SocialAvatar";
 
@@ -58,6 +59,7 @@ export function SendClipSheet({ slug, onClose }: { slug: string; onClose: () => 
           : friends.find((friend) => friend.id === picked.id)?.dmId ??
             (await createConversation(token, { type: "dm", userId: picked.id })).id;
       await sendClipToConversation(token, slug, { conversationId });
+      trackWebEvent("clip.shared", { channel: "dm" }, token);
       onClose();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not send that clip.");

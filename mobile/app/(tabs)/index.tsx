@@ -18,14 +18,13 @@ import { Avatar } from "@/components/Avatar";
 import { ClipThumb } from "@/components/ClipThumb";
 import { CommentsSheet } from "@/components/CommentsSheet";
 import { GameCover } from "@/components/GameCover";
-import { NotificationsSheet } from "@/components/NotificationsSheet";
+import { AppHeader } from "@/components/AppHeader";
 import {
   attachPublicClipCounts,
   fetchFavoriteGames,
   fetchFriendClips,
   fetchGames,
   fetchBillingStatus,
-  fetchOwnProfile,
   fetchPublicClips,
   setClipLiked,
   type CatalogGame,
@@ -38,7 +37,6 @@ import { shareClipUrl } from "@/lib/media";
 import { clipShareUrl } from "@/lib/supabase";
 import { colors, gameGlow } from "@/lib/theme";
 import { listContinueWatching, type WatchItem } from "@/lib/watchProgress";
-import { useSocialUnread } from "@/lib/socialUnread";
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -53,14 +51,9 @@ export default function HomeScreen() {
   const [friendClips, setFriendClips] = useState<PublicClipCard[] | null>(null);
   const [games, setGames] = useState<CatalogGame[]>([]);
   const [feed, setFeed] = useState<PublicClipCard[]>([]);
-  const [profile, setProfile] = useState<{ username: string | null; display_name: string | null; avatar_url: string | null } | null>(
-    null,
-  );
   const [refreshing, setRefreshing] = useState(false);
   const [commentSlug, setCommentSlug] = useState<string | null>(null);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [showAd, setShowAd] = useState(true);
-  const { notificationsUnread } = useSocialUnread();
 
   const load = useCallback(async () => {
     const [trending, latest, catalog, history] = await Promise.all([
@@ -75,18 +68,15 @@ export default function HomeScreen() {
     setFeed(latest.length > trending.length ? latest.filter((clip) => !featuredIds.has(clip.id)) : latest);
     setContinueWatching(history);
     if (token && userId) {
-      const [favorites, own, fromFriends] = await Promise.all([
+      const [favorites, fromFriends] = await Promise.all([
         fetchFavoriteGames(userId).catch(() => [] as CatalogGame[]),
-        fetchOwnProfile(userId).catch(() => null),
         fetchFriendClips(token).catch(() => [] as PublicClipCard[]),
       ]);
       const nextGames = favorites.length > 0 ? favorites.slice(0, 8) : catalog.filter((game) => game.coverUrl).slice(0, 8);
       setGames(favorites.length > 0 ? nextGames : await attachPublicClipCounts(nextGames));
-      setProfile(own);
       setFriendClips(fromFriends);
     } else {
       setGames(await attachPublicClipCounts(catalog.filter((game) => game.coverUrl).slice(0, 8)));
-      setProfile(null);
       setFriendClips([]);
     }
   }, [token, userId]);
@@ -156,6 +146,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
+      <AppHeader padded />
       <ScrollView
         style={styles.page}
         contentContainerStyle={styles.content}
@@ -170,37 +161,6 @@ export default function HomeScreen() {
           />
         }
       >
-        <View style={styles.header}>
-          <Image
-            source={require("../../assets/images/replayr-logo.png")}
-            style={styles.brandLogo}
-            contentFit="contain"
-            accessibilityLabel="Replayr"
-          />
-          <View style={styles.headerActions}>
-            <Pressable style={styles.bell} onPress={() => router.push("/search")} hitSlop={8}>
-              <Ionicons name="search" size={20} color={colors.text} />
-            </Pressable>
-            <Pressable
-              style={styles.bell}
-              onPress={() => {
-                if (!session) {
-                  router.push("/signin");
-                  return;
-                }
-                setNotificationsOpen(true);
-              }}
-              hitSlop={8}
-            >
-              <Ionicons name="notifications-outline" size={22} color={colors.text} />
-              {notificationsUnread > 0 ? <View style={styles.bellPip} /> : null}
-            </Pressable>
-            <Pressable onPress={() => router.push(session ? "/account" : "/signin")}>
-              <Avatar name={profile?.display_name || profile?.username || session?.user.email} uri={profile?.avatar_url} size={36} />
-            </Pressable>
-          </View>
-        </View>
-
         {showAd ? (
           <Pressable style={styles.houseAd} onPress={() => router.push("/account")}>
             <Text style={styles.houseAdTitle}>Replayr Premium — $4.99/mo</Text>
@@ -285,14 +245,14 @@ export default function HomeScreen() {
           </Section>
         ) : null}
 
-        <Section title="From friends">
+        <Section title="From people you both follow">
           {!token ? (
-            <Text style={styles.muted}>Add friends to see their clips here.</Text>
+            <Text style={styles.muted}>Follow people back to see their clips here.</Text>
           ) : friendClips === null ? (
-            <Text style={styles.muted}>Loading friends’ clips…</Text>
+            <Text style={styles.muted}>Loading clips…</Text>
           ) : friendClips.length === 0 ? (
             <Pressable onPress={() => router.push(session ? "/friends" : "/signin")}>
-              <Text style={styles.muted}>Add friends to see their clips here.</Text>
+              <Text style={styles.muted}>Follow people back to see their clips here.</Text>
             </Pressable>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
@@ -406,11 +366,6 @@ export default function HomeScreen() {
           setFeatured((current) => current.map(apply));
         }}
       />
-      <NotificationsSheet
-        visible={notificationsOpen}
-        token={token}
-        onClose={() => setNotificationsOpen(false)}
-      />
     </SafeAreaView>
   );
 }
@@ -428,27 +383,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   page: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: 16, paddingBottom: 40, gap: 22 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 4 },
-  brandLogo: { width: 148, height: 40 },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: 12 },
-  bell: {
-    position: "relative",
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.card,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bellPip: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.accent,
-  },
   houseAd: {
     backgroundColor: colors.card,
     borderRadius: 16,

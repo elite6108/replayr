@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -11,6 +12,7 @@ export function PlayerTools({
   onSend,
   onMore,
   bottom = 88,
+  header,
 }: {
   liked: boolean;
   likeCount?: number;
@@ -21,9 +23,11 @@ export function PlayerTools({
   onSend?: () => void;
   onMore: () => void;
   bottom?: number;
+  header?: ReactNode;
 }) {
   return (
     <View style={[styles.rail, { bottom }]} pointerEvents="box-none">
+      {header}
       <Tool icon={liked ? "heart" : "heart-outline"} label={String(likeCount || "Like")} color={liked ? "#ff4d6d" : "#fff"} onPress={onLike} />
       <Tool icon="chatbubble-outline" label={String(commentCount || "Comment")} onPress={onComment} />
       <Tool icon="link-outline" label="Copy" onPress={onCopy} />

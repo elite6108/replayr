@@ -1,6 +1,8 @@
+import { observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { requireServiceRole, requireUser, serviceRest, type AuthUser } from "./shared";
+import { detectSubscriptionTransition } from "./analyticsRevenue";
 
 const PAID_STATUSES = new Set(["active", "trialing", "past_due"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -177,6 +179,12 @@ async function checkout(request: Request, env: Env): Promise<Response> {
     allow_promotion_codes: "true",
   });
   if (!session.url) throw new HttpError(502, "Stripe did not return a checkout URL.");
+  observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.checkoutStarted, {
+    userId: user.id,
+    entityId: user.id,
+    idempotencyKey: `subscription.checkout_started:${user.id}:${new Date().toISOString().slice(0, 10)}:${yearly ? "year" : "month"}`,
+    properties: { interval: yearly ? "year" : "month" },
+  });
   return json({ url: session.url });
 }
 
@@ -267,20 +275,27 @@ async function applyStripeEvent(env: Env, type: string, object: Record<string, u
   if (type === "invoice.paid" || type === "invoice.payment_failed") {
     const subscriptionId = invoiceSubscriptionId(object);
     if (!subscriptionId) return metadataUser(object);
-    return syncSubscription(env, subscriptionId, metadataUser(object));
+    const invoiceId = type === "invoice.paid" ? stringField(object.id) : null;
+    return syncSubscription(env, subscriptionId, metadataUser(object), invoiceId);
   }
   return metadataUser(object);
 }
 
-async function syncSubscription(env: Env, subscriptionId: string, knownUserId: string | null): Promise<string | null> {
+async function syncSubscription(
+  env: Env,
+  subscriptionId: string,
+  knownUserId: string | null,
+  invoicePaidId?: string | null,
+): Promise<string | null> {
   const subscription = await stripeGet<Record<string, unknown>>(env, `/v1/subscriptions/${subscriptionId}`);
-  return syncSubscriptionObject(env, subscription, knownUserId);
+  return syncSubscriptionObject(env, subscription, knownUserId, invoicePaidId);
 }
 
 async function syncSubscriptionObject(
   env: Env,
   object: Record<string, unknown>,
   knownUserId?: string | null,
+  invoicePaidId?: string | null,
 ): Promise<string | null> {
   const subscriptionId = stringField(object.id);
   const customerId = stringField(object.customer);
@@ -288,6 +303,8 @@ async function syncSubscriptionObject(
   const priceId = subscriptionPriceId(object);
   const periodEnd = periodEndIso(object);
   const cancelAtPeriodEnd = Boolean(object.cancel_at_period_end);
+  const price = stripeRecurringPrice(object);
+  const createdAt = unixToIso(object.created);
   let userId = knownUserId || metadataUser(object);
   if (!userId && customerId) {
     const rows = await serviceRest<CustomerRow[]>(
@@ -300,21 +317,61 @@ async function syncSubscriptionObject(
   if (!userId || !subscriptionId) return userId;
 
   if (customerId) await upsertCustomer(env, userId, customerId);
+  const previous = await serviceRest<SubscriptionRow[]>(
+    env,
+    "GET",
+    `/billing_subscriptions?user_id=eq.${userId}&select=user_id,stripe_subscription_id,stripe_price_id,status,current_period_end,cancel_at_period_end`,
+  );
+  const payload: Record<string, unknown> = {
+    user_id: userId,
+    stripe_subscription_id: subscriptionId,
+    stripe_price_id: priceId,
+    status,
+    current_period_end: periodEnd,
+    cancel_at_period_end: cancelAtPeriodEnd,
+    updated_at: new Date().toISOString(),
+  };
+  if (price.amountCents != null) payload.amount_cents = price.amountCents;
+  if (price.currency) payload.currency = price.currency;
+  if (price.interval) payload.billing_interval = price.interval;
+  if (price.intervalCount != null) payload.interval_count = price.intervalCount;
+  if (createdAt) payload.created_at = createdAt;
   await serviceRest(
     env,
     "POST",
     "/billing_subscriptions?on_conflict=user_id",
-    {
-      user_id: userId,
-      stripe_subscription_id: subscriptionId,
-      stripe_price_id: priceId,
-      status,
-      current_period_end: periodEnd,
-      cancel_at_period_end: cancelAtPeriodEnd,
-      updated_at: new Date().toISOString(),
-    },
+    payload,
     "resolution=merge-duplicates,return=representation",
   );
+  const transition = detectSubscriptionTransition(previous[0] ?? null, { status });
+  if (transition === "started") {
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.subscriptionStarted, {
+      userId,
+      entityId: subscriptionId,
+    });
+  } else if (transition === "cancelled") {
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.subscriptionCancelled, {
+      userId,
+      entityId: subscriptionId,
+    });
+  } else if (transition === "expired") {
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.subscriptionExpired, {
+      userId,
+      entityId: subscriptionId,
+    });
+  } else if (transition === "reactivated") {
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.subscriptionReactivated, {
+      userId,
+      entityId: subscriptionId,
+      idempotencyKey: `subscription.reactivated:${subscriptionId}:${new Date().toISOString().slice(0, 10)}`,
+    });
+  } else if (invoicePaidId && previous[0] && isPaidBillingStatus(previous[0].status) && isPaidBillingStatus(status)) {
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.subscriptionRenewed, {
+      userId,
+      entityId: subscriptionId,
+      idempotencyKey: `subscription.renewed:${subscriptionId}:${invoicePaidId}`,
+    });
+  }
 
   const slug = PAID_STATUSES.has(status) ? "pro" : "free";
   await serviceRest(env, "POST", "/rpc/apply_user_plan", {
@@ -458,8 +515,46 @@ function stringField(value: unknown): string | null {
 }
 
 function subscriptionPriceId(object: Record<string, unknown>): string | null {
-  const items = object.items as { data?: { price?: { id?: string } }[] } | undefined;
-  return items?.data?.[0]?.price?.id ?? null;
+  return stripeRecurringPrice(object).priceId;
+}
+
+export function stripeRecurringPrice(object: Record<string, unknown>): {
+  priceId: string | null;
+  amountCents: number | null;
+  currency: string | null;
+  interval: string | null;
+  intervalCount: number | null;
+} {
+  const items = object.items as {
+    data?: {
+      price?: {
+        id?: string;
+        unit_amount?: number | null;
+        currency?: string;
+        recurring?: { interval?: string; interval_count?: number };
+      };
+    }[];
+  } | undefined;
+  const price = items?.data?.[0]?.price;
+  const amount = Number(price?.unit_amount);
+  const count = Number(price?.recurring?.interval_count);
+  return {
+    priceId: price?.id ?? null,
+    amountCents: Number.isFinite(amount) && amount >= 0 ? Math.round(amount) : null,
+    currency: typeof price?.currency === "string" && price.currency ? price.currency.toUpperCase() : null,
+    interval: typeof price?.recurring?.interval === "string" ? price.recurring.interval : null,
+    intervalCount: Number.isFinite(count) && count > 0 ? count : null,
+  };
+}
+
+function unixToIso(value: unknown): string | null {
+  const unix = Number(value);
+  if (!Number.isFinite(unix) || unix <= 0) return null;
+  return new Date(unix * 1000).toISOString();
+}
+
+function isPaidBillingStatus(status: string): boolean {
+  return status === "active" || status === "trialing";
 }
 
 function invoiceSubscriptionId(object: Record<string, unknown>): string | null {

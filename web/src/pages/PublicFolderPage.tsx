@@ -3,7 +3,9 @@ import { Link, useParams } from "react-router-dom";
 import { PlayerVideo } from "../components/ReplayrWatermark";
 import { Seo } from "../components/Seo";
 import { SocialAvatar } from "../components/SocialAvatar";
+import { AppDownloadLink } from "../components/analytics/AppDownloadLink";
 import { WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
+import { useAuth } from "../lib/auth";
 import {
   fetchPublicFolder,
   fetchPublicFolderDownload,
@@ -15,6 +17,7 @@ import { formatDurationMs } from "../lib/format";
 
 export function PublicFolderPage() {
   const { token = "" } = useParams();
+  const { session } = useAuth();
   const [folder, setFolder] = useState<PublicFolder | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<PublicFolderClip | null>(null);
@@ -160,7 +163,15 @@ export function PublicFolderPage() {
           )}
 
           <p className="muted public-folder-cta">
-            <a href={WINDOWS_DOWNLOAD_PATH}>Open Replayr</a>
+            {session && folder.id ? (
+              <>
+                <Link to={`/folders/${folder.id}`}>Open in Replayr</Link>
+                <span aria-hidden="true"> · </span>
+              </>
+            ) : null}
+            <AppDownloadLink href={WINDOWS_DOWNLOAD_PATH} platform="windows" surface="other">
+              Get Replayr
+            </AppDownloadLink>
             <span aria-hidden="true"> · </span>
             <Link to="/">Create your own clips</Link>
           </p>

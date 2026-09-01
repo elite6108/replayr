@@ -19,6 +19,8 @@ const ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:8081",
   "http://tauri.localhost",
   "https://tauri.localhost",
+  "tauri://localhost",
+  "asset://localhost",
 ]);
 
 export function json(body: unknown, status = 200) {

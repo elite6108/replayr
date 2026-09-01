@@ -79,13 +79,14 @@ export function sanitizeEditName(value: unknown, fallback = "Untitled Edit"): st
 }
 
 export function sanitizeEditDocument(value: unknown): FolderEditDocument {
-  const input = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const input = value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : {};
   const version = input.version === 1 || input.version == null ? 1 : null;
   if (version !== 1) throw new HttpError(400, "Unsupported edit document version.");
-  const document: FolderEditDocument = { version: 1 };
+  const document: FolderEditDocument = { ...input, version: 1 };
   if (input.trim && typeof input.trim === "object" && !Array.isArray(input.trim)) {
     const trim = input.trim as { startMs?: unknown; endMs?: unknown };
     document.trim = {
+      ...(input.trim as Record<string, unknown>),
       startMs: asMs(trim.startMs),
       endMs: asMs(trim.endMs),
     };
@@ -93,21 +94,30 @@ export function sanitizeEditDocument(value: unknown): FolderEditDocument {
   if (input.composition && typeof input.composition === "object" && !Array.isArray(input.composition)) {
     const composition = input.composition as { cropX?: unknown; webcam?: unknown };
     document.composition = {
+      ...(input.composition as Record<string, unknown>),
       cropX: typeof composition.cropX === "number" ? clamp01(composition.cropX) : undefined,
-      webcam: sanitizeWebcam(composition.webcam),
+      webcam: sanitizeWebcam(composition.webcam) ?? (composition.webcam as FolderEditDocument["webcam"]),
     };
   }
-  if (input.webcam) document.webcam = sanitizeWebcam(input.webcam);
+  if (input.webcam && typeof input.webcam === "object" && !Array.isArray(input.webcam)) {
+    document.webcam = {
+      ...(input.webcam as Record<string, unknown>),
+      ...sanitizeWebcam(input.webcam),
+    } as FolderEditDocument["webcam"];
+  }
   if (input.visuals && typeof input.visuals === "object" && !Array.isArray(input.visuals)) {
     const visuals = input.visuals as { filter?: unknown; overlays?: { recIndicator?: unknown; timestamp?: unknown } };
     document.visuals = {
-      filter: typeof visuals.filter === "string" ? visuals.filter.slice(0, 32) : undefined,
-      overlays: visuals.overlays
-        ? {
-            recIndicator: Boolean(visuals.overlays.recIndicator),
-            timestamp: Boolean(visuals.overlays.timestamp),
-          }
-        : undefined,
+      ...(input.visuals as Record<string, unknown>),
+      ...(typeof visuals.filter === "string" ? { filter: visuals.filter.slice(0, 32) } : {}),
+      overlays:
+        visuals.overlays && typeof visuals.overlays === "object"
+          ? {
+              ...visuals.overlays,
+              recIndicator: Boolean(visuals.overlays.recIndicator),
+              timestamp: Boolean(visuals.overlays.timestamp),
+            }
+          : visuals.overlays,
     };
   }
   if (Array.isArray(input.overlays)) {
@@ -116,7 +126,7 @@ export function sanitizeEditDocument(value: unknown): FolderEditDocument {
       .slice(0, 20);
   }
   if (input.audio && typeof input.audio === "object" && !Array.isArray(input.audio)) {
-    document.audio = {};
+    document.audio = { ...(input.audio as Record<string, unknown>) };
   }
   return document;
 }

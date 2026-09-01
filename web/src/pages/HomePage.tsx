@@ -4,6 +4,7 @@ import { ClipThumb } from "../components/ClipThumb";
 import { GameCover } from "../components/GameCover";
 import { Seo } from "../components/Seo";
 import { useAuth } from "../lib/auth";
+import { AppDownloadLink } from "../components/analytics/AppDownloadLink";
 import { MAC_DOWNLOAD_PATH, WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
 import { formatCount, formatDurationMs, formatHandle } from "../lib/format";
 import { fetchGames, fetchPublicClips, type CatalogGame, type PublicClipCard } from "../lib/games";
@@ -38,12 +39,12 @@ export function HomePage() {
               link, no name attached.
             </p>
             <div className="download-actions">
-              <a className="btn glow" href={WINDOWS_DOWNLOAD_PATH}>
+              <AppDownloadLink className="btn glow" href={WINDOWS_DOWNLOAD_PATH} platform="windows" surface="homepage">
                 Download for Windows
-              </a>
-              <a className="btn outline" href={MAC_DOWNLOAD_PATH}>
+              </AppDownloadLink>
+              <AppDownloadLink className="btn outline" href={MAC_DOWNLOAD_PATH} platform="macos" surface="homepage">
                 Download for macOS
-              </a>
+              </AppDownloadLink>
             </div>
             <p className="hero-note">
               Windows Instant Replay · macOS app for library &amp; sharing
@@ -179,12 +180,12 @@ export function HomePage() {
         <div className="landing-wrap">
           <h2>Clip on the PC. Share a link when you want.</h2>
           <div className="download-actions">
-            <a className="btn glow" href={WINDOWS_DOWNLOAD_PATH}>
+            <AppDownloadLink className="btn glow" href={WINDOWS_DOWNLOAD_PATH} platform="windows" surface="homepage">
               Download for Windows
-            </a>
-            <a className="btn outline" href={MAC_DOWNLOAD_PATH}>
+            </AppDownloadLink>
+            <AppDownloadLink className="btn outline" href={MAC_DOWNLOAD_PATH} platform="macos" surface="homepage">
               Download for macOS
-            </a>
+            </AppDownloadLink>
           </div>
         </div>
       </section>

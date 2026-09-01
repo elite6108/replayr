@@ -36,7 +36,9 @@ export function useSocialUnreadSync() {
             row.kind === "message" ||
             row.kind === "group_invite" ||
             row.kind === "folder_invite" ||
-            row.kind === "folder_invite_accepted") &&
+            row.kind === "folder_invite_accepted" ||
+            row.kind === "folder_role_changed" ||
+            row.kind === "folder_ownership_transferred") &&
           row.actor_id !== userId
         ) {
           noteNotification();

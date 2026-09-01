@@ -34,6 +34,10 @@ export function clipShareUrl(slug: string): string {
   return `${publicShareUrl()}/c/${slug}`;
 }
 
+export function folderShareUrl(token: string): string {
+  return `${publicShareUrl()}/f/${token}`;
+}
+
 export function profileUrl(username: string): string {
   return `${publicShareUrl()}/u/${username}`;
 }

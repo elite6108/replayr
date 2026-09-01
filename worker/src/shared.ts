@@ -52,6 +52,7 @@ interface ProfileRow {
   display_name: string | null;
   avatar_url: string | null;
   is_verified?: boolean;
+  is_private?: boolean;
 }
 
 interface ClipAuthor {
@@ -59,6 +60,7 @@ interface ClipAuthor {
   displayName: string | null;
   avatarUrl: string | null;
   verified?: boolean;
+  isPrivate?: boolean;
 }
 
 const AUTH_CACHE_TTL_MS = 45_000;
@@ -208,6 +210,15 @@ export async function rest<T>(env: Env, token: string, method: string, path: str
   return restFetch<T>(env, env.SUPABASE_ANON_KEY, token, method, path, body);
 }
 
+const serviceGetCaches = new WeakMap<Env, Map<string, Promise<unknown>>>();
+
+/** Request-scoped GET memoization. Dashboard calls are unchanged; report generation clones env. */
+export function withServiceRestCache(env: Env): Env {
+  const scoped = { ...env };
+  serviceGetCaches.set(scoped, new Map());
+  return scoped;
+}
+
 export async function serviceRest<T>(
   env: Env,
   method: string,
@@ -216,6 +227,15 @@ export async function serviceRest<T>(
   prefer?: string,
 ): Promise<T> {
   const key = requireServiceRole(env);
+  const cache = method === "GET" ? serviceGetCaches.get(env) : undefined;
+  const cacheKey = cache ? `${path}\0${prefer ?? ""}` : null;
+  if (cache && cacheKey) {
+    const hit = cache.get(cacheKey);
+    if (hit) return hit as Promise<T>;
+    const pending = restFetch<T>(env, key, key, method, path, body, prefer);
+    cache.set(cacheKey, pending);
+    return pending;
+  }
   return restFetch<T>(env, key, key, method, path, body, prefer);
 }
 
@@ -298,29 +318,50 @@ export async function presentPublicClips(request: Request, env: Env, rows: Publi
       likeCount: extra?.likeCount ?? row.like_count ?? 0,
       commentCount: extra?.commentCount ?? row.comment_count ?? 0,
       liked: extra?.liked ?? false,
+      following: extra?.following ?? false,
+      followPending: extra?.followPending ?? false,
       watermark: row.watermark !== false,
     };
   });
 }
 
+type ClipSocial = {
+  author: ClipAuthor;
+  likeCount: number;
+  commentCount: number;
+  liked: boolean;
+  following: boolean;
+  followPending: boolean;
+};
+
 export async function loadSocial(
   env: Env,
   rows: { id: string; user_id: string; like_count?: number; comment_count?: number }[],
   viewerId: string | null,
-): Promise<Map<string, { author: ClipAuthor; likeCount: number; commentCount: number; liked: boolean }>> {
-  const result = new Map<string, { author: ClipAuthor; likeCount: number; commentCount: number; liked: boolean }>();
+): Promise<Map<string, ClipSocial>> {
+  const result = new Map<string, ClipSocial>();
   if (rows.length === 0) return result;
   const authors = await loadAuthors(
     env,
     rows.map((row) => row.user_id),
   );
   const liked = viewerId ? await likedClipIds(env, viewerId, rows.map((row) => row.id)) : new Set<string>();
+  const outgoing = viewerId
+    ? await outgoingFollows(
+        env,
+        viewerId,
+        rows.map((row) => row.user_id),
+      )
+    : new Map<string, "pending" | "accepted">();
   for (const row of rows) {
+    const status = viewerId && viewerId !== row.user_id ? outgoing.get(row.user_id) ?? null : null;
     result.set(row.id, {
       author: authors.get(row.user_id) ?? anonymousAuthor(),
       likeCount: row.like_count ?? 0,
       commentCount: row.comment_count ?? 0,
       liked: liked.has(row.id),
+      following: status === "accepted",
+      followPending: status === "pending",
     });
   }
   return result;
@@ -333,7 +374,7 @@ export async function loadAuthors(env: Env, userIds: string[]): Promise<Map<stri
   const rows = await serviceRest<ProfileRow[]>(
     env,
     "GET",
-    `/profiles?id=in.(${unique.join(",")})&select=id,username,display_name,avatar_url,is_verified`,
+    `/profiles?id=in.(${unique.join(",")})&select=id,username,display_name,avatar_url,is_verified,is_private`,
   );
   for (const row of rows) {
     authors.set(row.id, {
@@ -341,9 +382,27 @@ export async function loadAuthors(env: Env, userIds: string[]): Promise<Map<stri
       displayName: row.display_name || row.username,
       avatarUrl: row.avatar_url,
       verified: Boolean(row.is_verified),
+      isPrivate: Boolean(row.is_private),
     });
   }
   return authors;
+}
+
+async function outgoingFollows(
+  env: Env,
+  viewerId: string,
+  userIds: string[],
+): Promise<Map<string, "pending" | "accepted">> {
+  const unique = [...new Set(userIds.filter((id) => id && id !== viewerId))];
+  const map = new Map<string, "pending" | "accepted">();
+  if (unique.length === 0) return map;
+  const rows = await serviceRest<{ following_id: string; status: "pending" | "accepted" }[]>(
+    env,
+    "GET",
+    `/follows?follower_id=eq.${viewerId}&following_id=in.(${unique.join(",")})&select=following_id,status`,
+  );
+  for (const row of rows) map.set(row.following_id, row.status);
+  return map;
 }
 
 async function likedClipIds(env: Env, userId: string, clipIds: string[]): Promise<Set<string>> {
@@ -357,5 +416,5 @@ async function likedClipIds(env: Env, userId: string, clipIds: string[]): Promis
 }
 
 export function anonymousAuthor(): ClipAuthor {
-  return { username: null, displayName: "Player", avatarUrl: null, verified: false };
+  return { username: null, displayName: "Player", avatarUrl: null, verified: false, isPrivate: false };
 }

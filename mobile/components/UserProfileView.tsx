@@ -5,19 +5,21 @@ import { Avatar } from "@/components/Avatar";
 import { ClipThumb } from "@/components/ClipThumb";
 import { Button, Notice } from "@/components/ui";
 import {
-  acceptFriendRequest,
-  cancelFriendRequest,
   createProfilePost,
-  declineFriendRequest,
   deleteProfilePost,
-  fetchFriendRequests,
   fetchUserProfile,
-  sendFriendRequest,
   socialHandle,
   socialName,
-  type FriendRequest,
   type UserProfileResponse,
 } from "@/lib/api.friends";
+import {
+  acceptFollowRequest,
+  declineFollowRequest,
+  emptyFollowState,
+  followLabel,
+  followUser,
+  unfollowUser,
+} from "@/lib/api.follows";
 import { createConversation, threadHref } from "@/lib/api.messages";
 import { useAuth } from "@/lib/auth";
 import { formatCount, formatDurationMs } from "@/lib/format";
@@ -35,8 +37,6 @@ export function UserProfileView({
   const token = session?.access_token;
   const myId = session?.user.id;
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
-  const [incoming, setIncoming] = useState<FriendRequest[]>([]);
-  const [outgoing, setOutgoing] = useState<FriendRequest[]>([]);
   const [missing, setMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -48,15 +48,7 @@ export function UserProfileView({
     const next = await fetchUserProfile(username, token);
     setProfile(next);
     setMissing(false);
-    if (token && next.relationship !== "none" && next.user.id !== myId) {
-      const requests = await fetchFriendRequests(token);
-      setIncoming(requests.incoming);
-      setOutgoing(requests.outgoing);
-    } else {
-      setIncoming([]);
-      setOutgoing([]);
-    }
-  }, [username, token, myId]);
+  }, [username, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,8 +72,7 @@ export function UserProfileView({
 
   const mine = Boolean(profile && myId && profile.user.id === myId);
   const name = profile ? socialName(profile.user) : username;
-  const incomingRequest = incoming.find((item) => item.from.id === profile?.user.id);
-  const outgoingRequest = outgoing.find((item) => item.to.id === profile?.user.id);
+  const follow = profile?.follow ?? emptyFollowState();
 
   async function run(work: () => Promise<void>) {
     setBusy(true);
@@ -179,46 +170,42 @@ export function UserProfileView({
           {mine ? (
             <Button label="Settings" onPress={() => router.push("/settings")} />
           ) : !token ? (
-            <Button label="Sign in to add friends" kind="primary" onPress={() => router.push("/signin")} />
-          ) : profile.relationship === "friends" ? (
-            <Button label="Message" kind="primary" disabled={busy} onPress={() => void openDm()} />
-          ) : profile.relationship === "outgoing" && outgoingRequest ? (
-            <Button
-              label="Cancel request"
-              disabled={busy}
-              onPress={() => void run(() => cancelFriendRequest(token, outgoingRequest.id))}
-            />
-          ) : profile.relationship === "outgoing" ? (
-            <Text style={styles.muted}>Request sent</Text>
-          ) : profile.relationship === "incoming" && incomingRequest ? (
-            <>
-              <Button
-                label="Accept"
-                kind="primary"
-                disabled={busy}
-                onPress={() =>
-                  void run(async () => {
-                    await acceptFriendRequest(token, incomingRequest.id);
-                  })
-                }
-              />
-              <Button
-                label="Decline"
-                disabled={busy}
-                onPress={() => void run(() => declineFriendRequest(token, incomingRequest.id))}
-              />
-            </>
+            <Button label="Sign in to follow" kind="primary" onPress={() => router.push("/signin")} />
           ) : (
-            <Button
-              label="Add friend"
-              kind="primary"
-              disabled={busy}
-              onPress={() =>
-                void run(async () => {
-                  await sendFriendRequest(token, { userId: profile.user.id });
-                })
-              }
-            />
+            <>
+              {follow.incomingPending ? (
+                <>
+                  <Button
+                    label="Accept"
+                    kind="primary"
+                    disabled={busy}
+                    onPress={() => void run(async () => { await acceptFollowRequest(token, username); })}
+                  />
+                  <Button
+                    label="Decline"
+                    disabled={busy}
+                    onPress={() => void run(async () => { await declineFollowRequest(token, username); })}
+                  />
+                </>
+              ) : null}
+              {follow.viewerFollows || follow.viewerFollowPending ? (
+                <Button
+                  label={followLabel(follow)}
+                  disabled={busy}
+                  onPress={() => void run(async () => { await unfollowUser(token, username); })}
+                />
+              ) : (
+                <Button
+                  label={followLabel(follow)}
+                  kind="primary"
+                  disabled={busy}
+                  onPress={() => void run(async () => { await followUser(token, username); })}
+                />
+              )}
+              {follow.mutual ? (
+                <Button label="Message" kind="primary" disabled={busy} onPress={() => void openDm()} />
+              ) : null}
+            </>
           )}
         </View>
       )}

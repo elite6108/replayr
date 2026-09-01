@@ -29,6 +29,7 @@ import { useCloudStore } from "./stores/cloudStore";
 import { useFolderStore } from "./stores/folderStore";
 import { useUpdateStore } from "./stores/updateStore";
 import { useSocialUnreadSync } from "./hooks/useSocialUnreadSync";
+import { associateDesktopAcquisition, trackAppOpenedOnce } from "./services/analytics";
 
 export default function App() {
   const loaded = useSettingsStore((state) => state.loaded);
@@ -57,12 +58,14 @@ export default function App() {
     void initializeCloud();
     void initializeFolders();
     void initializeUpdates();
+    trackAppOpenedOnce();
   }, [loadSettings, initializeAuth, initializeDetection, initializeRecording, initializeLibrary, initializeCloud, initializeFolders, initializeUpdates]);
 
   useEffect(() => {
     void refreshCloud();
     void refreshFolders();
     void loadBilling(accessToken);
+    associateDesktopAcquisition(accessToken);
   }, [userId, accessToken, refreshCloud, refreshFolders, loadBilling]);
 
   useEffect(() => {

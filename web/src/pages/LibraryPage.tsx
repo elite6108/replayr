@@ -7,7 +7,9 @@ import { deleteCloudClip, downloadCloudClip, fetchLibrary, fetchPlayback, type M
 import { useAuth } from "../lib/auth";
 import { formatBytes, formatClipDate, formatDurationMs } from "../lib/format";
 import { clipShareUrl, getSupabase } from "../lib/supabase";
+import { trackWebEvent } from "../lib/analytics";
 import { fetchBillingStatus } from "../lib/billing";
+import { LibraryFolderTabs } from "./FoldersPage";
 
 const PAGE_SIZE = 24;
 
@@ -196,6 +198,7 @@ export function LibraryPage() {
     }
     try {
       await navigator.clipboard.writeText(clipShareUrl(clip.slug));
+      trackWebEvent("clip.shared", { channel: "copy_link" }, token);
       setNotice(clip.visibility === "public" ? "Public link copied" : "Unlisted link copied");
     } catch {
       setNotice(clipShareUrl(clip.slug));
@@ -307,6 +310,7 @@ export function LibraryPage() {
   return (
     <main className="page library-page">
       <Seo title="Cloud library — Replayr" description="Watch and manage cloud copies uploaded from the Windows app." robots="noindex" />
+      <LibraryFolderTabs />
       <div className="library-head">
         <div>
           <p className="eyebrow">Your uploads</p>

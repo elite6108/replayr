@@ -1,18 +1,23 @@
 # Replayr
 
-Windows gameplay clipper. Identifier `tv.elite.replay`. Site: [www.replayr.tv](https://www.replayr.tv).
+Gameplay clipper. Identifier `tv.elite.replay`. Site: [www.replayr.tv](https://www.replayr.tv).
 
-It is a **native Tauri 2 app**, not a website in a wrapper. You capture on Windows, keep a library on this PC, then optionally upload a cloud copy while signed in. The website (`web/`) and mobile app (`mobile/`) are the cloud library and share player. They do not record.
+It is a **native Tauri 2 app**, not a website in a wrapper.
 
-The locked design lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Audio routing decisions live in [docs/AUDIO_ROUTING.md](docs/AUDIO_ROUTING.md). This README is the operator and developer map.
+- **Windows** is the clipper: Instant Replay, hotkeys, local library, then an optional cloud copy while signed in.
+- **macOS** (Apple Silicon DMG) is the same signed-in shell: cloud library, folders, friends, messages, Explore. Recording and Instant Replay are Windows-only.
+- The website (`web/`) and mobile app (`mobile/`) are the cloud library and share player. They do not record.
+
+The locked design lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Audio routing decisions live in [docs/AUDIO_ROUTING.md](docs/AUDIO_ROUTING.md). Admin metric names live in [docs/analytics-metrics.md](docs/analytics-metrics.md). This README is the operator and developer map.
 
 ## Hard rules (read these first)
 
 These are easy to break and expensive to undo.
 
 - **Desktop is the clipper.** Do not merge `web/` into Tauri or rebuild capture on mobile.
+- **Capture stays on Windows.** Do not change Windows capture, encode, remux, or `npm run tauri:build` (NSIS) to ship a Mac build. Mac packaging is `tauri:build:macos` and `.github/workflows/macos-dmg.yml` only.
 - **Video path:** Desktop → R2. The Worker only mints URLs and verifies the object. Share links are `{origin}/c/{slug}` — never put a username in the URL.
-- **Client env only:** `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_PUBLIC_APP_URL` (and `EXPO_PUBLIC_*` on mobile). Never put the service-role key or R2 keys in the desktop, website, or mobile app.
+- **Client env only:** `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_PUBLIC_APP_URL` (and `EXPO_PUBLIC_*` on mobile). Vite embeds `VITE_*` at **build time**. Never put the service-role key or R2 keys in the desktop, website, or mobile app.
 - **Admin** is `app_metadata.role === "admin"`, never `user_metadata`.
 - **Unlisted clips** are watchable with the link. They must never appear in public listings, Explore, or For You.
 - **No GPL FFmpeg sidecar.** Encode with Media Foundation.
@@ -53,41 +58,50 @@ flowchart LR
 
 | Layer | Role |
 | --- | --- |
-| React + Vite (`src/`) | Shell, library, Explore, account, settings. Supabase **anon** key only. |
-| Rust / Tauri (`src-tauri/`) | Tray, hotkeys, filesystem, SQLite, capture, encode, remux, upload to R2, updater. |
+| React + Vite (`src/`) | Shell, library, folders, Explore, friends, messages, account, settings. Supabase **anon** key only. |
+| Rust / Tauri (`src-tauri/`) | Tray, hotkeys, filesystem, SQLite, capture, encode, remux, upload to R2, updater. Capture/encode are Windows-only. |
 | SQLite | Local clips, settings, game catalog, upload queue. No auth tokens. |
-| Supabase Auth | Email/password (plus social on web/mobile). Session JWT is cloud identity. |
-| Supabase Postgres | Profiles, games, clip metadata, likes/comments, quota. No video bytes. |
-| Cloudflare Worker | JWT, presigned PUT/GET, quota, likes/comments, `/c/{slug}` player, static site + `latest.json`. |
-| Website (`web/`) | Marketing, browser library, Explore, same-account sign-in, Windows download. |
-| Mobile (`mobile/`) | Expo cloud library and player. No capture. |
+| Supabase Auth | Email/password plus Google, Discord, and X. Session JWT is cloud identity. |
+| Supabase Postgres | Profiles, games, clip metadata, folders, social, quota, analytics rollups. No video bytes. |
+| Cloudflare Worker | JWT, presigned PUT/GET, quota, social APIs, `/c/{slug}` and `/f/{token}` players, coming-soon gate, static site + `latest.json`. |
+| Website (`web/`) | Marketing, browser library, Explore, same-account sign-in, Windows + Mac downloads, desktop OAuth handoff. |
+| Mobile (`mobile/`) | Expo cloud library, folders, and player. No capture. |
 | Cloudflare R2 | MP4s. Keys: `clips/{user_id}/{clip_id}/original.mp4`. |
 
 Production Worker origin is `https://www.replayr.tv`. Local desktop `.env` should point `VITE_PUBLIC_APP_URL` at `http://127.0.0.1:8787`.
 
 ## Current status
 
-The product is usable end to end: capture, local library, cloud upload, public/unlisted share links, likes/comments on **public** clips, in-app Windows updates.
+Windows is usable end to end: capture, local library, cloud upload, folders, friends, messages, public/unlisted share links, likes/comments on **public** clips, in-app Windows updates.
 
 | Area | Status |
 | --- | --- |
 | Desktop shell, tray, settings, SQLite, auth, onboarding | Done |
+| Email + Google / Discord / X sign-in (desktop opens the browser) | Done |
 | Game detection | Done (catalog from cloud + local SQLite) |
-| WGC + Media Foundation + WASAPI → local MP4 | Done |
-| Instant Replay, Save Clip, session record, screenshot | Done |
+| WGC + Media Foundation + WASAPI → local MP4 | Done (Windows) |
+| Instant Replay, Save Clip, session record, screenshot | Done (Windows) |
 | Local library (player, thumbs, favorite / rename / delete) | Done |
 | Cloud upload to R2, quota, owner library | Done |
-| Public `/c/{slug}` player, visibility, website library | Done |
-| Likes and comments on public ready clips | Done |
+| Folders (collab, public links, clip edits, activity) | Done |
+| Friends, follows, DMs, notifications | Done |
+| Public `/c/{slug}` player, `/f/{token}` folder links | Done |
 | Explore / For You (public clips only) | Done |
-| In-app updates (`latest.json` + signed `Replayr.exe`) | Done |
+| Free / Premium billing (Stripe) | Done |
+| In-app Windows updates (`latest.json` + signed `Replayr.exe`) | Done |
+| macOS Apple Silicon DMG (cloud + social, no capture) | Done |
+| Admin analytics (`/admin/analytics`) | Done |
 | Mic mixed into the one AAC track (Step 1) | Done — do not start Step 2 yet |
-| Follows, notifications, isolated Game/Discord tracks | Not started |
+| Isolated Game/Discord tracks, Apple Sign-In, Intel Mac, notarization | Not started |
 | DXGI exclusive-fullscreen fallback | Not started |
 
-**Desktop nav:** Home, Library, Explore, Games, Record, Friends, Settings, Account, Admin (admins only). The rail is fixed; only the page scrolls.
+**Desktop nav:** Home, Library, Explore, Games, Record, Friends, Messages, Settings, Profile, Admin (admins only). Library has This PC / Cloud / Folders. The rail is fixed; only the page scrolls.
+
+**Mac Record** is in the rail but capture commands return “Recording is only available on Windows.”
 
 ## Capture and Instant Replay
+
+Windows only.
 
 ```
 Detected game window
@@ -121,18 +135,28 @@ Do not run WASAPI open, Media Foundation, or `sync_replay` on the Tauri UI threa
 
 ## Local and cloud library
 
-Library is one page with two views. Local and cloud copies stay distinct.
+Library is one page with three views. Local and cloud copies stay distinct.
 
 - **This PC** — files in the save folder (default Videos), SQLite `local_clips`, in-app player, thumbs, favorite / rename / delete.
 - **Cloud** — owner clips from the API. A fresh install has an empty This PC list even if Cloud has clips from another machine.
+- **Folders** — shared collections (members, activity, optional public `/f/{token}` link, clip edits). Same folders on desktop, web, and mobile.
 
 A local clip can point at a `cloud_clip_id`. Delete on desktop also deletes the cloud copy. “Remove from cloud” unlinks the upload and leaves the file on this PC.
 
 Automatic upload defaults to **All clips** (Settings: Off or Favorites only).
 
+Cloud play asks the Worker for a signed URL (`GET /v1/clips/:slug` with the JWT), then the in-app `<video>` loads that URL. The Worker CORS list includes Windows (`https://tauri.localhost`) and Mac (`tauri://localhost`).
+
 ## Accounts
 
-Supabase Auth is the only auth system. Desktop uses email + password. Web/mobile also use OAuth where configured.
+Supabase Auth is the only auth system.
+
+- **Email + password** on desktop, web, and mobile.
+- **Google, Discord, and X** on desktop, web, and mobile where those providers are enabled in Supabase.
+
+Desktop social login does not stay in the webview. The app opens the system browser with `redirectTo` `https://www.replayr.tv/auth/desktop`. That page must stay reachable **without** the coming-soon cookie. It hands the PKCE `code` to `replayr://auth-callback`, and the app exchanges it for a session.
+
+If a provider is allowed to fall back to the Site URL, `/?code=…` is treated as the same handoff and redirected to `/auth/desktop`.
 
 After login, `supabase-js` persists the session through Tauri commands. The session JSON is **too large for Windows Credential Manager** (2560-byte cap), so it is a DPAPI-protected file under app data. Keyring is migration-only and must not fail sign-in. Passwords are never stored.
 
@@ -143,6 +167,8 @@ Onboarding is local SQLite (`onboardingCompleted`). A new portable install alway
 For local testing, turn **Confirm email** off. Leave **Anonymous** disabled.
 
 Auth database connections must use **percentage allocation** (about 10–20%), not a tiny fixed cap, or sign-up queues.
+
+Add `https://www.replayr.tv/auth/desktop` and `https://www.replayr.tv/auth/callback` to the Supabase Auth redirect allowlist.
 
 ## Cloud upload
 
@@ -169,20 +195,30 @@ sequenceDiagram
 3. Files over 8 MB use multipart. Upload goes straight to R2.
 4. `POST /v1/clips/:id/complete` HEADs the object, rejects empty files, and calls `add_storage_used`.
 5. **Copy link** is `{origin}/c/{slug}`.
+6. A Worker cron aborts expired multipart leftovers.
 
 Social (like / comment) is only for `visibility=public` and `status=ready`. Unlisted stays watchable, not listed.
 
 ## Website and mobile
 
+The public marketing site is behind a **coming-soon gate** (`SITE_ACCESS_PASSWORD`) until the browser has the site-access cookie. These paths stay open without that cookie: `/v1/*`, `/releases/*`, `/c/*`, `/f/*`, `/auth/*`, and a homepage return that already has an OAuth `code`.
+
 | URL | What it does |
 | --- | --- |
-| `https://www.replayr.tv/` | Product site and Windows download |
+| `https://www.replayr.tv/` | Product site (gated) and downloads |
 | `/explore` | Public For You feed |
 | `/library` | Signed-in cloud clips |
-| `/c/{slug}` | Share player |
+| `/library/folders` | Signed-in folders |
+| `/friends`, `/messages` | Social |
+| `/c/{slug}` | Clip share player |
+| `/f/{token}` | Public folder |
+| `/auth/desktop` | Desktop OAuth handoff → `replayr://` |
+| `/auth/callback` | Website OAuth return |
 | `/admin` | Operator console |
-| `/releases/Replayr.exe` | Current Windows download |
-| `/releases/latest.json` | Updater manifest (must be JSON, never the SPA shell) |
+| `/admin/analytics` | Product analytics |
+| `/releases/Replayr.exe` | Current Windows download (Workers Assets) |
+| `/releases/Replayr.dmg` | macOS download (302 to the GitHub `macos` release) |
+| `/releases/latest.json` | Windows updater manifest (must be JSON, never the SPA shell) |
 
 ```bash
 npm run worker:dev
@@ -196,6 +232,8 @@ Mobile: `npm run mobile:start` (Expo). Same three public env values with the `EX
 ## Admin
 
 `/admin` on the website; desktop has a simpler Admin page. Both call `/v1/admin/*` with the JWT. The Worker accepts the request only when `app_metadata.role === "admin"`. Privileged writes use `SUPABASE_SERVICE_ROLE_KEY` on the Worker only.
+
+`/admin/analytics` is the operator dashboard (growth, clips, folders, downloads, revenue, and the rest). Metric names are locked in [docs/analytics-metrics.md](docs/analytics-metrics.md).
 
 ```sql
 update auth.users
@@ -249,10 +287,10 @@ Paste `.tauri/updater.key.pub` into `pubkey`. Never commit the private key. If i
 
 `TAURI_SIGNING_PRIVATE_KEY` is the **key contents**. `TAURI_SIGNING_PRIVATE_KEY_PATH` is the **file path**. `tauri build` often still fails to see the path env on this machine; sign the NSIS setup after the bundle exists.
 
-### Ship an update
+### Ship a Windows update
 
 1. Bump `version` in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` (all three).
-2. Build the NSIS bundle (MSVC env required):
+2. Build the NSIS bundle on a Windows machine that has a local `.env` (MSVC env required):
 
 ```bat
 "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && npm run tauri:build
@@ -273,11 +311,35 @@ npm run web:deploy
 
 `installer:stage` copies the setup whose filename contains the **current** `tauri.conf.json` version to `web/public/releases/Replayr.exe` and writes `latest.json` from that file’s `.sig`. It searches `src-tauri/target` and the Cursor cargo sandbox cache. It **fails** if the signature is missing — never invent one. The signature must be of the exact bytes that will be at `https://www.replayr.tv/releases/Replayr.exe`.
 
-`web/public/releases/*.exe`, `*.sig`, and `latest.json` are gitignored. Deploy uploads whatever is in `web/dist/releases/` after the website build.
+`web/public/releases/*.exe`, `*.dmg`, `*.sig`, and `latest.json` are gitignored. Deploy uploads whatever is in `web/dist/releases/` after the website build. Always keep `Replayr.exe` in that folder when deploying, or the live Windows download disappears.
 
 Installed builds older than the live `latest.json` version should show the update in Settings. `tauri:dev` will not.
 
+## macOS DMG
+
+Mac builds run on GitHub Actions (`.github/workflows/macos-dmg.yml`), not on the Windows machine. `npm run tauri:build` stays NSIS-only.
+
+- **Target:** `aarch64-apple-darwin` (Apple Silicon). Config: `src-tauri/tauri.macos.conf.json` (DMG only, ad-hoc sign `signingIdentity: "-"`, macOS 12+).
+- **Command:** `npm run tauri:build:macos`
+- **Publish:** GitHub Release tag `macos`, asset `Replayr.dmg`. `make_latest` is false so it does not replace the Windows updater release.
+- **Website:** `GET /releases/Replayr.dmg` 302s to `https://github.com/elite6108/replayr/releases/download/macos/Replayr.dmg`. If that asset is missing, the Worker returns 404 JSON, not the SPA.
+
+Vite needs production Supabase values at CI build time or the Mac app shows the local `.env` hint and cannot sign in. Those live on the GitHub **Replayr** environment (Actions secrets):
+
+| Secret | Value |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Same as local `.env` (`https://<project-id>.supabase.co`) |
+| `VITE_SUPABASE_ANON_KEY` | Same as local `.env` (legacy anon JWT, not the service-role key) |
+
+The workflow fails before the Tauri build if either secret is empty. `VITE_PUBLIC_APP_URL` is hardcoded to `https://www.replayr.tv` in the workflow.
+
+Gatekeeper will still warn (ad-hoc signature). Notarization and Intel Mac are out of scope.
+
+Do not put service-role or R2 secrets in the DMG.
+
 ## Required software
+
+**Windows desktop (capture + NSIS):**
 
 - Windows 10 or later
 - [Node.js](https://nodejs.org/) 22+
@@ -285,17 +347,19 @@ Installed builds older than the live `latest.json` version should show the updat
 - [Visual Studio 2022 Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with **Desktop development with C++**
 - WebView2 (usually already installed with Edge)
 
+**macOS DMG:** GitHub-hosted `macos-latest` runner, Node 22, Rust `aarch64-apple-darwin`. Local Mac packaging is optional; CI is the ship path.
+
 ## Environment
 
 Copy `.env.example` to `.env`.
 
-**Desktop (safe to embed):**
+**Desktop (safe to embed at build time):**
 
 | Variable | Purpose |
 | --- | --- |
-| `VITE_SUPABASE_URL` | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | Anon / publishable key |
-| `VITE_PUBLIC_APP_URL` | Worker origin. Local: `http://127.0.0.1:8787`. Production builds that talk to live cloud: `https://www.replayr.tv` |
+| `VITE_SUPABASE_URL` | Supabase project URL (`https://<project-id>.supabase.co`) |
+| `VITE_SUPABASE_ANON_KEY` | Anon / publishable key (legacy `eyJ…` JWT, same one Windows uses) |
+| `VITE_PUBLIC_APP_URL` | Worker origin. Local: `http://127.0.0.1:8787`. Production desktop: `https://www.replayr.tv` |
 
 **Mobile (`mobile/.env`):**
 
@@ -307,9 +371,11 @@ Copy `.env.example` to `.env`.
 
 **Worker / R2 (never `VITE_`):** `.env.cloudflare` (gitignored) → `npm run worker:dev` copies into `worker/.dev.vars`.
 
+**Mac CI:** same two `VITE_SUPABASE_*` values as Actions secrets on the `Replayr` environment. Not committed.
+
 ## Setup
 
-1. Create a Supabase project. Enable Email auth. For desktop testing, turn off **Confirm email**. Leave Anonymous off.
+1. Create a Supabase project. Enable Email auth plus the social providers you want. For desktop testing, turn off **Confirm email**. Leave Anonymous off.
 2. Apply `supabase/migrations/` (SQL editor or `supabase db push`).
 3. Put URL + anon key in `.env`. Set `VITE_PUBLIC_APP_URL=http://127.0.0.1:8787`.
 4. Create an R2 bucket and API token. Put keys in `.env.cloudflare`.
@@ -327,10 +393,12 @@ npm run tauri:dev
 
 | Command | What it does |
 | --- | --- |
-| `npm run tauri:dev` | Desktop with Vite. Needs `vcvars64`. |
-| `npm run tauri:build` | Release NSIS installer. |
+| `npm run tauri:dev` | Desktop with Vite. Needs `vcvars64` on Windows. |
+| `npm run tauri:build` | Release NSIS installer (Windows only). |
+| `npm run tauri:build:macos` | Apple Silicon DMG. Used by CI, not by `tauri:build`. |
 | `npm run installer:stage` | `Replayr.exe` + `latest.json` from the matching `.sig`. |
-| `npm run web:deploy` | Build `web/` and deploy the Worker + assets (production `PUBLIC_APP_URL`). |
+| `npm run installer:stage:macos` | Copy the latest `*.dmg` to `web/public/releases/Replayr.dmg`. |
+| `npm run web:deploy` | Build `web/` and deploy the Worker + assets (production `PUBLIC_APP_URL`). Keep `Replayr.exe` in `web/public/releases`. |
 | `npm run typecheck` | Desktop TypeScript. |
 | `npm run mobile:start` | Expo. |
 
@@ -343,37 +411,40 @@ Worker health: `http://127.0.0.1:8787/v1/health` → `{"ok":true,"storage":true}
 
 ## Data
 
-**Postgres:** `plans`, `profiles`, `user_storage`, `games`, `clips`, `upload_sessions`, `creator_applications`, `clip_likes`, `clip_comments`. Video never goes in Postgres. Apply every file in `supabase/migrations/` in order. Likes/comments have RLS enabled and **no client policies** — Worker service-role only. Triggers keep `clips.like_count` / `comment_count`.
+**Postgres:** `plans`, `profiles`, `user_storage`, `games`, `clips`, `upload_sessions`, `creator_applications`, `clip_likes`, `clip_comments`, folders + members + activity, friends/follows/blocks, conversations, billing, announcements, waitlist, analytics events and daily aggregates. Video never goes in Postgres. Apply every file in `supabase/migrations/` in order. Likes/comments have RLS enabled and **no client policies** — Worker service-role only. Triggers keep `clips.like_count` / `comment_count`.
 
 **SQLite (desktop):** `settings`, `local_clips`, `upload_queue`, `games`. Migrations in `src-tauri/migrations/`.
 
 ## Directory layout
 
 ```
-src/                   React desktop UI
-src-tauri/             Rust / Tauri core
-src-tauri/migrations   SQLite
-src-tauri/permissions  Tauri ACL (add new commands here)
-supabase/migrations    Postgres / RLS
-worker/                API + share player + production static assets
-web/                   Public website
-web/public/releases    Staged Replayr.exe + latest.json (gitignored binaries)
-mobile/                Expo cloud app (no capture)
-scripts/               installer:stage
-.tauri/                updater private key (gitignored)
-docs/ARCHITECTURE.md   Locked system design
-docs/AUDIO_ROUTING.md  Audio plan (Step 1 shipped)
+src/                         React desktop UI
+src-tauri/                   Rust / Tauri core
+src-tauri/tauri.macos.conf.json  DMG-only Mac bundle (no NSIS)
+src-tauri/migrations         SQLite
+src-tauri/permissions        Tauri ACL (add new commands here)
+supabase/migrations          Postgres / RLS
+worker/                      API + share player + production static assets
+web/                         Public website
+web/public/releases          Staged Replayr.exe + latest.json (gitignored binaries)
+mobile/                      Expo cloud app (no capture)
+.github/workflows/macos-dmg.yml  Apple Silicon DMG CI + GitHub Release
+scripts/                     installer:stage (Windows + macOS)
+.tauri/                      updater private key (gitignored)
+docs/ARCHITECTURE.md         Locked system design
+docs/AUDIO_ROUTING.md        Audio plan (Step 1 shipped)
+docs/analytics-metrics.md    Admin analytics dictionary
 ```
 
 ## What is not done yet
 
 - Isolated Game / Discord / app audio (Mode 1) and separate tracks
 - DXGI exclusive-fullscreen fallback
-- Resume of interrupted multipart after restart
-- 24h abandoned-upload cleanup
+- Resume of interrupted multipart after a desktop restart
 - Pause uploads while gaming
-- Follows and notifications
-- Rich OG tags on every share page
+- Apple Sign-In on desktop
+- Intel Mac DMG and Apple notarization
+- Recording / Instant Replay on macOS
 
 ## Security rules to keep
 
@@ -384,3 +455,4 @@ docs/AUDIO_ROUTING.md  Audio plan (Step 1 shipped)
 - Clip URLs never include the username
 - Auth tokens stay out of SQLite and `.env`
 - Never commit `.tauri/updater.key` or invent an updater signature
+- Mac CI secrets are client-safe Vite values only

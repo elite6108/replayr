@@ -10,7 +10,17 @@ import { personName } from "./api.friends";
 
 export type ConversationType = "dm" | "group";
 export type ConversationRole = "owner" | "member";
-export type NotificationKind = "friend_request" | "friend_accept" | "message" | "group_invite";
+export type NotificationKind =
+  | "friend_request"
+  | "friend_accept"
+  | "follow_request"
+  | "follow_accept"
+  | "message"
+  | "group_invite"
+  | "folder_invite"
+  | "folder_invite_accepted"
+  | "folder_role_changed"
+  | "folder_ownership_transferred";
 
 export type MessageClip = {
   id: string;
@@ -91,6 +101,7 @@ export type NotificationItem = {
   friendshipId: string | null;
   conversationId: string | null;
   messageId: string | null;
+  folderId?: string | null;
 };
 
 export type NotificationsResponse = {

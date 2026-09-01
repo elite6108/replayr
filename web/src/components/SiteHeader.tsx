@@ -3,6 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { isAdminSession } from "../lib/admin";
 import { useAuth } from "../lib/auth";
 import { useSocialUnread } from "../lib/socialUnread";
+import { AppDownloadLink } from "./analytics/AppDownloadLink";
 import { APP_NAME, MAC_DOWNLOAD_PATH, WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
 import { NotificationBell } from "./NotificationBell";
 import { HeaderSearch } from "./HeaderSearch";
@@ -103,12 +104,12 @@ export function SiteHeader() {
                 Download
               </button>
               <div className="download-menu-panel" id={downloadMenuId} hidden={!downloadOpen}>
-                <a href={WINDOWS_DOWNLOAD_PATH} onClick={() => setDownloadOpen(false)}>
+                <AppDownloadLink href={WINDOWS_DOWNLOAD_PATH} platform="windows" surface="header" onClick={() => setDownloadOpen(false)}>
                   Windows (.exe)
-                </a>
-                <a href={MAC_DOWNLOAD_PATH} onClick={() => setDownloadOpen(false)}>
+                </AppDownloadLink>
+                <AppDownloadLink href={MAC_DOWNLOAD_PATH} platform="macos" surface="header" onClick={() => setDownloadOpen(false)}>
                   macOS (.dmg)
-                </a>
+                </AppDownloadLink>
               </div>
             </div>
           </div>

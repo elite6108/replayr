@@ -107,14 +107,14 @@ export function SendClipSheet({
         <Pressable style={styles.backdrop} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
           <Text style={styles.title}>Send clip</Text>
-          <Text style={styles.muted}>Recent chats, then friends. Sending does not make the clip public.</Text>
+          <Text style={styles.muted}>Recent chats, then people you both follow. Sending does not make the clip public.</Text>
           {error ? <Text style={styles.error}>{error}</Text> : null}
           {!token ? (
             <Text style={styles.muted}>Sign in to send this clip. Copy link still works.</Text>
           ) : loading ? (
             <ActivityIndicator color={colors.accent} style={{ marginVertical: 24 }} />
           ) : conversations.length === 0 && friends.length === 0 ? (
-            <Text style={styles.muted}>Add friends to send clips.</Text>
+            <Text style={styles.muted}>Follow each other to send clips.</Text>
           ) : (
             <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
               {conversations.length > 0 ? <Text style={styles.heading}>Recent chats</Text> : null}
@@ -136,7 +136,7 @@ export function SendClipSheet({
                   </Pressable>
                 );
               })}
-              {friendTargets.length > 0 ? <Text style={styles.heading}>Friends</Text> : null}
+              {friendTargets.length > 0 ? <Text style={styles.heading}>People you both follow</Text> : null}
               {friendTargets.map((friend) => {
                 const selected = picked?.kind === "friend" && picked.id === friend.id;
                 return (

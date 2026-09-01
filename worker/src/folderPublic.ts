@@ -1,3 +1,5 @@
+import { observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
+import { recordFolderPublicDownloadEvent } from "./analyticsDownloads";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { recordProductEvent } from "./metrics";
@@ -73,6 +75,7 @@ export async function handlePublicFolders(request: Request, env: Env, url: URL):
 async function enablePublicLink(request: Request, env: Env, folderId: string): Promise<Response> {
   const user = await requireUser(request, env);
   const access = await requireFolderPermission(env, folderId, user.id, "managePublicShare");
+  const wasEnabled = access.folder.public_enabled;
   if (access.folder.public_enabled && access.folder.public_token_hash) {
     const token = await loadSecretToken(env, folderId);
     if (token) return json({ publicShare: sharePayload(access.folder, token, env) });
@@ -83,7 +86,22 @@ async function enablePublicLink(request: Request, env: Env, folderId: string): P
     rotate: !access.folder.public_enabled,
   });
   void recordProductEvent(env, "folder_public_link", 1, { action: "enable", folderId, userId: user.id });
-  return json({ publicShare: sharePayload(folder, token, env) }, access.folder.public_enabled ? 200 : 201);
+  if (!wasEnabled && folder.public_enabled) {
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.folderPublicLinkEnabled, {
+      userId: user.id,
+      entityId: folder.id,
+    });
+    const { AUDIT_ACTIONS, requestCorrelationId, writeAuditLog } = await import("./audit");
+    void writeAuditLog(env, {
+      actorUserId: user.id,
+      actorType: "user",
+      action: AUDIT_ACTIONS.folderPublicLinkEnabled,
+      targetType: "folder",
+      targetId: folderId,
+      requestId: requestCorrelationId(request),
+    });
+  }
+  return json({ publicShare: sharePayload(folder, token, env) }, wasEnabled ? 200 : 201);
 }
 
 async function disablePublicLink(request: Request, env: Env, folderId: string): Promise<Response> {
@@ -96,6 +114,15 @@ async function disablePublicLink(request: Request, env: Env, folderId: string): 
   }
   const folder = await persistPublicLink(env, access.folder, null, { enabled: false, rotate: true });
   void recordProductEvent(env, "folder_public_link", 1, { action: "disable", folderId, userId: user.id });
+  const { AUDIT_ACTIONS, requestCorrelationId, writeAuditLog } = await import("./audit");
+  void writeAuditLog(env, {
+    actorUserId: user.id,
+    actorType: "user",
+    action: AUDIT_ACTIONS.folderPublicLinkDisabled,
+    targetType: "folder",
+    targetId: folderId,
+    requestId: requestCorrelationId(request),
+  });
   return json({ publicShare: sharePayload(folder, null, env) });
 }
 
@@ -108,6 +135,15 @@ async function regeneratePublicLink(request: Request, env: Env, folderId: string
   const token = generatePublicFolderToken();
   const folder = await persistPublicLink(env, access.folder, token, { enabled: true, rotate: true });
   void recordProductEvent(env, "folder_public_link", 1, { action: "regenerate", folderId, userId: user.id });
+  const { AUDIT_ACTIONS, requestCorrelationId, writeAuditLog } = await import("./audit");
+  void writeAuditLog(env, {
+    actorUserId: user.id,
+    actorType: "user",
+    action: AUDIT_ACTIONS.folderPublicLinkRegenerated,
+    targetType: "folder",
+    targetId: folderId,
+    requestId: requestCorrelationId(request),
+  });
   return json({ publicShare: sharePayload(folder, token, env) });
 }
 
@@ -153,6 +189,7 @@ async function publicFolderDownload(env: Env, token: string, clipId: string): Pr
     throw new HttpError(403, "Downloads are disabled for this folder.");
   }
   const downloadUrl = await signPublicFolderMedia(env, token, clipId, PUBLIC_DOWNLOAD_TTL, folder);
+  recordFolderPublicDownloadEvent(env, { folderId: folder.id, clipId, ownerId: folder.owner_id });
   return json({ downloadUrl });
 }
 
@@ -286,6 +323,7 @@ async function presentPublicFolder(env: Env, folder: FolderRow, memberships: Fol
     ? folder.cover_clip_id
     : presented[0]?.id;
   return {
+    id: folder.id,
     name: folder.name,
     description: folder.description,
     owner,

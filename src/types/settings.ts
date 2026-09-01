@@ -13,6 +13,27 @@ export type ThemePreference = "dark";
 
 export type WebcamPlacement = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 export type WebcamShape = "rectangle" | "rounded" | "circle";
+export type GameplayVisualFilter = "none" | "bodycam" | "dashcam" | "vhs" | "cinematic";
+export type PreviewBackgroundMode = "mock" | "dark";
+
+export interface RecordingOverlaySettings {
+  recIndicator: boolean;
+  timestamp: boolean;
+}
+
+/** Canonical Recording Visuals. Phase 3 may add optional per-filter params as siblings. */
+export interface RecordingVisualSettings {
+  filter: GameplayVisualFilter;
+  overlays: RecordingOverlaySettings;
+}
+
+export const DEFAULT_RECORDING_VISUALS: RecordingVisualSettings = {
+  filter: "none",
+  overlays: {
+    recIndicator: false,
+    timestamp: false,
+  },
+};
 
 export interface WebcamSettings {
   enabled: boolean;
@@ -88,6 +109,7 @@ export interface AppSettings {
   clipSavedNotification: boolean;
   discordRichPresence: boolean;
   webcam: WebcamSettings;
+  recordingVisuals: RecordingVisualSettings;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -127,4 +149,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   clipSavedNotification: true,
   discordRichPresence: true,
   webcam: { ...DEFAULT_WEBCAM_SETTINGS },
+  recordingVisuals: { ...DEFAULT_RECORDING_VISUALS, overlays: { ...DEFAULT_RECORDING_VISUALS.overlays } },
 };

@@ -149,7 +149,9 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       set({ busy: false, libraryEpoch: get().libraryEpoch + 1 });
     } catch (caught) {
       set({ busy: false });
-      useToastStore.getState().show(invokeErrorMessage(caught, "Could not save clip"));
+      const message = invokeErrorMessage(caught, "Could not save clip");
+      useToastStore.getState().show(message);
+      void import("../services/analytics").then(({ trackClipSaveFailed }) => trackClipSaveFailed(message));
     }
   },
   screenshot: async () => {

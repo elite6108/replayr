@@ -7,7 +7,16 @@ import { apiUrl } from "./supabase";
  */
 
 export type FriendshipStatus = "pending" | "accepted" | "blocked";
-export type Relationship = "none" | "outgoing" | "incoming" | "friends" | "blocked";
+export type Relationship = "none" | "outgoing" | "incoming" | "friends" | "following" | "follower" | "blocked";
+
+export type FollowState = {
+  viewerFollows: boolean;
+  viewerFollowPending: boolean;
+  followsViewer: boolean;
+  incomingPending: boolean;
+  mutual: boolean;
+  blocked: boolean;
+};
 
 export type SocialUser = {
   id: string;
@@ -92,6 +101,7 @@ export type UserProfileResponse = {
     clipCount: number;
     createdAt: string;
   };
+  follow?: FollowState;
   relationship: Relationship;
   isPrivate: boolean;
   locked: boolean;

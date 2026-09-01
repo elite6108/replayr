@@ -16,6 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ClipThumb } from "@/components/ClipThumb";
 import { Button } from "@/components/ui";
 import { deleteCloudClip, fetchLibrary, type ManagedClip } from "@/lib/api";
+import { foldersHref } from "@/lib/api.folders";
 import { seedClipFeed } from "@/lib/clipFeed";
 import { useAuth } from "@/lib/auth";
 import { formatSectionLabel } from "@/lib/format";
@@ -205,6 +206,12 @@ export default function LibraryScreen() {
           </Pressable>
         )}
       </View>
+      <View style={styles.libraryTabs}>
+        <Text style={[styles.libraryTab, styles.libraryTabOn]}>Clips</Text>
+        <Pressable onPress={() => router.push(foldersHref())}>
+          <Text style={styles.libraryTab}>Folders</Text>
+        </Pressable>
+      </View>
 
       <View style={styles.filterRow}>
         <Pressable style={styles.iconBtn} onPress={() => setSearchOpen((current) => !current)}>
@@ -319,6 +326,9 @@ const styles = StyleSheet.create({
   },
   topAction: { color: colors.text, fontSize: 16, width: 64 },
   topTitle: { color: colors.text, fontSize: 17, fontWeight: "700" },
+  libraryTabs: { flexDirection: "row", gap: 16, paddingHorizontal: 16, paddingBottom: 10 },
+  libraryTab: { color: colors.muted, fontSize: 16, fontWeight: "600", paddingBottom: 6 },
+  libraryTabOn: { color: colors.text, borderBottomWidth: 2, borderBottomColor: colors.accent },
   disabled: { color: colors.muted },
   filterRow: { flexDirection: "row", alignItems: "center", paddingLeft: 12, gap: 8, marginBottom: 8 },
   iconBtn: {

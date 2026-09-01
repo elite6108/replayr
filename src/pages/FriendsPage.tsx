@@ -401,7 +401,7 @@ export function FriendsPage() {
                           Message
                         </button>
                       ) : null}
-                      {hit.relationship === "none" ? (
+                      {hit.relationship === "none" || hit.relationship === "follower" ? (
                         <button
                           className="btn primary sm"
                           type="button"
@@ -409,12 +409,13 @@ export function FriendsPage() {
                           onClick={() =>
                             void run(hit.id, async () => {
                               await createFriendRequest(token, hit.username ? { username: hit.username } : { userId: hit.id });
-                            }, "Request sent")
+                            }, "Followed")
                           }
                         >
-                          Add
+                          {hit.relationship === "follower" ? "Follow back" : "Follow"}
                         </button>
                       ) : null}
+                      {hit.relationship === "following" ? <span className="muted">Following</span> : null}
                       {hit.relationship === "incoming" && incomingReq ? (
                         <button
                           className="btn primary sm"

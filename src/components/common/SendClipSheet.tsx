@@ -58,6 +58,8 @@ export function SendClipSheet({ slug, onClose }: { slug: string; onClose: () => 
           : friends.find((friend) => friend.id === picked.id)?.dmId ??
             (await createConversation(token, { type: "dm", userId: picked.id })).id;
       await sendClipToConversation(token, slug, { conversationId });
+      const { trackClipShared } = await import("../../services/analytics");
+      trackClipShared({ channel: "dm", slug });
       showToast(`Sent to ${picked.label}`);
       onClose();
     } catch (caught) {

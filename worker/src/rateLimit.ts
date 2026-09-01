@@ -21,6 +21,10 @@ export function clientKey(request: Request, suffix: string, userId?: string): st
   return userId ? `${suffix}:${userId}:${ip}` : `${suffix}:${ip}`;
 }
 
+export function clearRateLimitBuckets(): void {
+  buckets.clear();
+}
+
 export function assertRateLimit(
   request: Request,
   suffix: string,

@@ -373,6 +373,8 @@ export const useCloudStore = create<CloudState>((set, get) => ({
     }
     try {
       await navigator.clipboard.writeText(clipShareUrl(clip.slug));
+      const { trackClipShared } = await import("../services/analytics");
+      trackClipShared({ channel: "copy_link", slug: clip.slug });
       useToastStore.getState().show(
         clip.visibility === "public" ? "Public link copied" : "Unlisted link copied",
       );

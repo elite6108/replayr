@@ -1,4 +1,19 @@
 import { AwsClient } from "aws4fetch";
+import { buildAnalyticsDownloads, buildAnalyticsOverview } from "./analyticsAdmin";
+import { buildAnalyticsAcquisition, buildAnalyticsGrowth, buildAnalyticsRetention } from "./analyticsGrowthAdmin";
+import {
+  buildAnalyticsClips,
+  buildAnalyticsFeatures,
+  buildAnalyticsFolders,
+  buildAnalyticsGames,
+  buildAnalyticsSharing,
+} from "./analyticsProductAdmin";
+import { buildAnalyticsInfrastructure, buildAnalyticsRevenue, patchCostAssumption } from "./analyticsEconomyAdmin";
+import { buildAnalyticsHealth, buildAnalyticsHealthReleases } from "./analyticsHealthAdmin";
+import { handleAnalyticsReports } from "./analyticsReportAdmin";
+import { listAdminAudit } from "./auditAdmin";
+import { AUDIT_ACTIONS, requestCorrelationId, writeAuditLog } from "./audit";
+import { rebuildAnalyticsDaily } from "./analyticsRollup";
 import { handleAdminAnnouncements } from "./announcements";
 import { applyPlan, stripeForm } from "./billing";
 import { listAdminErrors, openErrorCount, resolveAdminError } from "./errors";
@@ -15,6 +30,7 @@ const APP_STATUSES = new Set(["pending", "approved", "rejected"]);
 interface AdminActor {
   id: string;
   serviceKey: string;
+  requestId: string | null;
 }
 
 interface AuthAdminUser {
@@ -90,6 +106,8 @@ export async function handleAdmin(request: Request, env: Env, url: URL): Promise
   const actor = await requireAdmin(request, env);
   const announcements = await handleAdminAnnouncements(request, env, url, actor);
   if (announcements) return announcements;
+  const reports = await handleAnalyticsReports(request, env, url, actor);
+  if (reports) return reports;
   const path = url.pathname;
 
   if (request.method === "GET" && path === "/v1/admin/overview") {
@@ -147,6 +165,68 @@ export async function handleAdmin(request: Request, env: Env, url: URL): Promise
   if (request.method === "POST" && review?.[1]) {
     return reviewCreator(request, env, actor, review[1]);
   }
+  if (request.method === "GET" && path === "/v1/admin/analytics/overview") {
+    return json(await buildAnalyticsOverview(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/downloads") {
+    return json(await buildAnalyticsDownloads(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/growth") {
+    return json(await buildAnalyticsGrowth(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/retention") {
+    return json(await buildAnalyticsRetention(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/acquisition") {
+    return json(await buildAnalyticsAcquisition(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/clips") {
+    return json(await buildAnalyticsClips(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/games") {
+    return json(await buildAnalyticsGames(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/features") {
+    return json(await buildAnalyticsFeatures(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/folders") {
+    return json(await buildAnalyticsFolders(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/sharing") {
+    return json(await buildAnalyticsSharing(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/revenue") {
+    return json(await buildAnalyticsRevenue(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/infrastructure") {
+    return json(await buildAnalyticsInfrastructure(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/health") {
+    return json(await buildAnalyticsHealth(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/health/releases") {
+    return json(await buildAnalyticsHealthReleases(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/audit") {
+    return listAdminAudit(env, url);
+  }
+  if (request.method === "PATCH" && path === "/v1/admin/analytics/cost-assumptions") {
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    return json(await patchCostAssumption(env, body, { actorId: actor.id, requestId: actor.requestId }));
+  }
+  if (request.method === "POST" && path === "/v1/admin/analytics/backfill") {
+    const body = (await request.json().catch(() => ({}))) as { from?: unknown; to?: unknown };
+    if (typeof body.from !== "string" || typeof body.to !== "string") {
+      throw new HttpError(400, "from and to must be YYYY-MM-DD UTC dates as [from, to).");
+    }
+    try {
+      const result = await rebuildAnalyticsDaily(env, body.from, body.to);
+      return json({ ok: true, ...result });
+    } catch (caught) {
+      if (caught instanceof HttpError) throw caught;
+      throw new HttpError(400, caught instanceof Error ? caught.message : "Could not backfill analytics.");
+    }
+  }
 
   throw new HttpError(404, "Not found.");
 }
@@ -178,7 +258,7 @@ async function requireAdmin(request: Request, env: Env): Promise<AdminActor> {
       "Admin API is not configured. Add SUPABASE_SERVICE_ROLE_KEY to .env (not VITE_), then restart the Worker.",
     );
   }
-  return { id: user.id, serviceKey: env.SUPABASE_SERVICE_ROLE_KEY };
+  return { id: user.id, serviceKey: env.SUPABASE_SERVICE_ROLE_KEY, requestId: requestCorrelationId(request) };
 }
 
 async function overview(env: Env, actor: AdminActor): Promise<Response> {
@@ -317,6 +397,18 @@ async function patchSettings(request: Request, env: Env, actor: AdminActor): Pro
   if (typeof body.watermarkEnabled === "boolean") patch.watermark_enabled = body.watermarkEnabled;
   if (typeof body.adsEnabled === "boolean") patch.ads_enabled = body.adsEnabled;
   await serviceRest(env, actor, "PATCH", "/app_settings?id=eq.1", patch);
+  await writeAuditLog(env, {
+    actorUserId: actor.id,
+    actorType: "admin",
+    action: AUDIT_ACTIONS.adminConfigChanged,
+    targetType: "app_settings",
+    targetId: "1",
+    requestId: actor.requestId,
+    metadata: {
+      watermarkEnabled: body.watermarkEnabled ?? null,
+      adsEnabled: body.adsEnabled ?? null,
+    },
+  });
   return getSettings(env, actor);
 }
 
@@ -346,6 +438,15 @@ async function patchPlan(request: Request, env: Env, actor: AdminActor, slug: st
   if (typeof body.ads === "boolean") patch.ads = body.ads;
   if (!Object.keys(patch).length) throw new HttpError(400, "Nothing to update.");
   await serviceRest(env, actor, "PATCH", `/plans?slug=eq.${encodeURIComponent(slug)}`, patch);
+  await writeAuditLog(env, {
+    actorUserId: actor.id,
+    actorType: "admin",
+    action: AUDIT_ACTIONS.adminConfigChanged,
+    targetType: "plan",
+    targetId: slug,
+    requestId: actor.requestId,
+    metadata: patch,
+  });
   return listPlans(env, actor);
 }
 
@@ -372,10 +473,28 @@ async function userBillingAction(request: Request, env: Env, actor: AdminActor, 
       granted_by: actor.id,
       expires_at: expiresAt,
     });
+    await writeAuditLog(env, {
+      actorUserId: actor.id,
+      actorType: "admin",
+      action: AUDIT_ACTIONS.adminSubscriptionGranted,
+      targetType: "user",
+      targetId: userId,
+      requestId: actor.requestId,
+      metadata: { plan: slug },
+    });
     return json({ ok: true });
   }
   if (action === "revoke") {
-    return forceFree(env, actor, userId);
+    const result = await forceFree(env, actor, userId);
+    await writeAuditLog(env, {
+      actorUserId: actor.id,
+      actorType: "admin",
+      action: AUDIT_ACTIONS.adminSubscriptionRevoked,
+      targetType: "user",
+      targetId: userId,
+      requestId: actor.requestId,
+    });
+    return result;
   }
   if (action === "cancel" || action === "extend_trial") {
     const subs = await serviceRest<{ stripe_subscription_id: string }[]>(
@@ -506,6 +625,15 @@ async function patchUser(request: Request, env: Env, actor: AdminActor, userId: 
         granted_by: actor.id,
       });
     }
+    await writeAuditLog(env, {
+      actorUserId: actor.id,
+      actorType: "admin",
+      action: AUDIT_ACTIONS.billingPlanChangedByAdmin,
+      targetType: "user",
+      targetId: userId,
+      requestId: actor.requestId,
+      metadata: { to: body.planSlug },
+    });
     if (body.storageLimitBytes == null) {
       return json({ userId, ok: true });
     }
@@ -649,6 +777,15 @@ async function deleteClip(env: Env, actor: AdminActor, clipId: string): Promise<
     watermark_variant_status: "none",
   });
   await serviceRest(env, actor, "DELETE", `/upload_sessions?clip_id=eq.${clipId}`);
+  await writeAuditLog(env, {
+    actorUserId: actor.id,
+    actorType: "admin",
+    action: AUDIT_ACTIONS.moderationClipRemoved,
+    targetType: "clip",
+    targetId: clipId,
+    requestId: actor.requestId,
+    metadata: { slug: clip.slug, userId: clip.user_id },
+  });
   return json({ clipId, status: "deleted" });
 }
 

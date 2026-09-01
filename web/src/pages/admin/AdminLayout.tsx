@@ -1,7 +1,8 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { Seo } from "../../components/Seo";
+import { analyticsSidebarItems } from "./analytics/analyticsNav";
 
-const links = [
+const operationalLinks = [
   { to: "/admin", label: "Overview", end: true },
   { to: "/admin/users", label: "Users" },
   { to: "/admin/billing", label: "Billing" },
@@ -24,11 +25,18 @@ export function AdminLayout() {
             Privileged actions go through the Worker. Soft-delete only. Share links stay <code>/c/…</code>.
           </p>
           <nav className="admin-nav" aria-label="Admin">
-            {links.map((link) => (
+            {operationalLinks.map((link) => (
               <NavLink key={link.to} to={link.to} end={link.end}>
                 {link.label}
               </NavLink>
             ))}
+            <p className="admin-nav-group">Analytics</p>
+            {analyticsSidebarItems.map((link) => (
+              <NavLink key={link.to} to={link.to} end={link.end}>
+                {link.label}
+              </NavLink>
+            ))}
+            <NavLink to="/admin/audit">Audit Log</NavLink>
           </nav>
         </aside>
         <div className="admin-main">

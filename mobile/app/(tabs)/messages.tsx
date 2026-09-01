@@ -126,7 +126,7 @@ export default function MessagesScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.hero}>Messages</Text>
-        <Text style={styles.muted}>Sign in to chat with friends. Messages stay on your Replayr account.</Text>
+        <Text style={styles.muted}>Sign in to chat with people you both follow. Messages stay on your Replayr account.</Text>
         <Button label="Sign in" kind="primary" onPress={() => router.push("/signin")} />
       </View>
     );
@@ -169,11 +169,11 @@ export default function MessagesScreen() {
               <Text style={styles.emptyTitle}>No messages yet</Text>
               <Text style={styles.muted}>
                 {friends.length === 0
-                  ? "Add friends to start a chat. Nobody is listed here until you do."
+                  ? "Follow each other to start a chat. Nobody is listed here until you do."
                   : "Start a chat with a friend. Threads you open will show up here."}
               </Text>
               <Button
-                label={friends.length === 0 ? "Find friends" : "New message"}
+                label={friends.length === 0 ? "Find people" : "New message"}
                 kind="primary"
                 onPress={() => (friends.length === 0 ? router.push("/friends") : setCompose("dm"))}
               />
@@ -219,9 +219,9 @@ export default function MessagesScreen() {
           </View>
           {friends.length === 0 ? (
             <View style={styles.empty}>
-              <Text style={styles.muted}>No friends yet. Find someone by username first.</Text>
+              <Text style={styles.muted}>No mutual follows yet. Find someone by username first.</Text>
               <Button
-                label="Find friends"
+                label="Find people"
                 kind="primary"
                 onPress={() => {
                   setCompose("closed");

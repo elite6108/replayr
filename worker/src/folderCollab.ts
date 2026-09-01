@@ -1,3 +1,4 @@
+import { observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
 import type { Env } from "./env";
 import { loadFollowState } from "./follows";
 import { HttpError, json } from "./http";
@@ -257,6 +258,11 @@ async function createFolderInvite(request: Request, env: Env, folderId: string):
     created = again[0];
   }
   if (!created) throw new HttpError(502, "Could not send that invite.");
+  observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.folderInviteSent, {
+    userId: user.id,
+    entityId: created.id,
+    properties: { role },
+  });
 
   await insertNotifications(env, [
     {
@@ -317,6 +323,10 @@ async function acceptFolderInvite(request: Request, env: Env, folderId: string, 
 
   if (invite.status === "pending") {
     await markInvite(env, invite.id, "accepted");
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.folderInviteAccepted, {
+      userId: user.id,
+      entityId: invite.id,
+    });
     await insertNotifications(env, [
       {
         user_id: invite.inviter_id,
@@ -384,6 +394,26 @@ async function changeMemberRole(request: Request, env: Env, folderId: string, us
     entityId: userId,
     metadata: { role: next },
   });
+  if (userId !== user.id) {
+    await insertNotifications(env, [
+      {
+        user_id: userId,
+        kind: "folder_role_changed",
+        actor_id: user.id,
+        folder_id: folderId,
+      },
+    ]);
+  }
+  const { AUDIT_ACTIONS, requestCorrelationId, writeAuditLog } = await import("./audit");
+  void writeAuditLog(env, {
+    actorUserId: user.id,
+    actorType: "user",
+    action: AUDIT_ACTIONS.folderMemberRoleChanged,
+    targetType: "folder",
+    targetId: folderId,
+    requestId: requestCorrelationId(request),
+    metadata: { from: member.role, to: next, memberId: userId },
+  });
   return json({ member: presentMember(updated, people, access.role) });
 }
 
@@ -406,6 +436,16 @@ async function removeMember(request: Request, env: Env, folderId: string, userId
     throw new HttpError(403, "You cannot remove that member.");
   }
   await serviceRest(env, "DELETE", `/folder_members?folder_id=eq.${folderId}&user_id=eq.${userId}`);
+  const { AUDIT_ACTIONS, requestCorrelationId, writeAuditLog } = await import("./audit");
+  void writeAuditLog(env, {
+    actorUserId: user.id,
+    actorType: "user",
+    action: AUDIT_ACTIONS.folderMemberRemoved,
+    targetType: "folder",
+    targetId: folderId,
+    requestId: requestCorrelationId(request),
+    metadata: { memberId: userId, role: member.role },
+  });
   return json({ ok: true });
 }
 
@@ -464,6 +504,24 @@ async function transferFolderOwnership(request: Request, env: Env, folderId: str
     kind: "ownership_transferred",
     entityId: target.id,
   });
+  const { AUDIT_ACTIONS, requestCorrelationId, writeAuditLog } = await import("./audit");
+  void writeAuditLog(env, {
+    actorUserId: user.id,
+    actorType: "user",
+    action: AUDIT_ACTIONS.folderOwnershipTransferred,
+    targetType: "folder",
+    targetId: folderId,
+    requestId: requestCorrelationId(request),
+    metadata: { from: user.id, to: target.id },
+  });
+  await insertNotifications(env, [
+    {
+      user_id: target.id,
+      kind: "folder_ownership_transferred",
+      actor_id: user.id,
+      folder_id: folderId,
+    },
+  ]);
   return json({ folder: await presentFolderDetail(env, folder, "manager", memberships) });
 }
 

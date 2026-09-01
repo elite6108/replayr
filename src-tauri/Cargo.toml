@@ -1,6 +1,6 @@
 [package]
 name = "replay"
-version = "0.1.22"
+version = "0.1.23"
 description = "Project Replay desktop application"
 authors = ["Project Replay"]
 edition = "2021"

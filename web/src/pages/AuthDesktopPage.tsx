@@ -1,4 +1,9 @@
+import { useEffect } from "react";
 import { Seo } from "../components/Seo";
+
+function desktopCallbackUrl(code: string): string {
+  return `replayr://auth-callback?code=${encodeURIComponent(code)}`;
+}
 
 export function AuthDesktopPage() {
   const params = new URLSearchParams(window.location.search);
@@ -6,19 +11,24 @@ export function AuthDesktopPage() {
   const code = params.get("code") || hash.get("code");
   const error = params.get("error_description") || params.get("error") || hash.get("error_description");
 
+  useEffect(() => {
+    if (!code) return;
+    window.location.href = desktopCallbackUrl(code);
+  }, [code]);
+
   function openApp() {
     if (!code) return;
-    window.location.href = `replayr://auth-callback?code=${encodeURIComponent(code)}`;
+    window.location.href = desktopCallbackUrl(code);
   }
 
   return (
     <main className="page narrow">
-      <Seo title="Open Replayr" description="Finish signing in on the Windows app." robots="noindex" />
+      <Seo title="Open Replayr" description="Finish signing in on the Replayr app." robots="noindex" />
       <h1>Finish signing in</h1>
       {error ? <p className="error">{error}</p> : null}
       {code ? (
         <>
-          <p className="muted">Replayr is ready on this PC. Open the app to finish — this page will not sign you in on the website.</p>
+          <p className="muted">Replayr is opening so you can finish sign-in. If nothing happens, open the app from this page.</p>
           <button className="btn primary" type="button" onClick={openApp}>
             Open Replayr
           </button>

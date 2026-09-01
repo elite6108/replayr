@@ -23,6 +23,8 @@ function copyFor(item: NotificationItem) {
   if (item.kind === "group_invite") return `${name} invited you to a group`;
   if (item.kind === "folder_invite") return `${name} invited you to a folder`;
   if (item.kind === "folder_invite_accepted") return `${name} accepted your folder invite`;
+  if (item.kind === "folder_role_changed") return `${name} changed your folder role`;
+  if (item.kind === "folder_ownership_transferred") return `${name} transferred a folder to you`;
   return `${name} sent you a message`;
 }
 
@@ -131,6 +133,19 @@ export function NotificationBell() {
     }
     if ((item.kind === "message" || item.kind === "group_invite") && item.conversationId) {
       navigate(`/messages/${item.conversationId}`);
+      return;
+    }
+    if (item.kind === "folder_invite") {
+      navigate("/library/folders");
+      return;
+    }
+    if (
+      (item.kind === "folder_invite_accepted" ||
+        item.kind === "folder_role_changed" ||
+        item.kind === "folder_ownership_transferred") &&
+      item.folderId
+    ) {
+      navigate(`/folders/${item.folderId}`);
     }
   }
 

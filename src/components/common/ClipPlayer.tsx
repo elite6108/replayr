@@ -208,7 +208,6 @@ export function ClipPlayer() {
                 key={media}
                 ref={gameplayRef}
                 src={media}
-                type="video/mp4"
                 controls
                 autoPlay
                 controlsList={webcamMedia ? "nofullscreen" : undefined}

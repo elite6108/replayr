@@ -9,6 +9,26 @@ import { useAuthStore } from "../../stores/authStore";
 import { useBillingStore } from "../../stores/billingStore";
 import { formatBytes, formatClipDate, formatDuration, isVideoPath } from "../../utils/format";
 import { clipWebcamSource, parseSourceLayout, webcamOverlayStyle } from "../../utils/clips";
+import { useToastStore } from "../../stores/toastStore";
+
+const MEDIA_ERR: Record<number, string> = {
+  1: "ABORTED",
+  2: "NETWORK",
+  3: "DECODE",
+  4: "SRC_NOT_SUPPORTED",
+};
+
+function playbackSrcKind(src: string): string {
+  if (src.startsWith("asset:") || src.includes("asset.localhost")) return "asset";
+  if (src.startsWith("http://") || src.startsWith("https://")) return "http";
+  return "other";
+}
+
+function localPlayErrorMessage(videoEl: HTMLVideoElement): string {
+  const code = videoEl.error?.code ?? 0;
+  const kind = playbackSrcKind(videoEl.currentSrc || videoEl.src || "");
+  return `Local play failed (${MEDIA_ERR[code] ?? `code ${code}`}, ${kind})`;
+}
 
 /** Webcam vs gameplay offset (seconds). Positive = delay cam. */
 const WEBCAM_LAG_S = 0;
@@ -34,6 +54,7 @@ export function ClipPlayer() {
   const [sendOpen, setSendOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [wrapFullscreen, setWrapFullscreen] = useState(false);
+  const [playError, setPlayError] = useState<string | null>(null);
   const gameplayRef = useRef<HTMLVideoElement>(null);
   const webcamRef = useRef<HTMLVideoElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -43,6 +64,7 @@ export function ClipPlayer() {
     setConfirmDelete(false);
     setSendOpen(false);
     setSending(false);
+    setPlayError(null);
   }, [clip?.localId, clip?.title]);
 
   useEffect(() => {
@@ -124,6 +146,13 @@ export function ClipPlayer() {
                 onPause={(event) => syncWebcam(event.currentTarget)}
                 onSeeked={(event) => syncWebcam(event.currentTarget)}
                 onTimeUpdate={(event) => syncWebcam(event.currentTarget)}
+                onError={(event) => {
+                  const message = localPlayErrorMessage(event.currentTarget);
+                  setPlayError(message);
+                  useToastStore.getState().showSticky(message, [
+                    { label: "Dismiss", onClick: () => undefined },
+                  ]);
+                }}
                 onDoubleClick={() => {
                   if (webcamMedia) void toggleWrapFullscreen();
                 }}
@@ -187,6 +216,7 @@ export function ClipPlayer() {
             {clip.fileSize ? ` · ${formatBytes(clip.fileSize)}` : ""}
           </p>
           <p className="muted">{clip.filePath}</p>
+          {playError ? <p className="error-text">{playError}</p> : null}
           <div className="row">
             <button type="button" className="btn" onClick={() => void favorite(clip.localId, !clip.favorite)}>
               {clip.favorite ? "Unfavorite" : "Favorite"}

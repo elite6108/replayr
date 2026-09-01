@@ -100,6 +100,7 @@ export function ClipPlayer() {
   if (!clip) return null;
 
   const playbackFile = playPath ?? clip.filePath;
+  const localId = clip.localId;
   const media = convertFileSrc(playbackFile);
   const video = isVideoPath(clip.filePath);
   const webcamSource = clipWebcamSource(clip);
@@ -137,7 +138,7 @@ export function ClipPlayer() {
     setPreparing(true);
     setPlayError("Preparing clip for playback…");
     try {
-      const next = await prepareLocalClipPlayback(clip.localId);
+      const next = await prepareLocalClipPlayback(localId);
       if (next === playbackFile) {
         const message = localPlayErrorMessage(videoEl);
         setPlayError(message);

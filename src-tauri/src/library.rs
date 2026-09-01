@@ -562,6 +562,10 @@ pub fn delete(conn: &Connection, local_id: &str) -> AppResult<()> {
             paths.push(source.file_path.clone());
         }
     }
+    let play = playback_sidecar_path(Path::new(&clip.file_path));
+    if play != Path::new(&clip.file_path) {
+        paths.push(play.to_string_lossy().into_owned());
+    }
     conn.execute("DELETE FROM local_clips WHERE local_id = ?1", [local_id])?;
     for path in paths {
         remove_media(&path);
@@ -581,6 +585,57 @@ pub fn set_editor_crop(app: &AppHandle, local_id: &str, pan: f32) -> AppResult<L
         return Err(AppError::Message("Clip not found.".into()));
     }
     get(&conn, local_id)
+}
+
+pub fn playback_sidecar_path(path: &Path) -> PathBuf {
+    let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+    if name.ends_with(".play.mp4") {
+        return path.to_path_buf();
+    }
+    let stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("clip");
+    path.with_file_name(format!("{stem}.play.mp4"))
+}
+
+fn sidecar_is_current(src: &Path, dest: &Path) -> bool {
+    let Ok(play) = dest.metadata() else {
+        return false;
+    };
+    if play.len() < 32 {
+        return false;
+    }
+    let Ok(source) = src.metadata() else {
+        return false;
+    };
+    match (play.modified(), source.modified()) {
+        (Ok(play_mtime), Ok(source_mtime)) => play_mtime >= source_mtime,
+        _ => true,
+    }
+}
+
+/// Copy-remux a local MP4 into a WebView-playable sidecar. Original file is unchanged.
+pub fn prepare_playback(app: &AppHandle, local_id: &str) -> AppResult<String> {
+    let db = app.state::<AppState>();
+    let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    let clip = get(&conn, local_id)?;
+    drop(conn);
+    crate::paths::assert_reveal_allowed(app, &clip.file_path)?;
+    let src = PathBuf::from(&clip.file_path);
+    if !src
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"))
+    {
+        return Ok(clip.file_path);
+    }
+    let dest = playback_sidecar_path(&src);
+    if dest == src {
+        return Ok(clip.file_path);
+    }
+    if sidecar_is_current(&src, &dest) {
+        return Ok(dest.to_string_lossy().into_owned());
+    }
+    crate::export::remux_composed_mp4(&src, &dest).map_err(AppError::Message)?;
+    Ok(dest.to_string_lossy().into_owned())
 }
 
 pub fn get(conn: &Connection, local_id: &str) -> AppResult<LocalClipDto> {
@@ -862,5 +917,18 @@ mod tests {
         let clip = listed.iter().find(|item| item.local_id == "clip-gap").unwrap();
         assert_eq!(clip.sources.len(), 1);
         assert_eq!(clip.sources[0].kind, SOURCE_GAMEPLAY);
+    }
+
+    #[test]
+    fn playback_sidecar_sits_next_to_the_original() {
+        let src = PathBuf::from(r"C:\Videos\clip-1.mp4");
+        assert_eq!(
+            playback_sidecar_path(&src),
+            PathBuf::from(r"C:\Videos\clip-1.play.mp4")
+        );
+        assert_eq!(
+            playback_sidecar_path(&PathBuf::from(r"C:\Videos\clip-1.play.mp4")),
+            PathBuf::from(r"C:\Videos\clip-1.play.mp4")
+        );
     }
 }

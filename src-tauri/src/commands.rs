@@ -497,6 +497,13 @@ pub async fn list_clip_filmstrip(
 }
 
 #[tauri::command]
+pub async fn prepare_local_clip_playback(app: AppHandle, local_id: String) -> AppResult<String> {
+    tauri::async_runtime::spawn_blocking(move || library::prepare_playback(&app, &local_id))
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+#[tauri::command]
 pub fn list_local_clips(state: State<AppState>, limit: Option<i64>) -> AppResult<Vec<LocalClipDto>> {
     let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
     library::list(&conn, limit.unwrap_or(80))

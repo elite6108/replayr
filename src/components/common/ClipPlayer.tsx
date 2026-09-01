@@ -9,7 +9,9 @@ import { useAuthStore } from "../../stores/authStore";
 import { useBillingStore } from "../../stores/billingStore";
 import { formatBytes, formatClipDate, formatDuration, isVideoPath } from "../../utils/format";
 import { clipWebcamSource, parseSourceLayout, webcamOverlayStyle } from "../../utils/clips";
+import { prepareLocalClipPlayback } from "../../services/tauri";
 import { useToastStore } from "../../stores/toastStore";
+import { invokeErrorMessage } from "../../utils/format";
 
 const MEDIA_ERR: Record<number, string> = {
   1: "ABORTED",
@@ -55,6 +57,9 @@ export function ClipPlayer() {
   const [sending, setSending] = useState(false);
   const [wrapFullscreen, setWrapFullscreen] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
+  const [playPath, setPlayPath] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const preparedRef = useRef(false);
   const gameplayRef = useRef<HTMLVideoElement>(null);
   const webcamRef = useRef<HTMLVideoElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -65,6 +70,9 @@ export function ClipPlayer() {
     setSendOpen(false);
     setSending(false);
     setPlayError(null);
+    setPlayPath(null);
+    setPreparing(false);
+    preparedRef.current = false;
   }, [clip?.localId, clip?.title]);
 
   useEffect(() => {
@@ -91,7 +99,8 @@ export function ClipPlayer() {
 
   if (!clip) return null;
 
-  const media = convertFileSrc(clip.filePath);
+  const playbackFile = playPath ?? clip.filePath;
+  const media = convertFileSrc(playbackFile);
   const video = isVideoPath(clip.filePath);
   const webcamSource = clipWebcamSource(clip);
   const webcamMedia = webcamSource ? convertFileSrc(webcamSource.filePath) : "";
@@ -112,6 +121,37 @@ export function ClipPlayer() {
       if (!cam.paused) cam.pause();
     } else if (cam.paused) {
       void cam.play().catch(() => undefined);
+    }
+  }
+
+  async function recoverLocalPlay(videoEl: HTMLVideoElement) {
+    const code = videoEl.error?.code ?? 0;
+    const canRemux = (code === 3 || code === 4) && !preparedRef.current && !preparing;
+    if (!canRemux) {
+      const message = localPlayErrorMessage(videoEl);
+      setPlayError(message);
+      useToastStore.getState().showSticky(message, [{ label: "Dismiss", onClick: () => undefined }]);
+      return;
+    }
+    preparedRef.current = true;
+    setPreparing(true);
+    setPlayError("Preparing clip for playback…");
+    try {
+      const next = await prepareLocalClipPlayback(clip.localId);
+      if (next === playbackFile) {
+        const message = localPlayErrorMessage(videoEl);
+        setPlayError(message);
+        useToastStore.getState().showSticky(message, [{ label: "Dismiss", onClick: () => undefined }]);
+        return;
+      }
+      setPlayPath(next);
+      setPlayError(null);
+    } catch (caught) {
+      const message = invokeErrorMessage(caught, localPlayErrorMessage(videoEl));
+      setPlayError(message);
+      useToastStore.getState().showSticky(message, [{ label: "Dismiss", onClick: () => undefined }]);
+    } finally {
+      setPreparing(false);
     }
   }
 
@@ -137,6 +177,7 @@ export function ClipPlayer() {
           {video ? (
             <PlayerVideo ref={wrapRef} showWatermark={watermark}>
               <video
+                key={media}
                 ref={gameplayRef}
                 src={media}
                 controls
@@ -147,11 +188,7 @@ export function ClipPlayer() {
                 onSeeked={(event) => syncWebcam(event.currentTarget)}
                 onTimeUpdate={(event) => syncWebcam(event.currentTarget)}
                 onError={(event) => {
-                  const message = localPlayErrorMessage(event.currentTarget);
-                  setPlayError(message);
-                  useToastStore.getState().showSticky(message, [
-                    { label: "Dismiss", onClick: () => undefined },
-                  ]);
+                  void recoverLocalPlay(event.currentTarget);
                 }}
                 onDoubleClick={() => {
                   if (webcamMedia) void toggleWrapFullscreen();

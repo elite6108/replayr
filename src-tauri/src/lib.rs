@@ -218,6 +218,7 @@ pub fn run() {
             commands::start_webcam_test_record,
             commands::stop_webcam_test_record,
             commands::list_local_clips,
+            commands::prepare_local_clip_playback,
             commands::reset_stale_uploads,
             commands::save_trimmed_clip,
             commands::save_short_clip,

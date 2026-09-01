@@ -6,6 +6,7 @@ commands.allow = [
   "set_setting",
   "set_settings",
   "list_local_clips",
+  "prepare_local_clip_playback",
   "reset_stale_uploads",
   "save_trimmed_clip",
   "save_short_clip",

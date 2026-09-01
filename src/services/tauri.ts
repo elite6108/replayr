@@ -145,6 +145,10 @@ export async function shareLocalClip(options: { localId?: string; filePath?: str
   return invoke("share_local_clip", options);
 }
 
+export async function prepareLocalClipPlayback(localId: string): Promise<string> {
+  return invoke("prepare_local_clip_playback", { localId });
+}
+
 export async function listClipFilmstrip(
   localId: string,
   count = 12,

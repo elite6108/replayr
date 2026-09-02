@@ -8,6 +8,7 @@ use crate::detection::DetectionState;
 use crate::error::{AppError, AppResult};
 use crate::games::{DetectedGameSnapshot, GameInput, GameRecord};
 use crate::library::LocalClipDto;
+use crate::recording_compositor::{ComposedRecordingState, RecordingComposition};
 use crate::settings::AppSettings;
 use crate::{auth, capture, detection, games, hotkeys, library, settings, shortcut};
 
@@ -40,7 +41,8 @@ pub fn get_all_settings(state: State<AppState>) -> AppResult<AppSettings> {
 }
 
 #[tauri::command]
-pub fn set_setting(app: AppHandle, state: State<AppState>, rec: State<RecordingState>, detection: State<DetectionState>, key: String, value: Value) -> AppResult<AppSettings> {
+pub fn set_setting(app: AppHandle, state: State<AppState>, rec: State<RecordingState>, composed: State<ComposedRecordingState>, detection: State<DetectionState>, key: String, value: Value) -> AppResult<AppSettings> {
+    reject_ir_while_composed(&composed, &key, &value)?;
     let settings = {
         let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
         settings::set_document(&conn, json!({ key.clone(): value }))?
@@ -50,7 +52,10 @@ pub fn set_setting(app: AppHandle, state: State<AppState>, rec: State<RecordingS
 }
 
 #[tauri::command]
-pub fn set_settings(app: AppHandle, state: State<AppState>, rec: State<RecordingState>, detection: State<DetectionState>, patch: Value) -> AppResult<AppSettings> {
+pub fn set_settings(app: AppHandle, state: State<AppState>, rec: State<RecordingState>, composed: State<ComposedRecordingState>, detection: State<DetectionState>, patch: Value) -> AppResult<AppSettings> {
+    if let Some(value) = patch.get("instantReplayEnabled") {
+        reject_ir_while_composed(&composed, "instantReplayEnabled", value)?;
+    }
     let keys = patch_keys(&patch);
     let settings = {
         let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
@@ -58,6 +63,15 @@ pub fn set_settings(app: AppHandle, state: State<AppState>, rec: State<Recording
     };
     after_settings(&app, &rec, &detection, &settings, &keys)?;
     Ok(settings)
+}
+
+fn reject_ir_while_composed(composed: &ComposedRecordingState, key: &str, value: &Value) -> AppResult<()> {
+    if key == "instantReplayEnabled" && value.as_bool() == Some(true) && composed.is_active() {
+        return Err(AppError::Message(
+            "Stop composed recording before enabling Instant Replay.".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn patch_keys(patch: &Value) -> Vec<String> {
@@ -188,6 +202,30 @@ pub fn stop_camera_preview(engine: State<CameraEngine>) -> AppResult<()> {
 #[tauri::command]
 pub fn get_camera_preview_frame(engine: State<CameraEngine>) -> AppResult<Value> {
     Ok(serde_json::to_value(engine.latest_preview())?)
+}
+
+#[tauri::command]
+pub fn start_capture_preview(
+    rec: State<RecordingState>,
+    detection: State<DetectionState>,
+    mode: Option<String>,
+    pid: Option<u32>,
+) -> AppResult<()> {
+    let snapshot = detection::current_snapshot(&detection);
+    let resolved = pid.filter(|value| *value != 0).or(snapshot.pid);
+    capture::retain_preview(&rec, mode.as_deref().unwrap_or("game"), resolved);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn stop_capture_preview(rec: State<RecordingState>) -> AppResult<()> {
+    capture::release_preview(&rec);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_capture_preview_frame(rec: State<RecordingState>) -> AppResult<Value> {
+    Ok(serde_json::to_value(capture::preview_frame(&rec))?)
 }
 
 #[tauri::command]
@@ -670,9 +708,18 @@ pub fn get_discord_presence_status(app: AppHandle) -> crate::discord_presence::D
 }
 
 #[tauri::command]
-pub fn start_recording(app: AppHandle, rec: State<RecordingState>, detection: State<DetectionState>) -> AppResult<RecordingStatus> {
+pub fn start_recording(
+    app: AppHandle,
+    rec: State<RecordingState>,
+    composed: State<ComposedRecordingState>,
+    detection: State<DetectionState>,
+    webcam_layout: Option<crate::overlay::OverlayLayout>,
+) -> AppResult<RecordingStatus> {
+    if composed.is_active() {
+        return Err(AppError::Message("A composed recording is already running.".into()));
+    }
     let snapshot = detection::current_snapshot(&detection);
-    capture::start(&app, &rec, snapshot.pid, snapshot.name, snapshot.slug)
+    capture::start(&app, &rec, snapshot.pid, snapshot.name, snapshot.slug, webcam_layout)
 }
 
 #[tauri::command]
@@ -681,7 +728,35 @@ pub fn stop_recording(app: AppHandle, rec: State<RecordingState>) -> AppResult<R
 }
 
 #[tauri::command]
-pub fn get_recording_status(rec: State<RecordingState>) -> RecordingStatus {
+pub fn start_composed_recording(
+    app: AppHandle,
+    rec: State<RecordingState>,
+    composed: State<ComposedRecordingState>,
+    camera: State<CameraEngine>,
+    payload: RecordingComposition,
+    webcam_layout: Option<crate::overlay::OverlayLayout>,
+) -> AppResult<RecordingStatus> {
+    crate::recording_compositor::start(&app, &rec, &composed, &camera, payload, webcam_layout)
+}
+
+#[tauri::command]
+pub fn stop_composed_recording(
+    app: AppHandle,
+    rec: State<RecordingState>,
+    composed: State<ComposedRecordingState>,
+    camera: State<CameraEngine>,
+) -> AppResult<RecordingStatus> {
+    crate::recording_compositor::stop(&app, &rec, &composed, &camera)
+}
+
+#[tauri::command]
+pub fn get_recording_status(
+    rec: State<RecordingState>,
+    composed: State<ComposedRecordingState>,
+) -> RecordingStatus {
+    if let Some(status) = composed.status() {
+        return status;
+    }
     capture::status(&rec)
 }
 

@@ -1,8 +1,12 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { PageHeader } from "../components/common/PageHeader";
 import { PlayerVideo } from "../components/common/ReplayrWatermark";
 import { SendClipSheet } from "../components/common/SendClipSheet";
+import { ExploreCreatorCard } from "../components/explore/ExploreCreatorCard";
+import { GameCategoryRow } from "../components/explore/GameCategoryRow";
+import { SearchToolbar } from "../components/ui/SearchToolbar";
+import { SectionHeader } from "../components/ui/SectionHeader";
 import { clipShareUrl } from "../branding";
 import {
   deleteClipComment,
@@ -20,6 +24,8 @@ import { useBillingStore } from "../stores/billingStore";
 import { useToastStore } from "../stores/toastStore";
 import { formatCount, formatDuration, formatHandle } from "../utils/format";
 
+type ExploreMode = "foryou" | "trending" | "friends";
+
 export function ExplorePage() {
   const token = useAuthStore((state) => state.session?.access_token);
   const signedIn = Boolean(useAuthStore((state) => state.user));
@@ -29,6 +35,8 @@ export function ExplorePage() {
   const [friendClips, setFriendClips] = useState<PublicFeedClip[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openSlug, setOpenSlug] = useState<string | null>(null);
+  const [mode, setMode] = useState<ExploreMode>("foryou");
+  const [query, setQuery] = useState("");
   const open = clips.find((clip) => clip.slug === openSlug) ?? friendClips?.find((clip) => clip.slug === openSlug) ?? null;
 
   useEffect(() => {
@@ -93,9 +101,39 @@ export function ExplorePage() {
     setClips((current) => current.map((item) => (item.slug === slug ? { ...item, commentCount: count } : item)));
   }
 
+  const pool = mode === "friends" ? friendClips ?? [] : clips;
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const list = mode === "trending" ? [...pool].sort((a, b) => b.likeCount - a.likeCount) : pool;
+    if (!needle) return list;
+    return list.filter((clip) => {
+      const title = (clip.title || "").toLowerCase();
+      const author = formatHandle(clip.author).toLowerCase();
+      const game = (clip.game?.name || "").toLowerCase();
+      return title.includes(needle) || author.includes(needle) || game.includes(needle);
+    });
+  }, [mode, pool, query]);
+  const featured = filtered.slice(0, 3);
+  const popular = filtered.slice(3);
+  const games = useMemo(() => {
+    const counts = new Map<string, { slug: string; name: string; coverUrl: string | null; clipCount: number }>();
+    for (const clip of clips) {
+      if (!clip.game) continue;
+      const current = counts.get(clip.game.slug);
+      if (current) current.clipCount += 1;
+      else counts.set(clip.game.slug, { ...clip.game, clipCount: 1 });
+    }
+    return [...counts.values()].sort((a, b) => b.clipCount - a.clipCount).slice(0, 8);
+  }, [clips]);
+
   return (
-    <>
-      <PageHeader title="Explore" subtitle="Public clips only. Unlisted links never show up here." />
+    <div className="explore-page">
+      <PageHeader title="Explore" subtitle="Discover epic plays. From real players.">
+        <Link className="btn primary" to="/library">
+          Post clip
+        </Link>
+      </PageHeader>
+      <SearchToolbar value={query} onChange={setQuery} placeholder="Search creators or clips" />
       {showAd ? (
         <aside className="house-ad">
           <strong>Replayr Premium — $4.99/mo</strong>
@@ -105,62 +143,72 @@ export function ExplorePage() {
           </Link>
         </aside>
       ) : null}
-      <section className="discover-rail">
-        <div className="panel-head">
-          <h2>From friends</h2>
-        </div>
-        {!signedIn ? (
-          <p className="muted">
-            Add friends to see their clips here. <Link to="/profile">Sign in</Link>
-          </p>
-        ) : friendClips === null ? (
-          <p className="muted">Loading friends’ clips…</p>
-        ) : friendClips.length === 0 ? (
-          <p className="muted">
-            Add friends to see their clips here. <Link to="/friends">Find people</Link>
-          </p>
-        ) : (
-          <div className="explore-rail">
-            {friendClips.map((clip) => (
-              <button key={clip.id} className="feed-home-card" type="button" onClick={() => setOpenSlug(clip.slug)}>
-                {clip.thumbnailUrl ? <img src={clip.thumbnailUrl} alt="" /> : <div className="feed-thumb-empty" />}
-                <strong>{clip.title || "Untitled clip"}</strong>
-                <span className="muted">{formatHandle(clip.author)}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
+      <div className="chip-row explore-modes">
+        <button type="button" className={`chip ${mode === "foryou" ? "on" : ""}`} onClick={() => setMode("foryou")}>
+          For You
+        </button>
+        <button type="button" className={`chip ${mode === "trending" ? "on" : ""}`} onClick={() => setMode("trending")}>
+          Trending
+        </button>
+        <button type="button" className={`chip ${mode === "friends" ? "on" : ""}`} onClick={() => setMode("friends")}>
+          Following
+        </button>
+      </div>
       {error ? <p className="error-text">{error}</p> : null}
-      {clips.length === 0 && !error ? (
+      {mode === "friends" && !signedIn ? (
+        <p className="muted">
+          Follow people to see their clips here. <Link to="/profile">Sign in</Link>
+        </p>
+      ) : mode === "friends" && friendClips === null ? (
+        <p className="muted">Loading following clips…</p>
+      ) : filtered.length === 0 ? (
         <section className="panel">
-          <p className="muted">When someone makes a clip public, it lands here. Share URLs stay /c/…</p>
+          <p className="muted">
+            {mode === "friends"
+              ? "Follow people to see their clips here."
+              : "When someone makes a clip public, it lands here."}
+          </p>
         </section>
       ) : (
-        <div className="explore-grid">
-          {clips.map((clip) => (
-            <article key={clip.id} className="feed-card">
-              <div className="feed-card-head">
-                <strong>{formatHandle(clip.author)}</strong>
-                <span className="muted">{clip.game?.name || "Public"}</span>
+        <>
+          {featured.length > 0 ? (
+            <section>
+              <SectionHeader title="Featured" />
+              <div className="creator-card-row">
+                {featured.map((clip) => (
+                  <ExploreCreatorCard
+                    key={clip.id}
+                    clip={clip}
+                    onOpen={() => setOpenSlug(clip.slug)}
+                    onLike={() => void toggleLike(clip)}
+                  />
+                ))}
               </div>
-              <button className="clip-open" type="button" onClick={() => setOpenSlug(clip.slug)}>
-                {clip.thumbnailUrl ? <img src={clip.thumbnailUrl} alt="" /> : <div className="feed-thumb-empty" />}
-                {clip.durationMs ? <span className="clip-duration">{formatDuration(clip.durationMs)}</span> : null}
-              </button>
-              <h2>{clip.title || "Untitled clip"}</h2>
-              <div className="row">
-                <button className={`btn ${clip.liked ? "liked" : ""}`} type="button" onClick={() => void toggleLike(clip)}>
-                  {clip.liked ? "Liked" : "Like"} · {formatCount(clip.likeCount)}
-                </button>
-                <button className="btn" type="button" onClick={() => setOpenSlug(clip.slug)}>
-                  Comments · {formatCount(clip.commentCount)}
-                </button>
+            </section>
+          ) : null}
+          {popular.length > 0 ? (
+            <section>
+              <SectionHeader title="Popular this week" />
+              <div className="explore-grid">
+                {popular.map((clip) => (
+                  <article key={clip.id} className="feed-card">
+                    <button className="clip-open" type="button" onClick={() => setOpenSlug(clip.slug)}>
+                      {clip.thumbnailUrl ? <img src={clip.thumbnailUrl} alt="" /> : <div className="feed-thumb-empty" />}
+                      {clip.durationMs ? <span className="clip-duration">{formatDuration(clip.durationMs)}</span> : null}
+                    </button>
+                    <h2>{clip.title || "Untitled clip"}</h2>
+                    <div className="feed-card-head">
+                      <strong>{formatHandle(clip.author)}</strong>
+                      <span className="muted">{clip.game?.name || "Public"}</span>
+                    </div>
+                  </article>
+                ))}
               </div>
-            </article>
-          ))}
-        </div>
+            </section>
+          ) : null}
+        </>
       )}
+      <GameCategoryRow games={games} />
       {open ? (
         <PublicClipPanel
           clip={open}
@@ -171,7 +219,7 @@ export function ExplorePage() {
           onComments={onComments}
         />
       ) : null}
-    </>
+    </div>
   );
 }
 

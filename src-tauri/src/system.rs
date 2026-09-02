@@ -58,7 +58,7 @@ pub fn setup_tray(app: &AppHandle) -> AppResult<()> {
                 let rec = app.state::<RecordingState>();
                 let detection = app.state::<DetectionState>();
                 let snapshot = detection::current_snapshot(&detection);
-                if let Err(err) = capture::start(app, &rec, snapshot.pid, snapshot.name, snapshot.slug) {
+                if let Err(err) = capture::start(app, &rec, snapshot.pid, snapshot.name, snapshot.slug, None) {
                     tracing::warn!("tray start recording: {err}");
                 }
             }

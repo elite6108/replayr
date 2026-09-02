@@ -17,7 +17,7 @@
 }
 
 .upload-queue {
-  background: #1c2027;
+  background: var(--toast-bg);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 10px 14px;
@@ -48,7 +48,7 @@
   display: block;
   height: 4px;
   border-radius: 99px;
-  background: #10141a;
+  background: var(--switch-bg);
   overflow: hidden;
 }
 
@@ -104,6 +104,6 @@
 }
 
 .upload-queue-copy small {
-  color: var(--muted, #9aa3ad);
+  color: var(--text-muted);
   font-size: 12px;
 }

@@ -91,4 +91,6 @@ export const folderStyles = StyleSheet.create({
   tabs: { flexDirection: "row", gap: 16, paddingHorizontal: 16, paddingBottom: 10 },
   tab: { color: colors.muted, fontSize: 16, fontWeight: "600", paddingBottom: 6 },
   tabOn: { color: colors.text, borderBottomWidth: 2, borderBottomColor: colors.accent },
+  badgeOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  badgeTextOn: { color: colors.onAccent },
 });

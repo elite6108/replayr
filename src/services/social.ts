@@ -74,7 +74,7 @@ export async function fetchFriendClips(accessToken: string): Promise<PublicFeedC
   const response = await fetch(`${publicApiUrl()}/v1/clips/friends?limit=24`, {
     headers: authHeaders(accessToken),
   });
-  const body = await readApiJson<{ clips?: PublicFeedClip[] }>(response, "Could not load friends’ clips.");
+  const body = await readApiJson<{ clips?: PublicFeedClip[] }>(response, "Could not load following clips.");
   return (body.clips ?? []).map(normalize);
 }
 

@@ -5,6 +5,8 @@
 @import "./topbar.css";
 @import "./window-chrome.css";
 @import "./ui-page.css";
+@import "./ui-surfaces.css";
+@import "./ui-pills.css";
 @import "./settings.css";
 @import "./ui-chrome.css";
 @import "./games.css";
@@ -28,4 +30,5 @@
 @import "./announce.css";
 @import "./sources-webcam.css";
 @import "./recording-preview.css";
+@import "./recording-workspace.css";
 @import "./folders.css";

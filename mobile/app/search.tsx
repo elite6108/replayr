@@ -187,9 +187,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   tab: { flex: 1, borderRadius: 18, paddingVertical: 8, alignItems: "center" },
-  tabOn: { backgroundColor: "#ffffff" },
+  tabOn: { backgroundColor: colors.accent },
   tabLabel: { color: colors.muted, fontWeight: "700", fontSize: 13 },
-  tabLabelOn: { color: "#07080b" },
+  tabLabelOn: { color: colors.onAccent },
   input: {
     backgroundColor: colors.raised,
     borderColor: colors.border,

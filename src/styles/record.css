@@ -8,6 +8,7 @@
   display: grid;
   place-items: center;
   margin: 8px auto 0;
+  flex: 0 0 auto;
 }
 
 .record-orb.live {

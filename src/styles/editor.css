@@ -1,16 +1,108 @@
+.editor-studio {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.editor-studio-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 16px;
+  align-items: start;
+}
+
+.editor-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.editor-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editor-tools,
+.editor-details {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.editor-tools h2,
+.editor-details h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.editor-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.editor-tool-grid button {
+  min-height: 54px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-chip);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.editor-tool-grid button.on {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: var(--glow-sm);
+}
+
+.editor-details dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.editor-details div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.editor-details dt {
+  color: var(--text-muted);
+}
+
+.editor-details dd {
+  margin: 0;
+  font-weight: 650;
+}
+
 .editor-layout {
   display: grid;
   gap: 14px;
-  /* Match the column to the picture so the timeline lines up under it. */
   width: min(1100px, calc(min(52vh, 560px) * var(--editor-aspect, 1.7778)));
   min-width: min(100%, 560px);
   margin-inline: auto;
 }
 
+.editor-stage {
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--media-bg);
+  box-shadow: var(--shadow);
+}
+
 .editor-stage video {
   width: 100%;
   max-height: min(52vh, 560px);
-  background: #000;
+  background: var(--media-bg);
 }
 
 .editor-preview {
@@ -144,12 +236,13 @@
 
 .editor-timeline {
   position: relative;
-  height: 80px;
+  height: 88px;
   margin: 8px 0 4px;
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: visible;
   background: var(--bg-chip);
   border: 1px solid var(--border);
+  box-shadow: var(--timeline-inset);
   user-select: none;
   touch-action: none;
   cursor: pointer;
@@ -187,7 +280,7 @@
   opacity: 1;
   cursor: default;
   border-color: var(--border-strong);
-  background: #1a1f27;
+  background: var(--bg-hover);
 }
 
 .editor-brand-logos {
@@ -319,4 +412,10 @@
 
 .editor-success {
   margin-top: 4px;
+}
+
+@media (max-width: 1100px) {
+  .editor-studio-body {
+    grid-template-columns: 1fr;
+  }
 }

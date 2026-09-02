@@ -13,6 +13,7 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { AppHeader } from "@/components/AppHeader";
 import { ClipThumb } from "@/components/ClipThumb";
 import { Button } from "@/components/ui";
 import { deleteCloudClip, fetchLibrary, type ManagedClip } from "@/lib/api";
@@ -20,7 +21,7 @@ import { foldersHref } from "@/lib/api.folders";
 import { seedClipFeed } from "@/lib/clipFeed";
 import { useAuth } from "@/lib/auth";
 import { formatSectionLabel } from "@/lib/format";
-import { colors } from "@/lib/theme";
+import { colors, glowSm } from "@/lib/theme";
 
 const PAGE_SIZE = 24;
 const GAP = 3;
@@ -182,6 +183,7 @@ export default function LibraryScreen() {
 
   return (
     <SafeAreaView style={styles.page} edges={["top"]}>
+      <AppHeader padded />
       <View style={styles.topBar}>
         <Pressable
           onPress={() => {
@@ -253,6 +255,7 @@ export default function LibraryScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <SectionList
+        style={styles.listFlex}
         sections={sections}
         keyExtractor={(row, index) => row.map((clip) => clip.id).join("-") || String(index)}
         onEndReached={() => void loadMore()}
@@ -312,8 +315,8 @@ function chunk<T>(items: T[], size: number) {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#000" },
-  center: { flex: 1, backgroundColor: "#000", padding: 24, gap: 12, justifyContent: "center" },
+  page: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, backgroundColor: colors.bg, padding: 24, gap: 12, justifyContent: "center" },
   hero: { color: colors.text, fontSize: 28, fontWeight: "700" },
   muted: { color: colors.muted, fontSize: 14, lineHeight: 20, paddingHorizontal: 16 },
   topBar: {
@@ -335,7 +338,9 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: "#1c1c1e",
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -343,28 +348,45 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#1c1c1e",
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: 17,
     paddingHorizontal: 12,
     height: 34,
   },
   filterLabel: { color: colors.text, fontSize: 14, fontWeight: "600" },
   chips: { gap: 8, paddingRight: 16, alignItems: "center" },
-  chip: { backgroundColor: "#1c1c1e", borderRadius: 17, paddingHorizontal: 14, height: 34, justifyContent: "center" },
-  chipOn: { backgroundColor: "#3a3a3c" },
+  chip: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    height: 34,
+    justifyContent: "center",
+  },
+  chipOn: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+    ...glowSm,
+  },
   chipText: { color: colors.text, fontSize: 14 },
-  chipTextOn: { fontWeight: "700" },
+  chipTextOn: { color: colors.onAccent, fontWeight: "700" },
   search: {
     marginHorizontal: 12,
     marginBottom: 8,
-    backgroundColor: "#1c1c1e",
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
     color: colors.text,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
   error: { color: colors.danger, paddingHorizontal: 16, marginBottom: 8 },
-  list: { paddingBottom: 28 },
+  listFlex: { flex: 1 },
+  list: { paddingBottom: 112 },
   albumBlock: { paddingHorizontal: 12, marginBottom: 18, gap: 8 },
   albumCaption: { color: colors.muted, marginTop: 8, fontSize: 13 },
   sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

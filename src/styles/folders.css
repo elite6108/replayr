@@ -15,9 +15,13 @@
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
 }
 
+html[data-theme="light"] .folder-card {
+  box-shadow: var(--shadow-card);
+}
+
 .folder-card:hover,
 .folder-card:focus-visible {
-  border-color: rgba(127, 208, 239, 0.28);
+  border-color: var(--accent-ring);
   transform: translateY(-3px);
 }
 

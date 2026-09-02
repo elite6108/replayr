@@ -90,7 +90,7 @@
   aspect-ratio: 16 / 9;
   border-radius: 14px;
   border: 1px solid var(--border);
-  background: #0a0c10;
+  background: var(--media-bg);
   overflow: hidden;
   display: grid;
   place-items: center;

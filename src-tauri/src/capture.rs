@@ -21,6 +21,8 @@ pub struct RecordingStatus {
     pub started_at: Option<String>,
     pub duration_ms: u64,
     pub error: Option<String>,
+    #[serde(default)]
+    pub composed: bool,
 }
 
 impl Default for RecordingStatus {
@@ -32,6 +34,7 @@ impl Default for RecordingStatus {
             started_at: None,
             duration_ms: 0,
             error: None,
+            composed: false,
         }
     }
 }
@@ -82,6 +85,7 @@ pub struct CaptureShared {
     pub cv: Condvar,
     pub last_still: Mutex<Option<StillFrame>>,
     pub exporting: AtomicBool,
+    pub preview: crate::preview::PreviewHub,
 }
 
 impl Default for CaptureShared {
@@ -94,6 +98,7 @@ impl Default for CaptureShared {
             cv: Condvar::new(),
             last_still: Mutex::new(None),
             exporting: AtomicBool::new(false),
+            preview: crate::preview::PreviewHub::new(),
         }
     }
 }
@@ -113,6 +118,19 @@ pub struct RecordingState {
     pub status: Mutex<RecordingStatus>,
     pub replay: Mutex<ReplayStatus>,
     pub shared: Arc<CaptureShared>,
+    session_webcam_layout: Mutex<Option<crate::overlay::OverlayLayout>>,
+}
+
+impl RecordingState {
+    pub fn wgc_session_active(&self) -> bool {
+        self.inner.lock().map(|inner| inner.is_some()).unwrap_or(true)
+    }
+
+    pub fn set_session_webcam_layout(&self, layout: Option<crate::overlay::OverlayLayout>) {
+        if let Ok(mut slot) = self.session_webcam_layout.lock() {
+            *slot = layout;
+        }
+    }
 }
 
 struct ActiveRecording {
@@ -128,6 +146,7 @@ struct ActiveRecording {
     placement: crate::overlay_notification::PlacementHint,
     segmented: bool,
     session: bool,
+    webcam_layout: Option<crate::overlay::OverlayLayout>,
 }
 
 enum CaptureHandle {
@@ -144,6 +163,7 @@ impl Default for RecordingState {
             status: Mutex::new(RecordingStatus::default()),
             replay: Mutex::new(ReplayStatus::default()),
             shared: Arc::new(CaptureShared::default()),
+            session_webcam_layout: Mutex::new(None),
         }
     }
 }
@@ -280,6 +300,7 @@ mod windows_impl {
                     *still = Some(frame.clone());
                 }
             }
+            self.flags.shared.preview.offer(&frame);
             let capture_hns = self.clock.capture_hns();
             self.pump.push(crate::encode_pump::QueuedFrame {
                 bgra: frame.bgra,
@@ -516,9 +537,21 @@ mod windows_impl {
         fps: u32,
         game_id: Option<String>,
         title: String,
+        webcam_layout: Option<crate::overlay::OverlayLayout>,
     ) -> AppResult<String> {
         let preview = state.shared.last_still.lock().ok().and_then(|slot| slot.clone());
-        crate::library::insert(app, path, duration_ms, width, height, fps, game_id, title, preview.as_ref())
+        crate::library::insert(
+            app,
+            path,
+            duration_ms,
+            width,
+            height,
+            fps,
+            game_id,
+            title,
+            preview.as_ref(),
+            webcam_layout,
+        )
     }
 
     fn emit_saved(app: &AppHandle, path: &Path, kind: &str, local_id: String) {
@@ -575,13 +608,21 @@ mod windows_impl {
         game_id: Option<String>,
         segmented: bool,
         session: bool,
+        webcam_layout: Option<crate::overlay::OverlayLayout>,
     ) -> AppResult<RecordingStatus> {
         let settings = load_settings(app)?;
         let save = save_dir(app, &settings)?;
         crate::disk::ensure_free_space(&save, settings.min_free_disk_bytes)?;
 
+        let inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        if inner.is_some() {
+            return Err(AppError::Message("Capture is already running.".into()));
+        }
+        drop(inner);
+        state.shared.preview.suspend_standalone();
         let mut inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
         if inner.is_some() {
+            state.shared.preview.resume_if_wanted();
             return Err(AppError::Message("Capture is already running.".into()));
         }
 
@@ -592,7 +633,13 @@ mod windows_impl {
         let slug = game_id.as_deref().unwrap_or(if session { "recording" } else { "replay" });
         let output = output_path(&save, slug, "mp4");
         let buffer_dir = if segmented {
-            prepare_scratch(app, &save)?
+            match prepare_scratch(app, &save) {
+                Ok(dir) => dir,
+                Err(err) => {
+                    state.shared.preview.resume_if_wanted();
+                    return Err(err);
+                }
+            }
         } else {
             purge_legacy_scratch(&save);
             save.clone()
@@ -698,11 +745,13 @@ mod windows_impl {
                         .map(|previous| format!("{previous}; {err}"))
                         .unwrap_or_else(|| err.to_string());
                     tracing::error!("could not start capture: {detail}");
+                    state.shared.preview.resume_if_wanted();
                     return Err(AppError::Message(detail));
                 }
             }
         };
         tracing::info!("capture encode size {width}x{height}");
+        state.shared.preview.mark_capture_live(true);
 
         if segmented && session {
             if let Ok(mut buffer) = state.shared.buffer.lock() {
@@ -718,6 +767,7 @@ mod windows_impl {
             started_at: session.then(|| chrono_like(stamp)),
             duration_ms: 0,
             error: None,
+            composed: false,
         };
         *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
         *inner = Some(ActiveRecording {
@@ -733,6 +783,7 @@ mod windows_impl {
             placement: crate::overlay_notification::hint_from_pid(pid),
             segmented,
             session,
+            webcam_layout: if session { webcam_layout } else { None },
         });
         drop(inner);
         if session {
@@ -770,6 +821,7 @@ mod windows_impl {
             }
             _ => {}
         }
+        state.shared.preview.mark_capture_live(false);
         Ok(session)
     }
 
@@ -779,6 +831,7 @@ mod windows_impl {
         pid: Option<u32>,
         game_name: Option<String>,
         game_id: Option<String>,
+        webcam_layout: Option<crate::overlay::OverlayLayout>,
     ) -> AppResult<RecordingStatus> {
         {
             let mut inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
@@ -806,6 +859,7 @@ mod windows_impl {
                         active.title = name;
                     }
                     active.session = true;
+                    active.webcam_layout = webcam_layout;
                     let stamp = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .map(|d| d.as_secs())
@@ -817,6 +871,7 @@ mod windows_impl {
                         started_at: Some(chrono_like(stamp)),
                         duration_ms: 0,
                         error: None,
+                        composed: false,
                     };
                     *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
                     drop(inner);
@@ -828,7 +883,16 @@ mod windows_impl {
             }
         }
         let settings = load_settings(app)?;
-        start(app, state, pid, game_name, game_id, settings.instant_replay_enabled, true)
+        start(
+            app,
+            state,
+            pid,
+            game_name,
+            game_id,
+            settings.instant_replay_enabled,
+            true,
+            webcam_layout,
+        )
     }
 
     pub fn stop_recording(app: &AppHandle, state: &RecordingState) -> AppResult<RecordingStatus> {
@@ -862,7 +926,7 @@ mod windows_impl {
                 (window, concat)
             };
             let paths = window.paths.clone();
-            let (output, elapsed, width, height, fps, game_id, title) = {
+            let (output, elapsed, width, height, fps, game_id, title, webcam_layout) = {
                 let mut inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
                 let active = inner.as_mut().ok_or_else(|| AppError::Message("Not recording.".into()))?;
                 active.session = false;
@@ -874,6 +938,7 @@ mod windows_impl {
                     active.fps,
                     active.game_id.clone(),
                     active.title.clone(),
+                    active.webcam_layout.clone(),
                 )
             };
             if paths.is_empty() {
@@ -903,6 +968,7 @@ mod windows_impl {
                 fps,
                 game_id,
                 title.clone(),
+                webcam_layout,
             )?;
             emit_saved(app, &output, "recording", local_id);
             let status = RecordingStatus {
@@ -912,6 +978,7 @@ mod windows_impl {
                 started_at: None,
                 duration_ms: elapsed.as_millis() as u64,
                 error: None,
+                composed: false,
             };
             *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
             let _ = app.emit("recording-status", &status);
@@ -941,6 +1008,7 @@ mod windows_impl {
             session.fps,
             session.game_id,
             session.title.clone(),
+            session.webcam_layout,
         )?;
         emit_saved(app, &session.path, "recording", local_id);
         let status = RecordingStatus {
@@ -950,6 +1018,7 @@ mod windows_impl {
             started_at: None,
             duration_ms: elapsed.as_millis() as u64,
             error: None,
+            composed: false,
         };
         *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
         let _ = app.emit("recording-status", &status);
@@ -988,7 +1057,7 @@ mod windows_impl {
                     }
                 } else if current_pid != game_pid {
                     let _ = halt_capture(state);
-                    match start(app, state, game_pid, game_name, game_id, true, false) {
+                    match start(app, state, game_pid, game_name, game_id, true, false, None) {
                         Ok(_) => {}
                         Err(err) => {
                             if let Ok(dir) = replay_scratch_dir(app) {
@@ -1001,7 +1070,7 @@ mod windows_impl {
                 }
             } else if !running {
                 if game_pid.is_some() {
-                    match start(app, state, game_pid, game_name, game_id, true, false) {
+                    match start(app, state, game_pid, game_name, game_id, true, false, None) {
                         Ok(_) => {}
                         Err(err) => {
                             publish_replay(app, state, &settings, Some(err.to_string()));
@@ -1135,6 +1204,7 @@ mod windows_impl {
             fps,
             game_id,
             format!("{title} clip"),
+            None,
         )?;
         emit_saved(app, &output, "clip", local_id);
         crate::overlay_notification::notify_clip_saved(
@@ -1175,6 +1245,7 @@ mod windows_impl {
             0,
             game_id,
             format!("{title} screenshot"),
+            None,
         )?;
         emit_saved(app, &output, "screenshot", local_id);
         Ok(output.display().to_string())
@@ -1191,6 +1262,7 @@ mod windows_impl {
         _pid: Option<u32>,
         _game_name: Option<String>,
         _game_id: Option<String>,
+        _webcam_layout: Option<crate::overlay::OverlayLayout>,
     ) -> AppResult<RecordingStatus> {
         Err(AppError::Message("Recording is only available on Windows.".into()))
     }
@@ -1224,8 +1296,20 @@ pub fn start(
     pid: Option<u32>,
     game_name: Option<String>,
     game_id: Option<String>,
+    webcam_layout: Option<crate::overlay::OverlayLayout>,
 ) -> AppResult<RecordingStatus> {
-    windows_impl::start_recording(app, state, pid, game_name, game_id)
+    let webcam_layout = match webcam_layout {
+        Some(layout) => {
+            state.set_session_webcam_layout(Some(layout.clone()));
+            Some(layout)
+        }
+        None => state
+            .session_webcam_layout
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone()),
+    };
+    windows_impl::start_recording(app, state, pid, game_name, game_id, webcam_layout)
 }
 
 pub fn stop(app: &AppHandle, state: &RecordingState) -> AppResult<RecordingStatus> {
@@ -1248,6 +1332,21 @@ pub fn sync_replay(
     game_id: Option<String>,
 ) -> AppResult<ReplayStatus> {
     windows_impl::sync_replay(app, state, pid, game_name, game_id)
+}
+
+pub fn retain_preview(state: &RecordingState, mode: &str, pid: Option<u32>) {
+    state
+        .shared
+        .preview
+        .retain(crate::preview::PreviewMode::parse(mode), pid.filter(|value| *value != 0));
+}
+
+pub fn release_preview(state: &RecordingState) {
+    state.shared.preview.release();
+}
+
+pub fn preview_frame(state: &RecordingState) -> crate::preview::CapturePreviewFrame {
+    state.shared.preview.snapshot()
 }
 
 pub fn status(state: &RecordingState) -> RecordingStatus {

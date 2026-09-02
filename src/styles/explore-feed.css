@@ -1,7 +1,17 @@
+.explore-page {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.explore-modes {
+  margin-top: -8px;
+}
+
 .explore-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 
 .feed-card,
@@ -12,10 +22,16 @@
   min-width: 0;
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 20px;
   background: var(--bg-raised);
   color: inherit;
   text-decoration: none;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+}
+
+html[data-theme="light"] .feed-card,
+html[data-theme="light"] .feed-home-card {
+  box-shadow: var(--shadow-card);
 }
 
 .feed-home-card {
@@ -43,7 +59,7 @@
   width: 100%;
   aspect-ratio: 16 / 9;
   border: 0;
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
   background: #10141a;
   padding: 0;
@@ -54,6 +70,75 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.creator-card-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.creator-card {
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+}
+
+.creator-card-media {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  padding: 0;
+  border: 0;
+  background: #10141a;
+  overflow: hidden;
+}
+
+.creator-card-media img,
+.creator-card-media .feed-thumb-empty {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 0;
+}
+
+.creator-card-meta {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px 14px;
+}
+
+.creator-card-meta p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.game-category-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.game-category-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: inherit;
+  text-decoration: none;
+}
+
+.game-category-card .game-cover {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 12px;
 }
 
 .btn.liked {
@@ -86,4 +171,10 @@
 
 .comment-form input {
   flex: 1;
+}
+
+@media (max-width: 1100px) {
+  .creator-card-row {
+    grid-template-columns: 1fr;
+  }
 }

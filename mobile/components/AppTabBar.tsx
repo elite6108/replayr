@@ -3,7 +3,7 @@ import { usePathname, useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSocialUnread } from "@/lib/socialUnread";
-import { colors } from "@/lib/theme";
+import { colors, glow, glowSm } from "@/lib/theme";
 
 const HIDDEN = [/^\/c\//, /^\/signin/, /^\/auth\//, /\/folders\/.+\/play/];
 
@@ -46,7 +46,7 @@ export function AppTabBar() {
         style={styles.createWrap}
       >
         <View style={[styles.createBtn, createOn && styles.createOn]}>
-          <Ionicons name="add" size={30} color="#07080b" />
+          <Ionicons name="add" size={30} color={colors.onAccent} />
         </View>
       </Pressable>
       <TabItem
@@ -81,11 +81,13 @@ function TabItem({
 }) {
   return (
     <Pressable onPress={onPress} style={styles.item} accessibilityRole="button" accessibilityState={{ selected: active }}>
-      <View>
-        <Ionicons name={icon} size={24} color={active ? colors.accent : colors.muted} />
-        {pip ? <View style={styles.pip} /> : null}
+      <View style={[styles.itemInner, active && styles.itemInnerOn]}>
+        <View>
+          <Ionicons name={icon} size={24} color={active ? colors.accent : colors.muted} />
+          {pip ? <View style={styles.pip} /> : null}
+        </View>
+        <Text style={[styles.label, active && styles.labelOn]}>{label}</Text>
       </View>
-      <Text style={[styles.label, active && styles.labelOn]}>{label}</Text>
     </Pressable>
   );
 }
@@ -95,15 +97,26 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-around",
-    backgroundColor: colors.bg,
-    borderTopColor: colors.border,
+    backgroundColor: colors.chrome,
+    borderTopColor: colors.chromeBorder,
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: 6,
     minHeight: 64,
   },
   item: { flex: 1, alignItems: "center", gap: 2, paddingBottom: 4 },
+  itemInner: {
+    alignItems: "center",
+    gap: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 11,
+  },
+  itemInnerOn: {
+    backgroundColor: colors.navActiveBg,
+    ...glowSm,
+  },
   label: { color: colors.muted, fontSize: 11, fontWeight: "600" },
-  labelOn: { color: colors.accent },
+  labelOn: { color: colors.text },
   createWrap: { top: -14, flex: 1, alignItems: "center", justifyContent: "center" },
   createBtn: {
     width: 58,
@@ -112,7 +125,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: colors.accent,
+    ...glow,
     shadowOpacity: 0.55,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },

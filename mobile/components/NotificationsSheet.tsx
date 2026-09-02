@@ -248,8 +248,8 @@ const styles = StyleSheet.create({
   body: { color: colors.text, fontWeight: "700", fontSize: 15 },
   time: { color: colors.muted, fontSize: 12 },
   actions: { gap: 6 },
-  pill: { backgroundColor: "#ffffff", borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6 },
-  pillText: { color: "#07080b", fontWeight: "700", fontSize: 12 },
+  pill: { backgroundColor: colors.accent, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6 },
+  pillText: { color: colors.onAccent, fontWeight: "700", fontSize: 12 },
   ghost: {
     borderColor: colors.border,
     borderWidth: 1,

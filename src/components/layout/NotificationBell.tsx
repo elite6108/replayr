@@ -125,11 +125,11 @@ export function NotificationBell() {
 
   function openItem(item: NotificationItem) {
     setOpen(false);
-    if (item.kind === "friend_request") {
+    if (item.kind === "friend_request" || item.kind === "follow_request") {
       navigate("/friends?tab=requests");
       return;
     }
-    if (item.kind === "friend_accept" && item.actor?.username) {
+    if ((item.kind === "friend_accept" || item.kind === "follow_accept") && item.actor?.username) {
       navigate(`/u/${item.actor.username}`);
       return;
     }

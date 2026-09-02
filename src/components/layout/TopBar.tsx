@@ -10,8 +10,6 @@ import { useToastStore } from "../../stores/toastStore";
 import type { AppSettings, ReplayDurationSeconds } from "../../types/settings";
 import { displayHotkey, formatBytes, initials } from "../../utils/format";
 import { NotificationBell } from "./NotificationBell";
-import { APP_NAME } from "../../branding";
-import logoMark from "../../assets/replayr-mark.png";
 import { WindowControls } from "./WindowChrome";
 
 type OpenChip = "clip" | "record" | null;
@@ -65,9 +63,6 @@ export function TopBar() {
 
   return (
     <header className="topbar" data-tauri-drag-region onDoubleClick={() => void getCurrentWindow().toggleMaximize()}>
-      <div className="topbar-brand" title={APP_NAME}>
-        <img src={logoMark} alt="" />
-      </div>
       <div className={`topbar-game ${detected ? "live" : ""}`}>
         <div>
           <div className="topbar-kicker">{detected ? (snapshot.focused ? "Playing" : "Running") : "Waiting"}</div>

@@ -74,10 +74,10 @@ export function SendClipSheet({ slug, onClose }: { slug: string; onClose: () => 
       <button type="button" className="player-backdrop" aria-label="Close" onClick={onClose} />
       <section className="send-sheet">
         <h2>Send clip</h2>
-        <p className="muted">Pick a recent chat or a friend. This does not make the clip public.</p>
+        <p className="muted">Pick a recent chat or someone you both follow. This does not make the clip public.</p>
         {error ? <p className="error-text">{error}</p> : null}
         {conversations.length === 0 && friends.length === 0 ? (
-          <p className="muted">Add friends to send clips. Copy link still works from the player.</p>
+          <p className="muted">Follow people to send clips. Copy link still works from the player.</p>
         ) : (
           <>
             {conversations.length > 0 ? (
@@ -110,7 +110,7 @@ export function SendClipSheet({ slug, onClose }: { slug: string; onClose: () => 
             ) : null}
             {friendTargets.length > 0 ? (
               <div className="send-group">
-                <h3>Friends</h3>
+                <h3>People you both follow</h3>
                 <ul className="person-list">
                   {friendTargets.map((friend) => {
                     const selected = picked?.kind === "friend" && picked.id === friend.id;
@@ -124,7 +124,7 @@ export function SendClipSheet({ slug, onClose }: { slug: string; onClose: () => 
                           <SocialAvatar person={friend} size="md" />
                           <span className="person-copy">
                             <strong>{friend.displayName}</strong>
-                            <span className="muted">{friend.username ? `@${friend.username}` : "Friend"}</span>
+                            <span className="muted">{friend.username ? `@${friend.username}` : "Following"}</span>
                           </span>
                         </button>
                       </li>

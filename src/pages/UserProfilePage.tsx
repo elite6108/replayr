@@ -5,18 +5,21 @@ import { PlayerVideo } from "../components/common/ReplayrWatermark";
 import { SocialAvatar } from "../components/common/SocialAvatar";
 import { clipShareUrl } from "../branding";
 import {
-  acceptFriendRequest,
-  cancelFriendRequest,
-  createFriendRequest,
   createProfilePost,
-  declineFriendRequest,
   deleteProfilePost,
-  fetchFriendRequests,
   fetchUserProfile,
 } from "../services/api.friends";
+import {
+  acceptFollowRequest,
+  declineFollowRequest,
+  emptyFollowState,
+  followLabel,
+  followUser,
+  unfollowUser,
+} from "../services/api.follows";
 import { createConversation } from "../services/api.messages";
 import { fetchClipPlayback } from "../services/social";
-import type { FriendRequest, PublicClipCard, UserProfileResponse } from "../services/social-types";
+import type { PublicClipCard, UserProfileResponse } from "../services/social-types";
 import { useAuthStore } from "../stores/authStore";
 import { formatCount, formatDuration, formatHandle } from "../utils/format";
 import { useToastStore } from "../stores/toastStore";
@@ -27,8 +30,6 @@ export function UserProfilePage() {
   const token = useAuthStore((state) => state.session?.access_token);
   const myId = useAuthStore((state) => state.user?.id);
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
-  const [incoming, setIncoming] = useState<FriendRequest[]>([]);
-  const [outgoing, setOutgoing] = useState<FriendRequest[]>([]);
   const [missing, setMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -41,14 +42,6 @@ export function UserProfilePage() {
     const next = await fetchUserProfile(token, username);
     setProfile(next);
     setMissing(false);
-    if (token && next.relationship !== "none" && next.user.id !== myId) {
-      const requests = await fetchFriendRequests(token);
-      setIncoming(requests.incoming);
-      setOutgoing(requests.outgoing);
-    } else {
-      setIncoming([]);
-      setOutgoing([]);
-    }
   }
 
   useEffect(() => {
@@ -73,8 +66,7 @@ export function UserProfilePage() {
 
   const mine = Boolean(profile && myId && profile.user.id === myId);
   const name = profile ? profile.user.displayName || profile.user.username || username : username;
-  const incomingRequest = incoming.find((item) => item.from.id === profile?.user.id);
-  const outgoingRequest = outgoing.find((item) => item.to.id === profile?.user.id);
+  const follow = profile?.follow ?? emptyFollowState();
 
   async function run(work: () => Promise<void>) {
     setBusy(true);
@@ -135,14 +127,14 @@ export function UserProfilePage() {
                     </Link>
                   ) : (
                     <>
-                      {profile.relationship === "incoming" && incomingRequest ? (
+                      {follow.incomingPending ? (
                         <>
                           <button
                             className="btn primary"
                             type="button"
                             disabled={busy}
                             onClick={() => void run(async () => {
-                              await acceptFriendRequest(token, incomingRequest.id);
+                              await acceptFollowRequest(token, username);
                             })}
                           >
                             Accept
@@ -151,42 +143,32 @@ export function UserProfilePage() {
                             className="btn"
                             type="button"
                             disabled={busy}
-                            onClick={() => void run(() => declineFriendRequest(token, incomingRequest.id))}
+                            onClick={() => void run(() => declineFollowRequest(token, username))}
                           >
                             Decline
                           </button>
                         </>
                       ) : null}
-                      {profile.relationship === "outgoing" || profile.follow?.viewerFollowPending ? (
+                      {follow.viewerFollows || follow.viewerFollowPending ? (
                         <button
                           className="btn"
                           type="button"
                           disabled={busy}
-                          onClick={() =>
-                            void run(() =>
-                              outgoingRequest
-                                ? cancelFriendRequest(token, outgoingRequest.id)
-                                : Promise.resolve(),
-                            )
-                          }
+                          onClick={() => void run(async () => { await unfollowUser(token, username); })}
                         >
-                          Requested
+                          {followLabel(follow)}
                         </button>
-                      ) : profile.relationship === "following" || profile.follow?.viewerFollows ? (
-                        <span className="muted">Following</span>
                       ) : (
                         <button
                           className="btn primary"
                           type="button"
                           disabled={busy}
-                          onClick={() => void run(async () => {
-                            await createFriendRequest(token, { userId: profile.user.id });
-                          })}
+                          onClick={() => void run(async () => { await followUser(token, username); })}
                         >
-                          {profile.relationship === "follower" || profile.follow?.followsViewer ? "Follow back" : "Follow"}
+                          {followLabel(follow)}
                         </button>
                       )}
-                      {profile.relationship === "friends" || profile.follow?.mutual ? (
+                      {profile.relationship === "friends" || follow.mutual ? (
                         <button
                           className="btn primary"
                           type="button"

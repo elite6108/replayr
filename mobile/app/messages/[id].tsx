@@ -225,7 +225,7 @@ export default function ThreadScreen() {
           multiline
         />
         <Pressable style={[styles.send, (!draft.trim() || busy) && styles.sendOff]} onPress={() => void send()} disabled={!draft.trim() || busy}>
-          {busy ? <ActivityIndicator color="#07080b" /> : <Ionicons name="send" size={16} color="#07080b" />}
+          {busy ? <ActivityIndicator color={colors.onAccent} /> : <Ionicons name="send" size={16} color={colors.onAccent} />}
         </Pressable>
       </View>
     </KeyboardAvoidingView>

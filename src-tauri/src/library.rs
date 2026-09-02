@@ -75,6 +75,7 @@ pub fn insert(
     game_id: Option<String>,
     title: String,
     preview: Option<&StillFrame>,
+    webcam_layout: Option<OverlayLayout>,
 ) -> AppResult<String> {
     let local_id = format!(
         "clip-{}",
@@ -102,6 +103,7 @@ pub fn insert(
         file_size,
         title,
         None,
+        webcam_layout,
     )?;
     Ok(local_id)
 }
@@ -144,6 +146,7 @@ pub fn insert_derived(
         file_size,
         title,
         Some(&lineage),
+        None,
     )?;
     Ok(local_id)
 }
@@ -161,6 +164,7 @@ fn insert_row(
     file_size: i64,
     title: String,
     lineage: Option<&ClipLineage>,
+    webcam_layout: Option<OverlayLayout>,
 ) -> AppResult<()> {
     conn.execute(
         "INSERT INTO local_clips (
@@ -192,9 +196,32 @@ fn insert_row(
         width,
         height,
         fps,
-        webcam_layout_from_settings(conn),
+        resolve_webcam_meta(conn, webcam_layout),
     );
     Ok(())
+}
+
+fn resolve_webcam_meta(
+    conn: &Connection,
+    layout_override: Option<OverlayLayout>,
+) -> Option<(u32, u32, u32, OverlayLayout)> {
+    let Some(mut layout) = layout_override else {
+        return webcam_layout_from_settings(conn);
+    };
+    layout.sanitize();
+    Some(
+        crate::settings::load(conn)
+            .ok()
+            .map(|settings| {
+                (
+                    settings.webcam.width,
+                    settings.webcam.height,
+                    settings.webcam.fps,
+                    layout.clone(),
+                )
+            })
+            .unwrap_or((0, 0, 0, layout)),
+    )
 }
 
 fn webcam_layout_from_settings(conn: &Connection) -> Option<(u32, u32, u32, OverlayLayout)> {

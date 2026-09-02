@@ -1,0 +1,68 @@
+.pill-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  align-items: center;
+}
+
+.pill-tabs a,
+.pill-tabs button {
+  position: relative;
+  padding: 8px 2px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 550;
+}
+
+.pill-tabs a:hover,
+.pill-tabs button:hover {
+  color: var(--text);
+}
+
+.pill-tabs a.active,
+.pill-tabs button.active {
+  color: var(--text);
+}
+
+.pill-tabs a.active::after,
+.pill-tabs button.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 99px;
+  background: var(--accent);
+  box-shadow: var(--glow-sm);
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-chip);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chip.on,
+.chip.active {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: var(--glow-sm);
+}

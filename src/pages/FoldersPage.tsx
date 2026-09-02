@@ -48,7 +48,7 @@ export function FoldersPage() {
 
   return (
     <>
-      <PageHeader title="Library" subtitle="Folders organize cloud clips. They are not folders on this PC.">
+      <PageHeader title="My Library" subtitle="Folders organize cloud clips. They are not folders on this PC.">
         <LibraryTabs />
         {user ? (
           <button type="button" className="btn primary" onClick={() => setCreating(true)}>

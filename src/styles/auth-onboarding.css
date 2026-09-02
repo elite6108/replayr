@@ -35,7 +35,7 @@
 .step-pip {
   height: 3px;
   flex: 1;
-  background: #2a2d34;
+  background: var(--pip-bg);
   border-radius: 2px;
 }
 
@@ -53,7 +53,7 @@
 
 .meter {
   height: 6px;
-  background: #101216;
+  background: var(--switch-bg);
   border: 1px solid var(--border);
   border-radius: 99px;
   overflow: hidden;
@@ -62,7 +62,8 @@
 .meter > span {
   display: block;
   height: 100%;
-  background: var(--accent);
+  background: linear-gradient(90deg, #00a8c4, var(--accent));
+  box-shadow: var(--glow-sm);
 }
 
 .catalog-list {
@@ -89,7 +90,7 @@ kbd {
   border-bottom-width: 2px;
   border-radius: 4px;
   padding: 1px 5px;
-  background: #121418;
+  background: var(--kbd-bg);
 }
 
 code {

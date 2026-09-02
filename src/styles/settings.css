@@ -42,6 +42,10 @@
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
 }
 
+html[data-theme="light"] .settings-pane {
+  box-shadow: var(--shadow-card);
+}
+
 .settings-pane > h2 {
   margin: 0 0 14px;
   font-size: 16px;
@@ -87,8 +91,15 @@
   margin: 14px 0;
 }
 
+.theme-picker {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .settings-link {
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration: none;
   font-size: 13px;
   font-weight: 550;

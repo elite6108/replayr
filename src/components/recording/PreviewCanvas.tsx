@@ -5,16 +5,18 @@ export function PreviewCanvas({
   background,
   safeZone,
   quiet,
+  plate,
   children,
 }: {
   background: PreviewBackgroundMode;
   safeZone: boolean;
   quiet: boolean;
+  plate?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <div className={`preview-canvas bg-${background}${quiet ? " is-quiet" : ""}`}>
-      {background === "mock" ? <MockGameplay /> : <div className="preview-dark" />}
+      {plate ?? (background === "mock" ? <MockGameplay /> : <div className="preview-dark" />)}
       {children}
       {safeZone ? <div className="preview-safe-zone" aria-hidden="true" /> : null}
     </div>

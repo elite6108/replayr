@@ -17,6 +17,7 @@ import {
   listSharedFolders,
 } from "@/lib/api.folders";
 import { useAuth } from "@/lib/auth";
+import { colors } from "@/lib/theme";
 import type { Folder, FolderInvite } from "@/lib/social-types";
 
 export default function FoldersScreen() {
@@ -108,7 +109,7 @@ export default function FoldersScreen() {
           value={name}
           onChangeText={setName}
           placeholder="New folder name"
-          placeholderTextColor="#8b93a1"
+          placeholderTextColor={colors.muted}
           style={folderStyles.input}
           maxLength={80}
         />
@@ -133,7 +134,7 @@ export default function FoldersScreen() {
           value={query}
           onChangeText={setQuery}
           placeholder="Search folders"
-          placeholderTextColor="#8b93a1"
+          placeholderTextColor={colors.muted}
           style={folderStyles.input}
         />
         <Pressable onPress={() => setSort((current) => (current === "updated" ? "name" : "updated"))}>

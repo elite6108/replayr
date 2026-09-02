@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AuthCard } from "../components/common/AuthCard";
 import { ClipCard } from "../components/common/ClipCard";
 import { ClipGrid } from "../components/common/ClipGrid";
@@ -7,6 +7,7 @@ import { CloudClipCard } from "../components/common/CloudClipCard";
 import { PageHeader } from "../components/common/PageHeader";
 import { SelectionBar } from "../components/common/SelectionBar";
 import { LibraryTabs } from "../components/library/LibraryTabs";
+import { SearchToolbar } from "../components/ui/SearchToolbar";
 import { useAuthStore } from "../stores/authStore";
 import { useCloudStore } from "../stores/cloudStore";
 import { useLibraryStore } from "../stores/libraryStore";
@@ -53,10 +54,18 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const selectAllCloud = useCloudStore((state) => state.selectAll);
   const clearCloudSelection = useCloudStore((state) => state.clearSelection);
   const selectedCloud = useCloudStore((state) => state.selectedIds);
-  const visible = useMemo(
-    () => (favoritesOnly ? clips.filter((clip) => clip.favorite) : clips),
-    [clips, favoritesOnly],
-  );
+  const [query, setQuery] = useState("");
+  const visible = useMemo(() => {
+    const list = favoritesOnly ? clips.filter((clip) => clip.favorite) : clips;
+    const needle = query.trim().toLowerCase();
+    if (!needle) return list;
+    return list.filter((clip) => (clip.title || "untitled clip").toLowerCase().includes(needle));
+  }, [clips, favoritesOnly, query]);
+  const visibleCloud = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return cloudClips;
+    return cloudClips.filter((clip) => (clip.title || "untitled clip").toLowerCase().includes(needle));
+  }, [cloudClips, query]);
   const used = storage?.storage_used_bytes ?? 0;
   const limit = storage?.storage_limit_bytes ?? 0;
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
@@ -72,8 +81,8 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   return (
     <>
       <PageHeader
-        title="Library"
-        subtitle="This PC and cloud copies stay separate. Select clips to download or delete more than one."
+        title="My Library"
+        subtitle="Your clips across this PC and cloud."
       >
         <LibraryTabs />
         {view === "local" ? (
@@ -86,6 +95,10 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
           </button>
         ) : null}
       </PageHeader>
+
+      <SearchToolbar value={query} onChange={setQuery} placeholder="Search clips">
+        <span className="muted">Newest first</span>
+      </SearchToolbar>
 
       {view === "local" ? (
         <>
@@ -203,9 +216,9 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
             </section>
           ) : null}
           {cloudError ? <div className="error-text">{cloudError}</div> : null}
-          {cloudLoading && cloudClips.length === 0 ? (
+          {cloudLoading && visibleCloud.length === 0 ? (
             <p className="muted">Loading cloud clips…</p>
-          ) : cloudClips.length === 0 ? (
+          ) : visibleCloud.length === 0 ? (
             <ClipGrid
               title="No cloud clips yet"
               body="Open a local clip and choose Upload, or turn on automatic upload in Settings. Bytes go to R2; this list is the metadata copy."
@@ -214,10 +227,10 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
             <section className="panel flush">
               <div className="panel-head">
                 <h2>Uploaded</h2>
-                <span className="badge">{cloudClips.length}</span>
+                <span className="badge">{visibleCloud.length}</span>
               </div>
-              <div className="clip-grid">
-                {cloudClips.map((clip) => (
+            <div className="clip-grid">
+              {visibleCloud.map((clip) => (
                   <CloudClipCard
                     key={clip.id}
                     clip={clip}
@@ -235,7 +248,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
               <SelectionBar
                 count={selectedCloud.length}
                 onClear={clearCloudSelection}
-                onSelectAll={() => selectAllCloud(cloudClips.map((clip) => clip.id))}
+                onSelectAll={() => selectAllCloud(visibleCloud.map((clip) => clip.id))}
               >
                 <button type="button" className="btn" onClick={() => void downloadCloudMany(selectedCloud)}>
                   Download

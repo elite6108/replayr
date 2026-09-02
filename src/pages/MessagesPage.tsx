@@ -276,7 +276,7 @@ export function MessagesPage() {
       setConversations((current) => current.map((item) => (item.id === conversation.id ? conversation : item)));
       showToast("Invited");
     } catch (caught) {
-      showToast(caught instanceof Error ? caught.message : "Could not invite that friend.");
+      showToast(caught instanceof Error ? caught.message : "Could not invite that person.");
     }
   }
 
@@ -309,7 +309,7 @@ export function MessagesPage() {
   if (!user || !token) {
     return (
       <>
-        <PageHeader title="Messages" subtitle="Sign in to message friends. Capture still works offline." />
+        <PageHeader title="Messages" subtitle="Sign in to message people you follow. Capture still works offline." />
         <AuthCard />
       </>
     );
@@ -319,7 +319,7 @@ export function MessagesPage() {
 
   return (
     <div className="social-page social-fill">
-      <PageHeader title="Messages" subtitle="Direct messages and groups with accepted friends.">
+      <PageHeader title="Messages" subtitle="Direct messages and groups with people you follow.">
         <button className="btn" type="button" onClick={() => { setCreatingGroup(true); setInviting(false); setPicked([]); }}>
           New group
         </button>
@@ -334,7 +334,7 @@ export function MessagesPage() {
             <EmptyState
               icon={<IconFriends size={26} />}
               title="No conversations yet"
-              body="Message a friend from the Friends page, or create a group. Empty inboxes stay empty until someone writes."
+              body="Message someone from Following, or create a group. Empty inboxes stay empty until someone writes."
             />
           ) : (
             <ul className="conv-list">
@@ -455,7 +455,7 @@ export function MessagesPage() {
         <div className="social-modal" role="dialog" aria-modal="true">
           <section className="panel stack social-modal-card">
             <div className="panel-head">
-              <h2>{creatingGroup ? "New group" : "Invite friends"}</h2>
+              <h2>{creatingGroup ? "New group" : "Invite people"}</h2>
               <button
                 className="btn sm"
                 type="button"
@@ -482,7 +482,7 @@ export function MessagesPage() {
             ) : null}
             {(creatingGroup ? friends : inviteable).length === 0 ? (
               <p className="muted">
-                {creatingGroup ? "Add a friend first, then you can start a group." : "Every friend is already in this group."}
+                {creatingGroup ? "Follow someone first, then you can start a group." : "Everyone you can invite is already in this group."}
               </p>
             ) : (
               <ul className="person-list picker">

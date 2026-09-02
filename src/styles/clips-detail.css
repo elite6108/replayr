@@ -1,5 +1,5 @@
 .clip-upload:hover {
-  color: var(--accent, #7dd3fc);
+  color: var(--accent-text);
 }
 
 .clip-actions {
@@ -58,7 +58,7 @@
 
 .clip-date {
   margin-top: 2px;
-  color: #c4cad4;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -76,7 +76,7 @@
   display: block;
   height: 8px;
   border-radius: 99px;
-  background: #2a313b;
+  background: var(--skel);
   margin-bottom: 6px;
 }
 
@@ -91,4 +91,8 @@
   flex-direction: column;
   justify-content: center;
   background: linear-gradient(180deg, rgba(16, 18, 24, 0.2), rgba(16, 18, 24, 0.82));
+}
+
+html[data-theme="light"] .clip-grid-wrap .empty-state {
+  background: linear-gradient(180deg, rgba(245, 247, 250, 0.2), var(--bg-workspace));
 }

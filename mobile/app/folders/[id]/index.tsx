@@ -75,7 +75,7 @@ export default function FolderDetailScreen() {
       <AppHeader padded />
       <ScrollView contentContainerStyle={folderStyles.scroll}>
         <Pressable onPress={() => router.replace(foldersHref())}>
-          <Text style={{ color: "#7fd0ef", fontWeight: "700" }}>Folders</Text>
+          <Text style={{ color: colors.accent, fontWeight: "700" }}>Folders</Text>
         </Pressable>
         {error ? <Notice tone="danger">{error}</Notice> : null}
         {notice ? <Notice tone="ok">{notice}</Notice> : null}

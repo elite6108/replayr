@@ -1,21 +1,27 @@
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
+import { composedStartBlocker, sessionWebcamLayoutFromScene, snapshotRecordingComposition } from "../recording/composition";
+import { loadOrMigrateScene } from "../recording/scene";
 import {
   getRecordingStatus,
   getReplayStatus,
   saveClip,
   saveScreenshot,
+  startComposedRecording,
   startRecording,
+  stopComposedRecording,
   stopRecording,
 } from "../services/tauri";
 import { IDLE_RECORDING, IDLE_REPLAY, type RecordingStatus, type ReplayStatus } from "../types/recording";
 import { invokeErrorMessage } from "../utils/format";
+import { useSettingsStore } from "./settingsStore";
 import { useToastStore } from "./toastStore";
 
 interface RecordingState {
   status: RecordingStatus;
   replay: ReplayStatus;
   busy: boolean;
+  startingComposed: boolean;
   libraryEpoch: number;
   initialize: () => Promise<void>;
   start: () => Promise<void>;
@@ -80,6 +86,7 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
   status: IDLE_RECORDING,
   replay: IDLE_REPLAY,
   busy: false,
+  startingComposed: false,
   libraryEpoch: 0,
   initialize: async () => {
     try {
@@ -118,26 +125,45 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
   },
   start: async () => {
     if (get().busy || get().status.active) return;
-    set({ busy: true });
+    const settings = useSettingsStore.getState().settings;
+    const scene = loadOrMigrateScene(settings);
+    if (scene.outputMode === "composed") {
+      const blocked = composedStartBlocker(scene, settings);
+      if (blocked) {
+        useToastStore.getState().show(blocked);
+        return;
+      }
+    }
+    const startingComposed = scene.outputMode === "composed";
+    const webcamLayout = sessionWebcamLayoutFromScene(scene);
+    set({ busy: true, startingComposed });
     try {
-      const status = liveRecording(await startRecording());
-      set({ status, busy: false });
+      const status = liveRecording(
+        startingComposed
+          ? await startComposedRecording(snapshotRecordingComposition(scene, settings), webcamLayout)
+          : await startRecording(webcamLayout),
+      );
+      set({ status, busy: false, startingComposed: false });
       setClockTick(true);
     } catch (caught) {
-      set({ busy: false });
-      useToastStore.getState().show(invokeErrorMessage(caught, "Could not start recording"));
+      set({ busy: false, startingComposed: false });
+      const message = invokeErrorMessage(caught, "Could not start recording");
+      useToastStore.getState().show(message);
     }
   },
   stop: async () => {
-    if (get().busy || !get().status.active) return;
-    set({ busy: true });
+    const { status, busy, startingComposed } = get();
+    if (busy && !startingComposed && !status.active) return;
+    if (!status.active && !startingComposed) return;
+    const useComposed = status.composed || startingComposed;
+    set({ busy: true, startingComposed: false });
     try {
-      const status = await stopRecording();
-      set({ status, busy: false, libraryEpoch: get().libraryEpoch + 1 });
+      const next = useComposed ? await stopComposedRecording() : await stopRecording();
+      set({ status: next, busy: false, libraryEpoch: get().libraryEpoch + 1 });
       setClockTick(get().replay.active);
       useToastStore.getState().show("Saved recording");
     } catch (caught) {
-      set({ busy: false });
+      set({ busy: false, startingComposed: false });
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not stop recording"));
     }
   },

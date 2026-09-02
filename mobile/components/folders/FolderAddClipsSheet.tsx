@@ -97,8 +97,8 @@ export function FolderAddClipsSheet({
                 {clip.durationMs ? ` · ${formatDurationMs(clip.durationMs)}` : ""}
               </Text>
             </View>
-            <View style={[folderStyles.badge, on && { backgroundColor: "#fff" }]}>
-              <Text style={[folderStyles.badgeText, on && { color: "#07080b" }]}>{on ? "Selected" : "Add"}</Text>
+            <View style={[folderStyles.badge, on && folderStyles.badgeOn]}>
+              <Text style={[folderStyles.badgeText, on && folderStyles.badgeTextOn]}>{on ? "Selected" : "Add"}</Text>
             </View>
           </Pressable>
         );

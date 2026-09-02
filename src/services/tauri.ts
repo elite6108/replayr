@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { AppSettings } from "../types/settings";
 import type { AudioDevice, AudioEngineStatus, AudioSession } from "../types/audio";
+import type { CapturePreviewFrame } from "../types/capturePreview";
 import type { CameraDevice, CameraMode, CameraPreviewFrame, CameraStatus } from "../types/camera";
 import type { LocalClip } from "../types/clip";
 import type { DetectedGameSnapshot, GameCatalogEntry } from "../types/game";
@@ -243,12 +244,25 @@ export async function getDiscordPresenceStatus(): Promise<DiscordPresenceStatus 
   }
 }
 
-export async function startRecording(): Promise<RecordingStatus> {
-  return invoke("start_recording");
+export async function startRecording(
+  webcamLayout?: import("../types/clip").ClipSourceLayout | null,
+): Promise<RecordingStatus> {
+  return invoke("start_recording", { webcamLayout: webcamLayout ?? null });
 }
 
 export async function stopRecording(): Promise<RecordingStatus> {
   return invoke("stop_recording");
+}
+
+export async function startComposedRecording(
+  payload: import("../recording/composition").RecordingComposition,
+  webcamLayout?: import("../types/clip").ClipSourceLayout | null,
+): Promise<RecordingStatus> {
+  return invoke("start_composed_recording", { payload, webcamLayout: webcamLayout ?? null });
+}
+
+export async function stopComposedRecording(): Promise<RecordingStatus> {
+  return invoke("stop_composed_recording");
 }
 
 export async function getRecordingStatus(): Promise<RecordingStatus> {
@@ -314,6 +328,63 @@ export async function stopCameraPreview(): Promise<void> {
 export async function getCameraPreviewFrame(): Promise<CameraPreviewFrame | null> {
   try {
     return await invoke<CameraPreviewFrame | null>("get_camera_preview_frame");
+  } catch {
+    return null;
+  }
+}
+
+let capturePreviewClients = 0;
+let capturePreviewStopTimer: ReturnType<typeof setTimeout> | null = null;
+
+function previewArgs(options: { mode: "game" | "desktop"; pid?: number | null }) {
+  const args: { mode: "game" | "desktop"; pid?: number } = { mode: options.mode };
+  if (options.pid && options.pid > 0) args.pid = options.pid;
+  return args;
+}
+
+function cancelPreviewStop() {
+  if (!capturePreviewStopTimer) return;
+  clearTimeout(capturePreviewStopTimer);
+  capturePreviewStopTimer = null;
+}
+
+export async function startCapturePreview(options: {
+  mode: "game" | "desktop";
+  pid?: number | null;
+}): Promise<void> {
+  cancelPreviewStop();
+  capturePreviewClients += 1;
+  try {
+    await invoke("start_capture_preview", previewArgs(options));
+  } catch (caught) {
+    capturePreviewClients = Math.max(0, capturePreviewClients - 1);
+    throw caught;
+  }
+}
+
+export async function updateCapturePreview(options: {
+  mode: "game" | "desktop";
+  pid?: number | null;
+}): Promise<void> {
+  if (capturePreviewClients <= 0) return;
+  await invoke("start_capture_preview", previewArgs(options));
+}
+
+export async function stopCapturePreview(): Promise<void> {
+  if (capturePreviewClients <= 0) return;
+  capturePreviewClients -= 1;
+  if (capturePreviewClients > 0) return;
+  cancelPreviewStop();
+  capturePreviewStopTimer = setTimeout(() => {
+    capturePreviewStopTimer = null;
+    if (capturePreviewClients > 0) return;
+    void invoke("stop_capture_preview").catch(() => undefined);
+  }, 300);
+}
+
+export async function getCapturePreviewFrame(): Promise<CapturePreviewFrame | null> {
+  try {
+    return await invoke<CapturePreviewFrame>("get_capture_preview_frame");
   } catch {
     return null;
   }

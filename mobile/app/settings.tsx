@@ -337,7 +337,7 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   displayName: { color: colors.text, fontSize: 22, fontWeight: "800" },
   verified: {
-    backgroundColor: "rgba(127, 208, 239, 0.14)",
+    backgroundColor: colors.accentDim,
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 3,

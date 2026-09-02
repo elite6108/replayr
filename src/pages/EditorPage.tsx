@@ -2,6 +2,8 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { PageHeader } from "../components/common/PageHeader";
+import { EditorClipDetails } from "../components/editor/EditorClipDetails";
+import { EditorStudioTools } from "../components/editor/EditorStudioTools";
 import { IconInstagram, IconTikTok, IconYoutube } from "../components/icons";
 import {
   listClipFilmstrip,
@@ -771,7 +773,7 @@ export function EditorPage() {
 
   return (
     <div
-      className="editor-layout"
+      className="editor-studio"
       style={
         frameSize.width > 0 && frameSize.height > 0
           ? ({ "--editor-aspect": frameSize.width / frameSize.height } as CSSProperties)
@@ -794,7 +796,28 @@ export function EditorPage() {
         >
           Back
         </Link>
+        <button
+          type="button"
+          className="btn"
+          disabled={!canSave}
+          onClick={() => void saveClip(shortsMode ? "short" : "trim", false)}
+        >
+          Save as New Clip
+        </button>
+        {folderSession ? null : (
+          <button
+            type="button"
+            className="btn primary"
+            disabled={shortsMode}
+            onClick={() => setShortsMode(true)}
+          >
+            Export / Share
+          </button>
+        )}
       </PageHeader>
+
+      <div className="editor-studio-body">
+      <div className="editor-main">
 
       <div className="editor-stage player-stage">
         <div ref={previewRef} className="editor-preview">
@@ -1134,6 +1157,24 @@ export function EditorPage() {
           1080×1920 for TikTok, Instagram Reels, and YouTube Shorts.
         </p>
       )}
+
+      </div>
+      <aside className="editor-side">
+        <EditorStudioTools
+          trimActive={!shortsMode}
+          cropActive={shortsMode}
+          onTrim={() => setShortsMode(false)}
+          onCrop={() => setShortsMode(true)}
+        />
+        <EditorClipDetails
+          durationMs={source.durationMs}
+          width={source.width}
+          height={source.height}
+          fps={source.fps}
+          fileSize={source.fileSize}
+        />
+      </aside>
+      </div>
 
       {savedClip ? (
         <section className="panel stack editor-success">

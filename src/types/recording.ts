@@ -5,6 +5,7 @@ export interface RecordingStatus {
   startedAt: string | null;
   durationMs: number;
   error: string | null;
+  composed?: boolean;
 }
 
 export const IDLE_RECORDING: RecordingStatus = {
@@ -14,6 +15,7 @@ export const IDLE_RECORDING: RecordingStatus = {
   startedAt: null,
   durationMs: 0,
   error: null,
+  composed: false,
 };
 
 export interface ReplayStatus {

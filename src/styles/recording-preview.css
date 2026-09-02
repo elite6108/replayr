@@ -1,35 +1,124 @@
-.record-workspace {
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.preview-canvas-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.preview-layer {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: grab;
+}
+
+.preview-layer.is-locked {
+  cursor: default;
+}
+
+.preview-layer.is-selected {
+  outline: 1px solid rgba(0, 216, 240, 0.85);
+  outline-offset: 0;
+}
+
+.preview-layer-chrome {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.preview-layer-label {
+  position: absolute;
+  top: -18px;
+  left: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(9, 11, 16, 0.85);
+  color: #d7f6fb;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.preview-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid #9befff;
+  background: #102028;
+  padding: 0;
+  pointer-events: auto;
+}
+
+.preview-handle.handle-n,
+.preview-handle.handle-s { left: calc(50% - 4px); }
+.preview-handle.handle-e,
+.preview-handle.handle-w { top: calc(50% - 4px); }
+.preview-handle.handle-n { top: -4px; cursor: ns-resize; }
+.preview-handle.handle-s { bottom: -4px; cursor: ns-resize; }
+.preview-handle.handle-e { right: -4px; cursor: ew-resize; }
+.preview-handle.handle-w { left: -4px; cursor: ew-resize; }
+.preview-handle.handle-nw { top: -4px; left: -4px; cursor: nwse-resize; }
+.preview-handle.handle-ne { top: -4px; right: -4px; cursor: nesw-resize; }
+.preview-handle.handle-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+.preview-handle.handle-se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+
+.preview-image,
+.preview-image-placeholder,
+.preview-text {
+  width: 100%;
+  height: 100%;
+}
+
+.preview-image {
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.preview-image-placeholder,
+.preview-text {
   display: grid;
-  grid-template-columns: minmax(300px, 0.92fr) minmax(360px, 1.15fr);
-  gap: 16px;
-  align-items: start;
+  place-items: center;
+  pointer-events: none;
 }
 
-.record-controls {
-  min-width: 0;
+.preview-image-placeholder {
+  background: rgba(20, 24, 32, 0.86);
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.record-controls .mix-strip {
-  justify-content: flex-start;
+.preview-text {
+  padding: 4px 8px;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
 }
 
-.record-session {
-  text-align: center;
-}
+.preview-text.align-left { place-items: center start; }
+.preview-text.align-right { place-items: center end; }
 
-.record-controls .hero {
-  box-shadow: none;
-  padding: 12px 14px;
-}
-
-.record-controls .hero h2 {
-  font-size: 22px;
-}
-
-.recording-preview {
-  position: sticky;
-  top: 12px;
-  min-width: 0;
+.preview-note,
+.path-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .preview-status {
@@ -73,6 +162,7 @@
   background: #050608;
 }
 
+.preview-capture,
 .preview-mock,
 .preview-dark,
 .preview-filter,
@@ -84,6 +174,39 @@
 
 .preview-dark {
   background: #050608;
+}
+
+.preview-capture {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: #050608;
+}
+
+.preview-capture img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.preview-capture-label {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: rgba(9, 11, 16, 0.72);
+  color: #d7f6fb;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.preview-capture.is-live .preview-capture-label {
+  color: #9ef0c8;
 }
 
 .preview-mock {
@@ -137,6 +260,14 @@
 
 .preview-webcam {
   z-index: 4;
+}
+
+.preview-layer .preview-webcam {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
 }
 
 .preview-webcam .webcam-preview {
@@ -297,16 +428,6 @@
 @keyframes preview-rec-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
-}
-
-@media (max-width: 980px) {
-  .record-workspace {
-    grid-template-columns: 1fr;
-  }
-
-  .recording-preview {
-    position: static;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

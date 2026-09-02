@@ -29,6 +29,8 @@ mod library;
 mod overlay;
 mod overlay_notification;
 mod paths;
+mod preview;
+mod recording_compositor;
 mod process;
 #[cfg(windows)]
 mod process_loopback;
@@ -101,6 +103,7 @@ pub fn run() {
             });
             app.manage(detection::DetectionState::default());
             app.manage(capture::RecordingState::default());
+            app.manage(crate::recording_compositor::ComposedRecordingState::default());
             app.manage(hotkeys::HotkeyMap::default());
             app.manage(crate::camera::CameraEngine::new());
             #[cfg(windows)]
@@ -216,6 +219,9 @@ pub fn run() {
             commands::start_camera_preview,
             commands::stop_camera_preview,
             commands::get_camera_preview_frame,
+            commands::start_capture_preview,
+            commands::stop_capture_preview,
+            commands::get_capture_preview_frame,
             commands::start_webcam_test_record,
             commands::stop_webcam_test_record,
             commands::list_local_clips,
@@ -242,6 +248,8 @@ pub fn run() {
             commands::get_detected_game,
             commands::start_recording,
             commands::stop_recording,
+            commands::start_composed_recording,
+            commands::stop_composed_recording,
             commands::get_recording_status,
             commands::get_replay_status,
             commands::save_clip,

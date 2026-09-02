@@ -32,7 +32,7 @@
   border-radius: 16px;
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-popover);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -46,7 +46,7 @@
 }
 
 .header-popover-head a {
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 12px;
 }
 

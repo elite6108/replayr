@@ -2,6 +2,7 @@ import { ReactNode } from "react";
 import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { folderStyles } from "@/components/folders/folderStyles";
+import { colors } from "@/lib/theme";
 
 export function FolderSheetFrame({
   visible,
@@ -26,7 +27,7 @@ export function FolderSheetFrame({
           <View style={[folderStyles.row, { justifyContent: "space-between", marginBottom: 12 }]}>
             <Text style={folderStyles.sheetTitle}>{title}</Text>
             <Pressable onPress={onClose} hitSlop={8}>
-              <Text style={{ color: "#7fd0ef", fontWeight: "700" }}>Done</Text>
+              <Text style={{ color: colors.accent, fontWeight: "700" }}>Done</Text>
             </Pressable>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12, paddingBottom: 8 }}>

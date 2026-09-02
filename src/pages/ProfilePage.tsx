@@ -169,7 +169,7 @@ export function ProfilePage() {
             />
             Private account
           </label>
-          <p className="muted">Only friends can see your clips, posts, and bio.</p>
+          <p className="muted">Only accepted followers can see your clips, posts, and bio.</p>
           <div className="row">
             <button className="btn primary" type="submit" disabled={busy}>
               Save profile

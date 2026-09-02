@@ -3,6 +3,7 @@ import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { FolderSheetFrame } from "@/components/folders/FolderSheetFrame";
 import { folderStyles } from "@/components/folders/folderStyles";
 import { Button } from "@/components/ui";
+import { colors } from "@/lib/theme";
 import { fetchLibrary, type ManagedClip } from "@/lib/api";
 import {
   createFolderEdit,
@@ -93,7 +94,7 @@ export function FolderEditsSheet({
             </Text>
           </View>
           <Pressable onPress={() => setOpenId(edit.id)}>
-            <Text style={{ color: "#7fd0ef" }}>{edit.canModify ? "Open" : "View"}</Text>
+            <Text style={{ color: colors.accent }}>{edit.canModify ? "Open" : "View"}</Text>
           </Pressable>
         </View>
       ))}
@@ -171,7 +172,7 @@ export function FolderEditsSheet({
                   }}
                 >
                   <Text style={folderStyles.memberName}>{item.title || "Untitled clip"}</Text>
-                  <Text style={{ color: "#7fd0ef" }}>Use as render</Text>
+                  <Text style={{ color: colors.accent }}>Use as render</Text>
                 </Pressable>
               ))}
             </>

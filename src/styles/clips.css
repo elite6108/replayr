@@ -5,16 +5,16 @@
 
 .clip-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
 }
 
 .clip-card {
-  border: 1px solid transparent;
-  border-radius: 18px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
   overflow: hidden;
   background: var(--bg-raised);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-card);
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
@@ -38,9 +38,9 @@
 
 .clip-card.live:hover,
 .clip-card.live:focus-visible {
-  border-color: rgba(127, 208, 239, 0.28);
-  transform: translateY(-3px);
-  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32);
+  border-color: var(--accent-ring);
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lift), var(--glow-sm);
 }
 
 .clip-card.selected {
@@ -61,7 +61,7 @@
   z-index: 80;
   min-width: 176px;
   padding: 8px;
-  background: #161b24;
+  background: var(--ctx-bg);
   border: 1px solid var(--border-strong);
   border-radius: 14px;
   box-shadow: var(--shadow);
@@ -250,8 +250,8 @@
   align-items: center;
   padding: 10px 12px;
   margin-top: 16px;
-  background: rgba(10, 12, 18, 0.94);
+  background: var(--bg-glass);
   border: 1px solid var(--border);
   border-radius: 16px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-popover);
 }

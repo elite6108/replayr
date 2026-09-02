@@ -338,7 +338,7 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   title: { color: colors.text, fontSize: 26, fontWeight: "800" },
   verified: {
-    backgroundColor: "rgba(127, 208, 239, 0.14)",
+    backgroundColor: colors.accentDim,
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
   },
   attachList: { gap: 8 },
   attach: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, backgroundColor: colors.raised },
-  attachOn: { backgroundColor: "rgba(127, 208, 239, 0.14)" },
+  attachOn: { backgroundColor: colors.accentDim },
   empty: { gap: 8, backgroundColor: colors.card, borderRadius: 16, padding: 16 },
   emptyTitle: { color: colors.text, fontSize: 18, fontWeight: "700" },
   grid: { gap: 14 },

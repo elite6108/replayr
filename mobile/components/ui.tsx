@@ -51,23 +51,27 @@ export function Notice({ children, tone = "muted" }: { children: ReactNode; tone
 
 const styles = StyleSheet.create({
   btn: {
-    backgroundColor: colors.raised,
+    backgroundColor: colors.card,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 999,
     paddingVertical: 12,
     paddingHorizontal: 14,
     alignItems: "center",
   },
   primary: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ffffff",
-    borderRadius: 22,
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+    shadowColor: "#00d8f0",
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 3,
   },
   danger: { borderColor: colors.danger },
   disabled: { opacity: 0.5 },
   btnText: { color: colors.text, fontWeight: "600" },
-  primaryText: { color: "#07080b" },
+  primaryText: { color: colors.onAccent },
   field: { gap: 6 },
   label: { color: colors.muted, fontSize: 13 },
   input: {

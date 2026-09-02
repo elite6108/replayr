@@ -30,6 +30,7 @@ import { useFolderStore } from "./stores/folderStore";
 import { useUpdateStore } from "./stores/updateStore";
 import { useSocialUnreadSync } from "./hooks/useSocialUnreadSync";
 import { associateDesktopAcquisition, trackAppOpenedOnce } from "./services/analytics";
+import { ThemeSync } from "./theme/ThemeSync";
 
 export default function App() {
   const loaded = useSettingsStore((state) => state.loaded);
@@ -85,18 +86,15 @@ export default function App() {
 
   // Open the app immediately. Settings/auth continue in the background.
   // Onboarding only appears once we know it is actually unfinished.
-  if (loaded && !onboardingCompleted) {
-    return (
+  const tree =
+    loaded && !onboardingCompleted ? (
       <>
         <MicDisconnectToasts />
         <OnboardingPage />
         <ToastRegion />
       </>
-    );
-  }
-
-  return (
-    <HashRouter>
+    ) : (
+      <HashRouter>
       <Routes>
         <Route element={<AppShell />}>
           <Route path="/" element={<HomePage />} />
@@ -123,5 +121,12 @@ export default function App() {
         </Route>
       </Routes>
     </HashRouter>
+    );
+
+  return (
+    <>
+      <ThemeSync />
+      {tree}
+    </>
   );
 }

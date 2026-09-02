@@ -62,7 +62,7 @@ export async function addConversationMembers(
     headers: authHeaders(accessToken, true),
     body: JSON.stringify(payload),
   });
-  const body = await readApi<ConversationResponse>(response, "Could not invite that friend.");
+  const body = await readApi<ConversationResponse>(response, "Could not invite that person.");
   return body.conversation;
 }
 

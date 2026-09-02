@@ -46,7 +46,7 @@ pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: tauri_plugin_global_s
             let result = if recording {
                 capture::stop(app, &rec).map(|_| "Recording saved".to_string())
             } else {
-                capture::start(app, &rec, snapshot.pid, snapshot.name, snapshot.slug)
+                capture::start(app, &rec, snapshot.pid, snapshot.name, snapshot.slug, None)
                     .map(|_| "Recording started".to_string())
             };
             match result {

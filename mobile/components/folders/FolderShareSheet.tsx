@@ -4,6 +4,7 @@ import { Avatar } from "@/components/Avatar";
 import { FolderSheetFrame } from "@/components/folders/FolderSheetFrame";
 import { folderStyles } from "@/components/folders/folderStyles";
 import { Button, Notice } from "@/components/ui";
+import { colors } from "@/lib/theme";
 import {
   createFolderInvite,
   deleteFolderInvite,
@@ -174,7 +175,7 @@ export function FolderShareSheet({
                       })
                     }
                   >
-                    <Text style={{ color: "#7fd0ef" }}>Role</Text>
+                    <Text style={{ color: colors.accent }}>Role</Text>
                   </Pressable>
                 ) : null}
                 {member.canRemove ? (

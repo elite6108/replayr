@@ -1,6 +1,6 @@
 [package]
 name = "replay"
-version = "0.1.27"
+version = "0.1.28"
 description = "Project Replay desktop application"
 authors = ["Project Replay"]
 edition = "2021"
@@ -25,6 +25,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 discord-rich-presence = "1.1"
 png = "0.17"
+jpeg-decoder = "0.3"
 rusqlite = { version = "0.32", features = ["bundled"] }
 thiserror = "2"
 tracing = "0.1"

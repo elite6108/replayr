@@ -15,7 +15,7 @@ mod safety;
 mod types;
 
 #[cfg(windows)]
-mod device;
+pub(crate) mod device;
 #[cfg(windows)]
 pub(crate) mod encoder;
 #[cfg(windows)]

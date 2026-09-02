@@ -14,7 +14,7 @@
 
 .mix-strip .chip {
   border: 1px solid var(--border);
-  background: #101216;
+  background: var(--bg-chip);
   color: var(--text-muted);
   border-radius: 99px;
   padding: 6px 10px;
@@ -28,7 +28,7 @@
 
 .audio-meter {
   height: 8px;
-  background: #101216;
+  background: var(--switch-bg);
   border: 1px solid var(--border);
   border-radius: 99px;
   overflow: hidden;

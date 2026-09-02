@@ -242,3 +242,131 @@ export function IconYoutube({ size = 16, className, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function IconEye(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z" />
+      <circle cx="12" cy="12" r="2.4" />
+    </Icon>
+  );
+}
+
+export function IconEyeOff(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3 3l18 18" />
+      <path d="M10.6 10.6a2.4 2.4 0 0 0 3.4 3.4" />
+      <path d="M7.1 7.2C4.8 8.5 3.1 10.6 2 12c0 0 3.6 6 10 6 1.7 0 3.2-.3 4.5-.9" />
+      <path d="M10.3 6.1C10.9 6 11.4 6 12 6c6.4 0 10 6 10 6a18.4 18.4 0 0 1-2.2 2.8" />
+    </Icon>
+  );
+}
+
+export function IconLock(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </Icon>
+  );
+}
+
+export function IconUnlock(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 7.5-2" />
+    </Icon>
+  );
+}
+
+export function IconMore(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.2" fill="currentColor" stroke="none" />
+    </Icon>
+  );
+}
+
+export function IconPlus(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 5v14M5 12h14" />
+    </Icon>
+  );
+}
+
+export function IconGrip(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M9 6v12M15 6v12" />
+    </Icon>
+  );
+}
+
+export function IconGear(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3.5v2.2M12 18.3v2.2M4.8 6.4l1.6 1.6M17.6 16l1.6 1.6M3.5 12h2.2M18.3 12h2.2M4.8 17.6l1.6-1.6M17.6 8l1.6-1.6" />
+    </Icon>
+  );
+}
+
+export function IconSpeaker(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M10 8.5 6.5 11H4v2h2.5L10 15.5z" />
+      <path d="M14.2 8.8a4.2 4.2 0 0 1 0 6.4" />
+      <path d="M16.6 6.6a7.4 7.4 0 0 1 0 10.8" />
+    </Icon>
+  );
+}
+
+export function IconSpeakerOff(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M10 8.5 6.5 11H4v2h2.5L10 15.5z" />
+      <path d="M15 9.5 20 14.5M20 9.5 15 14.5" />
+    </Icon>
+  );
+}
+
+export function IconFit(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="4" y="6" width="16" height="12" rx="1.5" />
+      <path d="M8 10h8v4H8z" />
+    </Icon>
+  );
+}
+
+export function IconCenter(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <circle cx="12" cy="12" r="2" />
+    </Icon>
+  );
+}
+
+export function IconReset(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" />
+      <path d="M4.5 5.5V9h3.5" />
+    </Icon>
+  );
+}
+
+export function IconSafeArea(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="4" y="6" width="16" height="12" rx="1" />
+      <rect x="7" y="8.5" width="10" height="7" rx="0.5" strokeDasharray="2 2" />
+    </Icon>
+  );
+}

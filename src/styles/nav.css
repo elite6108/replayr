@@ -5,107 +5,116 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding: 8px 8px 12px;
-  border-right: 1px solid var(--border);
-  background: #08090d;
+  padding: 10px 6px 12px;
+  border-right: 1px solid var(--chrome-border);
+  background: var(--sidebar-bg);
   user-select: none;
   font-family: var(--font-chrome);
-  letter-spacing: 0.01em;
 }
 
-.nav-brand {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  flex: 0 0 48px;
+.nav-logo {
+  display: grid;
+  place-items: center;
+  flex: 0 0 50px;
   margin-bottom: 6px;
-  color: var(--accent);
-  font-weight: 600;
-  letter-spacing: 0;
-  font-size: 12px;
-  text-transform: none;
 }
 
-.nav-brand img {
-  width: 36px;
-  height: 36px;
+.nav-logo img {
+  width: 28px;
+  height: 28px;
   object-fit: contain;
+  pointer-events: none;
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  flex: 0 1 auto;
-  gap: 3px;
-  padding: 4px 2px 3px;
+  flex: 0 0 54px;
+  gap: 4px;
+  padding: 6px 4px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 11px;
   background: transparent;
   color: var(--text-muted);
   text-decoration: none;
-  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .nav-item:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--nav-hover);
+  color: var(--text-hover);
+}
+
+.nav-item:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .nav-item.active {
   color: var(--text);
-  background: var(--bg-raised);
+  background: var(--nav-active-bg);
+  box-shadow: var(--nav-active-glow);
+}
+
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 28px;
+  border-radius: 99px;
+  background: var(--accent);
+  box-shadow: var(--nav-indicator-glow);
+  transform: translateY(-50%);
 }
 
 .nav-item.active .nav-icon {
-  background: #f4f6f8;
-  color: #11141a;
+  color: var(--accent);
 }
 
-.nav-item-record .nav-icon,
-.nav-item-record.active .nav-icon {
-  color: #ff1a1a;
+.nav-item-record .nav-icon {
+  color: #ff4d4d;
 }
 
 .nav-item span:last-child {
-  font-size: 11px;
-  font-weight: 400;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
 }
 
 .nav-icon {
   position: relative;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  background: #12151c;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  color: inherit;
+}
+
+.nav-live,
+.nav-update,
+.nav-unread {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--sidebar-bg);
 }
 
 .nav-live {
-  position: absolute;
-  top: -2px;
-  right: -3px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
   background: var(--ok);
-  box-shadow: 0 0 0 2px #08090d;
 }
 
 .nav-update,
 .nav-unread {
-  position: absolute;
-  top: -2px;
-  right: -3px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 0 2px #08090d;
 }
 
 .nav-spacer {
@@ -113,19 +122,70 @@
   min-height: 8px;
 }
 
-.nav-storage {
-  flex: 0 0 auto;
-  margin-top: 6px;
-  text-align: center;
-  font-size: 11px;
-  line-height: 1.3;
-  color: var(--text-muted);
+.nav-account {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px 4px 2px;
+  border-radius: 12px;
   text-decoration: none;
+  color: inherit;
 }
 
-.nav-storage strong {
-  display: block;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
+.nav-account:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.nav-account.active {
+  background: var(--nav-active-bg);
+}
+
+.nav-account .avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 10px;
+}
+
+.nav-account-copy {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+}
+
+.nav-account-copy strong {
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-account-copy span {
+  font-size: 9px;
+  color: var(--ok);
+}
+
+.nav-account-copy span.offline {
+  color: var(--text-muted);
+}
+
+.nav-storage {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  font-size: 9px;
+  line-height: 1.25;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.nav-account .meter {
+  height: 2px;
+  border: 0;
+  background: var(--meter-track);
 }

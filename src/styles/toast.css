@@ -9,7 +9,7 @@
 }
 
 .toast {
-  background: #1c2027;
+  background: var(--toast-bg);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 10px 14px;

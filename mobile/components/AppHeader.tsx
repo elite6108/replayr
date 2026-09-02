@@ -41,11 +41,15 @@ export function AppHeader({ padded = false }: { padded?: boolean }) {
           accessibilityLabel="Replayr"
         />
         <View style={styles.headerActions}>
-          <Pressable style={styles.bell} onPress={() => router.push("/search")} hitSlop={8}>
+          <Pressable
+            style={({ pressed }) => [styles.bell, pressed && styles.bellPressed]}
+            onPress={() => router.push("/search")}
+            hitSlop={8}
+          >
             <Ionicons name="search" size={20} color={colors.text} />
           </Pressable>
           <Pressable
-            style={styles.bell}
+            style={({ pressed }) => [styles.bell, pressed && styles.bellPressed]}
             onPress={() => {
               if (!session) {
                 router.push("/signin");
@@ -85,9 +89,12 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
+  bellPressed: { borderColor: colors.accentRing },
   bellPip: {
     position: "absolute",
     top: 6,

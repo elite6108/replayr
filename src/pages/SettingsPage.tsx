@@ -7,6 +7,7 @@ import { PageHeader } from "../components/common/PageHeader";
 import { HotkeyRecorder } from "../components/common/HotkeyRecorder";
 import { DEFAULT_HOTKEYS, findHotkeyConflicts, HOTKEY_ACTIONS, HOTKEY_LABELS } from "../utils/hotkeys";
 import { displayHotkey } from "../utils/format";
+import { useRecordingStore } from "../stores/recordingStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useDetectionStore } from "../stores/detectionStore";
 import { useToastStore } from "../stores/toastStore";
@@ -22,6 +23,8 @@ import { useAuthStore } from "../stores/authStore";
 import { useBillingStore } from "../stores/billingStore";
 import { startCheckout, startPortal, type BillingStatus } from "../services/billing";
 import { planLabel } from "../utils/format";
+import { ThemePicker } from "../theme/ThemePicker";
+import { parseThemePreference } from "../theme/theme";
 
 const SECTIONS = [
   { id: "general", label: "General" },
@@ -287,6 +290,20 @@ function GeneralPane({
   return (
     <>
       <div className="settings-group">
+        <div className="settings-group-label">Appearance</div>
+        <div className="setting-row">
+          <span className="setting-copy">
+            Theme
+            <small>Dark is the Replayr default. System follows Windows.</small>
+          </span>
+          <ThemePicker
+            value={parseThemePreference(settings.theme)}
+            onChange={(value) => void onChange("theme", value)}
+          />
+        </div>
+      </div>
+
+      <div className="settings-group">
         <div className="settings-group-label">Application</div>
         <label className="setting-row">
           <span>Close window to tray</span>
@@ -397,16 +414,26 @@ function RecordingPane({
   onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
   onBrowse: () => void;
 }) {
+  const composedActive = useRecordingStore(
+    (state) => Boolean((state.status.active && state.status.composed) || state.startingComposed),
+  );
   return (
     <>
       <p className="muted">Instant Replay keeps a rolling buffer. Start/stop still writes a full session file.</p>
       <label className="setting-row">
-        <span>Instant Replay</span>
+        <span className="setting-copy">
+          Instant Replay
+          {composedActive ? <small>Stop composed recording before enabling Instant Replay.</small> : null}
+        </span>
         <input
           className="switch"
           type="checkbox"
           checked={settings.instantReplayEnabled}
-          onChange={(event) => void onChange("instantReplayEnabled", event.target.checked)}
+          disabled={composedActive}
+          onChange={(event) => {
+            if (composedActive && event.target.checked) return;
+            void onChange("instantReplayEnabled", event.target.checked);
+          }}
         />
       </label>
       <RecordingSources

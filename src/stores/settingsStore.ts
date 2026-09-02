@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { AppSettings, CloudUploadWhen } from "../types/settings";
 import { DEFAULT_SETTINGS } from "../types/settings";
+import { parseThemePreference, persistThemePreference, readStoredThemePreference } from "../theme/theme";
 import { sanitizeRecordingVisuals } from "../recording/visualFilters";
 import { createDesktopShortcut, getAllSettings, getDefaultSaveLocation, removeDesktopShortcut, setSetting, setSettings } from "../services/tauri";
 import { enable as enableAutostart, disable as disableAutostart } from "@tauri-apps/plugin-autostart";
@@ -77,6 +78,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       mirrorRecording: settings.webcam?.mirrorRecording ?? false,
     },
     recordingVisuals: sanitizeRecordingVisuals(settings.recordingVisuals),
+    theme: parseThemePreference(settings.theme),
   };
 }
 
@@ -130,6 +132,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         localStorage.setItem("replay.autoUploadWired", "1");
       }
       persistOnboardingCompleted(settings.onboardingCompleted);
+      persistThemePreference(parseThemePreference(settings.theme));
       set({ settings, loaded: true });
     } catch (caught) {
       console.warn("settings load failed; using defaults", caught);
@@ -140,12 +143,20 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         cachedDone = false;
       }
       persistOnboardingCompleted(cachedDone);
-      set({ settings: { ...DEFAULT_SETTINGS, onboardingCompleted: cachedDone }, loaded: true });
+      set({
+        settings: {
+          ...DEFAULT_SETTINGS,
+          onboardingCompleted: cachedDone,
+          theme: readStoredThemePreference(),
+        },
+        loaded: true,
+      });
     }
   },
   update: async (key, value) => {
     set((state) => ({ settings: { ...state.settings, [key]: value } }));
     if (key === "onboardingCompleted") persistOnboardingCompleted(Boolean(value));
+    if (key === "theme") persistThemePreference(parseThemePreference(value));
     try {
       const settings = normalizeSettings(await setSetting(key, value));
       if (key === "launchAtStartup") await syncLaunchAtStartup(Boolean(value));
@@ -170,6 +181,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       }
       if (Object.prototype.hasOwnProperty.call(values, "onboardingCompleted")) {
         persistOnboardingCompleted(settings.onboardingCompleted);
+      }
+      if (Object.prototype.hasOwnProperty.call(values, "theme")) {
+        persistThemePreference(parseThemePreference(settings.theme));
       }
       set({ settings });
     } catch (caught) {

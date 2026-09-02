@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  primaryText: { color: "#07080b", fontWeight: "700" },
+  primaryText: { color: colors.onAccent, fontWeight: "700" },
   ghost: { paddingHorizontal: 10, paddingVertical: 8 },
   ghostText: { color: colors.text, fontSize: 18 },
   overlay: {

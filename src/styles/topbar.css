@@ -1,10 +1,11 @@
 .topbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 0 0 10px;
-  border-bottom: 1px solid var(--border);
-  background: #08090d;
+  gap: 8px;
+  height: var(--topbar);
+  padding: 0 0 0 14px;
+  border-bottom: 1px solid var(--chrome-border);
+  background: var(--topbar-bg);
   font-family: var(--font-chrome);
   letter-spacing: 0.01em;
   overflow: visible;
@@ -12,65 +13,57 @@
   user-select: none;
 }
 
-.topbar-brand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 60px;
-  height: 100%;
-}
-
-.topbar-brand img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-  pointer-events: none;
-}
-
 .topbar-game {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-width: 168px;
-  padding: 6px 12px;
+  min-width: 0;
+  max-width: 180px;
+  padding: 4px 10px;
+  border: 1px solid var(--chip-border);
   border-radius: 999px;
-  background: var(--bg-chip);
-  border: 1px solid var(--border);
+  background: var(--chip-surface);
+}
+
+.topbar-game.live {
+  border-color: var(--accent-ring);
 }
 
 .topbar-kicker {
-  font-size: 11px;
-  letter-spacing: 0;
-  text-transform: none;
+  font-size: 10px;
+  line-height: 1.15;
   color: var(--text-muted);
 }
 
 .topbar-title {
+  overflow: hidden;
+  font-size: 12px;
   font-weight: 600;
-  font-size: 13px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-actions {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   flex: 1;
 }
 
 .hotkey-chip {
   display: flex;
   align-items: center;
-  gap: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-chip);
+  gap: 6px;
+  padding: 3px 8px 3px 3px;
+  border: 1px solid var(--chip-border);
   border-radius: 999px;
-  padding: 6px 12px 6px 8px;
+  background: var(--chip-surface);
   color: var(--text);
 }
 
 .hotkey-chip:hover:not(:disabled) {
-  border-color: var(--border-strong);
+  border-color: var(--accent-ring);
   background: var(--bg-hover);
 }
 
@@ -85,20 +78,27 @@
   background: #13241a;
 }
 
+html[data-theme="light"] .hotkey-chip.on {
+  border-color: #8bb89a;
+  background: #e7f4ec;
+}
+
 .hotkey-chip kbd {
-  min-width: 52px;
-  text-align: center;
+  min-width: 44px;
+  padding: 2px 6px;
+  border: 1px solid var(--keycap-border);
+  border-radius: 7px;
+  background: var(--keycap-bg);
+  color: var(--text);
   font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 10px;
   font-weight: 600;
-  font-size: 11px;
   letter-spacing: 0;
-  border-radius: 6px;
-  padding: 3px 7px;
-  background: #0d1016;
+  text-align: center;
 }
 
 .hotkey-chip .chip-copy {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.15;
   white-space: nowrap;
@@ -113,16 +113,16 @@
   z-index: 50;
   top: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%);
-  width: 240px;
-  padding: 12px;
-  border-radius: 16px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 240px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-popover);
+  transform: translateX(-50%);
 }
 
 .topbar-chip-popover .btn {
@@ -134,12 +134,18 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-chip);
+  padding: 4px 10px;
+  border: 1px solid var(--chip-border);
   border-radius: 999px;
-  padding: 6px 12px;
+  background: var(--chip-surface);
   color: var(--text);
   text-decoration: none;
+}
+
+.topbar-user .avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 9px;
 }
 
 .topbar-spacer {
@@ -147,9 +153,10 @@
 }
 
 .topbar-user-name {
-  max-width: 160px;
+  max-width: 140px;
   overflow: hidden;
+  font-weight: 500;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 400;
 }

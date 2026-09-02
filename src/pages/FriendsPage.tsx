@@ -9,26 +9,25 @@ import {
   acceptFriendRequest,
   blockUser,
   cancelFriendRequest,
-  createFriendRequest,
   declineFriendRequest,
   fetchFriendRequests,
-  fetchFriends,
   searchUsers,
-  unfriendUser,
   fetchUserSuggestions,
 } from "../services/api.friends";
+import { fetchFollowers, fetchFollowing, followUser, unfollowUser } from "../services/api.follows";
 import { createConversation } from "../services/api.messages";
-import type { Friend, FriendRequest, Relationship, SocialUser } from "../services/social-types";
+import type { FollowListItem, FriendRequest, Relationship, SocialUser } from "../services/social-types";
 import { useAuthStore } from "../stores/authStore";
 import { useSocialUnreadStore } from "../stores/socialUnreadStore";
 import { useToastStore } from "../stores/toastStore";
 import { formatClipDate, formatHandle } from "../utils/format";
 
-type FriendsTab = "friends" | "requests" | "find";
+type FollowingTab = "following" | "followers" | "requests" | "find";
 type SearchHit = SocialUser & { relationship: Relationship };
 
-function tabFromParam(value: string | null): FriendsTab {
-  return value === "requests" || value === "find" ? value : "friends";
+function tabFromParam(value: string | null): FollowingTab {
+  if (value === "requests" || value === "find" || value === "followers" || value === "following") return value;
+  return "following";
 }
 
 export function FriendsPage() {
@@ -38,8 +37,9 @@ export function FriendsPage() {
   const showToast = useToastStore((state) => state.show);
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const [tab, setTab] = useState<FriendsTab>(() => tabFromParam(params.get("tab")));
-  const [friends, setFriends] = useState<Friend[]>([]);
+  const [tab, setTab] = useState<FollowingTab>(() => tabFromParam(params.get("tab")));
+  const [following, setFollowing] = useState<FollowListItem[]>([]);
+  const [followers, setFollowers] = useState<FollowListItem[]>([]);
   const [incoming, setIncoming] = useState<FriendRequest[]>([]);
   const [outgoing, setOutgoing] = useState<FriendRequest[]>([]);
   const [query, setQuery] = useState("");
@@ -52,14 +52,19 @@ export function FriendsPage() {
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const [nextFriends, requests] = await Promise.all([fetchFriends(token), fetchFriendRequests(token)]);
-      setFriends(nextFriends);
+      const [nextFollowing, nextFollowers, requests] = await Promise.all([
+        fetchFollowing(token),
+        fetchFollowers(token),
+        fetchFriendRequests(token),
+      ]);
+      setFollowing(nextFollowing);
+      setFollowers(nextFollowers);
       setIncoming(requests.incoming);
       setOutgoing(requests.outgoing);
       setError(null);
       useSocialUnreadStore.getState().setFriendsUnread(requests.incoming.length > 0);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load friends.");
+      setError(caught instanceof Error ? caught.message : "Could not load follows.");
     }
   }, [token]);
 
@@ -106,6 +111,11 @@ export function FriendsPage() {
     };
   }, [tab, token, query]);
 
+  function openTab(next: FollowingTab) {
+    setTab(next);
+    navigate(next === "following" ? "/friends" : `/friends?tab=${next}`, { replace: true });
+  }
+
   async function run(id: string, action: () => Promise<void>, success?: string) {
     setBusyId(id);
     try {
@@ -123,15 +133,17 @@ export function FriendsPage() {
     }
   }
 
-  async function messageFriend(friend: Friend) {
+  async function followByUsername(person: SocialUser, success = "Followed") {
+    if (!person.username) throw new Error("That account has no username.");
+    await followUser(token!, person.username);
+    showToast(success);
+  }
+
+  async function messagePerson(person: SocialUser) {
     if (!token) return;
-    setBusyId(friend.id);
+    setBusyId(person.id);
     try {
-      if (friend.dmId) {
-        navigate(`/messages/${friend.dmId}`);
-        return;
-      }
-      const conversation = await createConversation(token, { type: "dm", userId: friend.id });
+      const conversation = await createConversation(token, { type: "dm", userId: person.id });
       navigate(`/messages/${conversation.id}`);
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : "Could not open that chat.");
@@ -142,11 +154,12 @@ export function FriendsPage() {
 
   const outgoingByUser = useMemo(() => new Map(outgoing.map((item) => [item.to.id, item])), [outgoing]);
   const incomingByUser = useMemo(() => new Map(incoming.map((item) => [item.from.id, item])), [incoming]);
+  const followingIds = useMemo(() => new Set(following.map((item) => item.id)), [following]);
 
   if (!configured) {
     return (
       <>
-        <PageHeader title="Friends" subtitle="Cloud accounts are not configured on this PC." />
+        <PageHeader title="Following" subtitle="Cloud accounts are not configured on this PC." />
         <section className="panel">
           <p>
             Copy <code>.env.example</code> to <code>.env</code> and set <code>VITE_SUPABASE_URL</code> and{" "}
@@ -160,23 +173,28 @@ export function FriendsPage() {
   if (!user || !token) {
     return (
       <>
-        <PageHeader title="Friends" subtitle="Sign in to add friends and send messages." />
+        <PageHeader title="Following" subtitle="Sign in to follow people and see requests." />
         <AuthCard />
       </>
     );
   }
 
+  const list = tab === "followers" ? followers : following;
+
   return (
     <div className="social-page">
-      <PageHeader title="Friends" subtitle="Mutual friends only. Search a username to send a request.">
-        <nav className="tabs" aria-label="Friends view">
-          <button className={tab === "friends" ? "active" : undefined} type="button" onClick={() => setTab("friends")}>
-            Friends
+      <PageHeader title="Following" subtitle="Follow people. Search a username to find someone.">
+        <nav className="tabs" aria-label="Following view">
+          <button className={tab === "following" ? "active" : undefined} type="button" onClick={() => openTab("following")}>
+            Following
           </button>
-          <button className={tab === "requests" ? "active" : undefined} type="button" onClick={() => setTab("requests")}>
+          <button className={tab === "followers" ? "active" : undefined} type="button" onClick={() => openTab("followers")}>
+            Followers
+          </button>
+          <button className={tab === "requests" ? "active" : undefined} type="button" onClick={() => openTab("requests")}>
             Requests{incoming.length > 0 ? ` · ${incoming.length}` : ""}
           </button>
-          <button className={tab === "find" ? "active" : undefined} type="button" onClick={() => setTab("find")}>
+          <button className={tab === "find" ? "active" : undefined} type="button" onClick={() => openTab("find")}>
             Find
           </button>
         </nav>
@@ -184,55 +202,84 @@ export function FriendsPage() {
 
       {error ? <p className="error-text">{error}</p> : null}
 
-      {tab === "friends" ? (
-        friends.length === 0 ? (
+      {tab === "following" || tab === "followers" ? (
+        list.length === 0 ? (
           <section className="panel">
             <EmptyState
               icon={<IconFriends size={26} />}
-              title="No friends yet"
-              body="Nobody is on your list until you send a request and they accept. Search a username in Find."
+              title={tab === "following" ? "Not following anyone" : "No followers yet"}
+              body={
+                tab === "following"
+                  ? "Search by username on Find. Replayr does not invent people to follow."
+                  : "When someone follows you, they show up here."
+              }
             >
-              <button className="btn primary" type="button" onClick={() => setTab("find")}>
-                Find people
-              </button>
+              {tab === "following" ? (
+                <button className="btn primary" type="button" onClick={() => openTab("find")}>
+                  Find people
+                </button>
+              ) : null}
             </EmptyState>
           </section>
         ) : (
           <section className="panel">
             <ul className="person-list">
-              {friends.map((friend) => (
-                <li key={friend.id} className="person-row">
-                  <SocialAvatar person={friend} size="md" />
+              {list.map((person) => (
+                <li key={person.id} className="person-row">
+                  <SocialAvatar person={person} size="md" />
                   <div className="person-copy">
                     <strong>
-                      {friend.displayName}
-                      {friend.verified ? <span className="verified-dot" title="Verified" /> : null}
+                      {person.displayName}
+                      {person.verified ? <span className="verified-dot" title="Verified" /> : null}
                     </strong>
-                    <PersonHandle person={friend} />
-                    <span className="muted">Friends since {formatClipDate(friend.since)}</span>
+                    <PersonHandle person={person} />
+                    <span className="muted">Since {formatClipDate(person.since)}</span>
                   </div>
                   <div className="person-actions">
-                    <button className="btn primary sm" type="button" disabled={busyId === friend.id} onClick={() => void messageFriend(friend)}>
-                      Message
-                    </button>
-                    <button
-                      className="btn sm"
-                      type="button"
-                      disabled={busyId === friend.id}
-                      onClick={() => {
-                        if (!window.confirm(`Unfriend ${friend.displayName}? You can send a new request later.`)) return;
-                        void run(friend.id, () => unfriendUser(token, friend.id), "Unfriended");
-                      }}
-                    >
-                      Unfriend
-                    </button>
+                    {tab === "following" ? (
+                      <>
+                        <button
+                          className="btn primary sm"
+                          type="button"
+                          disabled={busyId === person.id}
+                          onClick={() => void messagePerson(person)}
+                        >
+                          Message
+                        </button>
+                        <button
+                          className="btn sm"
+                          type="button"
+                          disabled={busyId === person.id || !person.username}
+                          onClick={() => {
+                            if (!person.username) return;
+                            if (!window.confirm(`Unfollow ${person.displayName}?`)) return;
+                            void run(person.id, async () => { await unfollowUser(token, person.username as string); }, "Unfollowed");
+                          }}
+                        >
+                          Unfollow
+                        </button>
+                      </>
+                    ) : followingIds.has(person.id) ? (
+                      <span className="muted">Following</span>
+                    ) : (
+                      <button
+                        className="btn primary sm"
+                        type="button"
+                        disabled={busyId === person.id || !person.username}
+                        onClick={() =>
+                          void run(person.id, () => followByUsername(person, "Followed"), undefined)
+                        }
+                      >
+                        Follow back
+                      </button>
+                    )}
                     <button
                       className="btn sm danger"
                       type="button"
-                      disabled={busyId === friend.id}
+                      disabled={busyId === person.id}
                       onClick={() => {
-                        if (!window.confirm(`Block ${friend.displayName}? They will not be able to request you again.`)) return;
-                        void run(friend.id, () => blockUser(token, friend.id), "Blocked");
+                        if (!window.confirm(`Block ${person.displayName}? They will not be able to follow you again.`)) return;
+                        void run(person.id, () => blockUser(token, person.id), "Blocked");
                       }}
                     >
                       Block
@@ -252,7 +299,7 @@ export function FriendsPage() {
               <h2>Incoming</h2>
             </div>
             {incoming.length === 0 ? (
-              <p className="muted">No incoming requests. When someone adds you, they show up here.</p>
+              <p className="muted">No incoming requests. When someone asks to follow you, they show up here.</p>
             ) : (
               <ul className="person-list">
                 {incoming.map((item) => (
@@ -290,7 +337,7 @@ export function FriendsPage() {
               <h2>Outgoing</h2>
             </div>
             {outgoing.length === 0 ? (
-              <p className="muted">You have not sent any requests. Find a username to add someone.</p>
+              <p className="muted">You have not sent any requests. Find a username to follow someone.</p>
             ) : (
               <ul className="person-list">
                 {outgoing.map((item) => (
@@ -346,14 +393,10 @@ export function FriendsPage() {
                         <button
                           className="btn primary sm"
                           type="button"
-                          disabled={busyId === hit.id}
-                          onClick={() =>
-                            void run(hit.id, async () => {
-                              await createFriendRequest(token, hit.username ? { username: hit.username } : { userId: hit.id });
-                            }, "Request sent")
-                          }
+                          disabled={busyId === hit.id || !hit.username}
+                          onClick={() => void run(hit.id, () => followByUsername(hit), undefined)}
                         >
-                          Add
+                          Follow
                         </button>
                       </div>
                     </li>
@@ -364,7 +407,7 @@ export function FriendsPage() {
               <EmptyState
                 icon={<IconSearch size={26} />}
                 title="Search a username"
-                body="Type at least two characters, or add someone who plays the same games when suggestions appear."
+                body="Type at least two characters, or follow someone who plays the same games when suggestions appear."
               />
             )
           ) : searching ? (
@@ -380,6 +423,7 @@ export function FriendsPage() {
               {hits.map((hit) => {
                 const incomingReq = incomingByUser.get(hit.id);
                 const outgoingReq = outgoingByUser.get(hit.id);
+                const canMessage = hit.relationship === "friends" || hit.relationship === "following";
                 return (
                   <li key={hit.id} className="person-row">
                     <SocialAvatar person={hit} size="md" />
@@ -388,15 +432,11 @@ export function FriendsPage() {
                       <PersonHandle person={hit} />
                     </div>
                     <div className="person-actions">
-                      {hit.relationship === "friends" ? (
+                      {canMessage ? (
                         <button
                           className="btn primary sm"
                           type="button"
-                          onClick={() => {
-                            const friend = friends.find((item) => item.id === hit.id);
-                            if (friend) void messageFriend(friend);
-                            else navigate("/messages");
-                          }}
+                          onClick={() => void messagePerson(hit)}
                         >
                           Message
                         </button>
@@ -405,17 +445,15 @@ export function FriendsPage() {
                         <button
                           className="btn primary sm"
                           type="button"
-                          disabled={busyId === hit.id}
-                          onClick={() =>
-                            void run(hit.id, async () => {
-                              await createFriendRequest(token, hit.username ? { username: hit.username } : { userId: hit.id });
-                            }, "Followed")
-                          }
+                          disabled={busyId === hit.id || !hit.username}
+                          onClick={() => void run(hit.id, () => followByUsername(hit), undefined)}
                         >
                           {hit.relationship === "follower" ? "Follow back" : "Follow"}
                         </button>
                       ) : null}
-                      {hit.relationship === "following" ? <span className="muted">Following</span> : null}
+                      {hit.relationship === "following" || hit.relationship === "friends" ? (
+                        <span className="muted">Following</span>
+                      ) : null}
                       {hit.relationship === "incoming" && incomingReq ? (
                         <button
                           className="btn primary sm"
@@ -436,19 +474,17 @@ export function FriendsPage() {
                           Cancel
                         </button>
                       ) : null}
-                      {hit.relationship !== "friends" ? (
-                        <button
-                          className="btn sm danger"
-                          type="button"
-                          disabled={busyId === hit.id}
-                          onClick={() => {
-                            if (!window.confirm(`Block ${hit.displayName}?`)) return;
-                            void run(hit.id, () => blockUser(token, hit.id), "Blocked");
-                          }}
-                        >
-                          Block
-                        </button>
-                      ) : null}
+                      <button
+                        className="btn sm danger"
+                        type="button"
+                        disabled={busyId === hit.id}
+                        onClick={() => {
+                          if (!window.confirm(`Block ${hit.displayName}?`)) return;
+                          void run(hit.id, () => blockUser(token, hit.id), "Blocked");
+                        }}
+                      >
+                        Block
+                      </button>
                     </div>
                   </li>
                 );

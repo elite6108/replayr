@@ -10,11 +10,17 @@ mod compositor;
 #[cfg(windows)]
 mod gpu;
 #[cfg(windows)]
+mod hw_encode;
+#[cfg(windows)]
 mod nv12;
 #[cfg(windows)]
 mod sources;
 #[cfg(windows)]
 mod filters;
+#[cfg(windows)]
+mod still_blend;
+#[cfg(windows)]
+mod session_aac;
 
 pub use scene::RecordingComposition;
 
@@ -175,7 +181,12 @@ fn start_windows(
     let slug = game_id.as_deref().unwrap_or("recording");
     let path = output_path(&save, slug, "mp4");
     let bitrate = bitrate_of(&settings);
-    let include_audio = settings.wants_audio_track();
+    let audio_plan = ComposedAudioPlan {
+        include: spec.audio.include(),
+        mic: spec.audio.microphone.routed(),
+        game: spec.audio.game_audio.routed(),
+        desktop: spec.audio.desktop_audio.routed(),
+    };
     let audio = (*app.state::<crate::audio::AudioRuntime>()).clone();
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
@@ -186,6 +197,7 @@ fn start_windows(
     let thread_pid = pid;
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
 
+    let thread_settings = settings.clone();
     let handle = std::thread::Builder::new()
         .name("composed-record".into())
         .spawn(move || {
@@ -196,8 +208,9 @@ fn start_windows(
                 thread_game_id,
                 thread_title,
                 bitrate,
-                include_audio,
+                audio_plan,
                 audio,
+                thread_settings,
                 thread_stop,
                 ready_tx,
             )
@@ -368,8 +381,9 @@ fn run_composed_session(
     game_id: Option<String>,
     title: String,
     bitrate: u32,
-    include_audio: bool,
+    audio_plan: ComposedAudioPlan,
     audio: crate::audio::AudioRuntime,
+    settings: crate::settings::AppSettings,
     stop: Arc<AtomicBool>,
     ready: std::sync::mpsc::Sender<Result<(u32, u32), String>>,
 ) -> Result<FinishedComposed, String> {
@@ -424,40 +438,65 @@ fn run_composed_session(
     }
 
     let clock = SessionClock::start();
+    tracing::info!(
+        mic = audio_plan.mic,
+        game = audio_plan.game,
+        desktop = audio_plan.desktop,
+        include = audio_plan.include,
+        "composed_audio"
+    );
+    audio.apply_composed_mix_routing(audio_plan.mic, audio_plan.game, audio_plan.desktop);
     let mut audio_guard = AudioSessionGuard {
-        audio: include_audio.then(|| audio.clone()),
+        audio: Some(audio.clone()),
+        desktop: false,
+        restore: Some(settings),
     };
-    if include_audio {
+    if audio_plan.include {
         audio.begin_session(clock.qpc_origin_hns());
+        if audio_plan.desktop {
+            audio_guard.desktop = audio.begin_composed_desktop();
+            if !audio_guard.desktop {
+                tracing::warn!("composed desktop recording loopback did not start");
+            }
+        }
     }
 
-    let mut encoder = match open_composed_encoder(
+    let mut encoder = match hw_encode::ComposedGpuEncoder::open(
+        compositor.device(),
+        compositor.manager(),
         &path,
         compositor.out_w,
         compositor.out_h,
         spec.fps,
         bitrate,
-        include_audio,
-        Some(compositor.manager()),
+        audio_plan.include,
     ) {
         Ok(encoder) => encoder,
         Err(err) => {
             return Err(fail_ready(format!(
-                "Composed recording could not start: {err} Use Legacy recording or try again."
+                "Composed GPU encoding could not start: {err} Use Legacy recording."
             )));
         }
     };
+    let encoder_name = encoder.name().to_string();
     let mut stats = diagnostics::SessionStats {
         capture_w: first.width,
         capture_h: first.height,
         output_w: compositor.out_w,
         output_h: compositor.out_h,
         fps: spec.fps,
-        encoder: "h264-nv12",
+        encoder: "h264-gpu-mft",
         init_ms: init_started.elapsed().as_millis(),
         ..diagnostics::SessionStats::default()
     };
-    diagnostics::log_ready("h264-nv12", encoder.has_audio(), compositor.adapter(), stats.init_ms);
+    if compositor.out_w != 1920 || compositor.out_h != 1080 {
+        tracing::warn!(
+            compositor = format!("{}x{}", compositor.out_w, compositor.out_h),
+            encoder = "1920x1080",
+            "composed compositor canvas differs from encoder 1920x1080; Desktop 1080p60 is the supported test"
+        );
+    }
+    diagnostics::log_ready(&encoder_name, encoder.has_audio(), compositor.adapter(), stats.init_ms);
     if ready
         .send(Ok((compositor.out_w, compositor.out_h)))
         .is_err()
@@ -497,26 +536,32 @@ fn run_composed_session(
         if capture_hns + 1_000 < last_capture_hns {
             continue;
         }
-        let duration = if last_capture_hns == 0 {
-            (1_000_000_000 / i64::from(spec.fps.max(1))) / 100
-        } else {
-            (capture_hns - last_capture_hns).max(10_000)
-        };
+        let duration = encoder.frame_duration_hns();
         let compose_started = Instant::now();
+        let slot = match encoder.acquire() {
+            Ok(slot) => slot,
+            Err(err) => {
+                fatal = Some(err);
+                break;
+            }
+        };
+        let time = encoder.sample_time_hns(stats.frames_encoded);
+        let dest = encoder.texture(slot).clone();
         match compositor.compose(
             &spec,
             ComposeInput {
                 capture: &capture_frame,
                 webcam: cam_frame.as_ref(),
             },
+            &dest,
         ) {
-            Ok(texture) => {
+            Ok(()) => {
                 stats.note_compose(compose_started.elapsed());
-                if let Err(err) = encoder.write_dxgi_nv12(texture, 0, duration, stats.frames_encoded == 0) {
+                if let Err(err) = encoder.submit(slot, time, duration) {
                     if compositor.check_device().is_err() {
                         fatal = Some(err);
                     } else {
-                        fatal = Some(format!("Composed encoder failed: {err}"));
+                        fatal = Some(err);
                     }
                     break;
                 }
@@ -526,6 +571,22 @@ fn run_composed_session(
                 }
                 last_capture_hns = capture_hns;
                 stats.frames_encoded = stats.frames_encoded.saturating_add(1);
+                if stats.frames_encoded == 1 || stats.frames_encoded % 120 == 0 {
+                    let pipe = encoder.pipeline_stats();
+                    tracing::info!(
+                        capture_frames = stats.frames_received,
+                        composed_frames = stats.frames_composed,
+                        process_input_count = pipe.process_input,
+                        process_output_count = pipe.process_output,
+                        encoded_packet_count = pipe.process_output,
+                        muxed_video_packet_count = pipe.muxed,
+                        last_input_hns = pipe.last_input_hns,
+                        last_encoded_hns = pipe.last_encoded_hns,
+                        last_mux_hns = pipe.last_mux_hns,
+                        in_flight_max = pipe.max_in_flight,
+                        "composed encoder live pipeline"
+                    );
+                }
             }
             Err(err) => {
                 stats.frames_dropped = stats.frames_dropped.saturating_add(1);
@@ -549,9 +610,28 @@ fn run_composed_session(
         let pcm = audio.read_audio(frames_from_hns(clock.capture_hns()) - frames_from_hns(AUDIO_LEAD_HNS));
         let _ = encoder.write_pcm_closing(&pcm);
     }
+    let (desktop_received, desktop_mixed) = audio.desktop_capture_stats();
+    let (mic_received, mic_mixed) = audio.mic_capture_stats();
+    let (game_received, game_mixed) = audio.game_capture_stats();
+    let desktop_capture_started = audio_guard.desktop;
     audio_guard.release();
     let finish_err = encoder.finish().err();
-    diagnostics::log_stop(&stats, started.elapsed().as_millis());
+    let pipe = encoder.pipeline_stats();
+    diagnostics::log_stop(
+        &stats,
+        started.elapsed().as_millis(),
+        &pipe,
+        &diagnostics::AudioStopStats {
+            desktop_capture_started,
+            desktop_enabled: audio_plan.desktop,
+            desktop_samples_received: desktop_received,
+            desktop_samples_mixed: desktop_mixed,
+            mic_samples_received: mic_received,
+            mic_samples_mixed: mic_mixed,
+            game_samples_received: game_received,
+            game_samples_mixed: game_mixed,
+        },
+    );
     if let Some(err) = fatal.or(finish_err) {
         if stats.frames_encoded == 0 {
             return Err(err);
@@ -592,14 +672,31 @@ impl Drop for ComposedSourceGuard {
 }
 
 #[cfg(windows)]
+#[derive(Clone, Copy)]
+struct ComposedAudioPlan {
+    include: bool,
+    mic: bool,
+    game: bool,
+    desktop: bool,
+}
+
+#[cfg(windows)]
 struct AudioSessionGuard {
     audio: Option<crate::audio::AudioRuntime>,
+    desktop: bool,
+    restore: Option<crate::settings::AppSettings>,
 }
 
 #[cfg(windows)]
 impl AudioSessionGuard {
     fn release(&mut self) {
         if let Some(audio) = self.audio.take() {
+            if self.desktop {
+                audio.end_composed_desktop();
+            }
+            if let Some(settings) = self.restore.take() {
+                audio.restore_settings_mix_flags(&settings);
+            }
             audio.end_session();
         }
     }
@@ -628,56 +725,6 @@ fn wait_first_frame(
         std::thread::sleep(Duration::from_millis(16));
     }
     Err("Composed recording did not receive a capture frame. Use Legacy recording or try again.".into())
-}
-
-#[cfg(windows)]
-fn open_composed_encoder(
-    path: &std::path::Path,
-    width: u32,
-    height: u32,
-    fps: u32,
-    bitrate: u32,
-    include_audio: bool,
-    d3d: Option<&windows::Win32::Media::MediaFoundation::IMFDXGIDeviceManager>,
-) -> Result<crate::encode::MfWriter, String> {
-    use crate::encode::{MfWriter, VideoInput, WriterAudio};
-    let audio = if include_audio {
-        WriterAudio::PcmEncode
-    } else {
-        WriterAudio::None
-    };
-    match MfWriter::create_ex(
-        path,
-        width,
-        height,
-        fps,
-        bitrate,
-        audio,
-        None,
-        true,
-        VideoInput::Nv12,
-        true,
-        d3d,
-    ) {
-        Ok(encoder) => Ok(encoder),
-        Err(err) if include_audio => {
-            tracing::warn!("composed encoder with audio failed ({err}); retrying silent");
-            MfWriter::create_ex(
-                path,
-                width,
-                height,
-                fps,
-                bitrate,
-                WriterAudio::None,
-                None,
-                true,
-                VideoInput::Nv12,
-                true,
-                d3d,
-            )
-        }
-        Err(err) => Err(err),
-    }
 }
 
 fn load_settings(app: &AppHandle) -> AppResult<AppSettings> {

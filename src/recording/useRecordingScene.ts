@@ -96,6 +96,7 @@ export function useRecordingScene() {
 
   const commit = useCallback(
     (next: RecordingScene, previous = sceneRef.current) => {
+      persistScene(next);
       setScene(next);
       const current = useSettingsStore.getState().settings;
       const prevWebcam = findSourceByType(previous, "webcam");

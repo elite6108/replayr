@@ -3,6 +3,7 @@ import type { AppSettings, GameplayVisualFilter } from "../types/settings";
 import { nearestWebcamPlacement } from "../utils/clips";
 import { filterComposedSupported, sourceComposedSupported } from "./registry";
 import {
+  AUDIO_SOURCE_TYPES,
   findSourceByType,
   imageSettingsOf,
   isPrimaryCapture,
@@ -81,8 +82,20 @@ export type OverlayCompositionSource = {
   timestamp: boolean;
 };
 
+export type ComposedAudioSourceRoute = {
+  present: boolean;
+  muted: boolean;
+};
+
+export type ComposedAudioRouting = {
+  microphone: ComposedAudioSourceRoute;
+  gameAudio: ComposedAudioSourceRoute;
+  desktopAudio: ComposedAudioSourceRoute;
+};
+
 export type RecordingComposition = {
   canvas: { width: number; height: number; fps: number };
+  audio: ComposedAudioRouting;
   sources: Array<
     | CaptureCompositionSource
     | WebcamCompositionSource
@@ -91,6 +104,26 @@ export type RecordingComposition = {
     | OverlayCompositionSource
   >;
 };
+
+function audioRoute(scene: RecordingScene, type: (typeof AUDIO_SOURCE_TYPES)[number]): ComposedAudioSourceRoute {
+  const source = findSourceByType(scene, type);
+  return {
+    present: Boolean(source),
+    muted: Boolean(source && !source.enabled),
+  };
+}
+
+export function composedAudioRoutingFromScene(scene: RecordingScene): ComposedAudioRouting {
+  return {
+    microphone: audioRoute(scene, "microphone"),
+    gameAudio: audioRoute(scene, "gameAudio"),
+    desktopAudio: audioRoute(scene, "desktopAudio"),
+  };
+}
+
+export function isAudioRouted(route: ComposedAudioSourceRoute): boolean {
+  return route.present && !route.muted;
+}
 
 /** Session-only overlay. Instant Replay clips keep using `settings.webcam.defaultPlacement`. */
 export function sessionWebcamLayoutFromScene(scene: RecordingScene): ClipSourceLayout | null {
@@ -276,6 +309,7 @@ export function buildRecordingComposition(scene: RecordingScene, settings: AppSe
   }
   return {
     canvas: canvasFromSettings(settings),
+    audio: composedAudioRoutingFromScene(scene),
     sources,
   };
 }

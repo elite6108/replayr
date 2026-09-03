@@ -222,8 +222,58 @@ pub fn run_capture_loop(
                     if control.enabled() {
                         sink.note_gap(gap);
                         sink.mix(at, &samples, gain);
+                        control.note_mixed(u64::from(frames));
                     }
                     control.observe_peak(&samples, gain);
+                }
+                let _ = ready.capture.ReleaseBuffer(frames);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Desktop meter tap. Reads the same WASAPI loopback as recording but never
+/// mixes into `MixSink`, so Legacy/composed capture is not doubled.
+pub fn run_peak_only_loop(
+    ready: &ReadyClient,
+    control: &Arc<SourceControl>,
+    stop: &AtomicBool,
+) -> Result<(), String> {
+    let mut samples: Vec<i16> = Vec::new();
+    unsafe {
+        while !stop.load(Ordering::Relaxed) {
+            let signalled = WaitForSingleObject(ready.event, 200) == WAIT_OBJECT_0;
+            if !signalled {
+                control.decay_peak();
+                continue;
+            }
+            loop {
+                if ready.capture.GetNextPacketSize().unwrap_or(0) == 0 {
+                    break;
+                }
+                let mut data = std::ptr::null_mut();
+                let mut frames = 0u32;
+                let mut flags = 0u32;
+                if ready
+                    .capture
+                    .GetBuffer(&mut data, &mut frames, &mut flags, None, None)
+                    .is_err()
+                {
+                    break;
+                }
+                if frames > 0 {
+                    let silent = flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0;
+                    samples.clear();
+                    samples.resize(frames as usize * MIX_CHANNELS, 0);
+                    if !silent && !data.is_null() {
+                        let bytes =
+                            std::slice::from_raw_parts(data, frames as usize * FRAME_BYTES);
+                        for (index, chunk) in bytes.chunks_exact(2).enumerate() {
+                            samples[index] = i16::from_le_bytes([chunk[0], chunk[1]]);
+                        }
+                    }
+                    control.observe_peak(&samples, control.gain());
                 }
                 let _ = ready.capture.ReleaseBuffer(frames);
             }

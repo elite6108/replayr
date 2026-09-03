@@ -1,7 +1,7 @@
 /**
  * Shared Live Output Preview ↔ composed MP4 semantics.
  *
- * Frontend (CSS) and Rust (VideoProcessor) implement these rules independently.
+ * Frontend (CSS) and Rust implement these rules independently.
  * They must agree. See `src-tauri/src/recording_compositor/transforms.rs`.
  *
  * Coordinate space
@@ -13,13 +13,16 @@
  * Fit
  * - Game / Desktop capture: object-fit contain (letterbox inside dest).
  * - Webcam: object-fit cover (center-crop inside dest).
- * - Image: object-fit contain inside dest.
+ * - Image: contain inside dest by default (letterbox, no stretch).
+ *   Cover center-crops; stretch only if the scene FitMode is stretch.
  * - Text: fills dest; alignment is left/center/right inside the box.
  *
- * Opacity
+ * Opacity / alpha
+ * - Uploaded stills are straight (non-premultiplied) BGRA.
  * - Image opacity comes from image settings (0–1).
  * - Other visual sources use transform opacity when present, otherwise 1.
- * - Stream alpha is multiplied with per-pixel straight alpha.
+ * - Effective coverage is `pixel_alpha * source_opacity`.
+ * - Transparent PNG pixels stay transparent; they are not flattened to black.
  *
  * Z-order
  * - Higher `order` is visually in front among scene sources.

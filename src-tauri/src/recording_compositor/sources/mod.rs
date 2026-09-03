@@ -3,17 +3,21 @@
 //! # Alpha invariant
 //!
 //! Every CPU texture uploaded to the compositor is **straight
-//! (non-premultiplied) BGRA**:
+//! (non-premultiplied) BGRA8**:
 //!
 //! - `RGB` is the unassociated color
 //! - `A` is coverage / opacity
 //!
-//! `VideoProcessorBlt` blends:
-//! `out = src.rgb * src.a * stream_a + dst.rgb * (1 - src.a * stream_a)`
+//! VideoProcessor **ignores per-pixel alpha**. It only applies planar
+//! `VideoProcessorSetStreamAlpha` (whole-source opacity). Capture and webcam
+//! stay on that path because they are opaque (`A = 255`).
 //!
-//! Do **not** premultiply. Premul + this blender darkens antialiased edges
-//! (halos on logos and light text). Color-key (`RGB == 0` means transparent)
-//! is forbidden — black text and dark PNG pixels must stay visible.
+//! PNG / text / overlay / HUD use the Draw blender (`still_blend.rs`):
+//! `out.rgb = src.rgb * (src.a * opacity) + dst.rgb * (1 - src.a * opacity)`
+//!
+//! Do **not** premultiply. Do **not** flatten against black. Color-key
+//! (`RGB == 0` means transparent) is forbidden — black text and dark PNG
+//! pixels must stay visible.
 //!
 //! | Source  | RGB                         | A                    |
 //! |---------|-----------------------------|----------------------|

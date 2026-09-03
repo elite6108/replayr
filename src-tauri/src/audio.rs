@@ -10,6 +10,7 @@ use wasapi::{DeviceCollection, Direction, get_default_device, initialize_mta};
 
 use crate::audio_capture::{
     capture_device_present, default_render_device, open_device_client, run_capture_loop,
+    run_peak_only_loop,
 };
 use crate::audio_resolve::{
     extra_isolated_count, process_loopback_supported, resolve_catalog_pid, resolve_extra_app_pid,
@@ -122,6 +123,12 @@ struct AudioRuntimeInner {
     mic: Mutex<Option<MicCapture>>,
     mic_control: Arc<SourceControl>,
     desktop_control: Arc<SourceControl>,
+    desktop_monitor: Mutex<Option<DesktopPeakMonitor>>,
+    desktop_recording: Mutex<Option<LoopbackCapture>>,
+    composed_desktop: AtomicBool,
+    /// Composed session mix flags are snapshotted at start. `apply()` must not
+    /// overwrite them from settings until the session restores.
+    composed_routing_hold: AtomicBool,
     /// Every capture thread sums into this one timeline. Sources that are off
     /// keep running for their level meters but do not contribute.
     sink: Arc<MixSink>,
@@ -138,6 +145,10 @@ impl AudioRuntime {
                 mic: Mutex::new(None),
                 mic_control: Arc::new(SourceControl::new(false, 1.0)),
                 desktop_control: Arc::new(SourceControl::new(false, 1.0)),
+                desktop_monitor: Mutex::new(None),
+                desktop_recording: Mutex::new(None),
+                composed_desktop: AtomicBool::new(false),
+                composed_routing_hold: AtomicBool::new(false),
                 sink: Arc::new(MixSink::new()),
                 hold_device: Mutex::new(None),
                 isolated: Mutex::new(Vec::new()),
@@ -153,6 +164,117 @@ impl AudioRuntime {
 
     pub fn desktop_control(&self) -> Arc<SourceControl> {
         Arc::clone(&self.inner.desktop_control)
+    }
+
+    /// Same idea as `ensure_peak_monitor` for the mic: start a WASAPI loopback
+    /// that only updates `desktop_control` peak. It does not mix into the session.
+    pub fn ensure_desktop_peak_monitor(&self) {
+        if self.inner.composed_desktop.load(Ordering::SeqCst) {
+            return;
+        }
+        if self
+            .inner
+            .desktop_monitor
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(|_| ()))
+            .is_some()
+        {
+            return;
+        }
+        if let Some(monitor) = DesktopPeakMonitor::start(Arc::clone(&self.inner.desktop_control)) {
+            if let Ok(mut slot) = self.inner.desktop_monitor.lock() {
+                *slot = Some(monitor);
+            }
+        } else {
+            self.inner.desktop_control.reset_peak();
+        }
+    }
+
+    pub fn stop_desktop_peak_monitor(&self) {
+        self.release_peak_monitor();
+        self.inner.desktop_control.reset_peak();
+    }
+
+    fn release_peak_monitor(&self) {
+        if let Ok(mut slot) = self.inner.desktop_monitor.lock() {
+            *slot = None;
+        }
+    }
+
+    /// Recording owns the WASAPI loopback. Peak-only monitor is suspended.
+    /// The recording client also updates `desktop_control` peak for the meter.
+    pub fn begin_composed_desktop(&self) -> bool {
+        if !self.inner.desktop_control.enabled() {
+            return false;
+        }
+        self.inner.composed_desktop.store(true, Ordering::SeqCst);
+        self.release_peak_monitor();
+        if self
+            .inner
+            .desktop_recording
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(|_| ()))
+            .is_some()
+        {
+            return true;
+        }
+        match LoopbackCapture::start(self.sink(), self.desktop_control()) {
+            Some(capture) => {
+                if let Ok(mut slot) = self.inner.desktop_recording.lock() {
+                    *slot = Some(capture);
+                }
+                true
+            }
+            None => {
+                self.inner.composed_desktop.store(false, Ordering::SeqCst);
+                if self.inner.desktop_control.enabled() {
+                    self.ensure_desktop_peak_monitor();
+                }
+                false
+            }
+        }
+    }
+
+    pub fn end_composed_desktop(&self) {
+        if let Ok(mut slot) = self.inner.desktop_recording.lock() {
+            *slot = None;
+        }
+        self.inner.composed_desktop.store(false, Ordering::SeqCst);
+        if self.inner.desktop_control.enabled() {
+            self.ensure_desktop_peak_monitor();
+        }
+    }
+
+    pub fn desktop_capture_stats(&self) -> (u64, u64) {
+        (
+            self.inner.desktop_control.received_frames(),
+            self.inner.desktop_control.mixed_frames(),
+        )
+    }
+
+    pub fn mic_capture_stats(&self) -> (u64, u64) {
+        (
+            self.inner.mic_control.received_frames(),
+            self.inner.mic_control.mixed_frames(),
+        )
+    }
+
+    pub fn game_capture_stats(&self) -> (u64, u64) {
+        let Ok(clients) = self.inner.isolated.lock() else {
+            return (0, 0);
+        };
+        clients
+            .iter()
+            .filter(|client| client.key.starts_with("game:"))
+            .fold((0, 0), |(received, mixed), client| {
+                let control = client.capture.control();
+                (
+                    received.saturating_add(control.received_frames()),
+                    mixed.saturating_add(control.mixed_frames()),
+                )
+            })
     }
 
     /// Opens the timeline. `origin_hns` must be sampled next to the video
@@ -228,7 +350,33 @@ impl AudioRuntime {
         self.inner.mic_control.reset_peak();
     }
 
+    /// Freeze MixSink membership from the composed scene snapshot.
+    /// Peak monitors stay available so muted mixer rows can still move.
+    pub fn apply_composed_mix_routing(&self, mic: bool, game: bool, desktop: bool) {
+        self.inner.composed_routing_hold.store(true, Ordering::SeqCst);
+        self.inner.mic_control.set_enabled(mic);
+        self.inner.desktop_control.set_enabled(desktop);
+        if let Ok(clients) = self.inner.isolated.lock() {
+            for client in clients.iter() {
+                let allow = client.key.starts_with("game:") && game && !desktop;
+                client.capture.control().set_enabled(allow);
+            }
+        }
+        if !desktop {
+            self.ensure_desktop_peak_monitor();
+        }
+    }
+
+    pub fn restore_settings_mix_flags(&self, settings: &AppSettings) {
+        self.inner.composed_routing_hold.store(false, Ordering::SeqCst);
+        self.apply(settings);
+    }
+
     pub fn apply(&self, settings: &AppSettings) {
+        if self.inner.composed_routing_hold.load(Ordering::SeqCst) {
+            self.apply_meter_prefs(settings);
+            return;
+        }
         self.apply_mic(settings);
         self.sync_isolated(settings, None, None);
     }
@@ -239,10 +387,21 @@ impl AudioRuntime {
         snapshot: &DetectedGameSnapshot,
         catalog: &[GameRecord],
     ) {
+        if self.inner.composed_routing_hold.load(Ordering::SeqCst) {
+            self.apply_meter_prefs(settings);
+            return;
+        }
         self.inner
             .desktop_control
             .set_enabled(settings.system_audio_enabled);
+        self.ensure_desktop_peak_monitor();
         self.sync_isolated(settings, Some(snapshot), Some(catalog));
+    }
+
+    fn apply_meter_prefs(&self, settings: &AppSettings) {
+        let route = MicRoute::from_settings(settings);
+        self.inner.mic_control.set_gain(route.gain);
+        self.ensure_desktop_peak_monitor();
     }
 
     fn apply_mic(&self, settings: &AppSettings) {
@@ -252,6 +411,7 @@ impl AudioRuntime {
         self.inner
             .desktop_control
             .set_enabled(settings.system_audio_enabled);
+        self.ensure_desktop_peak_monitor();
 
         let held = self
             .inner
@@ -294,6 +454,7 @@ impl AudioRuntime {
             .lock()
             .map(|guard| guard.clone())
             .unwrap_or_else(|_| AudioEngineStatus::unsupported());
+        status.desktop.peak = self.inner.desktop_control.peak();
         if let Ok(clients) = self.inner.isolated.lock() {
             status.game.peak = peak_for_prefix(Some(&clients), "game:");
             status.discord.peak = peak_for_prefix(Some(&clients), "discord:");
@@ -327,6 +488,24 @@ impl AudioRuntime {
             .unwrap_or(false);
         if !running {
             self.inner.mic_control.decay_peak();
+        }
+        let desktop_owned = self.inner.composed_desktop.load(Ordering::Relaxed)
+            || self
+                .inner
+                .desktop_recording
+                .lock()
+                .ok()
+                .map(|slot| slot.is_some())
+                .unwrap_or(false)
+            || self
+                .inner
+                .desktop_monitor
+                .lock()
+                .ok()
+                .map(|slot| slot.is_some())
+                .unwrap_or(false);
+        if !desktop_owned {
+            self.inner.desktop_control.decay_peak();
         }
     }
 
@@ -538,6 +717,50 @@ impl Drop for LoopbackCapture {
             let _ = join.join();
         }
     }
+}
+
+struct DesktopPeakMonitor {
+    stop: Arc<AtomicBool>,
+    join: Option<JoinHandle<()>>,
+}
+
+impl DesktopPeakMonitor {
+    fn start(control: Arc<SourceControl>) -> Option<Self> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_thread = stop.clone();
+        let join = thread::Builder::new()
+            .name("wasapi-desktop-meter".into())
+            .spawn(move || {
+                let _ = initialize_mta().ok();
+                if let Err(err) = desktop_peak_loop(&control, &stop_thread) {
+                    if !stop_thread.load(Ordering::Relaxed) {
+                        tracing::warn!("desktop meter loopback stopped: {err}");
+                    }
+                }
+            })
+            .ok()?;
+        Some(Self {
+            stop,
+            join: Some(join),
+        })
+    }
+}
+
+impl Drop for DesktopPeakMonitor {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+fn desktop_peak_loop(control: &Arc<SourceControl>, stop: &AtomicBool) -> Result<(), String> {
+    let device = default_render_device()?;
+    let ready = open_device_client(&device, true)?;
+    let result = run_peak_only_loop(&ready, control, stop);
+    ready.close();
+    result
 }
 
 struct MicCapture {
@@ -762,7 +985,7 @@ fn build_status(
             } else {
                 "Off. Selected apps only.".into()
             },
-            peak: 0.0,
+            peak: runtime.inner.desktop_control.peak(),
             gain: 1.0,
         },
         discord: AudioSourceStatus {

@@ -666,7 +666,10 @@ export function loadStoredScene(): RecordingScene | null {
   }
 }
 
+let lastPersistedScene: RecordingScene | null = null;
+
 export function persistScene(scene: RecordingScene): void {
+  lastPersistedScene = scene;
   try {
     localStorage.setItem(
       RECORDING_SCENE_STORAGE_KEY,
@@ -678,7 +681,7 @@ export function persistScene(scene: RecordingScene): void {
 }
 
 export function loadOrMigrateScene(settings: AppSettings): RecordingScene {
-  return loadStoredScene() ?? sceneFromSettings(settings);
+  return lastPersistedScene ?? loadStoredScene() ?? sceneFromSettings(settings);
 }
 
 export function applySettingsFlags(scene: RecordingScene, settings: AppSettings): RecordingScene {

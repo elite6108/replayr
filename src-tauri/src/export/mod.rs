@@ -2,7 +2,7 @@
 mod compose;
 mod copy_remux;
 mod faststart;
-mod mux;
+pub(crate) mod mux;
 mod progress;
 mod remux;
 mod session_place;

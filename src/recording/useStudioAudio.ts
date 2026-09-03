@@ -1,11 +1,16 @@
 import { useEffect, useState } from "react";
 import { getAudioStatus, getMicLevel } from "../services/tauri";
-import type { AudioEngineStatus } from "../types/audio";
+import type { AudioEngineStatus, AudioSourceStatus } from "../types/audio";
 import type { RecordingSourceType } from "./scene";
 
 function clampPeak(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, value));
+}
+
+function readPeak(source: AudioSourceStatus | null | undefined) {
+  const value = Number(source?.peak);
+  return Number.isFinite(value) ? clampPeak(value) : null;
 }
 
 /** Fast attack, slower release so meters fall like a VU instead of jumping. */
@@ -22,16 +27,26 @@ export function useStudioAudio() {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
     const tick = () => {
-      void Promise.all([getAudioStatus().catch(() => null), getMicLevel().catch(() => 0)]).then(([status, mic]) => {
-        if (cancelled) return;
-        if (status) setAudio(status);
-        setLevels((previous) => ({
-          micPeak: approachPeak(previous.micPeak, typeof mic === "number" ? mic : 0),
-          gamePeak: approachPeak(previous.gamePeak, status?.game.peak ?? 0),
-          desktopPeak: approachPeak(previous.desktopPeak, status?.desktop.peak ?? 0),
-        }));
-      });
+      if (inFlight) return;
+      inFlight = true;
+      void Promise.all([getAudioStatus().catch(() => null), getMicLevel().catch(() => 0)])
+        .then(([status, mic]) => {
+          if (cancelled) return;
+          if (status) setAudio(status);
+          const desktop = readPeak(status?.desktop);
+          const game = readPeak(status?.game);
+          setLevels((previous) => ({
+            micPeak: approachPeak(previous.micPeak, typeof mic === "number" ? mic : previous.micPeak),
+            gamePeak: approachPeak(previous.gamePeak, game ?? previous.gamePeak),
+            // Same field Settings → Audio uses. Keep the last good reading if a poll fails.
+            desktopPeak: approachPeak(previous.desktopPeak, desktop ?? previous.desktopPeak),
+          }));
+        })
+        .finally(() => {
+          inFlight = false;
+        });
     };
     tick();
     const timer = window.setInterval(tick, 80);
@@ -43,7 +58,9 @@ export function useStudioAudio() {
 
   return {
     audio,
-    ...levels,
+    micPeak: levels.micPeak,
+    gamePeak: levels.gamePeak,
+    desktopPeak: levels.desktopPeak,
   };
 }
 

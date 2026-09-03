@@ -82,6 +82,8 @@ pub struct SourceControl {
     enabled: AtomicBool,
     gain_bits: AtomicU32,
     peak: AtomicU32,
+    received_frames: AtomicU64,
+    mixed_frames: AtomicU64,
 }
 
 const PEAK_SCALE: f32 = 10_000.0;
@@ -92,6 +94,8 @@ impl SourceControl {
             enabled: AtomicBool::new(enabled),
             gain_bits: AtomicU32::new(gain.clamp(0.0, 2.0).to_bits()),
             peak: AtomicU32::new(0),
+            received_frames: AtomicU64::new(0),
+            mixed_frames: AtomicU64::new(0),
         }
     }
 
@@ -121,12 +125,30 @@ impl SourceControl {
     }
 
     pub fn observe_peak(&self, samples: &[i16], gain: f32) {
+        let frames = (samples.len() / MIX_CHANNELS) as u64;
+        if frames > 0 {
+            self.received_frames.fetch_add(frames, Ordering::Relaxed);
+        }
         let mut max_abs = 0.0f32;
         for sample in samples {
             max_abs = max_abs.max((sample.unsigned_abs() as f32 / 32768.0) * gain);
         }
         let new = (max_abs.clamp(0.0, 1.0) * PEAK_SCALE) as u32;
         self.decay_peak_to(new);
+    }
+
+    pub fn note_mixed(&self, frames: u64) {
+        if frames > 0 {
+            self.mixed_frames.fetch_add(frames, Ordering::Relaxed);
+        }
+    }
+
+    pub fn received_frames(&self) -> u64 {
+        self.received_frames.load(Ordering::Relaxed)
+    }
+
+    pub fn mixed_frames(&self) -> u64 {
+        self.mixed_frames.load(Ordering::Relaxed)
     }
 
     pub fn decay_peak(&self) {

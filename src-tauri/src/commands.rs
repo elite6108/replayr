@@ -295,7 +295,9 @@ pub async fn list_audio_sessions() -> AppResult<Value> {
 pub fn get_audio_status(app: AppHandle) -> AppResult<Value> {
     #[cfg(windows)]
     {
-        let status = app.state::<crate::audio::AudioRuntime>().status();
+        let runtime = app.state::<crate::audio::AudioRuntime>();
+        runtime.ensure_desktop_peak_monitor();
+        let status = runtime.status();
         Ok(serde_json::to_value(status)?)
     }
     #[cfg(not(windows))]

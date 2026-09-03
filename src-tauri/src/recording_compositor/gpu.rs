@@ -197,6 +197,14 @@ pub fn create_nv12_output(device: &ID3D11Device, width: u32, height: u32) -> Res
     create_texture(device, width, height, DXGI_FORMAT_NV12, bind)
 }
 
+/// Same descriptor as the proven `gpu_dxgi` VideoProcessor output / encoder input.
+pub fn create_nv12_encode(device: &ID3D11Device, width: u32, height: u32) -> Result<ID3D11Texture2D, String> {
+    let bind = (D3D11_BIND_RENDER_TARGET.0
+        | D3D11_BIND_SHADER_RESOURCE.0
+        | D3D11_BIND_VIDEO_ENCODER.0) as u32;
+    create_texture(device, width, height, DXGI_FORMAT_NV12, bind)
+}
+
 pub fn create_bgra_input(device: &ID3D11Device, width: u32, height: u32) -> Result<ID3D11Texture2D, String> {
     let bind = (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32;
     create_texture(device, width, height, DXGI_FORMAT_B8G8R8A8_UNORM, bind)

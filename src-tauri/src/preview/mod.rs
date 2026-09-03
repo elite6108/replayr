@@ -13,7 +13,7 @@ use crate::still::{scale_bgra, StillFrame};
 #[cfg(windows)]
 mod standalone;
 
-const PREVIEW_MAX_WIDTH: u32 = 854;
+const PREVIEW_MAX_WIDTH: u32 = 1280;
 const PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(66);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

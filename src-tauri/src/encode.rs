@@ -38,6 +38,10 @@ const JOIN_FADE_FRAMES: usize = 240;
 pub enum VideoInput {
     Bgra,
     Nv12,
+    /// GPU DXGI NV12. Same subtype as `Nv12`, but DEFAULT_STRIDE is omitted so
+    /// Media Foundation uses the surface pitch (hardware textures are often
+    /// 256-aligned, not `width`).
+    DxgiNv12,
     /// Already-encoded H.264. SinkWriter muxes only; it does not encode.
     H264,
 }
@@ -141,13 +145,13 @@ fn video_input_type(
 ) -> Result<IMFMediaType, String> {
     let subtype = match input {
         VideoInput::Bgra => MFVideoFormat_RGB32,
-        VideoInput::Nv12 => MFVideoFormat_NV12,
+        VideoInput::Nv12 | VideoInput::DxgiNv12 => MFVideoFormat_NV12,
         VideoInput::H264 => MFVideoFormat_H264,
     };
     let stride = match input {
         VideoInput::Bgra => Some(width * 4),
         VideoInput::Nv12 => Some(width),
-        VideoInput::H264 => None,
+        VideoInput::DxgiNv12 | VideoInput::H264 => None,
     };
     unsafe {
         let media_type = MFCreateMediaType().map_err(|err| err.to_string())?;
@@ -338,7 +342,7 @@ impl MfWriter {
         let fps = fps.clamp(24, 60);
         let mut width = width.max(16);
         let mut height = height.max(16);
-        if input == VideoInput::Nv12 || input == VideoInput::H264 {
+        if input == VideoInput::Nv12 || input == VideoInput::DxgiNv12 || input == VideoInput::H264 {
             // NV12 and H.264 both require even dimensions.
             width &= !1;
             height &= !1;

@@ -41,7 +41,7 @@ export function AudioMixer({
         <MixerChannel
           title="Microphone"
           selected={selectedId === mic?.id}
-          enabled={Boolean(mic?.enabled ?? settings.micEnabled)}
+          enabled={Boolean(mic?.enabled)}
           peak={levels.micPeak}
           gain={settings.micGain}
           onSelect={() => onSelect(mic?.id ?? null)}
@@ -51,7 +51,7 @@ export function AudioMixer({
         <MixerChannel
           title="Desktop Audio"
           selected={selectedId === desktop?.id}
-          enabled={Boolean(desktop?.enabled ?? settings.systemAudioEnabled)}
+          enabled={Boolean(desktop?.enabled)}
           peak={levels.desktopPeak}
           onSelect={() => onSelect(desktop?.id ?? null)}
           onToggle={onToggleDesktop}
@@ -59,7 +59,7 @@ export function AudioMixer({
         <MixerChannel
           title="Game Audio"
           selected={selectedId === game?.id}
-          enabled={Boolean(game?.enabled ?? settings.gameAudioEnabled)}
+          enabled={Boolean(game?.enabled)}
           peak={levels.gamePeak}
           gain={settings.gameAudioGain}
           onSelect={() => onSelect(game?.id ?? null)}

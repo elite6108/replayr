@@ -5,7 +5,7 @@
 //! - hidden sources are omitted before this runs; lock is ignored
 //! - capture uses **contain** inside its dest box (letterbox)
 //! - webcam uses **cover** (center-crop) inside its dest box
-//! - images use **contain** inside their dest box
+//! - images use the scene `FitMode` inside their dest box (default **contain**)
 //! - text fills its dest box; alignment is inside the raster
 //! - results are clamped, even-aligned, never negative
 
@@ -25,10 +25,11 @@ pub struct PixelRect {
     pub h: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum FitMode {
     /// Letterbox the source inside the dest box (game/desktop preview).
+    #[default]
     Contain,
     /// Crop the source to fill the dest box (webcam preview).
     Cover,
@@ -188,6 +189,26 @@ mod tests {
         assert_eq!(dest.w, 400);
         assert!(dest.h < 400);
         assert!(dest.y > 0);
+    }
+
+    #[test]
+    fn contain_centers_inside_offset_box() {
+        let box_rect = PixelRect { x: 1440, y: 778, w: 422, h: 260 };
+        let dest = contain_dest(1920, 1080, box_rect);
+        assert_eq!(dest.w, 422);
+        assert!(dest.h < 260);
+        assert!(dest.x >= box_rect.x);
+        assert!(dest.y >= box_rect.y);
+        assert!(dest.x as u32 + dest.w <= box_rect.x as u32 + box_rect.w);
+        assert!(dest.y as u32 + dest.h <= box_rect.y as u32 + box_rect.h);
+    }
+
+    #[test]
+    fn contain_letterboxes_tall_source_in_wide_box() {
+        let dest = contain_dest(1080, 1920, PixelRect { x: 100, y: 40, w: 800, h: 400 });
+        assert_eq!(dest.h, 400);
+        assert!(dest.w < 800);
+        assert!(dest.x > 100);
     }
 
     #[test]

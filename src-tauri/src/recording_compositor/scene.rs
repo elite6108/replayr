@@ -101,6 +101,8 @@ pub struct ImageCompositionSource {
     pub order: i32,
     pub transform: CompositionTransform,
     pub path: String,
+    #[serde(default)]
+    pub fit: FitMode,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -143,10 +145,44 @@ pub enum CompositionSource {
     ReplayrOverlay(OverlayCompositionSource),
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposedAudioSourceRoute {
+    #[serde(default)]
+    pub present: bool,
+    #[serde(default)]
+    pub muted: bool,
+}
+
+impl ComposedAudioSourceRoute {
+    pub fn routed(self) -> bool {
+        self.present && !self.muted
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposedAudioRouting {
+    #[serde(default)]
+    pub microphone: ComposedAudioSourceRoute,
+    #[serde(default)]
+    pub game_audio: ComposedAudioSourceRoute,
+    #[serde(default)]
+    pub desktop_audio: ComposedAudioSourceRoute,
+}
+
+impl ComposedAudioRouting {
+    pub fn include(self) -> bool {
+        self.microphone.routed() || self.game_audio.routed() || self.desktop_audio.routed()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordingComposition {
     pub canvas: CompositionCanvas,
+    #[serde(default)]
+    pub audio: ComposedAudioRouting,
     pub sources: Vec<CompositionSource>,
 }
 
@@ -161,6 +197,7 @@ pub struct ValidatedComposition {
     pub layers: Vec<ValidatedLayer>,
     pub filter: ComposedFilterId,
     pub hud: Option<ValidatedHud>,
+    pub audio: ComposedAudioRouting,
 }
 
 #[derive(Debug, Clone)]
@@ -255,6 +292,7 @@ impl RecordingComposition {
             )
         };
         let fps = self.canvas.fps.clamp(24, 60);
+        let audio = self.audio;
         let mut capture = None;
         let mut webcam = None;
         let mut images = Vec::new();
@@ -328,7 +366,7 @@ impl RecordingComposition {
                         transform: validate_transform(&src.transform)?,
                         opacity: src.transform.opacity.clamp(0.0, 1.0),
                         path,
-                        fit: FitMode::Contain,
+                        fit: src.fit,
                     }));
                     images.push(());
                 }
@@ -420,6 +458,7 @@ impl RecordingComposition {
             layers,
             filter,
             hud,
+            audio,
         })
     }
 }
@@ -584,6 +623,7 @@ mod tests {
         }
         assert!(RecordingComposition {
             canvas: payload.canvas.clone(),
+            audio: payload.audio,
             sources: payload.sources.clone(),
         }
         .validate()
@@ -667,5 +707,47 @@ mod tests {
         );
         let spec = parse(&json).unwrap();
         assert_eq!(spec.layers.len(), 1);
+    }
+
+    #[test]
+    fn missing_audio_defaults_to_video_only() {
+        let json = format!(
+            r#"{{"canvas":{{"width":1920,"height":1080,"fps":60}},"sources":[{}]}}"#,
+            capture_source("game-1", 0)
+        );
+        let spec = parse(&json).unwrap();
+        assert!(!spec.audio.include());
+        assert!(!spec.audio.microphone.routed());
+        assert!(!spec.audio.game_audio.routed());
+        assert!(!spec.audio.desktop_audio.routed());
+    }
+
+    #[test]
+    fn muted_or_absent_audio_is_not_routed() {
+        let json = format!(
+            r#"{{"canvas":{{"width":1920,"height":1080,"fps":60}},"audio":{{"microphone":{{"present":true,"muted":true}},"gameAudio":{{"present":false,"muted":false}},"desktopAudio":{{"present":true,"muted":true}}}},"sources":[{}]}}"#,
+            capture_source("game-1", 0)
+        );
+        let spec = parse(&json).unwrap();
+        assert!(spec.audio.microphone.present && spec.audio.microphone.muted);
+        assert!(!spec.audio.microphone.routed());
+        assert!(!spec.audio.game_audio.present);
+        assert!(!spec.audio.game_audio.routed());
+        assert!(spec.audio.desktop_audio.present && spec.audio.desktop_audio.muted);
+        assert!(!spec.audio.desktop_audio.routed());
+        assert!(!spec.audio.include());
+    }
+
+    #[test]
+    fn present_unmuted_audio_is_routed() {
+        let json = format!(
+            r#"{{"canvas":{{"width":1920,"height":1080,"fps":60}},"audio":{{"microphone":{{"present":true,"muted":false}},"gameAudio":{{"present":true,"muted":false}},"desktopAudio":{{"present":true,"muted":false}}}},"sources":[{}]}}"#,
+            capture_source("game-1", 0)
+        );
+        let spec = parse(&json).unwrap();
+        assert!(spec.audio.microphone.routed());
+        assert!(spec.audio.game_audio.routed());
+        assert!(spec.audio.desktop_audio.routed());
+        assert!(spec.audio.include());
     }
 }

@@ -224,6 +224,18 @@ mod tests {
     }
 
     #[test]
+    fn straight_rgba_keeps_transparent_pixels() {
+        let bgra = rgba_to_bgra(&[10, 20, 30, 0, 40, 50, 60, 128]);
+        assert_eq!(&bgra, &[30, 20, 10, 0, 60, 50, 40, 128]);
+    }
+
+    #[test]
+    fn jpeg_rgb_is_opaque() {
+        let bgra = rgb_to_bgra(&[10, 20, 30]);
+        assert_eq!(&bgra, &[30, 20, 10, 255]);
+    }
+
+    #[test]
     fn png_ihdr_overflow_is_rejected_before_giant_alloc() {
         // Valid PNG signature + IHDR claiming 65535×65535, no pixel data.
         let mut bytes = vec![

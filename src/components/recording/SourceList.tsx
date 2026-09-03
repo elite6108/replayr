@@ -99,7 +99,7 @@ export function SourceList({
         </div>
       </div>
 
-      <div className="studio-block studio-sources-block">
+      <div className={`studio-block studio-sources-block${visualMenu ? " is-menu-open" : ""}`}>
         <div className="studio-block-head">
           <h2>Visual Sources</h2>
           <button
@@ -164,7 +164,7 @@ export function SourceList({
         )}
       </div>
 
-      <div className="studio-block studio-audio-block">
+      <div className={`studio-block studio-audio-block${audioMenu ? " is-menu-open" : ""}`}>
         <div className="studio-block-head">
           <h2>Audio Sources</h2>
           <button

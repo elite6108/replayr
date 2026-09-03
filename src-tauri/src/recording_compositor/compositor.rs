@@ -7,15 +7,16 @@ use std::mem::ManuallyDrop;
 use windows::core::{Interface, BOOL};
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D11::{
-    ID3D11Resource, ID3D11Texture2D, ID3D11VideoProcessor, ID3D11VideoProcessorEnumerator,
-    ID3D11VideoProcessorInputView, ID3D11VideoProcessorOutputView, D3D11_TEX2D_VPIV,
-    D3D11_TEX2D_VPOV, D3D11_VIDEO_COLOR, D3D11_VIDEO_COLOR_0, D3D11_VIDEO_COLOR_YCbCrA,
-    D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, D3D11_VIDEO_PROCESSOR_CAPS,
-    D3D11_VIDEO_PROCESSOR_CONTENT_DESC, D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT,
-    D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC,
-    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC,
-    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_STREAM,
-    D3D11_VIDEO_USAGE_PLAYBACK_NORMAL, D3D11_VPIV_DIMENSION_TEXTURE2D, D3D11_VPOV_DIMENSION_TEXTURE2D,
+    ID3D11RenderTargetView, ID3D11Resource, ID3D11ShaderResourceView, ID3D11Texture2D,
+    ID3D11VideoProcessor, ID3D11VideoProcessorEnumerator, ID3D11VideoProcessorInputView,
+    ID3D11VideoProcessorOutputView, D3D11_TEX2D_VPIV, D3D11_TEX2D_VPOV, D3D11_VIDEO_COLOR,
+    D3D11_VIDEO_COLOR_0, D3D11_VIDEO_COLOR_YCbCrA, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
+    D3D11_VIDEO_PROCESSOR_CAPS, D3D11_VIDEO_PROCESSOR_CONTENT_DESC,
+    D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT, D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT,
+    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0,
+    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0,
+    D3D11_VIDEO_PROCESSOR_STREAM, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL, D3D11_VPIV_DIMENSION_TEXTURE2D,
+    D3D11_VPOV_DIMENSION_TEXTURE2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_RATIONAL,
@@ -25,6 +26,7 @@ use crate::still::StillFrame;
 
 use super::filters;
 use super::gpu::{create_bgra_input, create_nv12_output, upload_bgra, GpuEvent, SharedGpu};
+use super::still_blend::{self, StillBlender};
 use super::nv12::align_output;
 use super::scene::{
     ComposedFilterId, TextAlign, ValidatedComposition, ValidatedHud, ValidatedLayer,
@@ -39,6 +41,7 @@ const MAX_STREAMS: usize = 16;
 struct LayerSlot {
     texture: ID3D11Texture2D,
     view: ID3D11VideoProcessorInputView,
+    srv: ID3D11ShaderResourceView,
     width: u32,
     height: u32,
 }
@@ -56,13 +59,18 @@ pub struct RecordingCompositor {
     processor: ID3D11VideoProcessor,
     output: ID3D11Texture2D,
     output_view: ID3D11VideoProcessorOutputView,
-    sync: ID3D11Texture2D,
     capture: Option<LayerSlot>,
     webcam: Option<LayerSlot>,
     statics: Vec<CachedStill>,
     overlays: Vec<CachedStill>,
     hud: Vec<CachedStill>,
     max_streams: u32,
+    blender: StillBlender,
+    /// Owns the BGRA compose target. Views below alias it.
+    bgra_canvas: ID3D11Texture2D,
+    bgra_rtv: ID3D11RenderTargetView,
+    bgra_vp_out: ID3D11VideoProcessorOutputView,
+    bgra_vp_in: ID3D11VideoProcessorInputView,
     pub out_w: u32,
     pub out_h: u32,
 }
@@ -74,10 +82,15 @@ pub struct ComposeInput<'a> {
 
 struct BlitOp {
     view: ID3D11VideoProcessorInputView,
+    srv: Option<ID3D11ShaderResourceView>,
     dest: PixelRect,
     src: Option<PixelRect>,
+    tex_w: u32,
+    tex_h: u32,
     alpha: f32,
     capture: bool,
+    /// PNG / text / overlay / HUD: per-pixel straight alpha via the Draw blender.
+    still: bool,
 }
 
 impl RecordingCompositor {
@@ -137,7 +150,6 @@ impl RecordingCompositor {
                 .CreateVideoProcessor(&enumerator, 0)
                 .map_err(|err| format!("Could not create the video processor: {err}"))?;
             let output = create_nv12_output(&gpu.device, out_w, out_h)?;
-            let sync = create_nv12_output(&gpu.device, out_w, out_h)?;
             let view_desc = D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
                 ViewDimension: D3D11_VPOV_DIMENSION_TEXTURE2D,
                 Anonymous: D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0 {
@@ -171,19 +183,62 @@ impl RecordingCompositor {
             };
             gpu.video_ctx
                 .VideoProcessorSetOutputBackgroundColor(&processor, true, &black);
+            let bgra_out = enumerator
+                .CheckVideoProcessorFormat(DXGI_FORMAT_B8G8R8A8_UNORM)
+                .unwrap_or(0)
+                & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT.0 as u32
+                != 0;
+            if !bgra_out {
+                return Err(
+                    "This GPU cannot compose transparent stills. Use Legacy recording.".into(),
+                );
+            }
+            let bgra_canvas = create_bgra_input(&gpu.device, out_w, out_h)?;
+            let bgra_rtv = still_blend::create_rtv(&gpu.device, &bgra_canvas)?;
+            let mut bgra_vp_out = None;
+            gpu.video
+                .CreateVideoProcessorOutputView(&bgra_canvas, &enumerator, &view_desc, Some(&mut bgra_vp_out))
+                .map_err(|err| format!("Could not create the BGRA compose view: {err}"))?;
+            let bgra_vp_out =
+                bgra_vp_out.ok_or_else(|| "BGRA compose view was empty.".to_string())?;
+            let bgra_in_desc = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
+                FourCC: 0,
+                ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D,
+                Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 {
+                    Texture2D: D3D11_TEX2D_VPIV {
+                        MipSlice: 0,
+                        ArraySlice: 0,
+                    },
+                },
+            };
+            let mut bgra_vp_in = None;
+            gpu.video
+                .CreateVideoProcessorInputView(
+                    &bgra_canvas,
+                    &enumerator,
+                    &bgra_in_desc,
+                    Some(&mut bgra_vp_in),
+                )
+                .map_err(|err| format!("Could not create the BGRA convert view: {err}"))?;
+            let blender = StillBlender::open(&gpu.device)?;
             Ok(Self {
                 gpu,
                 enumerator,
                 processor,
                 output,
                 output_view,
-                sync,
                 capture: None,
                 webcam: None,
                 statics: Vec::new(),
                 overlays: Vec::new(),
                 hud: Vec::new(),
                 max_streams,
+                blender,
+                bgra_canvas,
+                bgra_rtv,
+                bgra_vp_out,
+                bgra_vp_in: bgra_vp_in
+                    .ok_or_else(|| "BGRA convert view was empty.".to_string())?,
                 out_w,
                 out_h,
             })
@@ -192,6 +247,10 @@ impl RecordingCompositor {
 
     pub fn manager(&self) -> &windows::Win32::Media::MediaFoundation::IMFDXGIDeviceManager {
         &self.gpu.manager
+    }
+
+    pub fn device(&self) -> &windows::Win32::Graphics::Direct3D11::ID3D11Device {
+        &self.gpu.device
     }
 
     pub fn adapter(&self) -> &str {
@@ -295,7 +354,8 @@ impl RecordingCompositor {
         &mut self,
         spec: &ValidatedComposition,
         input: ComposeInput<'_>,
-    ) -> Result<&ID3D11Texture2D, String> {
+        dest: &ID3D11Texture2D,
+    ) -> Result<(), String> {
         self.ensure_live_slot(false, input.capture)?;
         if let Some(slot) = self.capture.as_ref() {
             upload_bgra(
@@ -322,11 +382,43 @@ impl RecordingCompositor {
         }
 
         let ops = self.collect_blits(spec, input.capture, input.webcam)?;
-        if ops.len() as u32 > self.max_streams {
+        let video: Vec<&BlitOp> = ops.iter().filter(|op| !op.still).collect();
+        let stills: Vec<&BlitOp> = ops.iter().filter(|op| op.still).collect();
+        if video.len() as u32 > self.max_streams {
             return Err("Too many composed layers for this GPU.".into());
         }
-        self.blt(spec, &ops)?;
-        Ok(&self.output)
+        if stills.is_empty() {
+            self.blt(spec, &video, &self.output_view)?;
+        } else {
+            if video.is_empty() {
+                unsafe {
+                    self.gpu
+                        .context
+                        .ClearRenderTargetView(&self.bgra_rtv, &[0.0, 0.0, 0.0, 1.0]);
+                }
+            } else {
+                self.blt(spec, &video, &self.bgra_vp_out)?;
+            }
+            for op in stills {
+                let Some(srv) = op.srv.as_ref() else {
+                    continue;
+                };
+                self.blender.draw(
+                    &self.gpu.context,
+                    &self.bgra_rtv,
+                    srv,
+                    self.out_w,
+                    self.out_h,
+                    op.dest,
+                    op.src,
+                    op.tex_w,
+                    op.tex_h,
+                    op.alpha,
+                )?;
+            }
+            self.convert_bgra_to_nv12()?;
+        }
+        self.copy_to_encoder(dest)
     }
 
     /// Composition pipeline (explicit, not accidental):
@@ -356,10 +448,14 @@ impl RecordingCompositor {
                     );
                     ops.push(BlitOp {
                         view: slot.view.clone(),
+                        srv: None,
                         dest,
                         src: None,
+                        tex_w: slot.width,
+                        tex_h: slot.height,
                         alpha: spec.capture.opacity,
                         capture: true,
+                        still: false,
                     });
                 }
                 ValidatedLayer::Webcam => {
@@ -372,10 +468,14 @@ impl RecordingCompositor {
                     let src = cover_source(cam.width, cam.height, dest.w, dest.h);
                     ops.push(BlitOp {
                         view: slot.view.clone(),
+                        srv: None,
                         dest,
                         src: Some(src),
+                        tex_w: slot.width,
+                        tex_h: slot.height,
                         alpha: spec_cam.opacity,
                         capture: false,
+                        still: false,
                     });
                 }
                 ValidatedLayer::Image(image) => {
@@ -383,17 +483,27 @@ impl RecordingCompositor {
                         continue;
                     };
                     let box_rect = dest_rect(image.transform, self.out_w, self.out_h);
-                    let dest = match image.fit {
-                        FitMode::Contain => contain_dest(cached.src_w, cached.src_h, box_rect),
-                        FitMode::Cover => box_rect,
-                        FitMode::Stretch => box_rect,
+                    let (dest, src) = match image.fit {
+                        FitMode::Contain => (
+                            contain_dest(cached.src_w, cached.src_h, box_rect),
+                            None,
+                        ),
+                        FitMode::Cover => (
+                            box_rect,
+                            Some(cover_source(cached.src_w, cached.src_h, box_rect.w, box_rect.h)),
+                        ),
+                        FitMode::Stretch => (box_rect, None),
                     };
                     ops.push(BlitOp {
                         view: cached.slot.view.clone(),
+                        srv: Some(cached.slot.srv.clone()),
                         dest,
-                        src: None,
+                        src,
+                        tex_w: cached.slot.width,
+                        tex_h: cached.slot.height,
                         alpha: image.opacity,
                         capture: false,
+                        still: true,
                     });
                 }
                 ValidatedLayer::Text(text) => {
@@ -402,10 +512,14 @@ impl RecordingCompositor {
                     };
                     ops.push(BlitOp {
                         view: cached.slot.view.clone(),
+                        srv: Some(cached.slot.srv.clone()),
                         dest: dest_rect(text.transform, self.out_w, self.out_h),
                         src: None,
+                        tex_w: cached.slot.width,
+                        tex_h: cached.slot.height,
                         alpha: text.opacity,
                         capture: false,
+                        still: true,
                     });
                 }
                 ValidatedLayer::OverlayChrome { .. } => {}
@@ -415,6 +529,7 @@ impl RecordingCompositor {
         for cached in &self.overlays {
             ops.push(BlitOp {
                 view: cached.slot.view.clone(),
+                srv: Some(cached.slot.srv.clone()),
                 dest: PixelRect {
                     x: 0,
                     y: 0,
@@ -422,23 +537,35 @@ impl RecordingCompositor {
                     h: self.out_h,
                 },
                 src: None,
+                tex_w: cached.slot.width,
+                tex_h: cached.slot.height,
                 alpha: 1.0,
                 capture: false,
+                still: true,
             });
         }
         for cached in &self.hud {
             ops.push(BlitOp {
                 view: cached.slot.view.clone(),
+                srv: Some(cached.slot.srv.clone()),
                 dest: hud_rect(&cached.id, cached.src_w, cached.src_h, self.out_w, self.out_h, spec.hud.as_ref()),
                 src: None,
+                tex_w: cached.slot.width,
+                tex_h: cached.slot.height,
                 alpha: 1.0,
                 capture: false,
+                still: true,
             });
         }
         Ok(ops)
     }
 
-    fn blt(&self, spec: &ValidatedComposition, ops: &[BlitOp]) -> Result<(), String> {
+    fn blt(
+        &self,
+        spec: &ValidatedComposition,
+        ops: &[&BlitOp],
+        output: &ID3D11VideoProcessorOutputView,
+    ) -> Result<(), String> {
         if ops.is_empty() {
             return Err("Composed recording had no visible layers.".into());
         }
@@ -465,8 +592,8 @@ impl RecordingCompositor {
                 self.gpu.video_ctx.VideoProcessorSetStreamAlpha(
                     &self.processor,
                     index as u32,
-                    op.alpha < 0.999,
-                    op.alpha,
+                    true,
+                    op.alpha.clamp(0.0, 1.0),
                 );
                 if op.capture {
                     filters::apply_stream_filters(
@@ -485,7 +612,7 @@ impl RecordingCompositor {
             }
             let blt = self.gpu.video_ctx.VideoProcessorBlt(
                 &self.processor,
-                &self.output_view,
+                output,
                 0,
                 &streams,
             );
@@ -498,14 +625,60 @@ impl RecordingCompositor {
                 }
                 return Err(format!("VideoProcessorBlt failed: {err}"));
             }
+        }
+        Ok(())
+    }
+
+    fn convert_bgra_to_nv12(&self) -> Result<(), String> {
+        let _owned = &self.bgra_canvas;
+        unsafe {
+            let dest = RECT {
+                left: 0,
+                top: 0,
+                right: self.out_w as i32,
+                bottom: self.out_h as i32,
+            };
+            self.gpu.video_ctx.VideoProcessorSetStreamSourceRect(
+                &self.processor,
+                0,
+                false,
+                None,
+            );
+            self.gpu.video_ctx.VideoProcessorSetStreamDestRect(
+                &self.processor,
+                0,
+                true,
+                Some(&dest as *const RECT),
+            );
+            self.gpu
+                .video_ctx
+                .VideoProcessorSetStreamAlpha(&self.processor, 0, false, 1.0);
+            let streams = [D3D11_VIDEO_PROCESSOR_STREAM {
+                Enable: BOOL(1),
+                pInputSurface: ManuallyDrop::new(Some(self.bgra_vp_in.clone())),
+                ..Default::default()
+            }];
+            let blt = self.gpu.video_ctx.VideoProcessorBlt(
+                &self.processor,
+                &self.output_view,
+                0,
+                &streams,
+            );
+            drop(ManuallyDrop::into_inner(std::ptr::read(&streams[0].pInputSurface)));
+            blt.map_err(|err| format!("Could not convert composed stills to NV12: {err}"))?;
+        }
+        Ok(())
+    }
+
+    fn copy_to_encoder(&self, dest: &ID3D11Texture2D) -> Result<(), String> {
+        unsafe {
             let src: ID3D11Resource = self
                 .output
                 .cast()
                 .map_err(|err| format!("compose output cast: {err}"))?;
-            let dst: ID3D11Resource = self
-                .sync
+            let dst: ID3D11Resource = dest
                 .cast()
-                .map_err(|err| format!("compose sync cast: {err}"))?;
+                .map_err(|err| format!("compose encode cast: {err}"))?;
             self.gpu
                 .context
                 .CopySubresourceRegion(&dst, 0, 0, 0, 0, &src, 0, None);
@@ -582,9 +755,11 @@ impl RecordingCompositor {
                 .CreateVideoProcessorInputView(&texture, &self.enumerator, &view_desc, Some(&mut view))
                 .map_err(|err| format!("Could not create a compose input view: {err}"))?;
         }
+        let srv = still_blend::create_srv(&self.gpu.device, &texture)?;
         Ok(LayerSlot {
             texture,
             view: view.ok_or_else(|| "Compose input view was empty.".to_string())?,
+            srv,
             width,
             height,
         })

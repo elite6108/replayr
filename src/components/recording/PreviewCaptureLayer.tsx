@@ -14,6 +14,7 @@ export function PreviewCaptureLayer({
   enabled,
   fallback,
   hideBadge = false,
+  monitorId = null,
   onStatus,
 }: {
   mode: CapturePreviewMode;
@@ -21,12 +22,13 @@ export function PreviewCaptureLayer({
   enabled: boolean;
   fallback: PreviewBackgroundMode;
   hideBadge?: boolean;
-  onStatus?: (status: { live: boolean; label: string }) => void;
+  monitorId?: string | null;
+  onStatus?: (status: { live: boolean; label: string; source: string }) => void;
 }) {
   const [frame, setFrame] = useState<CapturePreviewFrame | null>(null);
   const inflight = useRef(false);
-  const target = useRef({ mode, pid });
-  target.current = { mode, pid };
+  const target = useRef({ mode, pid, monitorId });
+  target.current = { mode, pid, monitorId };
 
   useEffect(() => {
     if (!enabled) {
@@ -34,7 +36,11 @@ export function PreviewCaptureLayer({
       void stopCapturePreview();
       return;
     }
-    void startCapturePreview({ mode: target.current.mode, pid: target.current.pid ?? undefined }).catch((caught: unknown) => {
+    void startCapturePreview({
+      mode: target.current.mode,
+      pid: target.current.pid ?? undefined,
+      monitorId: target.current.monitorId,
+    }).catch((caught: unknown) => {
       setFrame({
         pngBase64: null,
         width: 0,
@@ -51,8 +57,8 @@ export function PreviewCaptureLayer({
 
   useEffect(() => {
     if (!enabled) return;
-    void updateCapturePreview({ mode, pid: pid ?? undefined }).catch(() => undefined);
-  }, [enabled, mode, pid]);
+    void updateCapturePreview({ mode, pid: pid ?? undefined, monitorId }).catch(() => undefined);
+  }, [enabled, mode, pid, monitorId]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -70,7 +76,7 @@ export function PreviewCaptureLayer({
         });
     };
     pull();
-    const timer = window.setInterval(pull, 80);
+    const timer = window.setInterval(pull, 33);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -82,8 +88,8 @@ export function PreviewCaptureLayer({
   const label = frame?.label ?? (mode === "desktop" ? "Desktop Preview" : "Waiting for game");
 
   useEffect(() => {
-    onStatus?.({ live, label });
-  }, [live, label, onStatus]);
+    onStatus?.({ live, label, source: frame?.source ?? "none" });
+  }, [live, label, frame?.source, onStatus]);
 
   return (
     <div className={`preview-capture fallback-${fallback}${live ? " is-live" : ""}`}>

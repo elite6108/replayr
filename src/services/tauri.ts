@@ -336,9 +336,10 @@ export async function getCameraPreviewFrame(): Promise<CameraPreviewFrame | null
 let capturePreviewClients = 0;
 let capturePreviewStopTimer: ReturnType<typeof setTimeout> | null = null;
 
-function previewArgs(options: { mode: "game" | "desktop"; pid?: number | null }) {
-  const args: { mode: "game" | "desktop"; pid?: number } = { mode: options.mode };
+function previewArgs(options: { mode: "game" | "desktop"; pid?: number | null; monitorId?: string | null }) {
+  const args: { mode: "game" | "desktop"; pid?: number; monitorId?: string } = { mode: options.mode };
   if (options.pid && options.pid > 0) args.pid = options.pid;
+  if (options.monitorId) args.monitorId = options.monitorId;
   return args;
 }
 
@@ -351,6 +352,7 @@ function cancelPreviewStop() {
 export async function startCapturePreview(options: {
   mode: "game" | "desktop";
   pid?: number | null;
+  monitorId?: string | null;
 }): Promise<void> {
   cancelPreviewStop();
   capturePreviewClients += 1;
@@ -365,6 +367,7 @@ export async function startCapturePreview(options: {
 export async function updateCapturePreview(options: {
   mode: "game" | "desktop";
   pid?: number | null;
+  monitorId?: string | null;
 }): Promise<void> {
   if (capturePreviewClients <= 0) return;
   await invoke("start_capture_preview", previewArgs(options));
@@ -380,6 +383,10 @@ export async function stopCapturePreview(): Promise<void> {
     if (capturePreviewClients > 0) return;
     void invoke("stop_capture_preview").catch(() => undefined);
   }, 300);
+}
+
+export async function listDisplays(): Promise<import("../recording/display/displayTypes").DisplayInfo[]> {
+  return invoke("list_displays");
 }
 
 export async function getCapturePreviewFrame(): Promise<CapturePreviewFrame | null> {

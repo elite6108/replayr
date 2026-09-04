@@ -1334,11 +1334,12 @@ pub fn sync_replay(
     windows_impl::sync_replay(app, state, pid, game_name, game_id)
 }
 
-pub fn retain_preview(state: &RecordingState, mode: &str, pid: Option<u32>) {
-    state
-        .shared
-        .preview
-        .retain(crate::preview::PreviewMode::parse(mode), pid.filter(|value| *value != 0));
+pub fn retain_preview(state: &RecordingState, mode: &str, pid: Option<u32>, monitor_id: Option<String>) {
+    state.shared.preview.retain(
+        crate::preview::PreviewMode::parse(mode),
+        pid.filter(|value| *value != 0),
+        monitor_id,
+    );
 }
 
 pub fn release_preview(state: &RecordingState) {

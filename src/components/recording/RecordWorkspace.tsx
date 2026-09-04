@@ -13,6 +13,7 @@ import {
   visualsToOverlaySettings,
   type RecordingSourceType,
 } from "../../recording/scene";
+import { useDisplays } from "../../recording/display/useDisplays";
 import { useRecordingScene } from "../../recording/useRecordingScene";
 import { useStudioAudio } from "../../recording/useStudioAudio";
 import { AudioMixer } from "./AudioMixer";
@@ -20,6 +21,7 @@ import { RecordControls } from "./RecordControls";
 import { RecordingPreview } from "./RecordingPreview";
 import { SourceInspector } from "./SourceInspector";
 import { SourceList } from "./SourceList";
+import { SourcePropertiesDialog } from "./SourcePropertiesDialog";
 
 export function RecordWorkspace() {
   const settings = useSettingsStore((state) => state.settings);
@@ -29,6 +31,7 @@ export function RecordWorkspace() {
   const compositionLocked = Boolean((status.active && status.composed) || startingComposed);
   const {
     scene,
+    scenes,
     selected,
     selectedId,
     setSelectedId,
@@ -37,13 +40,20 @@ export function RecordWorkspace() {
     toggleSource,
     addSource,
     deleteSource,
-    applyPreset,
     setTransform,
+    selectScene,
+    addScene,
+    renameScene,
+    removeScene,
+    copyScene,
     writeSettings,
     setOutputMode,
   } = useRecordingScene();
   const [camera, setCamera] = useState<CameraStatus>(IDLE_CAMERA_STATUS);
+  const [propertiesId, setPropertiesId] = useState<string | null>(null);
+  const { displays, error: displayError } = useDisplays();
   const levels = useStudioAudio();
+  const propertiesSource = scene.sources.find((source) => source.id === propertiesId) ?? null;
   const quiet = status.active || replay.active || camera.rolling || camera.recording;
 
   useEffect(() => {
@@ -105,6 +115,7 @@ export function RecordWorkspace() {
       <div className="record-workspace">
         <SourceList
           scene={scene}
+          scenes={scenes}
           selectedId={selectedId}
           levels={levels}
           settingsGain={{ mic: settings.micGain, game: settings.gameAudioGain }}
@@ -127,9 +138,29 @@ export function RecordWorkspace() {
             if (compositionLocked) return;
             commit(next);
           }}
-          onPreset={(preset) => {
+          onSelectScene={(id) => {
             if (compositionLocked) return;
-            applyPreset(preset);
+            selectScene(id);
+          }}
+          onCreateScene={(name, template) => {
+            if (compositionLocked) return;
+            addScene(name, template);
+          }}
+          onRenameScene={(id, name) => {
+            if (compositionLocked) return;
+            renameScene(id, name);
+          }}
+          onDuplicateScene={(id) => {
+            if (compositionLocked) return;
+            copyScene(id);
+          }}
+          onDeleteScene={(id) => {
+            if (compositionLocked) return;
+            removeScene(id);
+          }}
+          onProperties={(id) => {
+            setSelectedId(id);
+            setPropertiesId(id);
           }}
         />
         <RecordingPreview
@@ -154,6 +185,9 @@ export function RecordWorkspace() {
           levels={levels}
           compositionLocked={compositionLocked}
           composed={scene.outputMode === "composed"}
+          displays={displays}
+          listError={displayError}
+          recording={status.active || startingComposed}
           onSaveSetting={(key, value) => {
             if (compositionLocked) return;
             void writeSettings(key, value);
@@ -204,6 +238,19 @@ export function RecordWorkspace() {
           </span>
         </footer>
       </div>
+      {propertiesSource ? (
+        <SourcePropertiesDialog
+          source={propertiesSource}
+          displays={displays}
+          listError={displayError}
+          recording={status.active || startingComposed}
+          onMonitorId={(monitorId) => {
+            if (status.active || startingComposed) return;
+            patchSource(propertiesSource.id, { settings: { monitorId } });
+          }}
+          onClose={() => setPropertiesId(null)}
+        />
+      ) : null}
     </div>
   );
 }

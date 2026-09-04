@@ -210,11 +210,19 @@ pub fn start_capture_preview(
     detection: State<DetectionState>,
     mode: Option<String>,
     pid: Option<u32>,
+    monitor_id: Option<String>,
 ) -> AppResult<()> {
     let snapshot = detection::current_snapshot(&detection);
     let resolved = pid.filter(|value| *value != 0).or(snapshot.pid);
-    capture::retain_preview(&rec, mode.as_deref().unwrap_or("game"), resolved);
+    let monitor = crate::displays::sanitize_monitor_id(monitor_id.as_deref());
+    capture::retain_preview(&rec, mode.as_deref().unwrap_or("game"), resolved, monitor);
     Ok(())
+}
+
+#[tauri::command]
+pub fn list_displays() -> AppResult<Value> {
+    let displays = crate::displays::list_displays().map_err(AppError::Message)?;
+    Ok(serde_json::to_value(displays)?)
 }
 
 #[tauri::command]

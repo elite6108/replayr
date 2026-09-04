@@ -34,6 +34,7 @@ commands.allow = [
   "start_capture_preview",
   "stop_capture_preview",
   "get_capture_preview_frame",
+  "list_displays",
   "save_clip",
   "save_screenshot",
   "upload_local_clip",

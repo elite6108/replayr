@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ContextMenu } from "../common/ContextMenu";
 import { IconEye, IconEyeOff, IconGrip, IconLock, IconMore, IconUnlock } from "../icons";
 import { capabilityCaption, composedSourceCaption, registryEntry, sourceComposedSupported } from "../../recording/registry";
@@ -14,8 +14,10 @@ export function VisualSourceRow({
   onLock,
   onMove,
   onRemove,
-  onDragStart,
-  onDrop,
+  onProperties,
+  onRename,
+  onGripDown,
+  dropBefore,
   compositionLocked,
 }: {
   source: RecordingSource;
@@ -26,8 +28,10 @@ export function VisualSourceRow({
   onLock: (locked: boolean) => void;
   onMove: (direction: "front" | "back") => void;
   onRemove: () => void;
-  onDragStart: () => void;
-  onDrop: () => void;
+  onProperties: () => void;
+  onRename: () => void;
+  onGripDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  dropBefore?: boolean;
   compositionLocked?: boolean;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -39,23 +43,22 @@ export function VisualSourceRow({
 
   return (
     <div
-      className={`studio-source-row studio-visual-row${selected ? " is-selected" : ""}${source.enabled ? "" : " is-off"}`}
-      draggable={!compositionLocked}
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", source.id);
-        onDragStart();
-      }}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
+      data-visual-source-id={source.id}
+      className={`studio-source-row studio-visual-row${selected ? " is-selected" : ""}${source.enabled ? "" : " is-off"}${dropBefore ? " is-drop-before" : ""}`}
+      onContextMenu={(event) => {
         event.preventDefault();
-        event.stopPropagation();
-        onDrop();
+        setMenu({ x: event.clientX, y: event.clientY });
       }}
     >
-      <span className="studio-drag" aria-hidden="true">
+      <button
+        type="button"
+        className="studio-drag"
+        title="Drag to reorder"
+        disabled={compositionLocked}
+        onPointerDown={onGripDown}
+      >
         <IconGrip size={14} />
-      </span>
+      </button>
       <button type="button" className="studio-source-main" onClick={onSelect}>
         <SourceGlyph type={source.type} />
         <span className="studio-source-copy">
@@ -106,6 +109,10 @@ export function VisualSourceRow({
             compositionLocked
               ? [{ label: "Layout changes apply to the next recording.", onClick: () => undefined }]
               : [
+                  { label: "Properties", onClick: onProperties },
+                  { label: "Rename", onClick: onRename },
+                  { label: source.enabled ? "Hide" : "Show", onClick: () => onToggle(!source.enabled) },
+                  { label: source.locked ? "Unlock" : "Lock", onClick: () => onLock(!source.locked) },
                   { label: "Move forward", onClick: () => onMove("front") },
                   { label: "Move back", onClick: () => onMove("back") },
                   { label: "Remove", danger: true, onClick: onRemove },

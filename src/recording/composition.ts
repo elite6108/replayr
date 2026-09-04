@@ -4,6 +4,7 @@ import { nearestWebcamPlacement } from "../utils/clips";
 import { filterComposedSupported, sourceComposedSupported } from "./registry";
 import {
   AUDIO_SOURCE_TYPES,
+  desktopCaptureSettingsOf,
   findSourceByType,
   imageSettingsOf,
   isPrimaryCapture,
@@ -32,6 +33,7 @@ export type CaptureCompositionSource = {
   enabled: boolean;
   order: number;
   transform: CompositionTransform;
+  monitorId?: string | null;
 };
 
 export type WebcamCompositionSource = {
@@ -176,6 +178,7 @@ function asCapture(source: RecordingSource): CaptureCompositionSource | null {
     enabled: source.enabled,
     order: source.order,
     transform: asTransform(source.transform),
+    monitorId: source.type === "display" ? desktopCaptureSettingsOf(source).monitorId : null,
   };
 }
 

@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { composedStartBlocker, sessionWebcamLayoutFromScene, snapshotRecordingComposition } from "../recording/composition";
-import { loadOrMigrateScene } from "../recording/scene";
+import { loadActiveScene } from "../recording/sceneLibrary";
 import {
   getRecordingStatus,
   getReplayStatus,
@@ -30,8 +30,47 @@ interface RecordingState {
   screenshot: () => Promise<void>;
 }
 
-let listening = false;
 let tick: number | null = null;
+const RECORDING_LISTEN_KEY = "__replayRecordingListeners";
+
+async function attachRecordingListeners() {
+  const slot = window as unknown as Record<string, Array<() => void> | undefined>;
+  for (const off of slot[RECORDING_LISTEN_KEY] ?? []) off();
+  slot[RECORDING_LISTEN_KEY] = [
+    await listen<RecordingStatus>("recording-status", (event) => {
+      const status = liveRecording(event.payload);
+      useRecordingStore.setState({ status, busy: false });
+      setClockTick(status.active || useRecordingStore.getState().replay.active);
+    }),
+    await listen<ReplayStatus>("replay-status", (event) => {
+      const replay = applyReplay(event.payload);
+      useRecordingStore.setState({ replay });
+      setClockTick(replay.active || useRecordingStore.getState().status.active);
+    }),
+    await listen<{ path: string; kind: string }>("local-clip-saved", (event) => {
+      const kind =
+        event.payload.kind === "clip"
+          ? "Clip saved"
+          : event.payload.kind === "screenshot"
+            ? "Screenshot saved"
+            : "Recording saved";
+      useRecordingStore.setState((state) => ({
+        libraryEpoch: state.libraryEpoch + 1,
+        status: { ...state.status, path: event.payload.path },
+      }));
+      useToastStore.getState().show(kind);
+    }),
+    await listen<{ phase: string; message?: string; path?: string }>("clip-save", (event) => {
+      if (event.payload.phase === "saving") {
+        useToastStore.getState().show("Saving clip…");
+      }
+      if (event.payload.phase === "failed" && event.payload.message) {
+        useToastStore.getState().show(event.payload.message);
+      }
+    }),
+  ];
+}
+
 let replayClock: number | null = null;
 
 function startedAtMs(startedAt: string | null): number | null {
@@ -96,37 +135,12 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
     } catch {
       set({ status: IDLE_RECORDING, replay: IDLE_REPLAY });
     }
-    if (!listening) {
-      listening = true;
-      await listen<RecordingStatus>("recording-status", (event) => {
-        const status = liveRecording(event.payload);
-        set({ status, busy: false });
-        setClockTick(status.active || useRecordingStore.getState().replay.active);
-      });
-      await listen<ReplayStatus>("replay-status", (event) => {
-        const replay = applyReplay(event.payload);
-        set({ replay });
-        setClockTick(replay.active || useRecordingStore.getState().status.active);
-      });
-      await listen<{ path: string; kind: string }>("local-clip-saved", (event) => {
-        const kind = event.payload.kind === "clip" ? "Clip saved" : event.payload.kind === "screenshot" ? "Screenshot saved" : "Recording saved";
-        set((state) => ({ libraryEpoch: state.libraryEpoch + 1, status: { ...state.status, path: event.payload.path } }));
-        useToastStore.getState().show(kind);
-      });
-      await listen<{ phase: string; message?: string; path?: string }>("clip-save", (event) => {
-        if (event.payload.phase === "saving") {
-          useToastStore.getState().show("Saving clip…");
-        }
-        if (event.payload.phase === "failed" && event.payload.message) {
-          useToastStore.getState().show(event.payload.message);
-        }
-      });
-    }
+    await attachRecordingListeners();
   },
   start: async () => {
     if (get().busy || get().status.active) return;
     const settings = useSettingsStore.getState().settings;
-    const scene = loadOrMigrateScene(settings);
+    const scene = loadActiveScene(settings);
     if (scene.outputMode === "composed") {
       const blocked = composedStartBlocker(scene, settings);
       if (blocked) {
@@ -161,7 +175,6 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       const next = useComposed ? await stopComposedRecording() : await stopRecording();
       set({ status: next, busy: false, libraryEpoch: get().libraryEpoch + 1 });
       setClockTick(get().replay.active);
-      useToastStore.getState().show("Saved recording");
     } catch (caught) {
       set({ busy: false, startingComposed: false });
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not stop recording"));

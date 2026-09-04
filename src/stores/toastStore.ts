@@ -23,6 +23,7 @@ let nextId = 1;
 export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
   show: (message) => {
+    if (useToastStore.getState().toasts.some((toast) => toast.message === message)) return;
     const id = nextId++;
     set((state) => ({ toasts: [...state.toasts, { id, message }] }));
     window.setTimeout(() => {

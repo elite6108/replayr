@@ -4,7 +4,6 @@ use std::convert::TryInto;
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
-use windows_capture::monitor::Monitor;
 use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
     MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
@@ -50,7 +49,12 @@ impl GraphicsCaptureApiHandler for PreviewOnlySession {
 }
 
 impl StandalonePreview {
-    pub fn start(hub: PreviewHub, mode: PreviewMode, pid: Option<u32>) -> Result<Self, String> {
+    pub fn start(
+        hub: PreviewHub,
+        mode: PreviewMode,
+        pid: Option<u32>,
+        monitor_id: Option<&str>,
+    ) -> Result<Self, String> {
         let control = match mode {
             PreviewMode::Game => {
                 let pid = pid.filter(|value| *value != 0).ok_or_else(|| "No game detected.".to_string())?;
@@ -58,7 +62,7 @@ impl StandalonePreview {
                 begin(window, hub)?
             }
             PreviewMode::Desktop => {
-                let monitor = Monitor::primary().map_err(|err| err.to_string())?;
+                let monitor = crate::displays::resolve_monitor(monitor_id)?;
                 begin(monitor, hub)?
             }
         };

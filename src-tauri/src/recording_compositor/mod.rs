@@ -21,6 +21,8 @@ mod filters;
 mod still_blend;
 #[cfg(windows)]
 mod session_aac;
+#[cfg(windows)]
+mod preview_tap;
 
 pub use scene::RecordingComposition;
 
@@ -198,6 +200,7 @@ fn start_windows(
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
 
     let thread_settings = settings.clone();
+    let thread_preview = rec.shared.preview.clone();
     let handle = std::thread::Builder::new()
         .name("composed-record".into())
         .spawn(move || {
@@ -211,6 +214,7 @@ fn start_windows(
                 audio_plan,
                 audio,
                 thread_settings,
+                thread_preview,
                 thread_stop,
                 ready_tx,
             )
@@ -384,6 +388,7 @@ fn run_composed_session(
     audio_plan: ComposedAudioPlan,
     audio: crate::audio::AudioRuntime,
     settings: crate::settings::AppSettings,
+    preview: crate::preview::PreviewHub,
     stop: Arc<AtomicBool>,
     ready: std::sync::mpsc::Sender<Result<(u32, u32), String>>,
 ) -> Result<FinishedComposed, String> {
@@ -406,7 +411,10 @@ fn run_composed_session(
     };
     let init_started = Instant::now();
     let mut sources = ComposedSourceGuard {
-        capture: Some(ComposedCapture::start(spec.capture.kind, pid).map_err(|err| fail_ready(err))?),
+        capture: Some(
+            ComposedCapture::start(spec.capture.kind, pid, spec.capture.monitor_id.as_deref())
+                .map_err(|err| fail_ready(err))?,
+        ),
         webcam: None,
     };
     if let Some(cam) = spec.webcam.as_ref() {
@@ -460,6 +468,14 @@ fn run_composed_session(
             }
         }
     }
+
+    let mut preview_tap = match preview_tap::ActiveComposedPreview::open(&compositor, preview.clone()) {
+        Ok(tap) => Some(tap),
+        Err(err) => {
+            tracing::warn!("composed preview tap unavailable: {err}");
+            None
+        }
+    };
 
     let mut encoder = match hw_encode::ComposedGpuEncoder::open(
         compositor.device(),
@@ -557,6 +573,9 @@ fn run_composed_session(
         ) {
             Ok(()) => {
                 stats.note_compose(compose_started.elapsed());
+                if let Some(tap) = preview_tap.as_mut() {
+                    tap.try_offer(&compositor, &preview);
+                }
                 if let Err(err) = encoder.submit(slot, time, duration) {
                     if compositor.check_device().is_err() {
                         fatal = Some(err);
@@ -605,6 +624,7 @@ fn run_composed_session(
         }
     }
 
+    drop(preview_tap);
     drop(sources);
     if encoder.has_audio() {
         let pcm = audio.read_audio(frames_from_hns(clock.capture_hns()) - frames_from_hns(AUDIO_LEAD_HNS));

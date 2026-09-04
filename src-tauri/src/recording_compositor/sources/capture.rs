@@ -9,7 +9,6 @@ use std::sync::{Arc, Condvar, Mutex};
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
-use windows_capture::monitor::Monitor;
 use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
     MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
@@ -84,11 +83,11 @@ impl GraphicsCaptureApiHandler for CaptureOnlySession {
 }
 
 impl ComposedCapture {
-    pub fn start(kind: CaptureKind, pid: Option<u32>) -> Result<Self, String> {
+    pub fn start(kind: CaptureKind, pid: Option<u32>, monitor_id: Option<&str>) -> Result<Self, String> {
         let hub = CaptureHub::new();
         let control = match kind {
             CaptureKind::Display => {
-                let monitor = Monitor::primary().map_err(|err| err.to_string())?;
+                let monitor = crate::displays::resolve_monitor(monitor_id)?;
                 begin(monitor, Arc::clone(&hub))?
             }
             CaptureKind::Game | CaptureKind::Window => {

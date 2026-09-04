@@ -253,6 +253,14 @@ impl RecordingCompositor {
         &self.gpu.device
     }
 
+    pub fn gpu(&self) -> &SharedGpu {
+        &self.gpu
+    }
+
+    pub fn composed_nv12(&self) -> &ID3D11Texture2D {
+        &self.output
+    }
+
     pub fn adapter(&self) -> &str {
         &self.gpu.adapter
     }

@@ -370,3 +370,19 @@ export function IconSafeArea(props: IconProps) {
     </Icon>
   );
 }
+
+export function IconChevron(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6 9l6 6 6-6" />
+    </Icon>
+  );
+}
+
+export function IconCheck(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M5 12.5l4.2 4.2L19 7.5" />
+    </Icon>
+  );
+}

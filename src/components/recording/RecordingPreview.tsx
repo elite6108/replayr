@@ -4,6 +4,7 @@ import type { PreviewBackgroundMode, RecordingVisualSettings, WebcamSettings } f
 import { IconCenter, IconFit, IconReset, IconSafeArea } from "../icons";
 import {
   defaultTransform,
+  desktopCaptureSettingsOf,
   overlayToVisuals,
   primaryCapture,
   sourcesBackFirst,
@@ -49,7 +50,7 @@ export function RecordingPreview({
 }) {
   const [background, setBackground] = useState<PreviewBackgroundMode>("dark");
   const [safeZone, setSafeZone] = useState(false);
-  const [preview, setPreview] = useState({ live: false, label: "Preview" });
+  const [preview, setPreview] = useState({ live: false, label: "Preview", source: "none" });
   const detectedPid = useDetectionStore((state) => state.snapshot.pid);
   const primary = primaryCapture(scene);
   const previewMode = primary?.type === "display" ? "desktop" : "game";
@@ -60,6 +61,7 @@ export function RecordingPreview({
     overlay,
     composed ? { filter: "none", overlays: { recIndicator: false, timestamp: false } } : visuals,
   );
+  const composedTap = composed && preview.source === "composed";
   const layers = sourcesBackFirst(scene.sources).filter(
     (source) =>
       source.enabled &&
@@ -93,6 +95,7 @@ export function RecordingPreview({
               enabled={previewEnabled}
               fallback={background}
               hideBadge
+              monitorId={primary?.type === "display" ? desktopCaptureSettingsOf(primary).monitorId : null}
               onStatus={setPreview}
             />
           }
@@ -109,11 +112,11 @@ export function RecordingPreview({
               onSelect={() => onSelect(source.id)}
               onTransform={(next) => onTransform(source.id, next)}
             >
-              <LayerBody source={source} webcam={webcam} camera={camera} />
+              {composedTap ? null : <LayerBody source={source} webcam={webcam} camera={camera} />}
             </PreviewTransformBox>
           ))}
-          <PreviewFilterLayer filter={previewVisuals.filter} quiet={quiet} />
-          <PreviewOverlayLayer filter={previewVisuals.filter} overlays={previewVisuals.overlays} />
+          {composedTap ? null : <PreviewFilterLayer filter={previewVisuals.filter} quiet={quiet} />}
+          {composedTap ? null : <PreviewOverlayLayer filter={previewVisuals.filter} overlays={previewVisuals.overlays} />}
         </PreviewCanvas>
         {compositionLocked ? (
           <p className="studio-lock-note">Layout changes apply to the next recording.</p>

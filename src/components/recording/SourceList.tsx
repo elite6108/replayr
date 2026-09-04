@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import { IconPlus } from "../icons";
 import {
   isAudioSource,
@@ -13,17 +13,12 @@ import {
 import { audioPeakFor } from "../../recording/useStudioAudio";
 import { AddSourceMenu } from "./AddSourceMenu";
 import { AudioSourceRow } from "./AudioSourceRow";
+import { ScenePicker } from "./ScenePicker";
 import { VisualSourceRow } from "./VisualSourceRow";
-
-const PRESETS: { id: ScenePresetId; label: string }[] = [
-  { id: "gameplay", label: "Gameplay" },
-  { id: "gameplayWebcam", label: "Gameplay + Webcam" },
-  { id: "desktop", label: "Desktop" },
-  { id: "blank", label: "Blank" },
-];
 
 export function SourceList({
   scene,
+  scenes,
   selectedId,
   levels,
   settingsGain,
@@ -33,10 +28,16 @@ export function SourceList({
   onRemove,
   onAdd,
   onReorder,
-  onPreset,
+  onSelectScene,
+  onCreateScene,
+  onRenameScene,
+  onDuplicateScene,
+  onDeleteScene,
+  onProperties,
   compositionLocked,
 }: {
   scene: RecordingScene;
+  scenes: RecordingScene[];
   selectedId: string | null;
   levels: { micPeak: number; gamePeak: number; desktopPeak: number };
   settingsGain: { mic?: number; game?: number };
@@ -46,15 +47,41 @@ export function SourceList({
   onRemove: (id: string) => void;
   onAdd: (type: RecordingSourceType) => void;
   onReorder: (next: RecordingScene) => void;
-  onPreset: (preset: ScenePresetId) => void;
+  onSelectScene: (id: string) => void;
+  onCreateScene: (name: string, template: ScenePresetId | null) => void;
+  onRenameScene: (id: string, name: string) => void;
+  onDuplicateScene: (id: string) => void;
+  onDeleteScene: (id: string) => void;
+  onProperties: (id: string) => void;
   compositionLocked?: boolean;
 }) {
   const [visualMenu, setVisualMenu] = useState(false);
   const [audioMenu, setAudioMenu] = useState(false);
-  const [dragId, setDragId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{ id: string; overId: string | null } | null>(null);
   const visuals = sourcesFrontFirst(scene.sources.filter((source) => isVisualSource(source.type)));
   const audios = scene.sources.filter((source) => isAudioSource(source.type));
-  const activePreset = inferPreset(scene);
+
+  function beginReorder(id: string, event: ReactPointerEvent<HTMLElement>) {
+    if (compositionLocked) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDrag({ id, overId: id });
+    const onMove = (moveEvent: PointerEvent) => {
+      setDrag({ id, overId: hitVisualSource(moveEvent.clientY) });
+    };
+    const onUp = (upEvent: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      const overId = hitVisualSource(upEvent.clientY);
+      if (overId !== id) {
+        onReorder(reorderSourceAmong(scene, id, overId, (source) => isVisualSource(source.type)));
+      }
+      setDrag(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
 
   return (
     <section className="studio-panel studio-rail">
@@ -62,41 +89,16 @@ export function SourceList({
         <div className="studio-block-head">
           <h2>Scenes</h2>
         </div>
-        <div className="studio-scene-picker">
-          <select
-            aria-label="Current scene"
-            value={activePreset === "custom" ? "custom" : activePreset}
-            disabled={compositionLocked}
-            onChange={(event) => {
-              const value = event.target.value as ScenePresetId | "custom";
-              if (value !== "custom") onPreset(value);
-            }}
-          >
-            {activePreset === "custom" ? <option value="custom">{scene.name}</option> : null}
-            {PRESETS.map((preset) => (
-              <option key={preset.id} value={preset.id}>
-                {preset.label}
-              </option>
-            ))}
-          </select>
-          <button type="button" className="studio-icon-btn studio-plus" title="New blank scene" disabled={compositionLocked} onClick={() => onPreset("blank")}>
-            <IconPlus size={16} />
-          </button>
-        </div>
-        <div className="studio-preset-label">Scene Presets</div>
-        <div className="studio-presets">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              className={`studio-preset${activePreset === preset.id ? " is-active" : ""}`}
-              disabled={compositionLocked}
-              onClick={() => onPreset(preset.id)}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
+        <ScenePicker
+          scenes={scenes}
+          activeId={scene.id}
+          locked={Boolean(compositionLocked)}
+          onSelect={onSelectScene}
+          onCreate={onCreateScene}
+          onRename={onRenameScene}
+          onDuplicate={onDuplicateScene}
+          onDelete={onDeleteScene}
+        />
       </div>
 
       <div className={`studio-block studio-sources-block${visualMenu ? " is-menu-open" : ""}`}>
@@ -115,7 +117,7 @@ export function SourceList({
             Add
           </button>
         </div>
-        <p className="studio-section-copy">Layers shown in the preview</p>
+        <p className="studio-section-copy">Top of the list is in front</p>
         <AddSourceMenu
           scene={scene}
           open={visualMenu}
@@ -129,16 +131,9 @@ export function SourceList({
           <p className="studio-lock-note">Layout changes apply to the next recording.</p>
         ) : null}
         {visuals.length === 0 ? (
-          <p className="studio-empty">No visual sources. Add one or pick a preset.</p>
+          <p className="studio-empty">No visual sources. Add one or create a scene.</p>
         ) : (
-          <div
-            className="studio-source-list"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => {
-              if (dragId) onReorder(reorderSourceAmong(scene, dragId, null, (source) => isVisualSource(source.type)));
-              setDragId(null);
-            }}
-          >
+          <div className="studio-source-list">
             {visuals.map((source) => (
               <VisualSourceRow
                 key={source.id}
@@ -146,18 +141,18 @@ export function SourceList({
                 outputMode={scene.outputMode}
                 selected={selectedId === source.id}
                 compositionLocked={compositionLocked}
+                dropBefore={Boolean(drag && drag.id !== source.id && drag.overId === source.id)}
                 onSelect={() => onSelect(source.id)}
                 onToggle={(enabled) => onToggle(source.id, enabled)}
                 onLock={(locked) => onLock(source.id, locked)}
                 onMove={(direction) => onReorder(moveSourceAmong(scene, source.id, direction, (item) => isVisualSource(item.type)))}
                 onRemove={() => onRemove(source.id)}
-                onDragStart={() => setDragId(source.id)}
-                onDrop={() => {
-                  if (dragId && dragId !== source.id) {
-                    onReorder(reorderSourceAmong(scene, dragId, source.id, (item) => isVisualSource(item.type)));
-                  }
-                  setDragId(null);
+                onProperties={() => onProperties(source.id)}
+                onRename={() => {
+                  onSelect(source.id);
+                  window.requestAnimationFrame(() => document.getElementById("record-source-name")?.focus());
                 }}
+                onGripDown={(event) => beginReorder(source.id, event)}
               />
             ))}
           </div>
@@ -212,15 +207,11 @@ export function SourceList({
   );
 }
 
-function inferPreset(scene: RecordingScene): ScenePresetId | "custom" {
-  const types = scene.sources
-    .filter((source) => isVisualSource(source.type) && source.type !== "replayrOverlay")
-    .map((source) => source.type)
-    .sort();
-  if (types.length === 0) return scene.sources.length === 0 ? "blank" : "custom";
-  const key = types.join(",");
-  if (key === "display") return "desktop";
-  if (key === "game") return "gameplay";
-  if (key === "game,webcam") return "gameplayWebcam";
-  return "custom";
+function hitVisualSource(clientY: number): string | null {
+  const rows = [...document.querySelectorAll<HTMLElement>("[data-visual-source-id]")];
+  for (const row of rows) {
+    const rect = row.getBoundingClientRect();
+    if (clientY < rect.top + rect.height / 2) return row.dataset.visualSourceId ?? null;
+  }
+  return null;
 }

@@ -8,14 +8,12 @@ import {
   findSource,
   findSourceByType,
   isPrimaryCapture,
-  loadOrMigrateScene,
   nextOrder,
   overlayToVisuals,
   persistScene,
   removeSource,
   replacePrimary,
   sceneEquals,
-  sceneFromPreset,
   setSourceEnabled,
   type RecordingOutputMode,
   type RecordingScene,
@@ -25,6 +23,18 @@ import {
   type SourceTransform,
   updateSource,
 } from "./scene";
+import {
+  activeSceneOf,
+  createScene,
+  deleteScene,
+  duplicateScene,
+  loadOrMigrateLibrary,
+  persistLibrary,
+  renameScene,
+  replaceActive,
+  switchScene,
+  type RecordingSceneLibrary,
+} from "./sceneLibrary";
 
 function webcamFromScene(settings: WebcamSettings, source: RecordingSource | undefined): WebcamSettings {
   if (!source) return { ...settings, enabled: false };
@@ -46,24 +56,32 @@ export function useRecordingScene() {
   const settings = useSettingsStore((state) => state.settings);
   const update = useSettingsStore((state) => state.update);
   const showToast = useToastStore((state) => state.show);
-  const [scene, setScene] = useState<RecordingScene>(() => loadOrMigrateScene(useSettingsStore.getState().settings));
+  const [library, setLibrary] = useState<RecordingSceneLibrary>(() =>
+    loadOrMigrateLibrary(useSettingsStore.getState().settings),
+  );
+  const scene = activeSceneOf(library);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const skipInbound = useRef(0);
+  const libraryRef = useRef(library);
   const sceneRef = useRef(scene);
+  libraryRef.current = library;
   sceneRef.current = scene;
 
   useEffect(() => {
+    persistLibrary(library);
     persistScene(scene);
-  }, [scene]);
+  }, [library, scene]);
 
   useEffect(() => {
     if (skipInbound.current > 0) {
       skipInbound.current -= 1;
       return;
     }
-    setScene((prev) => {
-      const next = applySettingsFlags(prev, settings);
-      return sceneEquals(prev, next) ? prev : next;
+    setLibrary((prev) => {
+      const current = activeSceneOf(prev);
+      const nextScene = applySettingsFlags(current, settings);
+      if (sceneEquals(current, nextScene)) return prev;
+      return replaceActive(prev, nextScene);
     });
   }, [
     settings.webcam.enabled,
@@ -94,53 +112,19 @@ export function useRecordingScene() {
     [showToast, update],
   );
 
+  const writeLibrary = useCallback((next: RecordingSceneLibrary, previous = sceneRef.current) => {
+    const clean = next;
+    persistLibrary(clean);
+    setLibrary(clean);
+    const upcoming = activeSceneOf(clean);
+    syncSettingsFromScene(upcoming, previous, writeSettings);
+  }, [writeSettings]);
+
   const commit = useCallback(
     (next: RecordingScene, previous = sceneRef.current) => {
-      persistScene(next);
-      setScene(next);
-      const current = useSettingsStore.getState().settings;
-      const prevWebcam = findSourceByType(previous, "webcam");
-      const nextWebcam = findSourceByType(next, "webcam");
-      const webcamSettings = webcamFromScene(current.webcam, nextWebcam);
-      const webcamChanged =
-        webcamSettings.enabled !== current.webcam.enabled ||
-        webcamSettings.defaultPlacement !== current.webcam.defaultPlacement ||
-        webcamSettings.defaultShape !== current.webcam.defaultShape ||
-        webcamSettings.defaultWidth !== current.webcam.defaultWidth;
-      const prevHadWebcam = Boolean(prevWebcam);
-      if (webcamChanged || Boolean(nextWebcam) !== prevHadWebcam) {
-        void writeSettings("webcam", webcamSettings);
-      }
-
-      const mic = findSourceByType(next, "microphone");
-      if (Boolean(mic?.enabled) !== current.micEnabled) {
-        void writeSettings("micEnabled", Boolean(mic?.enabled));
-      }
-      const gameAudio = findSourceByType(next, "gameAudio");
-      if (Boolean(gameAudio?.enabled) !== current.gameAudioEnabled) {
-        void writeSettings("gameAudioEnabled", Boolean(gameAudio?.enabled));
-      }
-      const desktopAudio = findSourceByType(next, "desktopAudio");
-      if (Boolean(desktopAudio?.enabled) !== current.systemAudioEnabled) {
-        void writeSettings("systemAudioEnabled", Boolean(desktopAudio?.enabled));
-      }
-
-      const prevOverlay = findSourceByType(previous, "replayrOverlay");
-      const overlay = findSourceByType(next, "replayrOverlay");
-      const visuals = overlay
-        ? visualsFromOverlay(overlay, current.recordingVisuals)
-        : prevOverlay
-          ? { filter: "none" as const, overlays: { recIndicator: false, timestamp: false } }
-          : current.recordingVisuals;
-      const visualsChanged =
-        visuals.filter !== current.recordingVisuals.filter ||
-        visuals.overlays.recIndicator !== current.recordingVisuals.overlays.recIndicator ||
-        visuals.overlays.timestamp !== current.recordingVisuals.overlays.timestamp;
-      if (visualsChanged) {
-        void writeSettings("recordingVisuals", visuals);
-      }
+      writeLibrary(replaceActive(libraryRef.current, next), previous);
     },
-    [writeSettings],
+    [writeLibrary],
   );
 
   const patchSource = useCallback(
@@ -199,31 +183,79 @@ export function useRecordingScene() {
     [commit],
   );
 
-  const applyPreset = useCallback(
-    (preset: ScenePresetId) => {
-      const next = sceneFromPreset(preset, useSettingsStore.getState().settings);
-      commit(next);
-      setSelectedId(primaryOrFirst(next));
-    },
-    [commit],
-  );
-
   const setOutputMode = useCallback((outputMode: RecordingOutputMode) => {
     commit({ ...sceneRef.current, outputMode });
   }, [commit]);
 
   const setTransform = useCallback((id: string, transform: SourceTransform) => {
-    setScene((prev) => {
-      const next = updateSource(prev, id, { transform });
-      sceneRef.current = next;
+    setLibrary((prev) => {
+      const next = replaceActive(prev, updateSource(activeSceneOf(prev), id, { transform }));
+      persistLibrary(next);
       return next;
     });
   }, []);
+
+  const selectScene = useCallback(
+    (id: string) => {
+      const previous = sceneRef.current;
+      const next = switchScene(libraryRef.current, id);
+      writeLibrary(next, previous);
+      setSelectedId(primaryOrFirst(activeSceneOf(next)));
+    },
+    [writeLibrary],
+  );
+
+  const addScene = useCallback(
+    (name: string, template: ScenePresetId | null) => {
+      const result = createScene(libraryRef.current, useSettingsStore.getState().settings, { name, template });
+      if ("error" in result) {
+        showToast(result.error);
+        return;
+      }
+      writeLibrary(result, sceneRef.current);
+      setSelectedId(primaryOrFirst(activeSceneOf(result)));
+    },
+    [showToast, writeLibrary],
+  );
+
+  const renameActiveOrId = useCallback(
+    (id: string, name: string) => {
+      writeLibrary(renameScene(libraryRef.current, id, name), sceneRef.current);
+    },
+    [writeLibrary],
+  );
+
+  const removeScene = useCallback(
+    (id: string) => {
+      const result = deleteScene(libraryRef.current, id);
+      if ("error" in result) {
+        showToast(result.error);
+        return;
+      }
+      writeLibrary(result, sceneRef.current);
+      setSelectedId(primaryOrFirst(activeSceneOf(result)));
+    },
+    [showToast, writeLibrary],
+  );
+
+  const copyScene = useCallback(
+    (id: string) => {
+      const result = duplicateScene(libraryRef.current, id);
+      if ("error" in result) {
+        showToast(result.error);
+        return;
+      }
+      writeLibrary(result, sceneRef.current);
+      setSelectedId(primaryOrFirst(activeSceneOf(result)));
+    },
+    [showToast, writeLibrary],
+  );
 
   const selected = findSource(scene, selectedId) ?? null;
 
   return {
     scene,
+    scenes: library.scenes,
     selected,
     selectedId,
     setSelectedId,
@@ -232,10 +264,14 @@ export function useRecordingScene() {
     toggleSource,
     addSource,
     deleteSource,
-    applyPreset,
     setTransform,
     writeSettings,
     setOutputMode,
+    selectScene,
+    addScene,
+    renameScene: renameActiveOrId,
+    removeScene,
+    copyScene,
   };
 }
 
@@ -246,4 +282,49 @@ function primaryOrFirst(scene: RecordingScene): string | null {
     scene.sources[0]?.id ??
     null
   );
+}
+
+function syncSettingsFromScene(
+  next: RecordingScene,
+  previous: RecordingScene,
+  writeSettings: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>,
+) {
+  const current = useSettingsStore.getState().settings;
+  const prevWebcam = findSourceByType(previous, "webcam");
+  const nextWebcam = findSourceByType(next, "webcam");
+  const webcamSettings = webcamFromScene(current.webcam, nextWebcam);
+  const webcamChanged =
+    webcamSettings.enabled !== current.webcam.enabled ||
+    webcamSettings.defaultPlacement !== current.webcam.defaultPlacement ||
+    webcamSettings.defaultShape !== current.webcam.defaultShape ||
+    webcamSettings.defaultWidth !== current.webcam.defaultWidth;
+  if (webcamChanged || Boolean(nextWebcam) !== Boolean(prevWebcam)) {
+    void writeSettings("webcam", webcamSettings);
+  }
+  const mic = findSourceByType(next, "microphone");
+  if (Boolean(mic?.enabled) !== current.micEnabled) {
+    void writeSettings("micEnabled", Boolean(mic?.enabled));
+  }
+  const gameAudio = findSourceByType(next, "gameAudio");
+  if (Boolean(gameAudio?.enabled) !== current.gameAudioEnabled) {
+    void writeSettings("gameAudioEnabled", Boolean(gameAudio?.enabled));
+  }
+  const desktopAudio = findSourceByType(next, "desktopAudio");
+  if (Boolean(desktopAudio?.enabled) !== current.systemAudioEnabled) {
+    void writeSettings("systemAudioEnabled", Boolean(desktopAudio?.enabled));
+  }
+  const prevOverlay = findSourceByType(previous, "replayrOverlay");
+  const overlay = findSourceByType(next, "replayrOverlay");
+  const visuals = overlay
+    ? visualsFromOverlay(overlay, current.recordingVisuals)
+    : prevOverlay
+      ? { filter: "none" as const, overlays: { recIndicator: false, timestamp: false } }
+      : current.recordingVisuals;
+  const visualsChanged =
+    visuals.filter !== current.recordingVisuals.filter ||
+    visuals.overlays.recIndicator !== current.recordingVisuals.overlays.recIndicator ||
+    visuals.overlays.timestamp !== current.recordingVisuals.overlays.timestamp;
+  if (visualsChanged) {
+    void writeSettings("recordingVisuals", visuals);
+  }
 }

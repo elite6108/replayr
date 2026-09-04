@@ -13,6 +13,7 @@ mod capture;
 mod commands;
 mod database;
 mod detection;
+mod displays;
 mod discord_presence;
 mod disk;
 mod editor;
@@ -222,6 +223,7 @@ pub fn run() {
             commands::start_capture_preview,
             commands::stop_capture_preview,
             commands::get_capture_preview_frame,
+            commands::list_displays,
             commands::start_webcam_test_record,
             commands::stop_webcam_test_record,
             commands::list_local_clips,

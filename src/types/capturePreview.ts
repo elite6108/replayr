@@ -7,5 +7,5 @@ export interface CapturePreviewFrame {
   height: number;
   state: CapturePreviewState;
   label: string;
-  source: "tap" | "standalone" | "none";
+  source: "tap" | "standalone" | "composed" | "none";
 }

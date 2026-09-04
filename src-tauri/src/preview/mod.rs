@@ -13,8 +13,8 @@ use crate::still::{scale_bgra, StillFrame};
 #[cfg(windows)]
 mod standalone;
 
-const PREVIEW_MAX_WIDTH: u32 = 1280;
-const PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(66);
+const PREVIEW_MAX_WIDTH: u32 = 960;
+const PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(33);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewMode {
@@ -51,6 +51,7 @@ pub struct PreviewHub {
 struct Inner {
     wanted: AtomicU32,
     capture_live: AtomicBool,
+    composed_live: AtomicBool,
     stop_worker: AtomicBool,
     last_accept_ms: AtomicU64,
     offered: AtomicU64,
@@ -59,6 +60,7 @@ struct Inner {
     last_encode_ms: AtomicU64,
     mode: Mutex<PreviewMode>,
     pid: Mutex<Option<u32>>,
+    monitor_id: Mutex<Option<String>>,
     pending: Mutex<Option<StillFrame>>,
     latest: Mutex<Option<EncodedPreview>>,
     error: Mutex<Option<String>>,
@@ -79,6 +81,7 @@ impl PreviewHub {
         let inner = Arc::new(Inner {
             wanted: AtomicU32::new(0),
             capture_live: AtomicBool::new(false),
+            composed_live: AtomicBool::new(false),
             stop_worker: AtomicBool::new(false),
             last_accept_ms: AtomicU64::new(0),
             offered: AtomicU64::new(0),
@@ -87,6 +90,7 @@ impl PreviewHub {
             last_encode_ms: AtomicU64::new(0),
             mode: Mutex::new(PreviewMode::Game),
             pid: Mutex::new(None),
+            monitor_id: Mutex::new(None),
             pending: Mutex::new(None),
             latest: Mutex::new(None),
             error: Mutex::new(None),
@@ -107,8 +111,8 @@ impl PreviewHub {
         Self { inner }
     }
 
-    pub fn retain(&self, mode: PreviewMode, pid: Option<u32>) {
-        self.set_target(mode, pid);
+    pub fn retain(&self, mode: PreviewMode, pid: Option<u32>, monitor_id: Option<String>) {
+        self.set_target(mode, pid, monitor_id);
         let previous = self.inner.wanted.swap(1, Ordering::SeqCst);
         tracing::info!(
             mode = ?mode,
@@ -129,7 +133,7 @@ impl PreviewHub {
         }
     }
 
-    pub fn set_target(&self, mode: PreviewMode, pid: Option<u32>) {
+    pub fn set_target(&self, mode: PreviewMode, pid: Option<u32>, monitor_id: Option<String>) {
         let mut changed = false;
         if let Ok(mut slot) = self.inner.mode.lock() {
             if *slot != mode {
@@ -143,7 +147,13 @@ impl PreviewHub {
                 changed = true;
             }
         }
-        if changed && self.wanted() && !self.capture_live() {
+        if let Ok(mut slot) = self.inner.monitor_id.lock() {
+            if *slot != monitor_id {
+                *slot = monitor_id;
+                changed = true;
+            }
+        }
+        if changed && self.wanted() && !self.capture_live() && !self.composed_live() {
             self.suspend_standalone();
             self.ensure_source();
         }
@@ -164,13 +174,22 @@ impl PreviewHub {
         self.inner.capture_live.store(live, Ordering::SeqCst);
         if live {
             self.suspend_standalone();
-        } else if self.wanted() {
+        } else if self.wanted() && !self.composed_live() {
+            self.ensure_source();
+        }
+    }
+
+    pub fn mark_composed_live(&self, live: bool) {
+        self.inner.composed_live.store(live, Ordering::SeqCst);
+        if live {
+            self.suspend_standalone();
+        } else if self.wanted() && !self.capture_live() {
             self.ensure_source();
         }
     }
 
     pub fn resume_if_wanted(&self) {
-        if self.wanted() && !self.capture_live() {
+        if self.wanted() && !self.capture_live() && !self.composed_live() {
             self.ensure_source();
         }
     }
@@ -219,7 +238,9 @@ impl PreviewHub {
         let error = self.inner.error.lock().ok().and_then(|slot| slot.clone());
         let capture_live = self.capture_live();
         let wanted = self.wanted();
-        let source = if capture_live {
+        let source = if self.composed_live() {
+            "composed"
+        } else if capture_live {
             "tap"
         } else if self.standalone_active() {
             "standalone"
@@ -227,7 +248,7 @@ impl PreviewHub {
             "none"
         };
         if let Some(frame) = latest {
-            let desktop = mode == PreviewMode::Desktop && !capture_live;
+            let desktop = mode == PreviewMode::Desktop && !capture_live && !self.composed_live();
             return CapturePreviewFrame {
                 png_base64: Some(frame.png_base64),
                 width: frame.width,
@@ -267,12 +288,16 @@ impl PreviewHub {
         }
     }
 
-    fn wanted(&self) -> bool {
+    pub(crate) fn wanted(&self) -> bool {
         self.inner.wanted.load(Ordering::SeqCst) > 0
     }
 
     fn capture_live(&self) -> bool {
         self.inner.capture_live.load(Ordering::SeqCst)
+    }
+
+    fn composed_live(&self) -> bool {
+        self.inner.composed_live.load(Ordering::SeqCst)
     }
 
     fn standalone_active(&self) -> bool {
@@ -292,11 +317,12 @@ impl PreviewHub {
     }
 
     fn ensure_source(&self) {
-        if !self.wanted() || self.capture_live() {
+        if !self.wanted() || self.capture_live() || self.composed_live() {
             return;
         }
         let mode = self.inner.mode.lock().ok().map(|slot| *slot).unwrap_or(PreviewMode::Game);
         let pid = self.inner.pid.lock().ok().and_then(|slot| *slot);
+        let monitor_id = self.inner.monitor_id.lock().ok().and_then(|slot| slot.clone());
         if mode == PreviewMode::Game && pid.unwrap_or(0) == 0 {
             self.suspend_standalone();
             return;
@@ -306,7 +332,7 @@ impl PreviewHub {
             if self.standalone_active() {
                 return;
             }
-            match standalone::StandalonePreview::start(self.clone(), mode, pid) {
+            match standalone::StandalonePreview::start(self.clone(), mode, pid, monitor_id.as_deref()) {
                 Ok(session) => {
                     tracing::info!(mode = ?mode, pid = ?pid, "capture preview standalone started");
                     if let Ok(mut slot) = self.inner.error.lock() {
@@ -326,7 +352,7 @@ impl PreviewHub {
         }
         #[cfg(not(windows))]
         {
-            let _ = (mode, pid);
+            let _ = (mode, pid, monitor_id);
             if let Ok(mut slot) = self.inner.error.lock() {
                 *slot = Some("Preview unavailable".into());
             }

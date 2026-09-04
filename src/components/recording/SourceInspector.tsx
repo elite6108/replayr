@@ -16,6 +16,7 @@ import {
 } from "../../recording/scene";
 import { audioPeakFor } from "../../recording/useStudioAudio";
 import { AudioSourceSettings } from "./sources/AudioSourceSettings";
+import type { DisplayInfo } from "../../recording/display/displayTypes";
 import { DisplaySourceSettings } from "./sources/DisplaySourceSettings";
 import { GameSourceSettings } from "./sources/GameSourceSettings";
 import { ImageSourceSettings } from "./sources/ImageSourceSettings";
@@ -34,6 +35,9 @@ export function SourceInspector({
   onWebcamDevice,
   compositionLocked,
   composed,
+  displays,
+  listError,
+  recording,
 }: {
   source: RecordingSource | null;
   settings: AppSettings;
@@ -46,6 +50,9 @@ export function SourceInspector({
   onWebcamDevice: (device: CameraDevice) => void;
   compositionLocked?: boolean;
   composed?: boolean;
+  displays?: DisplayInfo[];
+  listError?: string | null;
+  recording?: boolean;
 }) {
   return (
     <section className="studio-panel studio-inspector">
@@ -82,6 +89,9 @@ export function SourceInspector({
             onToggle={onToggle}
             onWebcamDevice={onWebcamDevice}
             composed={composed}
+            displays={displays}
+            listError={listError}
+            recording={recording}
           />
           {source.transform && !isAudioSource(source.type) ? (
             <TransformSection
@@ -107,6 +117,9 @@ function InspectorBody({
   onToggle,
   onWebcamDevice,
   composed,
+  displays,
+  listError,
+  recording,
 }: {
   source: RecordingSource;
   settings: AppSettings;
@@ -117,12 +130,23 @@ function InspectorBody({
   onToggle: (id: string, enabled: boolean) => void;
   onWebcamDevice: (device: CameraDevice) => void;
   composed?: boolean;
+  displays?: DisplayInfo[];
+  listError?: string | null;
+  recording?: boolean;
 }) {
   if (source.type === "game") {
     return <GameSourceSettings settings={settings} onSave={onSaveSetting} />;
   }
   if (source.type === "display") {
-    return <DisplaySourceSettings settings={settings} onSave={onSaveSetting} />;
+    return (
+      <DisplaySourceSettings
+        source={source}
+        displays={displays ?? []}
+        listError={listError}
+        recording={Boolean(recording)}
+        onMonitorId={(monitorId) => onPatch(source.id, { settings: { monitorId } })}
+      />
+    );
   }
   if (source.type === "window") {
     return <p className="studio-empty">Coming later. Window capture is not available yet.</p>;

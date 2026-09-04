@@ -73,6 +73,8 @@ pub struct CaptureCompositionSource {
     pub enabled: bool,
     pub order: i32,
     pub transform: CompositionTransform,
+    #[serde(default)]
+    pub monitor_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -208,6 +210,7 @@ pub struct ValidatedCapture {
     pub order: i32,
     pub transform: NormRect,
     pub opacity: f32,
+    pub monitor_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -319,6 +322,7 @@ impl RecordingComposition {
                         order: src.order,
                         transform: validate_transform(&src.transform)?,
                         opacity: src.transform.opacity.clamp(0.0, 1.0),
+                        monitor_id: crate::displays::sanitize_monitor_id(src.monitor_id.as_deref()),
                     };
                     layers.push(ValidatedLayer::Capture);
                     capture = Some(validated);

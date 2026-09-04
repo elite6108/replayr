@@ -59,6 +59,10 @@ export type WebcamSourceSettings = {
   shape: WebcamShape;
 };
 
+export type DesktopCaptureSettings = {
+  monitorId: string | null;
+};
+
 export type RecordingSource = {
   id: string;
   type: RecordingSourceType;
@@ -96,9 +100,28 @@ export const UNIQUE_SOURCE_TYPES: readonly RecordingSourceType[] = [
 export const FULL_FRAME: SourceTransform = { x: 0, y: 0, w: 1, h: 1 };
 
 const SCENE_VERSION = 1;
+export const MAX_SCENE_NAME = 64;
 
 export function newSourceId(type: RecordingSourceType): string {
   return `${type}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function newSceneId(): string {
+  return `scene-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function sanitizeSceneName(raw: unknown, fallback = "Scene"): string {
+  const stripped = String(raw ?? "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim()
+    .slice(0, MAX_SCENE_NAME);
+  return stripped || fallback;
+}
+
+export function sanitizeSceneId(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.length > 64) return null;
+  if (!/^scene-[a-zA-Z0-9]+$/.test(raw)) return null;
+  return raw;
 }
 
 export function isPrimaryCapture(type: RecordingSourceType): boolean {
@@ -221,6 +244,11 @@ export function overlaySettingsOf(source: RecordingSource): OverlaySourceSetting
     recIndicator: Boolean(source.settings.recIndicator),
     timestamp: Boolean(source.settings.timestamp),
   };
+}
+
+export function desktopCaptureSettingsOf(source: RecordingSource): DesktopCaptureSettings {
+  const monitorId = typeof source.settings.monitorId === "string" ? source.settings.monitorId.trim() : "";
+  return { monitorId: monitorId || null };
 }
 
 export function webcamSettingsOf(source: RecordingSource): WebcamSourceSettings {
@@ -467,7 +495,7 @@ export function reorderSourceAmong(
   const to = beforeId ? ordered.findIndex((source) => source.id === beforeId) : ordered.length;
   if (to < 0) ordered.push(moved);
   else ordered.splice(to, 0, moved);
-  const ranks = ordered.map((source) => source.order).sort((left, right) => left - right);
+  const ranks = ordered.map((source) => source.order).sort((left, right) => right - left);
   return {
     ...scene,
     sources: scene.sources.map((source) => {
@@ -480,8 +508,8 @@ export function reorderSourceAmong(
 
 export function emptyScene(name = "Scene"): RecordingScene {
   return {
-    id: `scene-${Date.now().toString(36)}`,
-    name,
+    id: newSceneId(),
+    name: sanitizeSceneName(name),
     outputMode: "legacy",
     sources: [],
   };
@@ -530,11 +558,18 @@ export function sceneFromSettings(settings: AppSettings): RecordingScene {
     );
   }
   return {
-    id: `scene-${Date.now().toString(36)}`,
+    id: newSceneId(),
     name: "Gameplay",
     outputMode: "legacy",
     sources,
   };
+}
+
+export function presetSceneName(preset: ScenePresetId): string {
+  if (preset === "blank") return "Blank";
+  if (preset === "desktop") return "Desktop";
+  if (preset === "gameplayWebcam") return "Gameplay + Webcam";
+  return "Gameplay";
 }
 
 export function sceneFromPreset(preset: ScenePresetId, settings: AppSettings): RecordingScene {
@@ -583,7 +618,7 @@ export function sceneFromPreset(preset: ScenePresetId, settings: AppSettings): R
     );
   }
   return {
-    id: `scene-${Date.now().toString(36)}`,
+    id: newSceneId(),
     name: preset === "desktop" ? "Desktop" : preset === "gameplayWebcam" ? "Gameplay + Webcam" : "Gameplay",
     outputMode: "legacy",
     sources,
@@ -649,8 +684,8 @@ export function sanitizeScene(raw: unknown): RecordingScene | null {
     return sanitizeScene({ ...value, sources: cleaned });
   }
   return {
-    id: typeof value.id === "string" && value.id ? value.id : `scene-${Date.now().toString(36)}`,
-    name: typeof value.name === "string" && value.name.trim() ? value.name : "Scene",
+    id: sanitizeSceneId(value.id) ?? newSceneId(),
+    name: sanitizeSceneName(value.name),
     outputMode: value.outputMode === "composed" ? "composed" : "legacy",
     sources,
   };

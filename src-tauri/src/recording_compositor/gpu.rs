@@ -64,16 +64,17 @@ impl GpuEvent {
     }
 
     pub fn wait(&self, gpu: &SharedGpu) -> Result<(), String> {
+        self.wait_on(&gpu.context, QUERY_WAIT)
+    }
+
+    pub fn wait_on(&self, context: &ID3D11DeviceContext, timeout: Duration) -> Result<(), String> {
         let async_q: ID3D11Asynchronous = self
             .query
             .cast()
             .map_err(|err| format!("event query is not ID3D11Asynchronous: {err}"))?;
         let started = Instant::now();
         loop {
-            match unsafe {
-                gpu.context
-                    .GetData(&async_q, None, 0, 0)
-            } {
+            match unsafe { context.GetData(&async_q, None, 0, 0) } {
                 Ok(()) => return Ok(()),
                 Err(err) => {
                     let hr = err.code().0 as u32;
@@ -82,7 +83,7 @@ impl GpuEvent {
                     }
                 }
             }
-            if started.elapsed() > QUERY_WAIT {
+            if started.elapsed() > timeout {
                 return Err("GPU compose timed out.".into());
             }
             thread::sleep(QUERY_POLL);

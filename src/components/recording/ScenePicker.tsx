@@ -34,23 +34,32 @@ export function ScenePicker({
   const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const skipRenameBlur = useRef(false);
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState({ left: 0, top: 0, width: 0 });
   const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
   const current = scenes.find((scene) => scene.id === activeId) ?? scenes[0];
+  const renaming = Boolean(renameId);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setRenameId(null);
+      return;
+    }
     if (triggerRef.current) setMenu(placeMenu(triggerRef.current, scenes.length));
     function onPointer(event: PointerEvent) {
+      if (renaming) return;
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (triggerRef.current?.contains(target) || listRef.current?.contains(target)) return;
       setOpen(false);
     }
     function onKey(event: KeyboardEvent) {
+      if (renaming) return;
       if (event.key === "Escape") {
         event.preventDefault();
         setOpen(false);
@@ -63,7 +72,47 @@ export function ScenePicker({
       window.removeEventListener("pointerdown", onPointer);
       window.removeEventListener("keydown", onKey);
     };
-  }, [open, scenes.length]);
+  }, [open, scenes.length, renaming]);
+
+  useEffect(() => {
+    if (!renameId) return;
+    const input = renameInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [renameId]);
+
+  function beginRename(id: string) {
+    const scene = scenes.find((item) => item.id === id);
+    if (!scene || locked) return;
+    skipRenameBlur.current = false;
+    setOpen(true);
+    setRenameId(id);
+    setRenameDraft(scene.name);
+  }
+
+  function cancelRename() {
+    skipRenameBlur.current = true;
+    setRenameId(null);
+    setRenameDraft("");
+  }
+
+  function commitRename() {
+    if (skipRenameBlur.current) {
+      skipRenameBlur.current = false;
+      return;
+    }
+    if (!renameId) return;
+    const next = renameDraft.trim();
+    if (!next) {
+      cancelRename();
+      return;
+    }
+    onRename(renameId, next);
+    skipRenameBlur.current = true;
+    setRenameId(null);
+    setRenameDraft("");
+  }
 
   return (
     <div className="studio-scene-picker">
@@ -106,34 +155,82 @@ export function ScenePicker({
             >
               {scenes.map((scene) => {
                 const selected = scene.id === activeId;
+                const editing = renameId === scene.id;
                 return (
                   <div
                     key={scene.id}
-                    className={`studio-scene-option${selected ? " is-selected" : ""}`}
+                    className={`studio-scene-option${selected ? " is-selected" : ""}${editing ? " is-renaming" : ""}`}
                   >
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      className="studio-scene-option-main"
-                      onClick={() => {
-                        onSelect(scene.id);
-                        setOpen(false);
-                      }}
-                    >
-                      <span className="studio-combo-copy">
-                        <span className="studio-combo-title">{scene.name}</span>
-                        <span className="studio-combo-meta">
-                          {scene.sources.filter((source) => source.type !== "microphone" && source.type !== "gameAudio" && source.type !== "desktopAudio").length} visual
+                    {editing ? (
+                      <div className="studio-scene-option-main is-editing">
+                        <span className="studio-combo-copy">
+                          <input
+                            ref={renameInputRef}
+                            type="text"
+                            className="studio-scene-rename"
+                            value={renameDraft}
+                            maxLength={64}
+                            aria-label="Scene name"
+                            disabled={locked}
+                            onChange={(event) => setRenameDraft(event.target.value)}
+                            onClick={(event) => event.stopPropagation()}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => {
+                              event.stopPropagation();
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                commitRename();
+                              }
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                cancelRename();
+                              }
+                            }}
+                            onBlur={() => commitRename()}
+                          />
+                          <span className="studio-combo-meta">
+                            {scene.sources.filter(
+                              (source) =>
+                                source.type !== "microphone" &&
+                                source.type !== "gameAudio" &&
+                                source.type !== "desktopAudio",
+                            ).length}{" "}
+                            visual
+                          </span>
                         </span>
-                      </span>
-                      {selected ? <IconCheck size={16} className="studio-combo-check" /> : null}
-                    </button>
+                        {selected ? <IconCheck size={16} className="studio-combo-check" /> : null}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        className="studio-scene-option-main"
+                        onClick={() => {
+                          onSelect(scene.id);
+                          setOpen(false);
+                        }}
+                      >
+                        <span className="studio-combo-copy">
+                          <span className="studio-combo-title">{scene.name}</span>
+                          <span className="studio-combo-meta">
+                            {scene.sources.filter(
+                              (source) =>
+                                source.type !== "microphone" &&
+                                source.type !== "gameAudio" &&
+                                source.type !== "desktopAudio",
+                            ).length}{" "}
+                            visual
+                          </span>
+                        </span>
+                        {selected ? <IconCheck size={16} className="studio-combo-check" /> : null}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="studio-icon-btn"
                       title="Scene actions"
-                      disabled={locked}
+                      disabled={locked || editing}
                       onClick={(event) => {
                         event.stopPropagation();
                         const rect = event.currentTarget.getBoundingClientRect();
@@ -157,7 +254,7 @@ export function ScenePicker({
           items={[
             {
               label: "Rename",
-              onClick: () => setRenameId(rowMenu.id),
+              onClick: () => beginRename(rowMenu.id),
             },
             { label: "Duplicate", onClick: () => onDuplicate(rowMenu.id) },
             {
@@ -182,18 +279,6 @@ export function ScenePicker({
             onCreate(name, template);
             setCreateOpen(false);
             setOpen(false);
-          }}
-        />
-      ) : null}
-      {renameId ? (
-        <SceneNameDialog
-          title="Rename scene"
-          initialName={scenes.find((scene) => scene.id === renameId)?.name ?? "Scene"}
-          locked={locked}
-          onClose={() => setRenameId(null)}
-          onSave={(name) => {
-            onRename(renameId, name);
-            setRenameId(null);
           }}
         />
       ) : null}

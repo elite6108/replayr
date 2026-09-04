@@ -34,16 +34,12 @@ export function WebcamPreview({
     }
     let cancelled = false;
     setError("");
-    void startCameraPreview({ deviceId, width, height, fps, mirror })
-      .then(() => {
-        if (cancelled) void stopCameraPreview();
-      })
-      .catch((caught: unknown) => {
-        if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : "Could not open the camera.");
-          setFrame(null);
-        }
-      });
+    void startCameraPreview({ deviceId, width, height, fps, mirror }).catch((caught: unknown) => {
+      if (!cancelled) {
+        setError(caught instanceof Error ? caught.message : "Could not open the camera.");
+        setFrame(null);
+      }
+    });
     return () => {
       cancelled = true;
       void stopCameraPreview();
@@ -53,13 +49,15 @@ export function WebcamPreview({
   useEffect(() => {
     if (!active || !deviceId || disconnected) return;
     let cancelled = false;
-    const timer = window.setInterval(() => {
+    const pull = () => {
       void getCameraPreviewFrame()
         .then((next) => {
           if (!cancelled && next?.pngBase64) setFrame(next);
         })
         .catch(() => undefined);
-    }, 90);
+    };
+    pull();
+    const timer = window.setInterval(pull, 90);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

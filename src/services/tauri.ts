@@ -311,6 +311,15 @@ export async function getCameraStatus(): Promise<CameraStatus | null> {
   }
 }
 
+let cameraPreviewClients = 0;
+let cameraPreviewStopTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelCameraPreviewStop() {
+  if (!cameraPreviewStopTimer) return;
+  clearTimeout(cameraPreviewStopTimer);
+  cameraPreviewStopTimer = null;
+}
+
 export async function startCameraPreview(options: {
   deviceId: string;
   width: number;
@@ -318,16 +327,38 @@ export async function startCameraPreview(options: {
   fps: number;
   mirror: boolean;
 }): Promise<CameraStatus> {
-  return invoke("start_camera_preview", options);
+  cancelCameraPreviewStop();
+  cameraPreviewClients += 1;
+  try {
+    const status = await invoke<CameraStatus>("start_camera_preview", options);
+    if (cameraPreviewClients <= 0) {
+      void invoke("stop_camera_preview").catch(() => undefined);
+    }
+    return status;
+  } catch (caught) {
+    cameraPreviewClients = Math.max(0, cameraPreviewClients - 1);
+    throw caught;
+  }
 }
 
 export async function stopCameraPreview(): Promise<void> {
-  await invoke("stop_camera_preview");
+  if (cameraPreviewClients <= 0) return;
+  cameraPreviewClients -= 1;
+  if (cameraPreviewClients > 0) return;
+  cancelCameraPreviewStop();
+  cameraPreviewStopTimer = setTimeout(() => {
+    cameraPreviewStopTimer = null;
+    if (cameraPreviewClients > 0) return;
+    void invoke("stop_camera_preview").catch(() => undefined);
+  }, 300);
 }
 
 export async function getCameraPreviewFrame(): Promise<CameraPreviewFrame | null> {
   try {
-    return await invoke<CameraPreviewFrame | null>("get_camera_preview_frame");
+    const next = await invoke<(CameraPreviewFrame & { png_base64?: string }) | null>("get_camera_preview_frame");
+    if (!next) return null;
+    const pngBase64 = next.pngBase64 || next.png_base64 || "";
+    return pngBase64 ? { ...next, pngBase64 } : null;
   } catch {
     return null;
   }

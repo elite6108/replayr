@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { SendClipSheet } from "./SendClipSheet";
+import { DeleteClipDialog, type DeleteClipScope } from "./DeleteClipDialog";
 import { PlayerVideo } from "./ReplayrWatermark";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { useCloudStore } from "../../stores/cloudStore";
@@ -41,7 +42,8 @@ export function ClipPlayer() {
   const closePlayer = useLibraryStore((state) => state.closePlayer);
   const rename = useLibraryStore((state) => state.rename);
   const favorite = useLibraryStore((state) => state.favorite);
-  const remove = useLibraryStore((state) => state.remove);
+  const removeBoth = useLibraryStore((state) => state.remove);
+  const removeLocalOnly = useLibraryStore((state) => state.removeLocal);
   const removeFromCloud = useLibraryStore((state) => state.removeFromCloud);
   const reveal = useLibraryStore((state) => state.reveal);
   const upload = useLibraryStore((state) => state.upload);
@@ -52,7 +54,7 @@ export function ClipPlayer() {
   const navigate = useNavigate();
   const clip = clips.find((item) => item.localId === playingId) ?? null;
   const [title, setTitle] = useState(clip?.title ?? "");
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [wrapFullscreen, setWrapFullscreen] = useState(false);
@@ -67,7 +69,7 @@ export function ClipPlayer() {
 
   useEffect(() => {
     setTitle(clip?.title ?? "");
-    setConfirmDelete(false);
+    setDeleteOpen(false);
     setSendOpen(false);
     setSending(false);
     setPlayError(null);
@@ -361,26 +363,35 @@ export function ClipPlayer() {
               Remove from cloud
             </button>
           ) : null}
-          {confirmDelete ? (
-            <div className="row">
-              <button type="button" className="btn danger" onClick={() => void remove(clip.localId)}>
-                {clip.cloudClipId ? "Delete from this PC and the cloud" : "Delete file"}
-              </button>
-              <button type="button" className="btn" onClick={() => setConfirmDelete(false)}>
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button type="button" className="btn" onClick={() => setConfirmDelete(true)}>
-              Delete
-            </button>
-          )}
+          <button type="button" className="btn" onClick={() => setDeleteOpen(true)}>
+            Delete
+          </button>
           <button type="button" className="btn ghost" onClick={closePlayer}>
             Close
           </button>
         </div>
       </section>
       {sendOpen && cloudSlug ? <SendClipSheet slug={cloudSlug} onClose={() => setSendOpen(false)} /> : null}
+      {deleteOpen ? (
+        <DeleteClipDialog
+          showPc
+          showCloud={Boolean(clip.cloudClipId)}
+          showBoth={Boolean(clip.cloudClipId)}
+          onClose={() => setDeleteOpen(false)}
+          onChoose={(scope: DeleteClipScope) => {
+            setDeleteOpen(false);
+            if (scope === "pc") {
+              closePlayer();
+              void removeLocalOnly(clip.localId);
+            } else if (scope === "cloud") {
+              void removeFromCloud(clip.localId);
+            } else {
+              closePlayer();
+              void removeBoth(clip.localId);
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
 }

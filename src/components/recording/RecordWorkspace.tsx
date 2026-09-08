@@ -118,7 +118,7 @@ export function RecordWorkspace() {
           scenes={scenes}
           selectedId={selectedId}
           levels={levels}
-          settingsGain={{ mic: settings.micGain, game: settings.gameAudioGain }}
+          settingsGain={{ mic: settings.micGain, desktop: settings.systemAudioGain, game: settings.gameAudioGain }}
           compositionLocked={compositionLocked}
           onSelect={setSelectedId}
           onToggle={(id, enabled) => {
@@ -170,7 +170,6 @@ export function RecordWorkspace() {
           camera={camera}
           quiet={quiet}
           selectedId={selectedId}
-          outputLabel={outputSizeLabel(settings.resolution)}
           compositionLocked={compositionLocked}
           onSelect={setSelectedId}
           onTransform={(id, transform) => {
@@ -189,6 +188,11 @@ export function RecordWorkspace() {
           listError={displayError}
           recording={status.active || startingComposed}
           onSaveSetting={(key, value) => {
+            if (key === "microphoneId") {
+              if (status.active || startingComposed) return;
+              void writeSettings(key, value);
+              return;
+            }
             if (compositionLocked) return;
             void writeSettings(key, value);
           }}
@@ -220,6 +224,14 @@ export function RecordWorkspace() {
             onToggleGame={(enabled) => toggleAudio("gameAudio", enabled)}
             onToggleDesktop={(enabled) => toggleAudio("desktopAudio", enabled)}
             onSave={(key, value) => void writeSettings(key, value)}
+            onProperties={(id) => {
+              setSelectedId(id);
+              setPropertiesId(id);
+            }}
+            onRemove={(id) => {
+              if (compositionLocked) return;
+              deleteSource(id);
+            }}
           />
           <RecordControls
             settings={settings}
@@ -232,21 +244,22 @@ export function RecordWorkspace() {
           <span>Output: {outputSizeLabel(settings.resolution)} · {scene.outputMode === "composed" ? "Composed" : "Legacy"}</span>
           <span>{settings.fps} FPS</span>
           <span>Video: {qualityLabel(settings.bitrate)}</span>
-          <span className={`studio-ready${status.active ? " is-live" : ""}`}>
-            <i />
-            {status.active ? "Recording" : "Ready"}
-          </span>
         </footer>
       </div>
       {propertiesSource ? (
         <SourcePropertiesDialog
           source={propertiesSource}
+          settings={settings}
           displays={displays}
           listError={displayError}
           recording={status.active || startingComposed}
           onMonitorId={(monitorId) => {
             if (status.active || startingComposed) return;
             patchSource(propertiesSource.id, { settings: { monitorId } });
+          }}
+          onSaveSetting={(key, value) => {
+            if (key === "microphoneId" && (status.active || startingComposed)) return;
+            void writeSettings(key, value);
           }}
           onClose={() => setPropertiesId(null)}
         />

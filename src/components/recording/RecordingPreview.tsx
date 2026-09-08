@@ -32,7 +32,6 @@ export function RecordingPreview({
   camera,
   quiet,
   selectedId,
-  outputLabel,
   compositionLocked,
   onSelect,
   onTransform,
@@ -43,7 +42,6 @@ export function RecordingPreview({
   camera: CameraStatus;
   quiet: boolean;
   selectedId: string | null;
-  outputLabel: string;
   onSelect: (id: string | null) => void;
   onTransform: (id: string, transform: SourceTransform) => void;
   compositionLocked?: boolean;
@@ -76,12 +74,6 @@ export function RecordingPreview({
     <section className="studio-panel studio-preview">
       <div className="studio-preview-head">
         <h2>{scene.outputMode === "composed" ? "Live Output Preview" : "Recording Layout Preview"}</h2>
-        <div className="studio-preview-chips">
-          <span className={`studio-live${preview.live ? " is-on" : ""}`}>{preview.live ? "LIVE" : preview.label}</span>
-          {composed ? <span className="studio-chip studio-chip-composed">COMPOSED</span> : null}
-          <span className="studio-chip">{previewMode === "desktop" ? "Desktop" : "Gameplay"}</span>
-          <span className="studio-chip">{outputLabel}</span>
-        </div>
       </div>
       <div className="studio-preview-stage">
         <PreviewCanvas

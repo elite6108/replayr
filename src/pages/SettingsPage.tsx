@@ -714,8 +714,14 @@ function AudioPanel({
         title="Desktop / System"
         copy="Full speaker mix. Includes Chrome, Discord, and everything else. Turn this off to use selected apps only."
         enabled={settings.systemAudioEnabled}
+        gain={settings.systemAudioGain}
         status={status?.desktop}
         onEnabled={(enabled) => void toggleSource("systemAudioEnabled", enabled, "Desktop audio")}
+        onGain={(gain) =>
+          void update("systemAudioGain", gain).catch((caught) =>
+            showToast(caught instanceof Error ? caught.message : "Could not save that setting."),
+          )
+        }
       />
       <AudioSourceRow
         title="Discord"

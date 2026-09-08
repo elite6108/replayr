@@ -93,6 +93,8 @@ export interface AppSettings {
   discordAudioGain: number;
   extraApps: ExtraAudioApp[];
   systemAudioEnabled: boolean;
+  /** Linear desktop / system-audio gain: 0 = mute, 1 = 100%, 2 = 200%. */
+  systemAudioGain: number;
   saveLocation: string;
   hotkeys: Record<HotkeyAction, string>;
   autoUpload: AutoUploadMode;
@@ -133,6 +135,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   discordAudioGain: 1,
   extraApps: [],
   systemAudioEnabled: false,
+  systemAudioGain: 1,
   saveLocation: "",
   hotkeys: { ...DEFAULT_HOTKEYS },
   autoUpload: "all",

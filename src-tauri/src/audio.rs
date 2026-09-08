@@ -393,6 +393,9 @@ impl AudioRuntime {
         }
         self.inner
             .desktop_control
+            .set_gain(settings.system_audio_gain.clamp(0.0, 2.0));
+        self.inner
+            .desktop_control
             .set_enabled(settings.system_audio_enabled);
         self.ensure_desktop_peak_monitor();
         self.sync_isolated(settings, Some(snapshot), Some(catalog));
@@ -401,6 +404,9 @@ impl AudioRuntime {
     fn apply_meter_prefs(&self, settings: &AppSettings) {
         let route = MicRoute::from_settings(settings);
         self.inner.mic_control.set_gain(route.gain);
+        self.inner
+            .desktop_control
+            .set_gain(settings.system_audio_gain.clamp(0.0, 2.0));
         self.ensure_desktop_peak_monitor();
     }
 
@@ -408,6 +414,9 @@ impl AudioRuntime {
         let route = MicRoute::from_settings(settings);
         self.inner.mic_control.set_gain(route.gain);
         self.inner.mic_control.set_enabled(route.enabled);
+        self.inner
+            .desktop_control
+            .set_gain(settings.system_audio_gain.clamp(0.0, 2.0));
         self.inner
             .desktop_control
             .set_enabled(settings.system_audio_enabled);
@@ -986,7 +995,7 @@ fn build_status(
                 "Off. Selected apps only.".into()
             },
             peak: runtime.inner.desktop_control.peak(),
-            gain: 1.0,
+            gain: settings.system_audio_gain,
         },
         discord: AudioSourceStatus {
             id: "discord".into(),

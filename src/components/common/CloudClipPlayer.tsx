@@ -1,24 +1,29 @@
 import { useEffect, useState } from "react";
+import { DeleteClipDialog, type DeleteClipScope } from "./DeleteClipDialog";
 import { PlayerVideo } from "./ReplayrWatermark";
 import { useBillingStore } from "../../stores/billingStore";
 import { useCloudStore } from "../../stores/cloudStore";
+import { useLibraryStore } from "../../stores/libraryStore";
 import { formatBytes, formatClipDate, formatDuration } from "../../utils/format";
 
 export function CloudClipPlayer() {
   const playing = useCloudStore((state) => state.playing);
   const closePlayer = useCloudStore((state) => state.closePlayer);
   const rename = useCloudStore((state) => state.rename);
-  const remove = useCloudStore((state) => state.remove);
+  const removeBoth = useCloudStore((state) => state.remove);
+  const unlink = useCloudStore((state) => state.unlink);
   const download = useCloudStore((state) => state.download);
   const copyLink = useCloudStore((state) => state.copyLink);
   const setVisibility = useCloudStore((state) => state.setVisibility);
+  const clips = useLibraryStore((state) => state.clips);
+  const removeLocalOnly = useLibraryStore((state) => state.removeLocal);
   const watermark = useBillingStore((state) => state.status?.watermark ?? true);
   const [title, setTitle] = useState(playing?.clip.title ?? "");
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   useEffect(() => {
     setTitle(playing?.clip.title ?? "");
-    setConfirmDelete(false);
+    setDeleteOpen(false);
   }, [playing?.clip.id, playing?.clip.title]);
 
   useEffect(() => {
@@ -33,6 +38,7 @@ export function CloudClipPlayer() {
   if (!playing) return null;
 
   const { clip, url } = playing;
+  const linkedLocal = clips.find((item) => item.cloudClipId === clip.id) ?? null;
 
   return (
     <div className="player-overlay" role="dialog" aria-modal="true" aria-label={clip.title || "Cloud clip"}>
@@ -92,32 +98,36 @@ export function CloudClipPlayer() {
               Copy link
             </button>
           </div>
-          {confirmDelete ? (
-            <div className="row">
-              <button
-                type="button"
-                className="btn danger"
-                onClick={() => {
-                  closePlayer();
-                  void remove(clip.id);
-                }}
-              >
-                Delete from cloud
-              </button>
-              <button type="button" className="btn" onClick={() => setConfirmDelete(false)}>
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button type="button" className="btn" onClick={() => setConfirmDelete(true)}>
-              Delete
-            </button>
-          )}
+          <button type="button" className="btn" onClick={() => setDeleteOpen(true)}>
+            Delete
+          </button>
           <button type="button" className="btn ghost" onClick={closePlayer}>
             Close
           </button>
         </div>
       </section>
+      {deleteOpen ? (
+        <DeleteClipDialog
+          showPc={Boolean(linkedLocal)}
+          showCloud
+          showBoth={Boolean(linkedLocal)}
+          onClose={() => setDeleteOpen(false)}
+          onChoose={(scope: DeleteClipScope) => {
+            setDeleteOpen(false);
+            if (scope === "pc" && linkedLocal) {
+              void removeLocalOnly(linkedLocal.localId);
+              return;
+            }
+            if (scope === "cloud") {
+              closePlayer();
+              void unlink(clip.id);
+              return;
+            }
+            closePlayer();
+            void removeBoth(clip.id);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

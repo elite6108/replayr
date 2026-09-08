@@ -175,19 +175,34 @@ function InspectorBody({
   if (source.type === "text") {
     return <TextSourceSettings source={source} onChange={(next) => onPatch(source.id, { settings: next })} />;
   }
-  if (source.type === "microphone" || source.type === "desktopAudio" || source.type === "gameAudio") {
+      if (source.type === "microphone" || source.type === "desktopAudio" || source.type === "gameAudio") {
     return (
       <AudioSourceSettings
         source={source}
         peak={audioPeakFor(source.type, levels)}
-        gain={source.type === "microphone" ? settings.micGain : source.type === "gameAudio" ? settings.gameAudioGain : undefined}
+        deviceId={source.type === "microphone" ? settings.microphoneId : undefined}
+        recording={recording}
+        gain={
+          source.type === "microphone"
+            ? settings.micGain
+            : source.type === "gameAudio"
+              ? settings.gameAudioGain
+              : source.type === "desktopAudio"
+                ? settings.systemAudioGain
+                : undefined
+        }
         onToggle={(enabled) => onToggle(source.id, enabled)}
+        onDeviceId={
+          source.type === "microphone" ? (deviceId) => onSaveSetting("microphoneId", deviceId) : undefined
+        }
         onGain={
           source.type === "microphone"
             ? (gain) => onSaveSetting("micGain", gain)
             : source.type === "gameAudio"
               ? (gain) => onSaveSetting("gameAudioGain", gain)
-              : undefined
+              : source.type === "desktopAudio"
+                ? (gain) => onSaveSetting("systemAudioGain", gain)
+                : undefined
         }
       />
     );

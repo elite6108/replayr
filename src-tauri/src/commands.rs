@@ -21,6 +21,7 @@ const LIVE_AUDIO_KEYS: &[&str] = &[
     "discordAudioEnabled",
     "discordAudioGain",
     "systemAudioEnabled",
+    "systemAudioGain",
     "extraApps",
 ];
 const CAPTURE_KEYS: &[&str] = &[

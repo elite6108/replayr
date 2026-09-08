@@ -65,9 +65,6 @@ export function CloudClipCard({
 
   function remove() {
     if (!onDelete) return;
-    if (!window.confirm("Delete this clip from the cloud and this PC? The share link will stop working.")) {
-      return;
-    }
     onDelete(clip);
   }
 

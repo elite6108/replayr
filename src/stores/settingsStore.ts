@@ -65,6 +65,8 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     gameAudioGain: typeof settings.gameAudioGain === "number" ? settings.gameAudioGain : DEFAULT_SETTINGS.gameAudioGain,
     discordAudioEnabled: settings.discordAudioEnabled ?? DEFAULT_SETTINGS.discordAudioEnabled,
     discordAudioGain: typeof settings.discordAudioGain === "number" ? settings.discordAudioGain : DEFAULT_SETTINGS.discordAudioGain,
+    systemAudioGain:
+      typeof settings.systemAudioGain === "number" ? settings.systemAudioGain : DEFAULT_SETTINGS.systemAudioGain,
     extraApps: Array.isArray(settings.extraApps) ? settings.extraApps : DEFAULT_SETTINGS.extraApps,
     hotkeys: { ...DEFAULT_SETTINGS.hotkeys, ...settings.hotkeys },
     watermarkExports: settings.watermarkExports ?? DEFAULT_SETTINGS.watermarkExports,

@@ -1,4 +1,5 @@
 import type { AudioSourceStatus } from "../../types/audio";
+import { peakToMeterRatio } from "../../recording/useStudioAudio";
 
 interface AudioSourceRowProps {
   title: string;
@@ -24,6 +25,7 @@ export function AudioSourceRow({
   onUseDesktop,
 }: AudioSourceRowProps) {
   const peak = Math.max(0, Math.min(1, status?.peak ?? 0));
+  const meterPct = peakToMeterRatio(peak);
   const failed = Boolean(status?.isolationFailed);
   const label = status?.status || copy;
 
@@ -36,7 +38,7 @@ export function AudioSourceRow({
         </span>
         <span className="audio-source-controls">
           <span className="audio-meter" aria-hidden="true">
-            <span style={{ width: `${Math.round(peak * 100)}%` }} />
+            <span style={{ width: `${(meterPct * 100).toFixed(1)}%` }} />
           </span>
           <input
             className="switch"

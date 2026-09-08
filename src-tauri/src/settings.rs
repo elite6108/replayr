@@ -75,6 +75,9 @@ pub struct AppSettings {
     #[serde(default)]
     pub extra_apps: Vec<ExtraAudioApp>,
     pub system_audio_enabled: bool,
+    /// Linear desktop / system-audio gain. 0.0 is mute, 1.0 is 100%, 2.0 is 200%.
+    #[serde(default = "default_mic_gain")]
+    pub system_audio_gain: f32,
     pub save_location: String,
     pub hotkeys: Hotkeys,
     pub auto_upload: String,
@@ -270,6 +273,7 @@ impl Default for AppSettings {
             discord_audio_gain: default_mic_gain(),
             extra_apps: Vec::new(),
             system_audio_enabled: false,
+            system_audio_gain: default_mic_gain(),
             save_location: String::new(),
             hotkeys: Hotkeys::default(),
             auto_upload: "all".into(),
@@ -425,6 +429,7 @@ pub fn set_document(conn: &Connection, patch: Value) -> AppResult<AppSettings> {
     settings.mic_gain = settings.mic_gain.clamp(0.0, 2.0);
     settings.game_audio_gain = settings.game_audio_gain.clamp(0.0, 2.0);
     settings.discord_audio_gain = settings.discord_audio_gain.clamp(0.0, 2.0);
+    settings.system_audio_gain = settings.system_audio_gain.clamp(0.0, 2.0);
     settings.webcam.sanitize();
     settings.recording_visuals.sanitize();
     for app in &mut settings.extra_apps {

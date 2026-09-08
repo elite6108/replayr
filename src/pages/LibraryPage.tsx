@@ -4,6 +4,7 @@ import { AuthCard } from "../components/common/AuthCard";
 import { ClipCard } from "../components/common/ClipCard";
 import { ClipGrid } from "../components/common/ClipGrid";
 import { CloudClipCard } from "../components/common/CloudClipCard";
+import { DeleteClipDialog, type DeleteClipScope } from "../components/common/DeleteClipDialog";
 import { PageHeader } from "../components/common/PageHeader";
 import { SelectionBar } from "../components/common/SelectionBar";
 import { LibraryTabs } from "../components/library/LibraryTabs";
@@ -12,6 +13,10 @@ import { useAuthStore } from "../stores/authStore";
 import { useCloudStore } from "../stores/cloudStore";
 import { useLibraryStore } from "../stores/libraryStore";
 import { formatBytes } from "../utils/format";
+
+type PendingDelete =
+  | { source: "local"; localIds: string[]; linkedCloud: boolean }
+  | { source: "cloud"; cloudIds: string[]; allHaveLocal: boolean; anyHaveLocal: boolean };
 
 export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const navigate = useNavigate();
@@ -24,8 +29,10 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const favorite = useLibraryStore((state) => state.favorite);
   const upload = useLibraryStore((state) => state.upload);
   const renameLocal = useLibraryStore((state) => state.rename);
-  const removeLocal = useLibraryStore((state) => state.remove);
-  const removeLocalMany = useLibraryStore((state) => state.removeMany);
+  const removeBoth = useLibraryStore((state) => state.remove);
+  const removeBothMany = useLibraryStore((state) => state.removeMany);
+  const removeLocalOnly = useLibraryStore((state) => state.removeLocal);
+  const removeLocalOnlyMany = useLibraryStore((state) => state.removeLocalMany);
   const removeLocalFromCloud = useLibraryStore((state) => state.removeFromCloud);
   const removeLocalFromCloudMany = useLibraryStore((state) => state.removeFromCloudMany);
   const downloadLocal = useLibraryStore((state) => state.download);
@@ -42,8 +49,10 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const cloudError = useCloudStore((state) => state.error);
   const cloudLoading = useCloudStore((state) => state.loading);
   const refreshCloud = useCloudStore((state) => state.refresh);
-  const removeCloud = useCloudStore((state) => state.remove);
-  const removeCloudMany = useCloudStore((state) => state.removeMany);
+  const removeCloudBoth = useCloudStore((state) => state.remove);
+  const removeCloudBothMany = useCloudStore((state) => state.removeMany);
+  const unlinkCloud = useCloudStore((state) => state.unlink);
+  const unlinkCloudMany = useCloudStore((state) => state.unlinkMany);
   const renameCloud = useCloudStore((state) => state.rename);
   const downloadCloud = useCloudStore((state) => state.download);
   const downloadCloudMany = useCloudStore((state) => state.downloadMany);
@@ -55,6 +64,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const clearCloudSelection = useCloudStore((state) => state.clearSelection);
   const selectedCloud = useCloudStore((state) => state.selectedIds);
   const [query, setQuery] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const visible = useMemo(() => {
     const list = favoritesOnly ? clips.filter((clip) => clip.favorite) : clips;
     const needle = query.trim().toLowerCase();
@@ -77,6 +87,59 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
     void refreshLocal();
     if (userId) void refreshCloud();
   }, [refreshCloud, refreshLocal, userId]);
+
+  function openLocalDelete(localIds: string[]) {
+    const linkedCloud = clips.some((clip) => localIds.includes(clip.localId) && clip.cloudClipId);
+    setPendingDelete({ source: "local", localIds, linkedCloud });
+  }
+
+  function openCloudDelete(cloudIds: string[]) {
+    const linked = cloudIds.map((id) => clips.some((clip) => clip.cloudClipId === id));
+    setPendingDelete({
+      source: "cloud",
+      cloudIds,
+      allHaveLocal: linked.length > 0 && linked.every(Boolean),
+      anyHaveLocal: linked.some(Boolean),
+    });
+  }
+
+  async function applyDelete(scope: DeleteClipScope) {
+    const pending = pendingDelete;
+    setPendingDelete(null);
+    if (!pending) return;
+    if (pending.source === "local") {
+      const { localIds } = pending;
+      if (scope === "pc") {
+        if (localIds.length === 1) await removeLocalOnly(localIds[0]!);
+        else await removeLocalOnlyMany(localIds);
+        return;
+      }
+      if (scope === "cloud") {
+        if (localIds.length === 1) await removeLocalFromCloud(localIds[0]!);
+        else await removeLocalFromCloudMany(localIds);
+        return;
+      }
+      if (localIds.length === 1) await removeBoth(localIds[0]!);
+      else await removeBothMany(localIds);
+      return;
+    }
+    const { cloudIds } = pending;
+    if (scope === "cloud") {
+      if (cloudIds.length === 1) await unlinkCloud(cloudIds[0]!);
+      else await unlinkCloudMany(cloudIds);
+      clearCloudSelection();
+      return;
+    }
+    if (scope === "pc") {
+      const localIds = clips.filter((clip) => clip.cloudClipId && cloudIds.includes(clip.cloudClipId)).map((clip) => clip.localId);
+      if (localIds.length === 1) await removeLocalOnly(localIds[0]!);
+      else if (localIds.length > 1) await removeLocalOnlyMany(localIds);
+      return;
+    }
+    if (cloudIds.length === 1) await removeCloudBoth(cloudIds[0]!);
+    else await removeCloudBothMany(cloudIds);
+    clearCloudSelection();
+  }
 
   return (
     <>
@@ -129,9 +192,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
                   onUpload={user ? (item) => void upload(item.localId) : undefined}
                   onSelect={(item) => toggleLocalSelect(item.localId)}
                   onRename={(item, title) => void renameLocal(item.localId, title)}
-                  onDelete={(item) => {
-                    if (window.confirm("Delete this clip from this PC and the cloud?")) void removeLocal(item.localId);
-                  }}
+                  onDelete={(item) => openLocalDelete([item.localId])}
                   onRemoveFromCloud={(item) => {
                     if (
                       window.confirm(
@@ -175,15 +236,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
               <button
                 type="button"
                 className="btn danger"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      `Delete ${selectedLocalClips.length} clip${selectedLocalClips.length === 1 ? "" : "s"} from this PC and the cloud?`,
-                    )
-                  ) {
-                    void removeLocalMany(selectedLocalClips.map((clip) => clip.localId));
-                  }
-                }}
+                onClick={() => openLocalDelete(selectedLocalClips.map((clip) => clip.localId))}
               >
                 Delete
               </button>
@@ -238,7 +291,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
                     onSelect={(item) => toggleCloudSelect(item.id)}
                     onPlay={(item) => void playCloud(item.id)}
                     onRename={(item, title) => void renameCloud(item.id, title)}
-                    onDelete={(item) => void removeCloud(item.id)}
+                    onDelete={(item) => openCloudDelete([item.id])}
                     onDownload={(item) => void downloadCloud(item.id)}
                     onCopyLink={(item) => void copyCloudLink(item.id)}
                     onVisibility={(item, visibility) => void setCloudVisibility(item.id, visibility)}
@@ -256,15 +309,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
                 <button
                   type="button"
                   className="btn danger"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `Delete ${selectedCloud.length} clip${selectedCloud.length === 1 ? "" : "s"} from this PC and the cloud?`,
-                      )
-                    ) {
-                      void removeCloudMany(selectedCloud);
-                    }
-                  }}
+                  onClick={() => openCloudDelete(selectedCloud)}
                 >
                   Delete
                 </button>
@@ -273,6 +318,20 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
           )}
         </div>
       )}
+      {pendingDelete ? (
+        <DeleteClipDialog
+          count={pendingDelete.source === "local" ? pendingDelete.localIds.length : pendingDelete.cloudIds.length}
+          showPc={pendingDelete.source === "local" || pendingDelete.allHaveLocal}
+          showCloud={pendingDelete.source === "cloud" || pendingDelete.linkedCloud}
+          showBoth={
+            pendingDelete.source === "local"
+              ? pendingDelete.linkedCloud
+              : pendingDelete.anyHaveLocal
+          }
+          onClose={() => setPendingDelete(null)}
+          onChoose={(scope) => void applyDelete(scope)}
+        />
+      ) : null}
     </>
   );
 }

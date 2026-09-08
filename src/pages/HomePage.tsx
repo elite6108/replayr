@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ClipCard } from "../components/common/ClipCard";
 import { ClipGrid } from "../components/common/ClipGrid";
 import { ClipRail } from "../components/common/ClipRail";
+import { DeleteClipDialog, type DeleteClipScope } from "../components/common/DeleteClipDialog";
 import { HeroCapturePanel } from "../components/home/HeroCapturePanel";
 import { HomePeopleSearch } from "../components/home/HomePeopleSearch";
 import { StatCard } from "../components/ui/StatCard";
@@ -23,7 +24,8 @@ export function HomePage() {
   const favorite = useLibraryStore((state) => state.favorite);
   const upload = useLibraryStore((state) => state.upload);
   const rename = useLibraryStore((state) => state.rename);
-  const remove = useLibraryStore((state) => state.remove);
+  const removeBoth = useLibraryStore((state) => state.remove);
+  const removeLocalOnly = useLibraryStore((state) => state.removeLocal);
   const download = useLibraryStore((state) => state.download);
   const copyLink = useLibraryStore((state) => state.copyLink);
   const removeFromCloud = useLibraryStore((state) => state.removeFromCloud);
@@ -38,6 +40,7 @@ export function HomePage() {
   const name = profile?.display_name || profile?.username || user?.email?.split("@")[0];
   const token = useAuthStore((state) => state.session?.access_token);
   const [feed, setFeed] = useState<PublicFeedClip[]>([]);
+  const [pendingDelete, setPendingDelete] = useState<{ localId: string; hasCloud: boolean } | null>(null);
 
   useEffect(() => {
     void fetchPublicFeed(token)
@@ -138,9 +141,7 @@ export function HomePage() {
               onUpload={user ? (item) => void upload(item.localId) : undefined}
               onSelect={(item) => toggleSelect(item.localId)}
               onRename={(item, title) => void rename(item.localId, title)}
-              onDelete={(item) => {
-                if (window.confirm("Delete this clip from this PC and the cloud?")) void remove(item.localId);
-              }}
+              onDelete={(item) => setPendingDelete({ localId: item.localId, hasCloud: Boolean(item.cloudClipId) })}
               onRemoveFromCloud={(item) => {
                 if (
                   window.confirm(
@@ -177,6 +178,21 @@ export function HomePage() {
             </Link>
           ))}
         </ClipRail>
+      ) : null}
+      {pendingDelete ? (
+        <DeleteClipDialog
+          showPc
+          showCloud={pendingDelete.hasCloud}
+          showBoth={pendingDelete.hasCloud}
+          onClose={() => setPendingDelete(null)}
+          onChoose={(scope: DeleteClipScope) => {
+            const { localId } = pendingDelete;
+            setPendingDelete(null);
+            if (scope === "pc") void removeLocalOnly(localId);
+            else if (scope === "cloud") void removeFromCloud(localId);
+            else void removeBoth(localId);
+          }}
+        />
       ) : null}
     </div>
   );

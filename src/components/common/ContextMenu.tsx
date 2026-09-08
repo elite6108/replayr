@@ -43,7 +43,16 @@ export function ContextMenu({
   const top = Math.min(y, window.innerHeight - items.length * 32 - 16);
 
   return createPortal(
-    <div className="ctx-menu" role="menu" style={{ left, top }} onClick={(event) => event.stopPropagation()}>
+    <div
+      className="ctx-menu"
+      role="menu"
+      style={{ left, top }}
+      onClick={(event) => event.stopPropagation()}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    >
       {items.map((item) => (
         <button
           key={item.label}

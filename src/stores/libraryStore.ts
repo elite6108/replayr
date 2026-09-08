@@ -46,6 +46,8 @@ interface LibraryState {
   favorite: (localId: string, value: boolean) => Promise<void>;
   remove: (localId: string) => Promise<void>;
   removeMany: (localIds: string[]) => Promise<void>;
+  removeLocal: (localId: string) => Promise<void>;
+  removeLocalMany: (localIds: string[]) => Promise<void>;
   removeFromCloud: (localId: string) => Promise<void>;
   removeFromCloudMany: (localIds: string[]) => Promise<void>;
   reveal: (filePath: string) => Promise<void>;
@@ -435,6 +437,44 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
             ? "Clip deleted from this PC"
             : `${removed} clips deleted from this PC`,
       );
+    }
+  },
+  removeLocal: async (localId) => {
+    get().dequeueUpload(localId);
+    try {
+      await deleteLocalClip(localId);
+      set({
+        clips: get().clips.filter((item) => item.localId !== localId),
+        playingId: get().playingId === localId ? null : get().playingId,
+        selectedIds: get().selectedIds.filter((id) => id !== localId),
+      });
+      useToastStore.getState().show("Deleted from this PC");
+    } catch (caught) {
+      useToastStore.getState().show(invokeErrorMessage(caught, "Could not delete clip"));
+    }
+  },
+  removeLocalMany: async (localIds) => {
+    let removed = 0;
+    for (const localId of localIds) {
+      get().dequeueUpload(localId);
+      try {
+        await deleteLocalClip(localId);
+        removed += 1;
+      } catch (caught) {
+        useToastStore.getState().show(invokeErrorMessage(caught, "Could not delete clip"));
+      }
+    }
+    const gone = new Set(localIds);
+    const playingId = get().playingId;
+    set({
+      clips: get().clips.filter((clip) => !gone.has(clip.localId)),
+      playingId: playingId && gone.has(playingId) ? null : playingId,
+      selectedIds: get().selectedIds.filter((id) => !gone.has(id)),
+    });
+    if (removed > 0) {
+      useToastStore
+        .getState()
+        .show(removed === 1 ? "Deleted from this PC" : `${removed} clips deleted from this PC`);
     }
   },
   removeFromCloud: async (localId) => {

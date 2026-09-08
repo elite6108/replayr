@@ -1,7 +1,7 @@
 {
   "name": "project-replay",
   "private": true,
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "Project Replay desktop application",
   "type": "module",
   "scripts": {
@@ -22,6 +22,7 @@
     "worker:dev": "node worker/scripts/ensure-web-dist.mjs && npm run sync-env --prefix worker && npm run dev --prefix worker"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "@supabase/supabase-js": "^2.57.4",
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-autostart": "^2.5.0",

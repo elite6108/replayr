@@ -81,3 +81,19 @@ export function formatPeakDb(peak: number) {
   if (peak <= 0.0008) return "—";
   return `${(20 * Math.log10(peak)).toFixed(1)} dB`;
 }
+
+/** Vertical VU scale ends (must match `.studio-mix-vu-scale` labels). */
+export const METER_MIN_DB = -60;
+export const METER_MAX_DB = 6;
+
+/**
+ * Map a linear 0–1 peak (full-scale = 1.0) onto a dBFS meter face from
+ * {@link METER_MIN_DB} to {@link METER_MAX_DB}. Do not use linear peak as bar %.
+ */
+export function peakToMeterRatio(peak: number): number {
+  const clamped = Math.min(1, Math.max(0, Number.isFinite(peak) ? peak : 0));
+  if (clamped <= 0) return 0;
+  const db = 20 * Math.log10(clamped);
+  return Math.min(1, Math.max(0, (db - METER_MIN_DB) / (METER_MAX_DB - METER_MIN_DB)));
+}
+

@@ -40,7 +40,7 @@ export function SourceList({
   scenes: RecordingScene[];
   selectedId: string | null;
   levels: { micPeak: number; gamePeak: number; desktopPeak: number };
-  settingsGain: { mic?: number; game?: number };
+  settingsGain: { mic?: number; desktop?: number; game?: number };
   onSelect: (id: string | null) => void;
   onToggle: (id: string, enabled: boolean) => void;
   onLock: (id: string, locked: boolean) => void;
@@ -194,10 +194,19 @@ export function SourceList({
                 source={source}
                 selected={selectedId === source.id}
                 peak={audioPeakFor(source.type, levels)}
-                gain={source.type === "microphone" ? settingsGain.mic : source.type === "gameAudio" ? settingsGain.game : undefined}
+                gain={
+                  source.type === "microphone"
+                    ? settingsGain.mic
+                    : source.type === "desktopAudio"
+                      ? settingsGain.desktop
+                      : source.type === "gameAudio"
+                        ? settingsGain.game
+                        : undefined
+                }
                 onSelect={() => onSelect(source.id)}
                 onToggle={(enabled) => onToggle(source.id, enabled)}
                 onRemove={() => onRemove(source.id)}
+                onProperties={() => onProperties(source.id)}
               />
             ))}
           </div>

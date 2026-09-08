@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ContextMenu } from "../common/ContextMenu";
 import { IconMore, IconSpeaker, IconSpeakerOff } from "../icons";
 import { capabilityCaption, registryEntry } from "../../recording/registry";
 import { formatDb, formatPeakDb } from "../../recording/useStudioAudio";
 import type { RecordingSource } from "../../recording/scene";
+import { audioSourceMenuItems } from "./audioSourceMenu";
 import { SourceGlyph } from "./sourceGlyph";
 import { StudioMeter } from "./StudioMeter";
 
@@ -15,6 +17,7 @@ export function AudioSourceRow({
   onSelect,
   onToggle,
   onRemove,
+  onProperties,
 }: {
   source: RecordingSource;
   selected: boolean;
@@ -23,15 +26,28 @@ export function AudioSourceRow({
   onSelect: () => void;
   onToggle: (enabled: boolean) => void;
   onRemove: () => void;
+  onProperties: () => void;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const navigate = useNavigate();
   const entry = registryEntry(source.type);
   const caption = entry?.capability === "recorded" ? "" : (entry?.hint ?? capabilityCaption(source.capability));
   const level = Math.max(0, Math.min(1, peak));
   const reading = source.enabled ? (gain != null ? formatDb(gain) : formatPeakDb(peak)) : "Muted";
 
+  function openMenu(x: number, y: number) {
+    setMenu({ x, y });
+  }
+
   return (
-    <div className={`studio-source-row studio-audio-row${selected ? " is-selected" : ""}${source.enabled ? "" : " is-off"}`}>
+    <div
+      className={`studio-source-row studio-audio-row${selected ? " is-selected" : ""}${source.enabled ? "" : " is-off"}`}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openMenu(event.clientX, event.clientY);
+      }}
+    >
       <button type="button" className="studio-source-main" onClick={onSelect}>
         <SourceGlyph type={source.type} />
         <span className="studio-source-copy">
@@ -58,7 +74,7 @@ export function AudioSourceRow({
           title="More"
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect();
-            setMenu({ x: rect.right, y: rect.bottom + 4 });
+            openMenu(rect.right, rect.bottom + 4);
           }}
         >
           <IconMore size={15} />
@@ -69,7 +85,13 @@ export function AudioSourceRow({
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[{ label: "Remove", danger: true, onClick: onRemove }]}
+          items={audioSourceMenuItems({
+            enabled: source.enabled,
+            onAudioSettings: () => navigate("/settings?section=audio"),
+            onProperties,
+            onToggleMute: () => onToggle(!source.enabled),
+            onRemove,
+          })}
         />
       ) : null}
     </div>

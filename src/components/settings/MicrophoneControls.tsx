@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { getMicLevel, listAudioDevices, stopMicMonitor } from "../../services/tauri";
-import type { AudioDevice } from "../../types/audio";
+import { getMicLevel, stopMicMonitor } from "../../services/tauri";
+import { MicrophoneDeviceSelect } from "../common/MicrophoneDeviceSelect";
+import { peakToMeterRatio } from "../../recording/useStudioAudio";
 
 interface MicrophoneControlsProps {
   enabled: boolean;
@@ -21,24 +22,7 @@ export function MicrophoneControls({
   onGain,
   compact = false,
 }: MicrophoneControlsProps) {
-  const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [level, setLevel] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    void listAudioDevices()
-      .then((listed) => {
-        if (!cancelled) {
-          setDevices(listed.filter((device) => device.direction === "capture"));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setDevices([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [deviceId, enabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +43,7 @@ export function MicrophoneControls({
   }, [deviceId, enabled]);
 
   const gainPercent = Math.round(gain * 100);
+  const meterPct = peakToMeterRatio(level);
 
   return (
     <div className="stack audio-source">
@@ -74,23 +59,13 @@ export function MicrophoneControls({
           onChange={(event) => onEnabled(event.target.checked)}
         />
       </label>
-      <div className="field">
-        <label htmlFor="mic-device">Microphone device</label>
-        <select
-          id="mic-device"
-          value={deviceId || "default"}
-          disabled={!enabled && compact}
-          onChange={(event) => onDeviceId(event.target.value)}
-        >
-          <option value="default">Windows default</option>
-          {devices.map((device) => (
-            <option key={device.id} value={device.id}>
-              {device.name}
-              {device.isDefault ? " (Windows default)" : ""}
-            </option>
-          ))}
-        </select>
-      </div>
+      <MicrophoneDeviceSelect
+        id="mic-device"
+        label="Microphone device"
+        deviceId={deviceId}
+        onDeviceId={onDeviceId}
+        disabled={!enabled && compact}
+      />
       <div className="field">
         <label htmlFor="mic-gain">Microphone volume ({gainPercent}%)</label>
         <input
@@ -105,7 +80,7 @@ export function MicrophoneControls({
         />
       </div>
       <div className="audio-meter" aria-label="Microphone level" aria-hidden="true">
-        <span style={{ width: `${Math.round(level * 100)}%` }} />
+        <span style={{ width: `${(meterPct * 100).toFixed(1)}%` }} />
       </div>
       <p className="muted">Speak to test. Windows must allow Replayr to use the microphone.</p>
     </div>

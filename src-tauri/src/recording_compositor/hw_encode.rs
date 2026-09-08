@@ -35,11 +35,9 @@ use crate::export::mux::H264Mp4Mux;
 use super::gpu::create_nv12_encode;
 use super::session_aac::SessionAacEncoder;
 
-/// Same canvas the proven `gpu_dxgi` encoder negotiates. Do not pass Native/0x0.
-const GPU_ENCODER_W: u32 = 1920;
-const GPU_ENCODER_H: u32 = 1080;
-/// Forced for this negotiation-only iteration. Product FPS stays on the session clock.
-const NEGOTIATE_FPS: u32 = 60;
+/// Proven 1080p60 defaults used only when a caller asks for the safety-net size.
+const FALLBACK_ENCODER_W: u32 = 1920;
+const FALLBACK_ENCODER_H: u32 = 1080;
 const MFT_SET_TYPE_TEST_ONLY: u32 = 1;
 /// Same depth as `gpu_dxgi` `VP_OUTPUT_RING`. A 3-slot pool stalls an async HMFT.
 const POOL: usize = 16;
@@ -103,17 +101,18 @@ impl ComposedGpuEncoder {
         bitrate: u32,
         include_audio: bool,
     ) -> Result<Self, String> {
-        let requested_fps = fps.max(1);
+        let width = if width == 0 { FALLBACK_ENCODER_W } else { width };
+        let height = if height == 0 { FALLBACK_ENCODER_H } else { height };
+        let fps = fps.clamp(24, 60);
         tracing::info!(
             input_width = width,
             input_height = height,
-            output_width = GPU_ENCODER_W,
-            output_height = GPU_ENCODER_H,
-            requested_fps,
-            negotiate_fps = NEGOTIATE_FPS,
+            output_width = width,
+            output_height = height,
+            fps,
             "composed encoder resolved integer canvas before SetInputType"
         );
-        if GPU_ENCODER_W == 0 || GPU_ENCODER_H == 0 || GPU_ENCODER_W % 2 != 0 || GPU_ENCODER_H % 2 != 0 {
+        if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
             return Err(
                 "Composed GPU encoding could not start: encoder canvas is invalid. Use Legacy recording."
                     .into(),
@@ -133,11 +132,12 @@ impl ComposedGpuEncoder {
             &name,
             &clsid,
             aware,
-            requested_fps,
+            fps,
             bitrate,
             width,
             height,
         )?;
+        verify_configured_types(&transform, width, height, fps)?;
         let events: IMFMediaEventGenerator = transform.cast().map_err(|err| {
             format!("Composed GPU encoding could not start: {err} Use Legacy recording.")
         })?;
@@ -146,15 +146,15 @@ impl ComposedGpuEncoder {
         // known-good gpu_dxgi rule and the likely unplayable/~2s GOP symptom.
         let mut pool = Vec::with_capacity(POOL);
         for _ in 0..POOL {
-            pool.push(create_nv12_encode(device, GPU_ENCODER_W, GPU_ENCODER_H)?);
+            pool.push(create_nv12_encode(device, width, height)?);
         }
         tracing::info!(
             encoder = %name,
             input = "NV12",
             output = "H264",
-            negotiate_w = GPU_ENCODER_W,
-            negotiate_h = GPU_ENCODER_H,
-            fps = NEGOTIATE_FPS,
+            negotiate_w = width,
+            negotiate_h = height,
+            fps,
             d3d_aware = ?aware,
             pool = POOL,
             mux_ready = false,
@@ -175,15 +175,62 @@ impl ComposedGpuEncoder {
             in_flight: VecDeque::new(),
             need_input: 0,
             name,
-            width: GPU_ENCODER_W,
-            height: GPU_ENCODER_H,
-            fps: NEGOTIATE_FPS,
+            width,
+            height,
+            fps,
             logged_first: false,
             stats: EncoderPipelineStats::default(),
             include_audio,
             aac,
             pending_pcm: Vec::new(),
         })
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn fps(&self) -> u32 {
+        self.fps
+    }
+
+    /// Advisory TEST_ONLY + real SetOutput/SetInput on the same MFT path.
+    /// Used to walk the resolution ladder before opening the compositor.
+    pub fn probe_candidate(
+        manager: &IMFDXGIDeviceManager,
+        width: u32,
+        height: u32,
+        fps: u32,
+        bitrate: u32,
+    ) -> Result<(), String> {
+        let width = if width == 0 { FALLBACK_ENCODER_W } else { width };
+        let height = if height == 0 { FALLBACK_ENCODER_H } else { height };
+        let fps = fps.clamp(24, 60);
+        if width % 2 != 0 || height % 2 != 0 {
+            return Err("candidate dimensions must be even".into());
+        }
+        let (name, clsid, transform) = activate_gpu_encoder()?;
+        let aware = d3d11_aware(&transform);
+        if aware == Some(false) {
+            return Err("encoder is not D3D11-aware".into());
+        }
+        configure_encoder(
+            &transform,
+            manager,
+            &name,
+            &clsid,
+            aware,
+            fps,
+            bitrate,
+            width,
+            height,
+        )?;
+        verify_configured_types(&transform, width, height, fps)?;
+        Ok(())
     }
 
     pub fn frame_duration_hns(&self) -> i64 {
@@ -624,7 +671,7 @@ fn configure_encoder(
     name: &str,
     clsid: &str,
     aware: Option<bool>,
-    requested_fps: u32,
+    fps: u32,
     bitrate: u32,
     canvas_w: u32,
     canvas_h: u32,
@@ -652,8 +699,8 @@ fn configure_encoder(
                 .map_err(|err| format!("SET_D3D_MANAGER hr={:#x}", err.code().0 as u32))?;
         }
     }
-    let output_type = known_good_h264_output(NEGOTIATE_FPS, bitrate)?;
-    let input_type = known_good_nv12_input(NEGOTIATE_FPS)?;
+    let output_type = known_good_h264_output(canvas_w, canvas_h, fps, bitrate)?;
+    let input_type = known_good_nv12_input(canvas_w, canvas_h, fps)?;
     dump_media_type("composed output type before SetOutputType", &output_type);
     dump_media_type("composed input type before SetInputType", &input_type);
     log_negotiation(
@@ -661,12 +708,13 @@ fn configure_encoder(
         clsid,
         async_mft,
         aware,
-        requested_fps,
+        fps,
         bitrate,
         input_stream,
         output_stream,
         canvas_w,
         canvas_h,
+        fps,
     );
     unsafe {
         transform
@@ -674,27 +722,19 @@ fn configure_encoder(
             .map_err(|err| format!("SetOutputType hr={:#x} {err}", err.code().0 as u32))?;
         tracing::info!(set_output_type_hr = "0x0", "composed encoder SetOutputType");
         log_available_inputs(transform);
-        if let Ok(probe_30) = known_good_nv12_input(30) {
-            match transform.SetInputType(0, &probe_30, MFT_SET_TYPE_TEST_ONLY) {
-                Ok(()) => tracing::info!(
-                    set_input_type_test_only_30_hr = "0x0",
-                    "composed encoder SetInputType TEST_ONLY 30fps (diagnostic only)"
-                ),
-                Err(err) => tracing::info!(
-                    set_input_type_test_only_30_hr = format!("{:#x}", err.code().0 as u32),
-                    "composed encoder SetInputType TEST_ONLY 30fps (diagnostic only)"
-                ),
-            }
-        }
         match transform.SetInputType(0, &input_type, MFT_SET_TYPE_TEST_ONLY) {
             Ok(()) => tracing::info!(
                 set_input_type_test_only_hr = "0x0",
-                fps = NEGOTIATE_FPS,
+                fps,
+                width = canvas_w,
+                height = canvas_h,
                 "composed encoder SetInputType TEST_ONLY"
             ),
             Err(err) => tracing::warn!(
                 set_input_type_test_only_hr = format!("{:#x}", err.code().0 as u32),
-                fps = NEGOTIATE_FPS,
+                fps,
+                width = canvas_w,
+                height = canvas_h,
                 %err,
                 "composed encoder SetInputType TEST_ONLY"
             ),
@@ -707,6 +747,62 @@ fn configure_encoder(
         let _ = transform.ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
     }
     Ok(())
+}
+
+fn verify_configured_types(
+    transform: &IMFTransform,
+    expect_w: u32,
+    expect_h: u32,
+    expect_fps: u32,
+) -> Result<(), String> {
+    unsafe {
+        let input = transform
+            .GetInputCurrentType(0)
+            .map_err(|err| format!("GetInputCurrentType hr={:#x}", err.code().0 as u32))?;
+        let output = transform
+            .GetOutputCurrentType(0)
+            .map_err(|err| format!("GetOutputCurrentType hr={:#x}", err.code().0 as u32))?;
+        let (in_w, in_h, in_fps) = read_frame_geometry(&input)?;
+        let (out_w, out_h, out_fps) = read_frame_geometry(&output)?;
+        if in_w != expect_w || in_h != expect_h {
+            return Err(format!(
+                "encoder input current type {in_w}x{in_h} != candidate {expect_w}x{expect_h}"
+            ));
+        }
+        if out_w != expect_w || out_h != expect_h {
+            return Err(format!(
+                "encoder output current type {out_w}x{out_h} != candidate {expect_w}x{expect_h}"
+            ));
+        }
+        if in_fps != expect_fps || out_fps != expect_fps {
+            return Err(format!(
+                "encoder fps input={in_fps} output={out_fps} != candidate {expect_fps}"
+            ));
+        }
+        tracing::info!(
+            input = format!("{in_w}x{in_h}@{in_fps}"),
+            output = format!("{out_w}x{out_h}@{out_fps}"),
+            "composed encoder current media types match candidate"
+        );
+    }
+    Ok(())
+}
+
+fn read_frame_geometry(media: &IMFMediaType) -> Result<(u32, u32, u32), String> {
+    unsafe {
+        let size = media
+            .GetUINT64(&MF_MT_FRAME_SIZE)
+            .map_err(|err| format!("MF_MT_FRAME_SIZE hr={:#x}", err.code().0 as u32))?;
+        let rate = media
+            .GetUINT64(&MF_MT_FRAME_RATE)
+            .map_err(|err| format!("MF_MT_FRAME_RATE hr={:#x}", err.code().0 as u32))?;
+        let width = (size >> 32) as u32;
+        let height = size as u32;
+        let num = (rate >> 32) as u32;
+        let den = (rate as u32).max(1);
+        let fps = num / den;
+        Ok((width, height, fps))
+    }
 }
 
 fn log_available_inputs(transform: &IMFTransform) {
@@ -824,6 +920,7 @@ fn log_negotiation(
     output_stream: u32,
     canvas_w: u32,
     canvas_h: u32,
+    negotiate_fps: u32,
 ) {
     let vendor = encoder_vendor(name);
     tracing::info!(
@@ -842,17 +939,17 @@ fn log_negotiation(
         canvas_h,
         requested_fps,
         output_subtype = "H264",
-        output_w = GPU_ENCODER_W,
-        output_h = GPU_ENCODER_H,
-        output_fps_num = NEGOTIATE_FPS,
+        output_w = canvas_w,
+        output_h = canvas_h,
+        output_fps_num = negotiate_fps,
         output_fps_den = 1,
         output_bitrate = bitrate,
         output_profile = "unset (known-good)",
         output_interlace = "progressive",
         input_subtype = "NV12",
-        input_w = GPU_ENCODER_W,
-        input_h = GPU_ENCODER_H,
-        input_fps_num = NEGOTIATE_FPS,
+        input_w = canvas_w,
+        input_h = canvas_h,
+        input_fps_num = negotiate_fps,
         input_fps_den = 1,
         input_aspect = "1:1",
         input_interlace = "progressive",
@@ -860,34 +957,53 @@ fn log_negotiation(
         input_sample_size = "unset (known-good)",
         "COMPOSED ENCODER"
     );
-    tracing::info!(
-        field_mft = "same pick as gpu_dxgi (inventory + MFTEnumEx ALL)",
-        field_input_subtype = "NV12 = NV12",
-        field_width = format!("{GPU_ENCODER_W} = {GPU_ENCODER_W}"),
-        field_height = format!("{GPU_ENCODER_H} = {GPU_ENCODER_H}"),
-        field_fps = format!("{NEGOTIATE_FPS}/1 = {NEGOTIATE_FPS}/1"),
-        field_interlace = "progressive = progressive",
-        field_aspect = "1:1 (input only) = 1:1 (input only)",
-        field_output_subtype = "H264 = H264",
-        field_bitrate = bitrate,
-        field_profile = "unset = unset",
-        field_d3d_manager = "before SetOutputType = before SetOutputType",
-        field_set_type_order = "SetOutputType then SetInputType",
-        field_async_unlock = "if MF_TRANSFORM_ASYNC = if MF_TRANSFORM_ASYNC",
-        "KNOWN GOOD vs COMPOSED"
-    );
 }
 
-fn known_good_nv12_input(fps: u32) -> Result<IMFMediaType, String> {
+fn known_good_nv12_input(width: u32, height: u32, fps: u32) -> Result<IMFMediaType, String> {
+    nv12_or_h264_type(true, width, height, fps, 0)
+}
+
+fn known_good_h264_output(
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate: u32,
+) -> Result<IMFMediaType, String> {
+    nv12_or_h264_type(false, width, height, fps, bitrate)
+}
+
+fn nv12_or_h264_type(
+    nv12_input: bool,
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate: u32,
+) -> Result<IMFMediaType, String> {
     let fps = fps.max(1) as u64;
     unsafe {
         let media = MFCreateMediaType().map_err(|err| err.to_string())?;
-        media.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video).map_err(|err| err.to_string())?;
-        media.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_NV12).map_err(|err| err.to_string())?;
+        media
+            .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
+            .map_err(|err| err.to_string())?;
+        if nv12_input {
+            media
+                .SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_NV12)
+                .map_err(|err| err.to_string())?;
+            media
+                .SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1u64 << 32) | 1)
+                .map_err(|err| err.to_string())?;
+        } else {
+            media
+                .SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264)
+                .map_err(|err| err.to_string())?;
+            media
+                .SetUINT32(&MF_MT_AVG_BITRATE, bitrate)
+                .map_err(|err| err.to_string())?;
+        }
         media
             .SetUINT64(
                 &MF_MT_FRAME_SIZE,
-                (u64::from(GPU_ENCODER_W) << 32) | u64::from(GPU_ENCODER_H),
+                (u64::from(width) << 32) | u64::from(height),
             )
             .map_err(|err| err.to_string())?;
         media
@@ -895,34 +1011,6 @@ fn known_good_nv12_input(fps: u32) -> Result<IMFMediaType, String> {
             .map_err(|err| err.to_string())?;
         media
             .SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)
-            .map_err(|err| err.to_string())?;
-        media
-            .SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1u64 << 32) | 1)
-            .map_err(|err| err.to_string())?;
-        Ok(media)
-    }
-}
-
-fn known_good_h264_output(fps: u32, bitrate: u32) -> Result<IMFMediaType, String> {
-    let fps = fps.max(1) as u64;
-    unsafe {
-        let media = MFCreateMediaType().map_err(|err| err.to_string())?;
-        media.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video).map_err(|err| err.to_string())?;
-        media.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264).map_err(|err| err.to_string())?;
-        media
-            .SetUINT64(
-                &MF_MT_FRAME_SIZE,
-                (u64::from(GPU_ENCODER_W) << 32) | u64::from(GPU_ENCODER_H),
-            )
-            .map_err(|err| err.to_string())?;
-        media
-            .SetUINT64(&MF_MT_FRAME_RATE, (fps << 32) | 1)
-            .map_err(|err| err.to_string())?;
-        media
-            .SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)
-            .map_err(|err| err.to_string())?;
-        media
-            .SetUINT32(&MF_MT_AVG_BITRATE, bitrate)
             .map_err(|err| err.to_string())?;
         Ok(media)
     }

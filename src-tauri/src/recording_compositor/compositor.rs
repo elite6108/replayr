@@ -9,13 +9,14 @@ use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D11::{
     ID3D11RenderTargetView, ID3D11Resource, ID3D11ShaderResourceView, ID3D11Texture2D,
     ID3D11VideoProcessor, ID3D11VideoProcessorEnumerator, ID3D11VideoProcessorInputView,
-    ID3D11VideoProcessorOutputView, D3D11_TEX2D_VPIV, D3D11_TEX2D_VPOV, D3D11_VIDEO_COLOR,
-    D3D11_VIDEO_COLOR_0, D3D11_VIDEO_COLOR_YCbCrA, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
-    D3D11_VIDEO_PROCESSOR_CAPS, D3D11_VIDEO_PROCESSOR_CONTENT_DESC,
-    D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT, D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT,
-    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0,
-    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0,
-    D3D11_VIDEO_PROCESSOR_STREAM, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL, D3D11_VPIV_DIMENSION_TEXTURE2D,
+    ID3D11VideoProcessorOutputView, D3D11_TEX2D_VPIV, D3D11_TEX2D_VPOV, D3D11_TEXTURE2D_DESC,
+    D3D11_VIDEO_COLOR, D3D11_VIDEO_COLOR_0, D3D11_VIDEO_COLOR_YCbCrA,
+    D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, D3D11_VIDEO_PROCESSOR_CAPS,
+    D3D11_VIDEO_PROCESSOR_CONTENT_DESC, D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT,
+    D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC,
+    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC,
+    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_STREAM,
+    D3D11_VIDEO_USAGE_PLAYBACK_NORMAL, D3D11_VPIV_DIMENSION_TEXTURE2D,
     D3D11_VPOV_DIMENSION_TEXTURE2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
@@ -94,13 +95,18 @@ struct BlitOp {
 }
 
 impl RecordingCompositor {
-    pub fn open(gpu: SharedGpu, spec: &ValidatedComposition, first: &StillFrame) -> Result<Self, String> {
-        let (out_w, out_h) = if spec.native_canvas {
-            align_output(first.width, first.height)
-        } else {
-            align_output(spec.canvas_w, spec.canvas_h)
-        };
-        let fps = spec.fps;
+    pub fn open(
+        gpu: SharedGpu,
+        spec: &ValidatedComposition,
+        first: &StillFrame,
+        out_w: u32,
+        out_h: u32,
+    ) -> Result<Self, String> {
+        let (out_w, out_h) = align_output(out_w, out_h);
+        if out_w < 2 || out_h < 2 {
+            return Err("Composed output size is invalid.".into());
+        }
+        let fps = spec.fps.clamp(24, 60);
         let desc = D3D11_VIDEO_PROCESSOR_CONTENT_DESC {
             InputFrameFormat: D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
             InputFrameRate: DXGI_RATIONAL {
@@ -680,6 +686,14 @@ impl RecordingCompositor {
 
     fn copy_to_encoder(&self, dest: &ID3D11Texture2D) -> Result<(), String> {
         unsafe {
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            dest.GetDesc(&mut desc);
+            if desc.Width != self.out_w || desc.Height != self.out_h {
+                return Err(format!(
+                    "compose/encoder size mismatch: compositor {}x{} encoder {}x{} (refusing overlap copy)",
+                    self.out_w, self.out_h, desc.Width, desc.Height
+                ));
+            }
             let src: ID3D11Resource = self
                 .output
                 .cast()

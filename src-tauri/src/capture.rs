@@ -200,6 +200,8 @@ mod windows_impl {
         pub height: u32,
         pub bitrate: u32,
         pub fps: u32,
+        pub quality_preset: crate::recording_bitrate::QualityPreset,
+        pub custom_kbps: u32,
         pub include_audio: bool,
         pub segmented: bool,
         pub min_free_disk_bytes: u64,
@@ -506,12 +508,19 @@ mod windows_impl {
         Ok(dir)
     }
 
-    fn bitrate_of(settings: &AppSettings) -> u32 {
-        match settings.bitrate.as_str() {
-            "low" => 8_000_000,
-            "high" => 25_000_000,
-            "custom" => settings.custom_bitrate_kbps.saturating_mul(1000).max(1_000_000),
-            _ => 15_000_000,
+    /// Fixed ladder for legacy (non-segmented) session capture only.
+    /// Instant Replay uses `resolve_clip_bitrate` instead.
+    fn legacy_session_bitrate(
+        preset: crate::recording_bitrate::QualityPreset,
+        custom_kbps: u32,
+    ) -> u32 {
+        match preset {
+            crate::recording_bitrate::QualityPreset::Low => 8_000_000,
+            crate::recording_bitrate::QualityPreset::High => 25_000_000,
+            crate::recording_bitrate::QualityPreset::Custom => {
+                custom_kbps.saturating_mul(1000).max(1_000_000)
+            }
+            crate::recording_bitrate::QualityPreset::Medium => 15_000_000,
         }
     }
 
@@ -652,7 +661,10 @@ mod windows_impl {
         }
 
         let fps = settings.fps.max(15).min(120);
-        let bitrate = bitrate_of(&settings);
+        // Encode pump clamps to 24–60; resolve clip bitrate against that encode FPS.
+        let encode_fps = fps.min(60).max(24);
+        let quality_preset = crate::recording_bitrate::QualityPreset::parse(&settings.bitrate);
+        let custom_kbps = settings.custom_bitrate_kbps;
         let include_audio = settings.wants_audio_track();
         let audio_runtime = {
             let runtime = app.state::<crate::audio::AudioRuntime>();
@@ -674,21 +686,54 @@ mod windows_impl {
         );
 
         let resolution = settings.resolution.clone();
-        let make_flags = |width: u32, height: u32| SessionFlags {
-            path: first_path.clone(),
-            dir: buffer_dir.clone(),
-            width,
-            height,
-            bitrate,
-            fps,
-            include_audio,
-            segmented,
-            min_free_disk_bytes: settings.min_free_disk_bytes,
-            shared: state.shared.clone(),
-            audio_runtime: audio_runtime.clone(),
-            camera: camera.clone(),
-            resolution: resolution.clone(),
-            replay_keep_ms: u64::from(settings.replay_duration_seconds) * 1000,
+        let make_flags = |width: u32, height: u32| {
+            // Instant Replay (segmented) uses the resolution-aware clip ladder.
+            // Legacy non-segmented session capture keeps the old fixed presets.
+            let bitrate = if segmented {
+                crate::recording_bitrate::resolve_clip_bitrate(
+                    width,
+                    height,
+                    encode_fps,
+                    quality_preset,
+                    custom_kbps,
+                )
+            } else {
+                legacy_session_bitrate(quality_preset, custom_kbps)
+            };
+            if segmented {
+                tracing::info!(
+                    width,
+                    height,
+                    encode_fps,
+                    quality_preset = quality_preset.as_str(),
+                    resolved_bitrate_bps = bitrate,
+                    resolved_bitrate_mbps = format!(
+                        "{:.1}",
+                        crate::recording_bitrate::bitrate_mbps(bitrate)
+                    ),
+                    segmented,
+                    session,
+                    "IR encode bitrate resolved from actual output size"
+                );
+            }
+            SessionFlags {
+                path: first_path.clone(),
+                dir: buffer_dir.clone(),
+                width,
+                height,
+                bitrate,
+                fps,
+                quality_preset,
+                custom_kbps,
+                include_audio,
+                segmented,
+                min_free_disk_bytes: settings.min_free_disk_bytes,
+                shared: state.shared.clone(),
+                audio_runtime: audio_runtime.clone(),
+                camera: camera.clone(),
+                resolution: resolution.clone(),
+                replay_keep_ms: u64::from(settings.replay_duration_seconds) * 1000,
+            }
         };
 
         let mut last_error = None;
@@ -805,6 +850,28 @@ mod windows_impl {
         let mut flags = flags;
         flags.width = width;
         flags.height = height;
+        let encode_fps = flags.fps.min(60).max(24);
+        if flags.segmented {
+            flags.bitrate = crate::recording_bitrate::resolve_clip_bitrate(
+                width,
+                height,
+                encode_fps,
+                flags.quality_preset,
+                flags.custom_kbps,
+            );
+            tracing::info!(
+                width,
+                height,
+                encode_fps,
+                quality_preset = flags.quality_preset.as_str(),
+                resolved_bitrate_bps = flags.bitrate,
+                resolved_bitrate_mbps = format!(
+                    "{:.1}",
+                    crate::recording_bitrate::bitrate_mbps(flags.bitrate)
+                ),
+                "IR monitor encode bitrate resolved from actual output size"
+            );
+        }
         let control = begin(monitor, flags).map_err(AppError::Message)?;
         Ok(("Display".into(), control, width, height))
     }

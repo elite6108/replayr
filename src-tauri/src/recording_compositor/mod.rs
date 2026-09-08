@@ -6,6 +6,8 @@ mod scene;
 mod transforms;
 
 #[cfg(windows)]
+mod resolve_output;
+#[cfg(windows)]
 mod compositor;
 #[cfg(windows)]
 mod gpu;
@@ -182,7 +184,6 @@ fn start_windows(
         .unwrap_or(0);
     let slug = game_id.as_deref().unwrap_or("recording");
     let path = output_path(&save, slug, "mp4");
-    let bitrate = bitrate_of(&settings);
     let audio_plan = ComposedAudioPlan {
         include: spec.audio.include(),
         mic: spec.audio.microphone.routed(),
@@ -210,7 +211,6 @@ fn start_windows(
                 thread_pid,
                 thread_game_id,
                 thread_title,
-                bitrate,
                 audio_plan,
                 audio,
                 thread_settings,
@@ -384,7 +384,6 @@ fn run_composed_session(
     pid: Option<u32>,
     game_id: Option<String>,
     title: String,
-    bitrate: u32,
     audio_plan: ComposedAudioPlan,
     audio: crate::audio::AudioRuntime,
     settings: crate::settings::AppSettings,
@@ -394,12 +393,16 @@ fn run_composed_session(
 ) -> Result<FinishedComposed, String> {
     use crate::audio_timeline::{frames_from_hns, AUDIO_LEAD_HNS};
     use crate::camera::SessionClock;
+    use crate::recording_bitrate::{bitrate_mbps, resolve_recording_bitrate, QualityPreset};
     use compositor::{ComposeInput, RecordingCompositor};
     use gpu::SharedGpu;
     use sources::capture::ComposedCapture;
     use sources::webcam::ComposedWebcam;
 
     diagnostics::log_start(spec.canvas_w, spec.canvas_h, spec.fps, spec.webcam.is_some(), &path.display().to_string());
+
+    let quality_preset = QualityPreset::parse(&settings.bitrate);
+    let custom_kbps = settings.custom_bitrate_kbps;
 
     let fail_ready = {
         let ready = ready.clone();
@@ -432,10 +435,125 @@ fn run_composed_session(
         Ok(gpu) => gpu,
         Err(err) => return Err(fail_ready(format!("{err} Use Legacy recording or try again."))),
     };
-    let mut compositor = match RecordingCompositor::open(gpu, &spec, &first) {
-        Ok(compositor) => compositor,
-        Err(err) => return Err(fail_ready(err)),
+
+    let fps = spec.fps.clamp(24, 60);
+    let (requested_w, requested_h, requested_mode) =
+        resolve_output::resolve_requested_size(&settings.resolution, first.width, first.height);
+    let ladder =
+        resolve_output::build_candidate_ladder(first.width, first.height, requested_w, requested_h);
+    let mut resolved: Option<resolve_output::ResolvedOutput> = None;
+    let mut last_probe_err = String::from("No encoder size candidates succeeded.");
+    for (index, (cand_w, cand_h)) in ladder.iter().copied().enumerate() {
+        let candidate_bitrate =
+            resolve_recording_bitrate(cand_w, cand_h, fps, quality_preset, custom_kbps);
+        match hw_encode::ComposedGpuEncoder::probe_candidate(
+            &gpu.manager,
+            cand_w,
+            cand_h,
+            fps,
+            candidate_bitrate,
+        ) {
+            Ok(()) => {
+                // Real open verification (pool/mux path) before accepting the candidate.
+                match hw_encode::ComposedGpuEncoder::open(
+                    &gpu.device,
+                    &gpu.manager,
+                    &path,
+                    cand_w,
+                    cand_h,
+                    fps,
+                    candidate_bitrate,
+                    false,
+                ) {
+                    Ok(mut trial) => {
+                        if trial.width() == cand_w
+                            && trial.height() == cand_h
+                            && trial.fps() == fps
+                        {
+                            let _ = trial.finish();
+                            resolved = Some(resolve_output::ResolvedOutput {
+                                width: cand_w,
+                                height: cand_h,
+                                fps,
+                                fallback_occurred: index > 0
+                                    || cand_w != requested_w
+                                    || cand_h != requested_h,
+                            });
+                            break;
+                        }
+                        last_probe_err = format!(
+                            "encoder opened at {}x{}@{} but candidate was {}x{}@{fps}",
+                            trial.width(),
+                            trial.height(),
+                            trial.fps(),
+                            cand_w,
+                            cand_h
+                        );
+                        let _ = trial.finish();
+                    }
+                    Err(err) => {
+                        last_probe_err = err;
+                        tracing::warn!(
+                            candidate = format!("{cand_w}x{cand_h}@{fps}"),
+                            error = %last_probe_err,
+                            "composed encoder candidate rejected"
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                last_probe_err = err;
+                tracing::warn!(
+                    candidate = format!("{cand_w}x{cand_h}@{fps}"),
+                    error = %last_probe_err,
+                    "composed encoder probe rejected"
+                );
+            }
+        }
+    }
+    let resolved = match resolved {
+        Some(value) => value,
+        None => {
+            return Err(fail_ready(format!(
+                "Composed GPU encoding could not start: {last_probe_err} Use Legacy recording."
+            )));
+        }
     };
+    let bitrate = resolve_recording_bitrate(
+        resolved.width,
+        resolved.height,
+        resolved.fps,
+        quality_preset,
+        custom_kbps,
+    );
+    tracing::info!(
+        requested_resolution = requested_mode,
+        source_width = first.width,
+        source_height = first.height,
+        requested_width = requested_w,
+        requested_height = requested_h,
+        actual_width = resolved.width,
+        actual_height = resolved.height,
+        fps = resolved.fps,
+        codec = "h264",
+        quality_preset = quality_preset.as_str(),
+        resolved_bitrate_bps = bitrate,
+        resolved_bitrate_mbps = format!("{:.1}", bitrate_mbps(bitrate)),
+        fallback_occurred = resolved.fallback_occurred,
+        "composed recording ResolvedOutput"
+    );
+
+    let mut compositor =
+        match RecordingCompositor::open(gpu, &spec, &first, resolved.width, resolved.height) {
+            Ok(compositor) => compositor,
+            Err(err) => return Err(fail_ready(err)),
+        };
+    if compositor.out_w != resolved.width || compositor.out_h != resolved.height {
+        return Err(fail_ready(format!(
+            "Compositor opened at {}x{} but ResolvedOutput is {}x{}",
+            compositor.out_w, compositor.out_h, resolved.width, resolved.height
+        )));
+    }
     if let Err(err) = compositor.load_session_resources(&spec) {
         return Err(fail_ready(err));
     }
@@ -486,9 +604,9 @@ fn run_composed_session(
         compositor.device(),
         compositor.manager(),
         &path,
-        compositor.out_w,
-        compositor.out_h,
-        spec.fps,
+        resolved.width,
+        resolved.height,
+        resolved.fps,
         bitrate,
         audio_plan.include,
     ) {
@@ -499,39 +617,65 @@ fn run_composed_session(
             )));
         }
     };
+    if encoder.width() != resolved.width
+        || encoder.height() != resolved.height
+        || encoder.fps() != resolved.fps
+    {
+        let _ = encoder.finish();
+        return Err(fail_ready(format!(
+            "Encoder opened at {}x{}@{} but ResolvedOutput is {}x{}@{}",
+            encoder.width(),
+            encoder.height(),
+            encoder.fps(),
+            resolved.width,
+            resolved.height,
+            resolved.fps
+        )));
+    }
     let encoder_name = encoder.name().to_string();
+    tracing::info!(
+        requested_resolution = requested_mode,
+        source_width = first.width,
+        source_height = first.height,
+        requested_width = requested_w,
+        requested_height = requested_h,
+        actual_width = resolved.width,
+        actual_height = resolved.height,
+        fps = resolved.fps,
+        codec = "h264",
+        encoder_name = %encoder_name,
+        quality_preset = quality_preset.as_str(),
+        resolved_bitrate_bps = bitrate,
+        resolved_bitrate_mbps = format!("{:.1}", bitrate_mbps(bitrate)),
+        fallback_occurred = resolved.fallback_occurred,
+        "composed recording start geometry"
+    );
     let mut stats = diagnostics::SessionStats {
         capture_w: first.width,
         capture_h: first.height,
-        output_w: compositor.out_w,
-        output_h: compositor.out_h,
-        fps: spec.fps,
+        output_w: resolved.width,
+        output_h: resolved.height,
+        fps: resolved.fps,
         encoder: "h264-gpu-mft",
         init_ms: init_started.elapsed().as_millis(),
         ..diagnostics::SessionStats::default()
     };
-    if compositor.out_w != 1920 || compositor.out_h != 1080 {
-        tracing::warn!(
-            compositor = format!("{}x{}", compositor.out_w, compositor.out_h),
-            encoder = "1920x1080",
-            "composed compositor canvas differs from encoder 1920x1080; Desktop 1080p60 is the supported test"
-        );
-    }
     diagnostics::log_ready(&encoder_name, encoder.has_audio(), compositor.adapter(), stats.init_ms);
     if ready
-        .send(Ok((compositor.out_w, compositor.out_h)))
+        .send(Ok((resolved.width, resolved.height)))
         .is_err()
     {
         let _ = encoder.finish();
         return Err("Composed recording was cancelled.".into());
     }
 
-    let frame_gap = Duration::from_nanos(1_000_000_000 / u64::from(spec.fps.max(1)));
+    let frame_gap = Duration::from_nanos(1_000_000_000 / u64::from(resolved.fps.max(1)));
     let mut last_capture_hns = 0i64;
     let mut last_hud_ms = 0u64;
     let started = Instant::now();
-    let width = compositor.out_w;
-    let height = compositor.out_h;
+    let width = resolved.width;
+    let height = resolved.height;
+    let output_fps = resolved.fps;
     let mut fatal: Option<String> = None;
 
     while !stop.load(Ordering::SeqCst) {
@@ -671,7 +815,7 @@ fn run_composed_session(
         duration_ms: started.elapsed().as_millis() as u64,
         width,
         height,
-        fps: spec.fps,
+        fps: output_fps,
         frames: stats.frames_encoded,
         game_id,
         title,
@@ -771,15 +915,6 @@ fn save_dir(app: &AppHandle, settings: &AppSettings) -> AppResult<std::path::Pat
     };
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
-}
-
-fn bitrate_of(settings: &AppSettings) -> u32 {
-    match settings.bitrate.as_str() {
-        "low" => 8_000_000,
-        "high" => 25_000_000,
-        "custom" => settings.custom_bitrate_kbps.saturating_mul(1000).max(1_000_000),
-        _ => 15_000_000,
-    }
 }
 
 fn output_path(dir: &std::path::Path, slug: &str, ext: &str) -> std::path::PathBuf {

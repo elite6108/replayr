@@ -40,8 +40,11 @@ export function CaptureOutputFields({
           disabled={disabled}
           onChange={(event) => onSave("resolution", event.target.value as AppSettings["resolution"])}
         >
-          <option value="native">Native</option>
+          <option value="auto">Auto / Recommended</option>
           <option value="1080p">1080p</option>
+          <option value="1440p">1440p</option>
+          <option value="4k">4K</option>
+          <option value="native">Native</option>
           <option value="720p">720p</option>
         </select>
       </div>

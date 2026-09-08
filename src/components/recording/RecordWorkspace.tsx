@@ -269,7 +269,10 @@ export function RecordWorkspace() {
 }
 
 function outputSizeLabel(resolution: AppSettings["resolution"]) {
+  if (resolution === "auto") return "Auto (≤1080p)";
   if (resolution === "1080p") return "1920 × 1080";
+  if (resolution === "1440p") return "2560 × 1440";
+  if (resolution === "4k") return "3840 × 2160";
   if (resolution === "720p") return "1280 × 720";
   return "Native";
 }

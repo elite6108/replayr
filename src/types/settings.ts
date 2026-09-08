@@ -2,7 +2,7 @@ import type { HotkeyAction } from "../utils/hotkeys";
 import { DEFAULT_HOTKEYS } from "../utils/hotkeys";
 
 export type ReplayDurationSeconds = 15 | 30 | 45 | 60 | 90 | 120 | 180 | 300;
-export type CaptureResolution = "native" | "1080p" | "720p";
+export type CaptureResolution = "auto" | "native" | "720p" | "1080p" | "1440p" | "4k";
 export type CaptureFps = 30 | 60 | 120;
 export type BitratePreset = "low" | "medium" | "high" | "custom";
 export type CodecPreference = "h264" | "h265" | "av1";
@@ -137,7 +137,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   launchAtStartup: false,
   instantReplayEnabled: true,
   replayDurationSeconds: 60,
-  resolution: "native",
+  resolution: "auto",
   fps: 60,
   encoder: "auto",
   bitrate: "medium",

@@ -149,9 +149,24 @@ export function sessionWebcamLayoutFromScene(scene: RecordingScene): ClipSourceL
 
 export function canvasFromSettings(settings: AppSettings): { width: number; height: number; fps: number } {
   const fps = Math.max(24, Math.min(60, settings.fps));
-  if (settings.resolution === "720p") return { width: 1280, height: 720, fps };
-  if (settings.resolution === "1080p") return { width: 1920, height: 1080, fps };
-  return { width: 0, height: 0, fps };
+  // Composed session resolves the real output after the first frame in Rust.
+  // These values are IPC hints / preview canvas only.
+  switch (settings.resolution) {
+    case "720p":
+      return { width: 1280, height: 720, fps };
+    case "1080p":
+      return { width: 1920, height: 1080, fps };
+    case "1440p":
+      return { width: 2560, height: 1440, fps };
+    case "4k":
+      return { width: 3840, height: 2160, fps };
+    case "native":
+      return { width: 0, height: 0, fps };
+    case "auto":
+    default:
+      // Auto: safe 1080p-capped canvas hint (matches Rust resolve).
+      return { width: 1920, height: 1080, fps };
+  }
 }
 
 function asTransform(transform: SourceTransform | null | undefined, opacity = 1): CompositionTransform {

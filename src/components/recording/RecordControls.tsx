@@ -5,6 +5,7 @@ import { displayHotkey, formatDuration } from "../../utils/format";
 import { useRecordingStore } from "../../stores/recordingStore";
 import type { RecordingOutputMode } from "../../recording/scene";
 import { CaptureOutputFields } from "./sources/GameSourceSettings";
+import { formatBitrateEstimate } from "../../utils/recordingBitrate";
 
 export function RecordControls({
   settings,
@@ -108,6 +109,9 @@ export function RecordControls({
               <option value="high">Maximum</option>
               <option value="custom">Custom</option>
             </select>
+            <p className="muted" style={{ marginTop: 6 }}>
+              {formatBitrateEstimate(settings)}
+            </p>
           </div>
         </div>
       ) : null}

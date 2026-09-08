@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AppSettings, CloudUploadWhen, PreviewQuality } from "../types/settings";
+import type { AppSettings, CloudUploadWhen, PreviewQuality, CaptureResolution } from "../types/settings";
 import { DEFAULT_SETTINGS, parseAudioChannelMode } from "../types/settings";
 import { parseThemePreference, persistThemePreference, readStoredThemePreference } from "../theme/theme";
 import { sanitizeRecordingVisuals } from "../recording/visualFilters";
@@ -65,11 +65,27 @@ function clampPan(value: number): number {
   return Math.max(-1, Math.min(1, value));
 }
 
+function parseCaptureResolution(value: unknown): CaptureResolution {
+  if (
+    value === "auto" ||
+    value === "native" ||
+    value === "720p" ||
+    value === "1080p" ||
+    value === "1440p" ||
+    value === "4k"
+  ) {
+    return value;
+  }
+  return DEFAULT_SETTINGS.resolution;
+}
+
 function normalizeSettings(settings: AppSettings): AppSettings {
   return {
     ...DEFAULT_SETTINGS,
     ...settings,
     cloudUploadWhen: resolveCloudUploadWhen(settings),
+    resolution: parseCaptureResolution(settings.resolution),
+    codec: "h264",
     micGain: typeof settings.micGain === "number" ? settings.micGain : DEFAULT_SETTINGS.micGain,
     micChannelMode: parseAudioChannelMode(settings.micChannelMode),
     micPan: typeof settings.micPan === "number" ? clampPan(settings.micPan) : DEFAULT_SETTINGS.micPan,

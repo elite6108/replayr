@@ -25,6 +25,7 @@ import { startCheckout, startPortal, type BillingStatus } from "../services/bill
 import { planLabel } from "../utils/format";
 import { ThemePicker } from "../theme/ThemePicker";
 import { parseThemePreference } from "../theme/theme";
+import { formatBitrateEstimate } from "../utils/recordingBitrate";
 
 const SECTIONS = [
   { id: "general", label: "General" },
@@ -469,10 +470,16 @@ function RecordingPane({
             value={settings.resolution}
             onChange={(event) => void onChange("resolution", event.target.value as AppSettings["resolution"])}
           >
-            <option value="native">Native</option>
+            <option value="auto">Auto / Recommended</option>
             <option value="1080p">1080p</option>
+            <option value="1440p">1440p</option>
+            <option value="4k">4K</option>
+            <option value="native">Native</option>
             <option value="720p">720p</option>
           </select>
+          <p className="muted" style={{ marginTop: 6 }}>
+            Auto caps output inside 1080p. Native and higher modes negotiate with the hardware encoder and fall back safely.
+          </p>
         </div>
         <div className="field">
           <label htmlFor="preview-quality">Live preview quality</label>
@@ -515,18 +522,45 @@ function RecordingPane({
             <option value="high">High</option>
             <option value="custom">Custom</option>
           </select>
+          <p className="muted" style={{ marginTop: 6 }}>
+            {formatBitrateEstimate(settings)}
+          </p>
+          {settings.bitrate === "custom" ? (
+            <div className="field" style={{ marginTop: 8 }}>
+              <label htmlFor="custom-bitrate">Custom bitrate (kbps)</label>
+              <input
+                id="custom-bitrate"
+                type="number"
+                min={1000}
+                max={120000}
+                step={500}
+                value={settings.customBitrateKbps}
+                onChange={(event) =>
+                  void onChange("customBitrateKbps", Math.max(1000, Math.min(120000, Number(event.target.value) || 15000)))
+                }
+              />
+            </div>
+          ) : null}
         </div>
         <div className="field">
           <label htmlFor="codec">Codec</label>
           <select
             id="codec"
-            value={settings.codec}
-            onChange={(event) => void onChange("codec", event.target.value as AppSettings["codec"])}
+            value="h264"
+            disabled
+            onChange={() => undefined}
           >
             <option value="h264">H.264</option>
-            <option value="h265">H.265</option>
-            <option value="av1">AV1 when supported</option>
+            <option value="h265" disabled>
+              H.265 (coming later)
+            </option>
+            <option value="av1" disabled>
+              AV1 (coming later)
+            </option>
           </select>
+          <p className="muted" style={{ marginTop: 6 }}>
+            Recordings use H.264. H.265 and AV1 are not available yet.
+          </p>
         </div>
       </div>
       <label className="setting-row">

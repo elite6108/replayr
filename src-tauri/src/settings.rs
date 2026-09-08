@@ -278,7 +278,7 @@ impl Default for AppSettings {
             launch_at_startup: false,
             instant_replay_enabled: true,
             replay_duration_seconds: 60,
-            resolution: "native".into(),
+            resolution: "auto".into(),
             fps: 60,
             encoder: "auto".into(),
             bitrate: "medium".into(),
@@ -333,6 +333,25 @@ fn default_mic_gain() -> f32 {
 
 fn default_channel_mode() -> String {
     "auto".into()
+}
+
+fn sanitize_resolution(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "720p" => "720p".into(),
+        "1080p" => "1080p".into(),
+        "1440p" => "1440p".into(),
+        "4k" | "2160p" => "4k".into(),
+        "native" => "native".into(),
+        "auto" => "auto".into(),
+        // Legacy installs that stored unknown values fall back to safe Auto.
+        _ => "auto".into(),
+    }
+}
+
+fn sanitize_codec(value: &str) -> String {
+    // Phase 1: H.264 is the only implemented recording codec.
+    let _ = value;
+    "h264".into()
 }
 
 fn sanitize_channel_mode(value: &str) -> String {
@@ -410,6 +429,8 @@ fn parse_settings_json(json: &str) -> AppSettings {
         serde_json::from_value(value).unwrap_or_default()
     };
     migrate_cloud_upload_when(&mut settings, json);
+    settings.resolution = sanitize_resolution(&settings.resolution);
+    settings.codec = sanitize_codec(&settings.codec);
     settings.webcam.sanitize();
     settings.recording_visuals.sanitize();
     settings
@@ -466,6 +487,9 @@ pub fn set_document(conn: &Connection, patch: Value) -> AppResult<AppSettings> {
     if settings.cloud_upload_when != "immediate" && settings.cloud_upload_when != "afterGame" {
         settings.cloud_upload_when = default_cloud_upload_when();
     }
+    settings.resolution = sanitize_resolution(&settings.resolution);
+    settings.codec = sanitize_codec(&settings.codec);
+    settings.custom_bitrate_kbps = settings.custom_bitrate_kbps.clamp(1_000, 120_000);
     settings.mic_gain = settings.mic_gain.clamp(0.0, 2.0);
     settings.game_audio_gain = settings.game_audio_gain.clamp(0.0, 2.0);
     settings.discord_audio_gain = settings.discord_audio_gain.clamp(0.0, 2.0);

@@ -33,6 +33,7 @@ mod overlay;
 mod overlay_notification;
 mod paths;
 mod preview;
+mod recording_bitrate;
 mod recording_compositor;
 mod process;
 #[cfg(windows)]

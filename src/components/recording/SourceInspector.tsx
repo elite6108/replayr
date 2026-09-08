@@ -191,6 +191,20 @@ function InspectorBody({
                 ? settings.systemAudioGain
                 : undefined
         }
+        channelMode={
+          source.type === "microphone"
+            ? settings.micChannelMode
+            : source.type === "gameAudio"
+              ? settings.gameAudioChannelMode
+              : settings.systemAudioChannelMode
+        }
+        pan={
+          source.type === "microphone"
+            ? settings.micPan
+            : source.type === "gameAudio"
+              ? settings.gameAudioPan
+              : settings.systemAudioPan
+        }
         onToggle={(enabled) => onToggle(source.id, enabled)}
         onDeviceId={
           source.type === "microphone" ? (deviceId) => onSaveSetting("microphoneId", deviceId) : undefined
@@ -204,6 +218,16 @@ function InspectorBody({
                 ? (gain) => onSaveSetting("systemAudioGain", gain)
                 : undefined
         }
+        onChannelMode={(mode) => {
+          if (source.type === "microphone") onSaveSetting("micChannelMode", mode);
+          else if (source.type === "gameAudio") onSaveSetting("gameAudioChannelMode", mode);
+          else onSaveSetting("systemAudioChannelMode", mode);
+        }}
+        onPan={(pan) => {
+          if (source.type === "microphone") onSaveSetting("micPan", pan);
+          else if (source.type === "gameAudio") onSaveSetting("gameAudioPan", pan);
+          else onSaveSetting("systemAudioPan", pan);
+        }}
       />
     );
   }

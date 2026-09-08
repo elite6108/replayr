@@ -68,10 +68,20 @@ pub struct AppSettings {
     /// Linear microphone gain. 0.0 is mute, 1.0 is 100%, 2.0 is 200%.
     #[serde(default = "default_mic_gain")]
     pub mic_gain: f32,
+    /// Per-source channel mode: "auto" | "mono" | "stereo". Default auto.
+    #[serde(default = "default_channel_mode")]
+    pub mic_channel_mode: String,
+    /// Source pan/balance. -1 = left, 0 = center, +1 = right.
+    #[serde(default)]
+    pub mic_pan: f32,
     #[serde(default = "default_game_audio_enabled")]
     pub game_audio_enabled: bool,
     #[serde(default = "default_mic_gain")]
     pub game_audio_gain: f32,
+    #[serde(default = "default_channel_mode")]
+    pub game_audio_channel_mode: String,
+    #[serde(default)]
+    pub game_audio_pan: f32,
     #[serde(default)]
     pub discord_audio_enabled: bool,
     #[serde(default = "default_mic_gain")]
@@ -82,6 +92,10 @@ pub struct AppSettings {
     /// Linear desktop / system-audio gain. 0.0 is mute, 1.0 is 100%, 2.0 is 200%.
     #[serde(default = "default_mic_gain")]
     pub system_audio_gain: f32,
+    #[serde(default = "default_channel_mode")]
+    pub system_audio_channel_mode: String,
+    #[serde(default)]
+    pub system_audio_pan: f32,
     pub save_location: String,
     pub hotkeys: Hotkeys,
     pub auto_upload: String,
@@ -274,13 +288,19 @@ impl Default for AppSettings {
             audio_output_id: "default".into(),
             mic_enabled: false,
             mic_gain: default_mic_gain(),
+            mic_channel_mode: default_channel_mode(),
+            mic_pan: 0.0,
             game_audio_enabled: true,
             game_audio_gain: default_mic_gain(),
+            game_audio_channel_mode: default_channel_mode(),
+            game_audio_pan: 0.0,
             discord_audio_enabled: false,
             discord_audio_gain: default_mic_gain(),
             extra_apps: Vec::new(),
             system_audio_enabled: false,
             system_audio_gain: default_mic_gain(),
+            system_audio_channel_mode: default_channel_mode(),
+            system_audio_pan: 0.0,
             save_location: String::new(),
             hotkeys: Hotkeys::default(),
             auto_upload: "all".into(),
@@ -309,6 +329,18 @@ fn default_cloud_upload_when() -> String {
 
 fn default_mic_gain() -> f32 {
     1.0
+}
+
+fn default_channel_mode() -> String {
+    "auto".into()
+}
+
+fn sanitize_channel_mode(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "mono" => "mono".into(),
+        "stereo" => "stereo".into(),
+        _ => default_channel_mode(),
+    }
 }
 
 fn default_webcam_name() -> String {
@@ -438,6 +470,12 @@ pub fn set_document(conn: &Connection, patch: Value) -> AppResult<AppSettings> {
     settings.game_audio_gain = settings.game_audio_gain.clamp(0.0, 2.0);
     settings.discord_audio_gain = settings.discord_audio_gain.clamp(0.0, 2.0);
     settings.system_audio_gain = settings.system_audio_gain.clamp(0.0, 2.0);
+    settings.mic_channel_mode = sanitize_channel_mode(&settings.mic_channel_mode);
+    settings.game_audio_channel_mode = sanitize_channel_mode(&settings.game_audio_channel_mode);
+    settings.system_audio_channel_mode = sanitize_channel_mode(&settings.system_audio_channel_mode);
+    settings.mic_pan = settings.mic_pan.clamp(-1.0, 1.0);
+    settings.game_audio_pan = settings.game_audio_pan.clamp(-1.0, 1.0);
+    settings.system_audio_pan = settings.system_audio_pan.clamp(-1.0, 1.0);
     settings.webcam.sanitize();
     settings.recording_visuals.sanitize();
     for app in &mut settings.extra_apps {

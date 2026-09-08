@@ -231,9 +231,13 @@ export function OnboardingPage() {
                 compact
                 deviceId={settings.microphoneId}
                 gain={settings.micGain}
+                channelMode={settings.micChannelMode}
+                pan={settings.micPan}
                 onEnabled={(enabled) => void patch({ micEnabled: enabled })}
                 onDeviceId={(deviceId) => void patch({ microphoneId: deviceId })}
                 onGain={(gain) => void patch({ micGain: gain })}
+                onChannelMode={(mode) => void patch({ micChannelMode: mode })}
+                onPan={(pan) => void patch({ micPan: pan })}
               />
             ) : null}
             <button className="btn primary" type="button" onClick={() => setStep(5)}>

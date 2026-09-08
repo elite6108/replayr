@@ -21,6 +21,7 @@ use windows::Win32::Media::Audio::{
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
 use windows::Win32::System::Threading::WaitForSingleObject;
 
+use crate::audio_channel::{apply_source_pan, normalize_source_channels};
 use crate::audio_timeline::{
     qpc_hns, MixSink, SourceControl, SourceCursor, MIX_CHANNELS, MIX_RATE,
 };
@@ -111,6 +112,7 @@ pub fn open_device_client(device: &IMMDevice, loopback: bool) -> Result<ReadyCli
         let client: IAudioClient = device
             .Activate(CLSCTX_ALL, None)
             .map_err(|err| format!("Activate(IAudioClient): {err}"))?;
+        log_native_mix_format(&client, loopback);
         let format = mix_format();
         client
             .Initialize(
@@ -123,6 +125,43 @@ pub fn open_device_client(device: &IMMDevice, loopback: bool) -> Result<ReadyCli
             )
             .map_err(|err| format!("Initialize: {err}"))?;
         finish_client(client)
+    }
+}
+
+fn log_native_mix_format(client: &IAudioClient, loopback: bool) {
+    use std::ptr;
+    use windows::Win32::Media::Audio::WAVEFORMATEXTENSIBLE;
+    use windows::Win32::System::Com::CoTaskMemFree;
+    const WAVE_FORMAT_EXTENSIBLE: u16 = 0xFFFE;
+    unsafe {
+        let Ok(ptr) = client.GetMixFormat() else {
+            return;
+        };
+        if ptr.is_null() {
+            return;
+        }
+        let channels = ptr::read_unaligned(ptr::addr_of!((*ptr).nChannels));
+        let rate = ptr::read_unaligned(ptr::addr_of!((*ptr).nSamplesPerSec));
+        let bits = ptr::read_unaligned(ptr::addr_of!((*ptr).wBitsPerSample));
+        let tag = ptr::read_unaligned(ptr::addr_of!((*ptr).wFormatTag));
+        let cb_size = ptr::read_unaligned(ptr::addr_of!((*ptr).cbSize));
+        let mut channel_mask: Option<u32> = None;
+        if tag == WAVE_FORMAT_EXTENSIBLE && cb_size >= 22 {
+            let ext = ptr.cast::<WAVEFORMATEXTENSIBLE>();
+            channel_mask = Some(ptr::read_unaligned(ptr::addr_of!((*ext).dwChannelMask)));
+        }
+        tracing::info!(
+            loopback,
+            native_channels = channels,
+            native_rate = rate,
+            native_bits = bits,
+            format_tag = tag,
+            channel_mask,
+            dest_channels = MIX_CHANNELS,
+            dest_rate = MIX_RATE,
+            "audio source mix format before AUTOCONVERTPCM"
+        );
+        CoTaskMemFree(Some(ptr as *const std::ffi::c_void));
     }
 }
 
@@ -209,6 +248,8 @@ pub fn run_capture_loop(
                             samples[index] = i16::from_le_bytes([chunk[0], chunk[1]]);
                         }
                     }
+                    normalize_source_channels(&mut samples, control.channel_mode());
+                    apply_source_pan(&mut samples, control.pan());
                     // A QPC of zero means the driver did not report a position;
                     // fall back to now so the cursor still has something sane.
                     let stamp = if qpc == 0 { qpc_hns() } else { qpc as i64 };
@@ -273,6 +314,8 @@ pub fn run_peak_only_loop(
                             samples[index] = i16::from_le_bytes([chunk[0], chunk[1]]);
                         }
                     }
+                    normalize_source_channels(&mut samples, control.channel_mode());
+                    apply_source_pan(&mut samples, control.pan());
                     control.observe_peak(&samples, control.gain());
                 }
                 let _ = ready.capture.ReleaseBuffer(frames);

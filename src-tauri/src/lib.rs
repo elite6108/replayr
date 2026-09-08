@@ -1,6 +1,8 @@
 #[cfg(windows)]
 mod audio;
 #[cfg(windows)]
+mod audio_channel;
+#[cfg(windows)]
 mod audio_capture;
 mod audio_resolve;
 #[cfg(windows)]

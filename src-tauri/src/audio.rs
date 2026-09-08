@@ -404,16 +404,30 @@ impl AudioRuntime {
     fn apply_meter_prefs(&self, settings: &AppSettings) {
         let route = MicRoute::from_settings(settings);
         self.inner.mic_control.set_gain(route.gain);
+        self.apply_channel_prefs(settings);
         self.inner
             .desktop_control
             .set_gain(settings.system_audio_gain.clamp(0.0, 2.0));
         self.ensure_desktop_peak_monitor();
     }
 
+    fn apply_channel_prefs(&self, settings: &AppSettings) {
+        use crate::audio_channel::ChannelMode;
+        self.inner.mic_control.set_channel_mode(ChannelMode::parse(&settings.mic_channel_mode));
+        self.inner.mic_control.set_pan(settings.mic_pan.clamp(-1.0, 1.0));
+        self.inner
+            .desktop_control
+            .set_channel_mode(ChannelMode::parse(&settings.system_audio_channel_mode));
+        self.inner
+            .desktop_control
+            .set_pan(settings.system_audio_pan.clamp(-1.0, 1.0));
+    }
+
     fn apply_mic(&self, settings: &AppSettings) {
         let route = MicRoute::from_settings(settings);
         self.inner.mic_control.set_gain(route.gain);
         self.inner.mic_control.set_enabled(route.enabled);
+        self.apply_channel_prefs(settings);
         self.inner
             .desktop_control
             .set_gain(settings.system_audio_gain.clamp(0.0, 2.0));
@@ -614,6 +628,13 @@ impl AudioRuntime {
                         existing.gain = plan.gain;
                         existing.capture.control().set_gain(plan.gain);
                         existing.capture.control().set_enabled(isolated_enabled);
+                        existing.capture.control().set_channel_mode(
+                            crate::audio_channel::ChannelMode::parse(&settings.game_audio_channel_mode),
+                        );
+                        existing
+                            .capture
+                            .control()
+                            .set_pan(settings.game_audio_pan.clamp(-1.0, 1.0));
                     }
                     continue;
                 }
@@ -623,6 +644,12 @@ impl AudioRuntime {
                     isolated_enabled,
                     plan.gain,
                 ) {
+                    capture.control().set_channel_mode(
+                        crate::audio_channel::ChannelMode::parse(&settings.game_audio_channel_mode),
+                    );
+                    capture
+                        .control()
+                        .set_pan(settings.game_audio_pan.clamp(-1.0, 1.0));
                     clients.push(IsolatedClient {
                         key: plan.key.clone(),
                         gain: plan.gain,

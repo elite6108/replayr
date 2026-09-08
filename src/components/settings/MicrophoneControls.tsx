@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { getMicLevel, stopMicMonitor } from "../../services/tauri";
+import type { AudioChannelMode } from "../../types/settings";
+import { AudioChannelControls } from "../common/AudioChannelControls";
 import { MicrophoneDeviceSelect } from "../common/MicrophoneDeviceSelect";
 import { peakToMeterRatio } from "../../recording/useStudioAudio";
 
@@ -7,9 +9,13 @@ interface MicrophoneControlsProps {
   enabled: boolean;
   deviceId: string;
   gain: number;
+  channelMode: AudioChannelMode;
+  pan: number;
   onEnabled: (enabled: boolean) => void;
   onDeviceId: (deviceId: string) => void;
   onGain: (gain: number) => void;
+  onChannelMode: (mode: AudioChannelMode) => void;
+  onPan: (pan: number) => void;
   compact?: boolean;
 }
 
@@ -17,9 +23,13 @@ export function MicrophoneControls({
   enabled,
   deviceId,
   gain,
+  channelMode,
+  pan,
   onEnabled,
   onDeviceId,
   onGain,
+  onChannelMode,
+  onPan,
   compact = false,
 }: MicrophoneControlsProps) {
   const [level, setLevel] = useState(0);
@@ -79,6 +89,16 @@ export function MicrophoneControls({
           onChange={(event) => onGain(Number(event.target.value) / 100)}
         />
       </div>
+      {enabled ? (
+        <AudioChannelControls
+          idPrefix="settings-mic"
+          channelMode={channelMode}
+          pan={pan}
+          panLabel="Pan"
+          onChannelMode={onChannelMode}
+          onPan={onPan}
+        />
+      ) : null}
       <div className="audio-meter" aria-label="Microphone level" aria-hidden="true">
         <span style={{ width: `${(meterPct * 100).toFixed(1)}%` }} />
       </div>

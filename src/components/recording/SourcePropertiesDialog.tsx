@@ -2,6 +2,7 @@ import type { AppSettings } from "../../types/settings";
 import type { RecordingSource } from "../../recording/scene";
 import type { DisplayInfo } from "../../recording/display/displayTypes";
 import { formatDb } from "../../recording/useStudioAudio";
+import { AudioChannelControls } from "../common/AudioChannelControls";
 import { MicrophoneDeviceSelect } from "../common/MicrophoneDeviceSelect";
 import { DisplaySourceSettings } from "./sources/DisplaySourceSettings";
 
@@ -72,6 +73,14 @@ export function SourcePropertiesDialog({
               disabled={!source.enabled}
               onGain={(gain) => onSaveSetting("micGain", gain)}
             />
+            <AudioChannelControls
+              idPrefix="mic-properties"
+              channelMode={settings.micChannelMode}
+              pan={settings.micPan}
+              panLabel="Pan"
+              onChannelMode={(mode) => onSaveSetting("micChannelMode", mode)}
+              onPan={(pan) => onSaveSetting("micPan", pan)}
+            />
           </div>
         ) : source.type === "desktopAudio" ? (
           <div className="stack">
@@ -82,6 +91,14 @@ export function SourcePropertiesDialog({
               disabled={!source.enabled}
               onGain={(gain) => onSaveSetting("systemAudioGain", gain)}
             />
+            <AudioChannelControls
+              idPrefix="desktop-properties"
+              channelMode={settings.systemAudioChannelMode}
+              pan={settings.systemAudioPan}
+              panLabel="Balance / Pan"
+              onChannelMode={(mode) => onSaveSetting("systemAudioChannelMode", mode)}
+              onPan={(pan) => onSaveSetting("systemAudioPan", pan)}
+            />
           </div>
         ) : source.type === "gameAudio" ? (
           <div className="stack">
@@ -91,6 +108,14 @@ export function SourcePropertiesDialog({
               gain={settings.gameAudioGain}
               disabled={!source.enabled}
               onGain={(gain) => onSaveSetting("gameAudioGain", gain)}
+            />
+            <AudioChannelControls
+              idPrefix="game-properties"
+              channelMode={settings.gameAudioChannelMode}
+              pan={settings.gameAudioPan}
+              panLabel="Balance / Pan"
+              onChannelMode={(mode) => onSaveSetting("gameAudioChannelMode", mode)}
+              onPan={(pan) => onSaveSetting("gameAudioPan", pan)}
             />
           </div>
         ) : (

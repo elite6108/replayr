@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { AppSettings, CloudUploadWhen, PreviewQuality } from "../types/settings";
-import { DEFAULT_SETTINGS } from "../types/settings";
+import { DEFAULT_SETTINGS, parseAudioChannelMode } from "../types/settings";
 import { parseThemePreference, persistThemePreference, readStoredThemePreference } from "../theme/theme";
 import { sanitizeRecordingVisuals } from "../recording/visualFilters";
 import { createDesktopShortcut, getAllSettings, getDefaultSaveLocation, removeDesktopShortcut, setSetting, setSettings } from "../services/tauri";
@@ -60,18 +60,30 @@ function parsePreviewQuality(value: AppSettings["previewQuality"] | undefined): 
   return DEFAULT_SETTINGS.previewQuality;
 }
 
+function clampPan(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(-1, Math.min(1, value));
+}
+
 function normalizeSettings(settings: AppSettings): AppSettings {
   return {
     ...DEFAULT_SETTINGS,
     ...settings,
     cloudUploadWhen: resolveCloudUploadWhen(settings),
     micGain: typeof settings.micGain === "number" ? settings.micGain : DEFAULT_SETTINGS.micGain,
+    micChannelMode: parseAudioChannelMode(settings.micChannelMode),
+    micPan: typeof settings.micPan === "number" ? clampPan(settings.micPan) : DEFAULT_SETTINGS.micPan,
     gameAudioEnabled: settings.gameAudioEnabled ?? DEFAULT_SETTINGS.gameAudioEnabled,
     gameAudioGain: typeof settings.gameAudioGain === "number" ? settings.gameAudioGain : DEFAULT_SETTINGS.gameAudioGain,
+    gameAudioChannelMode: parseAudioChannelMode(settings.gameAudioChannelMode),
+    gameAudioPan: typeof settings.gameAudioPan === "number" ? clampPan(settings.gameAudioPan) : DEFAULT_SETTINGS.gameAudioPan,
     discordAudioEnabled: settings.discordAudioEnabled ?? DEFAULT_SETTINGS.discordAudioEnabled,
     discordAudioGain: typeof settings.discordAudioGain === "number" ? settings.discordAudioGain : DEFAULT_SETTINGS.discordAudioGain,
     systemAudioGain:
       typeof settings.systemAudioGain === "number" ? settings.systemAudioGain : DEFAULT_SETTINGS.systemAudioGain,
+    systemAudioChannelMode: parseAudioChannelMode(settings.systemAudioChannelMode),
+    systemAudioPan:
+      typeof settings.systemAudioPan === "number" ? clampPan(settings.systemAudioPan) : DEFAULT_SETTINGS.systemAudioPan,
     extraApps: Array.isArray(settings.extraApps) ? settings.extraApps : DEFAULT_SETTINGS.extraApps,
     hotkeys: { ...DEFAULT_SETTINGS.hotkeys, ...settings.hotkeys },
     watermarkExports: settings.watermarkExports ?? DEFAULT_SETTINGS.watermarkExports,

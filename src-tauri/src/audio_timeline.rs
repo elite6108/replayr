@@ -81,6 +81,8 @@ fn clamp_i16(sample: i32) -> i16 {
 pub struct SourceControl {
     enabled: AtomicBool,
     gain_bits: AtomicU32,
+    channel_mode: AtomicU32,
+    pan_bits: AtomicU32,
     peak: AtomicU32,
     received_frames: AtomicU64,
     mixed_frames: AtomicU64,
@@ -93,6 +95,8 @@ impl SourceControl {
         Self {
             enabled: AtomicBool::new(enabled),
             gain_bits: AtomicU32::new(gain.clamp(0.0, 2.0).to_bits()),
+            channel_mode: AtomicU32::new(u32::from(crate::audio_channel::ChannelMode::Auto as u8)),
+            pan_bits: AtomicU32::new(0.0f32.to_bits()),
             peak: AtomicU32::new(0),
             received_frames: AtomicU64::new(0),
             mixed_frames: AtomicU64::new(0),
@@ -114,6 +118,26 @@ impl SourceControl {
     pub fn set_gain(&self, gain: f32) {
         self.gain_bits
             .store(gain.clamp(0.0, 2.0).to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn channel_mode(&self) -> crate::audio_channel::ChannelMode {
+        crate::audio_channel::ChannelMode::from_u8(
+            self.channel_mode.load(Ordering::Relaxed).min(255) as u8,
+        )
+    }
+
+    pub fn set_channel_mode(&self, mode: crate::audio_channel::ChannelMode) {
+        self.channel_mode
+            .store(u32::from(mode as u8), Ordering::Relaxed);
+    }
+
+    pub fn pan(&self) -> f32 {
+        f32::from_bits(self.pan_bits.load(Ordering::Relaxed)).clamp(-1.0, 1.0)
+    }
+
+    pub fn set_pan(&self, pan: f32) {
+        self.pan_bits
+            .store(pan.clamp(-1.0, 1.0).to_bits(), Ordering::Relaxed);
     }
 
     pub fn peak(&self) -> f32 {

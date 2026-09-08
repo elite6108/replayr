@@ -17,6 +17,13 @@ export type GameplayVisualFilter = "none" | "bodycam" | "dashcam" | "vhs" | "cin
 export type PreviewBackgroundMode = "mock" | "dark";
 /** Live Output Preview only. Does not change recording file size or encoder settings. */
 export type PreviewQuality = "full" | "balanced" | "performance";
+/** Per-source channel preparation before the stereo mix. */
+export type AudioChannelMode = "auto" | "mono" | "stereo";
+
+export function parseAudioChannelMode(value: unknown): AudioChannelMode {
+  if (value === "mono" || value === "stereo" || value === "auto") return value;
+  return "auto";
+}
 
 export interface RecordingOverlaySettings {
   recIndicator: boolean;
@@ -89,14 +96,21 @@ export interface AppSettings {
   micEnabled: boolean;
   /** Linear gain: 0 = mute, 1 = 100%, 2 = 200%. */
   micGain: number;
+  micChannelMode: AudioChannelMode;
+  /** -1 = left, 0 = center, +1 = right. */
+  micPan: number;
   gameAudioEnabled: boolean;
   gameAudioGain: number;
+  gameAudioChannelMode: AudioChannelMode;
+  gameAudioPan: number;
   discordAudioEnabled: boolean;
   discordAudioGain: number;
   extraApps: ExtraAudioApp[];
   systemAudioEnabled: boolean;
   /** Linear desktop / system-audio gain: 0 = mute, 1 = 100%, 2 = 200%. */
   systemAudioGain: number;
+  systemAudioChannelMode: AudioChannelMode;
+  systemAudioPan: number;
   saveLocation: string;
   hotkeys: Record<HotkeyAction, string>;
   autoUpload: AutoUploadMode;
@@ -133,13 +147,19 @@ export const DEFAULT_SETTINGS: AppSettings = {
   audioOutputId: "default",
   micEnabled: false,
   micGain: 1,
+  micChannelMode: "auto",
+  micPan: 0,
   gameAudioEnabled: true,
   gameAudioGain: 1,
+  gameAudioChannelMode: "auto",
+  gameAudioPan: 0,
   discordAudioEnabled: false,
   discordAudioGain: 1,
   extraApps: [],
   systemAudioEnabled: false,
   systemAudioGain: 1,
+  systemAudioChannelMode: "auto",
+  systemAudioPan: 0,
   saveLocation: "",
   hotkeys: { ...DEFAULT_HOTKEYS },
   autoUpload: "all",

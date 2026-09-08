@@ -16,12 +16,18 @@ const LIVE_AUDIO_KEYS: &[&str] = &[
     "micEnabled",
     "microphoneId",
     "micGain",
+    "micChannelMode",
+    "micPan",
     "gameAudioEnabled",
     "gameAudioGain",
+    "gameAudioChannelMode",
+    "gameAudioPan",
     "discordAudioEnabled",
     "discordAudioGain",
     "systemAudioEnabled",
     "systemAudioGain",
+    "systemAudioChannelMode",
+    "systemAudioPan",
     "extraApps",
 ];
 const CAPTURE_KEYS: &[&str] = &[

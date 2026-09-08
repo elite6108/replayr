@@ -721,10 +721,22 @@ function AudioPanel({
         copy="Only the detected game. Silent when no game is running."
         enabled={settings.gameAudioEnabled}
         gain={settings.gameAudioGain}
+        channelMode={settings.gameAudioChannelMode}
+        pan={settings.gameAudioPan}
         status={status?.game}
         disabled={isolatedOff}
         onEnabled={(enabled) => void toggleSource("gameAudioEnabled", enabled, "Game audio")}
         onGain={(gain) => void update("gameAudioGain", gain).catch((caught) => showToast(caught instanceof Error ? caught.message : "Could not save that setting."))}
+        onChannelMode={(mode) =>
+          void update("gameAudioChannelMode", mode).catch((caught) =>
+            showToast(caught instanceof Error ? caught.message : "Could not save that setting."),
+          )
+        }
+        onPan={(pan) =>
+          void update("gameAudioPan", pan).catch((caught) =>
+            showToast(caught instanceof Error ? caught.message : "Could not save that setting."),
+          )
+        }
         onUseDesktop={() => void toggleSource("systemAudioEnabled", true, "Desktop audio")}
       />
       <AudioSourceRow
@@ -732,10 +744,22 @@ function AudioPanel({
         copy="Full speaker mix. Includes Chrome, Discord, and everything else. Turn this off to use selected apps only."
         enabled={settings.systemAudioEnabled}
         gain={settings.systemAudioGain}
+        channelMode={settings.systemAudioChannelMode}
+        pan={settings.systemAudioPan}
         status={status?.desktop}
         onEnabled={(enabled) => void toggleSource("systemAudioEnabled", enabled, "Desktop audio")}
         onGain={(gain) =>
           void update("systemAudioGain", gain).catch((caught) =>
+            showToast(caught instanceof Error ? caught.message : "Could not save that setting."),
+          )
+        }
+        onChannelMode={(mode) =>
+          void update("systemAudioChannelMode", mode).catch((caught) =>
+            showToast(caught instanceof Error ? caught.message : "Could not save that setting."),
+          )
+        }
+        onPan={(pan) =>
+          void update("systemAudioPan", pan).catch((caught) =>
             showToast(caught instanceof Error ? caught.message : "Could not save that setting."),
           )
         }
@@ -822,6 +846,8 @@ function AudioPanel({
         enabled={settings.micEnabled}
         deviceId={settings.microphoneId}
         gain={settings.micGain}
+        channelMode={settings.micChannelMode}
+        pan={settings.micPan}
         onEnabled={(enabled) => {
           void update("micEnabled", enabled)
             .then(() => showToast(enabled ? "Microphone on" : "Microphone off"))
@@ -834,6 +860,16 @@ function AudioPanel({
         }}
         onGain={(gain) => {
           void update("micGain", gain).catch((caught) =>
+            showToast(caught instanceof Error ? caught.message : "Could not save that setting."),
+          );
+        }}
+        onChannelMode={(mode) => {
+          void update("micChannelMode", mode).catch((caught) =>
+            showToast(caught instanceof Error ? caught.message : "Could not save that setting."),
+          );
+        }}
+        onPan={(pan) => {
+          void update("micPan", pan).catch((caught) =>
             showToast(caught instanceof Error ? caught.message : "Could not save that setting."),
           );
         }}

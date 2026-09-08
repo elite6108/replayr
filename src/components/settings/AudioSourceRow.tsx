@@ -1,15 +1,21 @@
 import type { AudioSourceStatus } from "../../types/audio";
+import type { AudioChannelMode } from "../../types/settings";
 import { peakToMeterRatio } from "../../recording/useStudioAudio";
+import { AudioChannelControls } from "../common/AudioChannelControls";
 
 interface AudioSourceRowProps {
   title: string;
   copy: string;
   enabled: boolean;
   gain?: number;
+  channelMode?: AudioChannelMode;
+  pan?: number;
   status?: AudioSourceStatus | null;
   disabled?: boolean;
   onEnabled: (enabled: boolean) => void;
   onGain?: (gain: number) => void;
+  onChannelMode?: (mode: AudioChannelMode) => void;
+  onPan?: (pan: number) => void;
   onUseDesktop?: () => void;
 }
 
@@ -18,10 +24,14 @@ export function AudioSourceRow({
   copy,
   enabled,
   gain,
+  channelMode,
+  pan,
   status,
   disabled = false,
   onEnabled,
   onGain,
+  onChannelMode,
+  onPan,
   onUseDesktop,
 }: AudioSourceRowProps) {
   const peak = Math.max(0, Math.min(1, status?.peak ?? 0));
@@ -62,6 +72,16 @@ export function AudioSourceRow({
             onChange={(event) => onGain(Number(event.target.value) / 100)}
           />
         </div>
+      ) : null}
+      {onChannelMode && onPan && enabled && channelMode != null && pan != null ? (
+        <AudioChannelControls
+          idPrefix={`settings-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+          channelMode={channelMode}
+          pan={pan}
+          panLabel="Balance / Pan"
+          onChannelMode={onChannelMode}
+          onPan={onPan}
+        />
       ) : null}
       {failed && onUseDesktop ? (
         <button type="button" className="btn sm" onClick={onUseDesktop}>

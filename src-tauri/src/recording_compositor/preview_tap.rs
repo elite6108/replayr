@@ -1,6 +1,6 @@
 //! Observational composed-output tap. Disposable. Never owns encoder surfaces.
 //!
-//! Record thread may GPU-blit and enqueue. It must not Map, PNG, base64, or wait.
+//! Record thread may GPU-blit and enqueue. It must not Map, JPEG, base64, or wait.
 
 #![cfg(windows)]
 
@@ -28,13 +28,9 @@ use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
 };
 
-use crate::preview::PreviewHub;
+use crate::preview::{PreviewHub, PreviewQuality};
 
 use super::compositor::RecordingCompositor;
-
-pub const PREVIEW_WIDTH: u32 = 960;
-pub const PREVIEW_HEIGHT: u32 = 540;
-const PREVIEW_INTERVAL: Duration = Duration::from_millis(33);
 
 /// Marks PreviewHub composed-live for the recording session. Always clears on drop
 /// so a failed encoder start can resume standalone preview.
@@ -55,7 +51,7 @@ impl Drop for ComposedPreviewLive {
     }
 }
 
-/// Worker tap plus composed-live flag. The tap is dropped first so Map/PNG
+/// Worker tap plus composed-live flag. The tap is dropped first so Map/JPEG
 /// finish before standalone preview is allowed to resume.
 pub struct ActiveComposedPreview {
     tap: ComposedPreviewTap,
@@ -63,8 +59,14 @@ pub struct ActiveComposedPreview {
 }
 
 impl ActiveComposedPreview {
-    pub fn open(compositor: &RecordingCompositor, hub: PreviewHub) -> Result<Self, String> {
-        let tap = ComposedPreviewTap::open(compositor, hub.clone())?;
+    pub fn open(
+        compositor: &RecordingCompositor,
+        hub: PreviewHub,
+        preview_quality: &str,
+    ) -> Result<Self, String> {
+        let quality = PreviewQuality::parse(preview_quality);
+        hub.apply_quality(preview_quality);
+        let tap = ComposedPreviewTap::open(compositor, hub.clone(), quality)?;
         Ok(Self {
             tap,
             _live: ComposedPreviewLive::arm(&hub),
@@ -80,6 +82,7 @@ pub struct ComposedPreviewTap {
     shared: Arc<SharedTap>,
     worker: Option<JoinHandle<()>>,
     last_offer: Instant,
+    interval: Duration,
 }
 
 struct SharedTap {
@@ -88,6 +91,17 @@ struct SharedTap {
     requested: AtomicU64,
     generated: AtomicU64,
     dropped: AtomicU64,
+    width: u32,
+    height: u32,
+    /// GPU VideoProcessorBlt (record thread).
+    last_blit_us: AtomicU64,
+    /// GPU CopySubresourceRegion to staging (record thread).
+    last_copy_us: AtomicU64,
+    /// CPU Map + memcpy from staging (preview worker).
+    last_map_us: AtomicU64,
+    max_blit_us: AtomicU64,
+    max_copy_us: AtomicU64,
+    max_map_us: AtomicU64,
     pending: Mutex<bool>,
     cv: Condvar,
     context: ID3D11DeviceContext,
@@ -102,20 +116,34 @@ struct SharedTap {
 }
 
 impl ComposedPreviewTap {
-    pub fn open(compositor: &RecordingCompositor, hub: PreviewHub) -> Result<Self, String> {
+    pub fn open(
+        compositor: &RecordingCompositor,
+        hub: PreviewHub,
+        quality: PreviewQuality,
+    ) -> Result<Self, String> {
+        let (preview_width, preview_height) =
+            quality.composed_size(compositor.out_w, compositor.out_h);
+        let interval = Duration::from_millis(quality.interval_ms());
+        tracing::info!(
+            preview_width,
+            preview_height,
+            quality = ?quality,
+            canvas = format!("{}x{}", compositor.out_w, compositor.out_h),
+            "composed preview tap sized"
+        );
         let gpu = compositor.gpu();
         let dest = create_bgra(
             &gpu.device,
-            PREVIEW_WIDTH,
-            PREVIEW_HEIGHT,
+            preview_width,
+            preview_height,
             D3D11_USAGE_DEFAULT,
             D3D11_BIND_RENDER_TARGET.0 as u32,
             0,
         )?;
         let staging = create_bgra(
             &gpu.device,
-            PREVIEW_WIDTH,
-            PREVIEW_HEIGHT,
+            preview_width,
+            preview_height,
             D3D11_USAGE_STAGING,
             0,
             D3D11_CPU_ACCESS_READ.0 as u32,
@@ -132,8 +160,8 @@ impl ComposedPreviewTap {
                 Numerator: 30,
                 Denominator: 1,
             },
-            OutputWidth: PREVIEW_WIDTH,
-            OutputHeight: PREVIEW_HEIGHT,
+            OutputWidth: preview_width,
+            OutputHeight: preview_height,
             Usage: D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
         };
         let enumerator = unsafe {
@@ -174,6 +202,14 @@ impl ComposedPreviewTap {
             requested: AtomicU64::new(0),
             generated: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
+            width: preview_width,
+            height: preview_height,
+            last_blit_us: AtomicU64::new(0),
+            last_copy_us: AtomicU64::new(0),
+            last_map_us: AtomicU64::new(0),
+            max_blit_us: AtomicU64::new(0),
+            max_copy_us: AtomicU64::new(0),
+            max_map_us: AtomicU64::new(0),
             pending: Mutex::new(false),
             cv: Condvar::new(),
             context: gpu.context.clone(),
@@ -194,7 +230,8 @@ impl ComposedPreviewTap {
         Ok(Self {
             shared,
             worker,
-            last_offer: Instant::now() - PREVIEW_INTERVAL,
+            last_offer: Instant::now() - interval,
+            interval,
         })
     }
 
@@ -203,7 +240,7 @@ impl ComposedPreviewTap {
         if !hub.wanted() {
             return;
         }
-        if self.last_offer.elapsed() < PREVIEW_INTERVAL {
+        if self.last_offer.elapsed() < self.interval {
             return;
         }
         self.shared.requested.fetch_add(1, Ordering::Relaxed);
@@ -211,12 +248,20 @@ impl ComposedPreviewTap {
             self.shared.dropped.fetch_add(1, Ordering::Relaxed);
             return;
         }
+        let blit_started = Instant::now();
         if blit_preview(&self.shared, compositor).is_err() {
             self.shared.dropped.fetch_add(1, Ordering::Relaxed);
             return;
         }
+        let blit_us = blit_started.elapsed().as_micros() as u64;
+        self.shared.last_blit_us.store(blit_us, Ordering::Relaxed);
+        atomic_max_u64(&self.shared.max_blit_us, blit_us);
+        let copy_started = Instant::now();
         copy_to_staging(&self.shared);
         unsafe { self.shared.context.Flush() };
+        let copy_us = copy_started.elapsed().as_micros() as u64;
+        self.shared.last_copy_us.store(copy_us, Ordering::Relaxed);
+        atomic_max_u64(&self.shared.max_copy_us, copy_us);
         self.shared.in_flight.store(true, Ordering::SeqCst);
         if let Ok(mut pending) = self.shared.pending.lock() {
             *pending = true;
@@ -230,7 +275,13 @@ impl ComposedPreviewTap {
             preview_frames_requested = self.shared.requested.load(Ordering::Relaxed),
             preview_frames_generated = self.shared.generated.load(Ordering::Relaxed),
             preview_frames_dropped = self.shared.dropped.load(Ordering::Relaxed),
-            preview_resolution = format!("{}x{}", PREVIEW_WIDTH, PREVIEW_HEIGHT),
+            blit_us = self.shared.last_blit_us.load(Ordering::Relaxed),
+            copy_us = self.shared.last_copy_us.load(Ordering::Relaxed),
+            map_us = self.shared.last_map_us.load(Ordering::Relaxed),
+            max_blit_us = self.shared.max_blit_us.load(Ordering::Relaxed),
+            max_copy_us = self.shared.max_copy_us.load(Ordering::Relaxed),
+            max_map_us = self.shared.max_map_us.load(Ordering::Relaxed),
+            preview_resolution = format!("{}x{}", self.shared.width, self.shared.height),
             "composed preview tap"
         );
     }
@@ -277,8 +328,8 @@ fn blit_preview(shared: &SharedTap, compositor: &RecordingCompositor) -> Result<
     let dest = RECT {
         left: 0,
         top: 0,
-        right: PREVIEW_WIDTH as i32,
-        bottom: PREVIEW_HEIGHT as i32,
+        right: shared.width as i32,
+        bottom: shared.height as i32,
     };
     let src_rect = RECT {
         left: 0,
@@ -348,13 +399,42 @@ fn readback_loop(shared: Arc<SharedTap>, hub: PreviewHub) {
         }
         *pending = false;
         drop(pending);
-        if let Some(frame) = map_staging(&shared) {
-            hub.offer(&frame);
-            shared.generated.fetch_add(1, Ordering::Relaxed);
+        let map_started = Instant::now();
+        let mapped = map_staging(&shared);
+        let map_us = map_started.elapsed().as_micros() as u64;
+        shared.last_map_us.store(map_us, Ordering::Relaxed);
+        atomic_max_u64(&shared.max_map_us, map_us);
+        if let Some(frame) = mapped {
+            hub.offer(frame);
+            let generated = shared.generated.fetch_add(1, Ordering::Relaxed) + 1;
+            if generated == 1 || generated % 120 == 0 {
+                tracing::info!(
+                    generated,
+                    dropped = shared.dropped.load(Ordering::Relaxed),
+                    blit_us = shared.last_blit_us.load(Ordering::Relaxed),
+                    copy_us = shared.last_copy_us.load(Ordering::Relaxed),
+                    map_us,
+                    max_blit_us = shared.max_blit_us.load(Ordering::Relaxed),
+                    max_copy_us = shared.max_copy_us.load(Ordering::Relaxed),
+                    max_map_us = shared.max_map_us.load(Ordering::Relaxed),
+                    preview_resolution = format!("{}x{}", shared.width, shared.height),
+                    "composed preview stage timings"
+                );
+            }
         } else {
             shared.dropped.fetch_add(1, Ordering::Relaxed);
         }
         shared.in_flight.store(false, Ordering::SeqCst);
+    }
+}
+
+fn atomic_max_u64(slot: &AtomicU64, value: u64) {
+    let mut cur = slot.load(Ordering::Relaxed);
+    while value > cur {
+        match slot.compare_exchange_weak(cur, value, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(next) => cur = next,
+        }
     }
 }
 
@@ -368,7 +448,7 @@ fn map_staging(shared: &SharedTap) -> Option<crate::still::StillFrame> {
             .ok()?;
     }
     let pitch = mapped.RowPitch;
-    let size = pitch.saturating_mul(PREVIEW_HEIGHT) as usize;
+    let size = pitch.saturating_mul(shared.height) as usize;
     let mut bgra = vec![0_u8; size];
     if size > 0 && !mapped.pData.is_null() {
         unsafe {
@@ -378,8 +458,8 @@ fn map_staging(shared: &SharedTap) -> Option<crate::still::StillFrame> {
     unsafe { shared.context.Unmap(&resource, 0) };
     Some(crate::still::StillFrame {
         bgra,
-        width: PREVIEW_WIDTH,
-        height: PREVIEW_HEIGHT,
+        width: shared.width,
+        height: shared.height,
         pitch,
     })
 }

@@ -300,7 +300,7 @@ mod windows_impl {
                     *still = Some(frame.clone());
                 }
             }
-            self.flags.shared.preview.offer(&frame);
+            self.flags.shared.preview.offer(frame.clone());
             let capture_hns = self.clock.capture_hns();
             self.pump.push(crate::encode_pump::QueuedFrame {
                 bgra: frame.bgra,

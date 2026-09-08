@@ -22,6 +22,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_preview_quality() -> String {
+    "balanced".into()
+}
+
 fn default_game_audio_enabled() -> bool {
     true
 }
@@ -111,6 +115,9 @@ pub struct AppSettings {
     /// Phase 3 may add optional per-filter params as siblings under this object.
     #[serde(default)]
     pub recording_visuals: RecordingVisualSettings,
+    /// Live Output Preview quality only. Does not change recording encode settings.
+    #[serde(default = "default_preview_quality")]
+    pub preview_quality: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -291,6 +298,7 @@ impl Default for AppSettings {
             discord_rich_presence: true,
             webcam: WebcamSettings::default(),
             recording_visuals: RecordingVisualSettings::default(),
+            preview_quality: default_preview_quality(),
         }
     }
 }

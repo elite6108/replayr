@@ -106,6 +106,8 @@ pub struct PreviewFrame {
     pub width: u32,
     pub height: u32,
     pub mirrored: bool,
+    #[serde(default)]
+    pub frame_id: u64,
 }
 
 #[derive(Debug, Clone)]

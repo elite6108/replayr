@@ -454,6 +454,7 @@ fn run_composed_session(
         "composed_audio"
     );
     audio.apply_composed_mix_routing(audio_plan.mic, audio_plan.game, audio_plan.desktop);
+    let preview_quality = settings.preview_quality.clone();
     let mut audio_guard = AudioSessionGuard {
         audio: Some(audio.clone()),
         desktop: false,
@@ -469,7 +470,11 @@ fn run_composed_session(
         }
     }
 
-    let mut preview_tap = match preview_tap::ActiveComposedPreview::open(&compositor, preview.clone()) {
+    let mut preview_tap = match preview_tap::ActiveComposedPreview::open(
+        &compositor,
+        preview.clone(),
+        &preview_quality,
+    ) {
         Ok(tap) => Some(tap),
         Err(err) => {
             tracing::warn!("composed preview tap unavailable: {err}");

@@ -277,7 +277,14 @@
   display: grid;
   gap: 6px;
   width: 220px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
   text-decoration: none;
 }
 

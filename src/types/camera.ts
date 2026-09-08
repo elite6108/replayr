@@ -54,6 +54,8 @@ export interface CameraPreviewFrame {
   width: number;
   height: number;
   mirrored: boolean;
+  /** Monotonic encode id; unchanged means frontend must skip decode/setState. */
+  frameId: number;
 }
 
 export const IDLE_CAMERA_STATUS: CameraStatus = {

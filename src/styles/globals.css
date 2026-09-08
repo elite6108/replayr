@@ -35,6 +35,40 @@ textarea {
   color: inherit;
 }
 
+/* App-native selects — hide OS chrome, match inputs. */
+select:not([multiple]):not([size]) {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--bg-input);
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  padding: 8px 32px 8px 12px;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+select:not([multiple]):not([size]):hover:not(:disabled) {
+  border-color: var(--border-hover);
+  background-color: var(--bg-hover);
+}
+
+select:not([multiple]):not([size]):disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+select:not([multiple]):not([size]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-color: var(--border-strong);
+}
+
 button {
   cursor: pointer;
 }

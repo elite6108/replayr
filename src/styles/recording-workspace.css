@@ -126,11 +126,22 @@
 .studio-ir select,
 .studio-output-pop select {
   width: 100%;
-  background: var(--bg-input);
+  background-color: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--text);
   padding: 7px 8px;
+}
+
+.studio-scene-picker select,
+.studio-inspector select,
+.studio-ir select,
+.studio-output-pop select {
+  padding-right: 28px;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px 12px;
 }
 
 .studio-preset-label {
@@ -437,10 +448,11 @@
 }
 
 .studio-preview-stage .preview-canvas {
-  width: min(100%, calc(100cqh * 16 / 9));
-  max-height: 100%;
-  aspect-ratio: 16 / 9;
-  height: auto;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  aspect-ratio: auto;
   border: 0;
   border-radius: 0;
 }
@@ -897,11 +909,19 @@
 .studio-modal input[type="text"],
 .studio-modal select {
   width: 100%;
-  background: var(--bg-input);
+  background-color: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--text);
   padding: 7px 8px;
+}
+
+.studio-modal select {
+  padding-right: 28px;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px 12px;
 }
 
 .studio-dialog-actions {

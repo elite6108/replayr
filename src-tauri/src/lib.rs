@@ -156,6 +156,10 @@ pub fn run() {
                 };
                 if let Some(settings) = loaded {
                     engine.configure(&settings.webcam);
+                    app.state::<capture::RecordingState>()
+                        .shared
+                        .preview
+                        .apply_quality(&settings.preview_quality);
                 }
             }
             crate::paths::allow_clip_asset_roots(app.handle());

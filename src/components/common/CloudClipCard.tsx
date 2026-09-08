@@ -154,9 +154,9 @@ export function CloudClipCard({
                 onVisibility(clip, event.target.value as CloudClip["visibility"])
               }
             >
-              <option value="private">Private — only you</option>
-              <option value="unlisted">Unlisted — link only</option>
-              <option value="public">Public — everyone</option>
+              <option value="private">Private</option>
+              <option value="unlisted">Unlisted</option>
+              <option value="public">Public</option>
             </select>
           </label>
         ) : (

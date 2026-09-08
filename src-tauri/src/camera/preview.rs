@@ -29,7 +29,7 @@ use super::format::{
 use super::types::{PreviewFrame, PreviewRequest};
 
 const PREVIEW_MAX_WIDTH: u32 = 480;
-const PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(80);
+const PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(50);
 const QUEUE_KEEP: usize = 1;
 
 pub struct PreviewSession {
@@ -157,6 +157,8 @@ fn run_preview(
         .checked_sub(PREVIEW_MIN_INTERVAL)
         .unwrap_or_else(Instant::now);
     let mut nv12_scratch = Vec::new();
+    let mut next_frame_id: u64 = 1;
+    let mut encoded: u64 = 0;
 
     while !stop.load(Ordering::SeqCst) {
         let sample = match read_preview_sample(&reader, reader_subtype, selected.width, selected.height, &mut nv12_scratch)
@@ -176,6 +178,7 @@ fn run_preview(
             continue;
         }
         last_emit = Instant::now();
+        let encode_started = Instant::now();
         let mut bgra = sample.bgra;
         if request.mirror {
             flip_bgra_horizontal(&mut bgra, sample.width, sample.height);
@@ -190,14 +193,27 @@ fn run_preview(
             PREVIEW_MAX_WIDTH,
         );
         let png = encode_png_bgra(&frame.bgra, frame.width, frame.height)?;
+        let frame_id = next_frame_id;
+        next_frame_id = next_frame_id.saturating_add(1);
         let preview = PreviewFrame {
             png_base64: base64_encode(&png),
             width: frame.width,
             height: frame.height,
             mirrored: request.mirror,
+            frame_id,
         };
         if let Ok(mut slot) = latest.lock() {
             *slot = Some(preview);
+        }
+        encoded += 1;
+        if encoded == 1 || encoded % 120 == 0 {
+            tracing::info!(
+                encoded,
+                encode_ms = encode_started.elapsed().as_millis() as u64,
+                preview_max_width = PREVIEW_MAX_WIDTH,
+                interval_ms = PREVIEW_MIN_INTERVAL.as_millis() as u64,
+                "camera preview stats"
+            );
         }
         let _ = QUEUE_KEEP;
         let _ = error;

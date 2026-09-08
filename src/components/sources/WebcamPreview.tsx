@@ -1,6 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCameraPreviewFrame, startCameraPreview, stopCameraPreview } from "../../services/tauri";
 import type { CameraPreviewFrame } from "../../types/camera";
+import {
+  createPreviewDiag,
+  decodePngDataUrl,
+  logPreviewDiag,
+  startPreviewPollLoop,
+} from "../../recording/previewPoll";
+
+const WEBCAM_PREVIEW_POLL_MS = 33;
 
 interface WebcamPreviewProps {
   active: boolean;
@@ -23,12 +31,15 @@ export function WebcamPreview({
   disconnected,
   message,
 }: WebcamPreviewProps) {
-  const [frame, setFrame] = useState<CameraPreviewFrame | null>(null);
+  const [displaySrc, setDisplaySrc] = useState("");
   const [error, setError] = useState("");
+  const lastFrameId = useRef(0);
+  const diag = useRef(createPreviewDiag());
 
   useEffect(() => {
     if (!active || !deviceId || disconnected) {
-      setFrame(null);
+      setDisplaySrc("");
+      lastFrameId.current = 0;
       void stopCameraPreview();
       return;
     }
@@ -37,7 +48,7 @@ export function WebcamPreview({
     void startCameraPreview({ deviceId, width, height, fps, mirror }).catch((caught: unknown) => {
       if (!cancelled) {
         setError(caught instanceof Error ? caught.message : "Could not open the camera.");
-        setFrame(null);
+        setDisplaySrc("");
       }
     });
     return () => {
@@ -49,27 +60,49 @@ export function WebcamPreview({
   useEffect(() => {
     if (!active || !deviceId || disconnected) return;
     let cancelled = false;
-    const pull = () => {
-      void getCameraPreviewFrame()
-        .then((next) => {
-          if (!cancelled && next?.pngBase64) setFrame(next);
-        })
-        .catch(() => undefined);
-    };
-    pull();
-    const timer = window.setInterval(pull, 90);
+    const stop = startPreviewPollLoop({
+      intervalMs: WEBCAM_PREVIEW_POLL_MS,
+      cancelled: () => cancelled,
+      pull: async () => {
+        const nextRaw = await getCameraPreviewFrame();
+        if (cancelled || !nextRaw?.pngBase64) return;
+        const next = normalizeCameraFrame(nextRaw);
+        diag.current.offered += 1;
+        const frameId = next.frameId || 0;
+        if (frameId !== 0 && frameId === lastFrameId.current) {
+          diag.current.duplicatesSkipped += 1;
+          logPreviewDiag("webcam", diag.current, { width: next.width, height: next.height });
+          return;
+        }
+        const url = await decodePngDataUrl(next.pngBase64);
+        if (cancelled) return;
+        lastFrameId.current = frameId;
+        setDisplaySrc(url);
+        diag.current.rendered += 1;
+        logPreviewDiag("webcam", diag.current, { width: next.width, height: next.height, frameId });
+      },
+    });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stop();
     };
   }, [active, deviceId, disconnected]);
 
-  const src = frame ? `data:image/png;base64,${frame.pngBase64}` : "";
   const label = disconnected ? message || "Camera disconnected" : error || "LIVE CAMERA";
 
   return (
-    <div className={`webcam-preview ${src ? "live" : ""}`} aria-label="Webcam preview">
-      {src ? <img src={src} alt="" /> : <span>{label}</span>}
+    <div className={`webcam-preview ${displaySrc ? "live" : ""}`} aria-label="Webcam preview">
+      {displaySrc ? <img src={displaySrc} alt="" /> : <span>{label}</span>}
     </div>
   );
+}
+
+function normalizeCameraFrame(
+  frame: CameraPreviewFrame & { png_base64?: string; frame_id?: number },
+): CameraPreviewFrame {
+  return {
+    ...frame,
+    pngBase64: frame.pngBase64 || frame.png_base64 || "",
+    frameId: Number(frame.frameId ?? frame.frame_id ?? 0),
+  };
 }

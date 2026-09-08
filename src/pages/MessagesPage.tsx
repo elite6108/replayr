@@ -6,7 +6,6 @@ import { PageHeader } from "../components/common/PageHeader";
 import { ProfileAvatarLink } from "../components/common/ProfileAvatarLink";
 import { SocialAvatar } from "../components/common/SocialAvatar";
 import { IconFriends, IconSearch } from "../components/icons";
-import { clipShareUrl } from "../branding";
 import { fetchFriends } from "../services/api.friends";
 import {
   addConversationMembers,
@@ -19,6 +18,7 @@ import {
 } from "../services/api.messages";
 import { getSupabase, supabaseConfigured } from "../services/supabase";
 import type { ChatMessage, ConversationSummary, Friend, MessageClip, SocialUser } from "../services/social-types";
+import { openReplayrClip } from "../navigation/openReplayrClip";
 import { useAuthStore } from "../stores/authStore";
 import { useSocialUnreadStore } from "../stores/socialUnreadStore";
 import { useToastStore } from "../stores/toastStore";
@@ -559,13 +559,26 @@ function lastMessagePreview(message: ChatMessage | null) {
 
 function ClipBubble({ clip }: { clip: MessageClip }) {
   return (
-    <a className="clip-bubble" href={clipShareUrl(clip.slug)} target="_blank" rel="noreferrer">
+    <button
+      type="button"
+      className="clip-bubble"
+      onClick={() => {
+        void openReplayrClip({
+          id: clip.id,
+          slug: clip.slug,
+          title: clip.title,
+          durationMs: clip.durationMs,
+          thumbnailUrl: clip.thumbnailUrl,
+          visibility: clip.visibility,
+        });
+      }}
+    >
       <span className="clip-bubble-thumb">
         {clip.thumbnailUrl ? <img src={clip.thumbnailUrl} alt="" /> : <span className="feed-thumb-empty" />}
         {clip.durationMs ? <span className="clip-duration">{formatDuration(clip.durationMs)}</span> : null}
       </span>
       <strong>{clip.title || "Untitled clip"}</strong>
       <span className="muted">{clip.game?.name || "Clip"}</span>
-    </a>
+    </button>
   );
 }

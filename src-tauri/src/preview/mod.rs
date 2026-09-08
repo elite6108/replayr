@@ -13,8 +13,68 @@ use crate::still::{scale_bgra, StillFrame};
 #[cfg(windows)]
 mod standalone;
 
-const PREVIEW_MAX_WIDTH: u32 = 960;
-const PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(33);
+/// Default Live Output Preview knobs (Balanced). Overridden via `PreviewHub::apply_quality`.
+const DEFAULT_PREVIEW_MAX_WIDTH: u32 = 1280;
+const DEFAULT_PREVIEW_INTERVAL_MS: u64 = 33;
+const DEFAULT_PREVIEW_JPEG_QUALITY: u8 = 90;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewQuality {
+    Full,
+    Balanced,
+    Performance,
+}
+
+impl PreviewQuality {
+    pub fn parse(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "full" => Self::Full,
+            "performance" => Self::Performance,
+            _ => Self::Balanced,
+        }
+    }
+
+    pub fn max_width(self) -> u32 {
+        match self {
+            Self::Full => 1920,
+            Self::Balanced => 1280,
+            Self::Performance => 960,
+        }
+    }
+
+    pub fn interval_ms(self) -> u64 {
+        match self {
+            Self::Performance => 40,
+            _ => 33,
+        }
+    }
+
+    pub fn jpeg_quality(self) -> u8 {
+        match self {
+            Self::Performance => 85,
+            _ => 90,
+        }
+    }
+
+    /// Composed tap dest size from canvas. Full matches canvas up to 1080p box.
+    pub fn composed_size(self, out_w: u32, out_h: u32) -> (u32, u32) {
+        match self {
+            Self::Balanced => (1280, 720),
+            Self::Performance => (960, 540),
+            Self::Full => fit_within(out_w.max(2), out_h.max(2), 1920, 1080),
+        }
+    }
+}
+
+fn fit_within(width: u32, height: u32, max_w: u32, max_h: u32) -> (u32, u32) {
+    if width <= max_w && height <= max_h {
+        return (width & !1, height & !1);
+    }
+    let scale = (max_w as f64 / width as f64).min(max_h as f64 / height as f64);
+    let w = ((width as f64) * scale).round().max(2.0) as u32;
+    let h = ((height as f64) * scale).round().max(2.0) as u32;
+    (w & !1, h & !1)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewMode {
@@ -41,6 +101,9 @@ pub struct CapturePreviewFrame {
     pub state: String,
     pub label: String,
     pub source: String,
+    pub frame_id: u64,
+    /// Preview transport MIME (`image/jpeg` or `image/png`). Recording is unaffected.
+    pub mime_type: String,
 }
 
 #[derive(Clone)]
@@ -58,6 +121,15 @@ struct Inner {
     dropped: AtomicU64,
     encoded: AtomicU64,
     last_encode_ms: AtomicU64,
+    last_pack_us: AtomicU64,
+    last_compress_us: AtomicU64,
+    last_b64_us: AtomicU64,
+    max_compress_us: AtomicU64,
+    max_b64_us: AtomicU64,
+    next_frame_id: AtomicU64,
+    max_width: AtomicU32,
+    min_interval_ms: AtomicU64,
+    jpeg_quality: AtomicU32,
     mode: Mutex<PreviewMode>,
     pid: Mutex<Option<u32>>,
     monitor_id: Mutex<Option<String>>,
@@ -74,6 +146,8 @@ struct EncodedPreview {
     png_base64: String,
     width: u32,
     height: u32,
+    frame_id: u64,
+    mime_type: &'static str,
 }
 
 impl PreviewHub {
@@ -88,6 +162,15 @@ impl PreviewHub {
             dropped: AtomicU64::new(0),
             encoded: AtomicU64::new(0),
             last_encode_ms: AtomicU64::new(0),
+            last_pack_us: AtomicU64::new(0),
+            last_compress_us: AtomicU64::new(0),
+            last_b64_us: AtomicU64::new(0),
+            max_compress_us: AtomicU64::new(0),
+            max_b64_us: AtomicU64::new(0),
+            next_frame_id: AtomicU64::new(1),
+            max_width: AtomicU32::new(DEFAULT_PREVIEW_MAX_WIDTH),
+            min_interval_ms: AtomicU64::new(DEFAULT_PREVIEW_INTERVAL_MS),
+            jpeg_quality: AtomicU32::new(u32::from(DEFAULT_PREVIEW_JPEG_QUALITY)),
             mode: Mutex::new(PreviewMode::Game),
             pid: Mutex::new(None),
             monitor_id: Mutex::new(None),
@@ -188,6 +271,47 @@ impl PreviewHub {
         }
     }
 
+    pub fn apply_quality(&self, quality: &str) {
+        let parsed = PreviewQuality::parse(quality);
+        self.inner
+            .max_width
+            .store(parsed.max_width(), Ordering::Relaxed);
+        self.inner
+            .min_interval_ms
+            .store(parsed.interval_ms(), Ordering::Relaxed);
+        self.inner
+            .jpeg_quality
+            .store(u32::from(parsed.jpeg_quality()), Ordering::Relaxed);
+        tracing::info!(
+            quality = ?parsed,
+            max_width = parsed.max_width(),
+            interval_ms = parsed.interval_ms(),
+            jpeg_quality = parsed.jpeg_quality(),
+            "capture preview quality applied"
+        );
+    }
+
+    pub fn max_width(&self) -> u32 {
+        self.inner
+            .max_width
+            .load(Ordering::Relaxed)
+            .max(2)
+    }
+
+    pub fn min_interval_ms(&self) -> u64 {
+        self.inner
+            .min_interval_ms
+            .load(Ordering::Relaxed)
+            .max(16)
+    }
+
+    pub fn jpeg_quality(&self) -> u8 {
+        self.inner
+            .jpeg_quality
+            .load(Ordering::Relaxed)
+            .clamp(1, 100) as u8
+    }
+
     pub fn resume_if_wanted(&self) {
         if self.wanted() && !self.capture_live() && !self.composed_live() {
             self.ensure_source();
@@ -200,7 +324,7 @@ impl PreviewHub {
         }
         let now_ms = preview_now_ms();
         let last = self.inner.last_accept_ms.load(Ordering::Relaxed);
-        if now_ms.saturating_sub(last) < PREVIEW_MIN_INTERVAL.as_millis() as u64 {
+        if now_ms.saturating_sub(last) < self.min_interval_ms() {
             return false;
         }
         self.inner
@@ -211,14 +335,19 @@ impl PreviewHub {
             .unwrap_or(false)
     }
 
-    pub fn offer(&self, frame: &StillFrame) {
+    pub fn offer(&self, frame: StillFrame) {
         if !self.should_accept() {
             if self.wanted() {
                 self.inner.dropped.fetch_add(1, Ordering::Relaxed);
             }
             return;
         }
-        let scaled = scale_bgra(frame, PREVIEW_MAX_WIDTH);
+        let max_width = self.max_width();
+        let scaled = if frame.width > max_width {
+            scale_bgra(&frame, max_width)
+        } else {
+            frame
+        };
         if let Ok(mut pending) = self.inner.pending.lock() {
             if pending.is_some() {
                 self.inner.dropped.fetch_add(1, Ordering::Relaxed);
@@ -256,6 +385,8 @@ impl PreviewHub {
                 state: if desktop { "desktop".into() } else { "live".into() },
                 label: if desktop { "Desktop Preview".into() } else { "Live".into() },
                 source: source.into(),
+                frame_id: frame.frame_id,
+                mime_type: frame.mime_type.into(),
             };
         }
         if !wanted {
@@ -266,6 +397,8 @@ impl PreviewHub {
                 state: "unavailable".into(),
                 label: "Preview unavailable".into(),
                 source: "none".into(),
+                frame_id: 0,
+                mime_type: "image/jpeg".into(),
             };
         }
         if mode == PreviewMode::Game && pid.unwrap_or(0) == 0 && !capture_live {
@@ -276,6 +409,8 @@ impl PreviewHub {
                 state: "waiting".into(),
                 label: "Waiting for game".into(),
                 source: source.into(),
+                frame_id: 0,
+                mime_type: "image/jpeg".into(),
             };
         }
         CapturePreviewFrame {
@@ -285,6 +420,8 @@ impl PreviewHub {
             state: "unavailable".into(),
             label: error.unwrap_or_else(|| "Preview unavailable".into()),
             source: source.into(),
+            frame_id: 0,
+            mime_type: "image/jpeg".into(),
         }
     }
 
@@ -372,6 +509,8 @@ impl Clone for EncodedPreview {
             png_base64: self.png_base64.clone(),
             width: self.width,
             height: self.height,
+            frame_id: self.frame_id,
+            mime_type: self.mime_type,
         }
     }
 }
@@ -399,23 +538,41 @@ fn encode_loop(inner: Arc<Inner>) {
             continue;
         };
         let started = Instant::now();
-        match encode_preview_png(&frame) {
-            Ok(encoded) => {
+        let frame_id = inner.next_frame_id.fetch_add(1, Ordering::Relaxed);
+        let jpeg_quality = inner.jpeg_quality.load(Ordering::Relaxed).clamp(1, 100) as u8;
+        let max_width = inner.max_width.load(Ordering::Relaxed);
+        let interval_ms = inner.min_interval_ms.load(Ordering::Relaxed);
+        match encode_preview_image(&frame, frame_id, jpeg_quality) {
+            Ok((encoded, pack_us, compress_us, b64_us)) => {
                 if let Ok(mut latest) = inner.latest.lock() {
                     *latest = Some(encoded);
                 }
                 if let Ok(mut error) = inner.error.lock() {
                     *error = None;
                 }
-                let encoded = inner.encoded.fetch_add(1, Ordering::Relaxed) + 1;
+                let encoded_n = inner.encoded.fetch_add(1, Ordering::Relaxed) + 1;
                 let encode_ms = started.elapsed().as_millis() as u64;
                 inner.last_encode_ms.store(encode_ms, Ordering::Relaxed);
-                if encoded == 1 || encoded % 120 == 0 {
+                inner.last_pack_us.store(pack_us, Ordering::Relaxed);
+                inner.last_compress_us.store(compress_us, Ordering::Relaxed);
+                inner.last_b64_us.store(b64_us, Ordering::Relaxed);
+                atomic_max(&inner.max_compress_us, compress_us);
+                atomic_max(&inner.max_b64_us, b64_us);
+                if encoded_n == 1 || encoded_n % 120 == 0 {
                     tracing::info!(
                         offered = inner.offered.load(Ordering::Relaxed),
                         dropped = inner.dropped.load(Ordering::Relaxed),
-                        encoded,
+                        encoded = encoded_n,
                         encode_ms,
+                        pack_us,
+                        compress_us,
+                        b64_us,
+                        max_compress_us = inner.max_compress_us.load(Ordering::Relaxed),
+                        max_b64_us = inner.max_b64_us.load(Ordering::Relaxed),
+                        preview_max_width = max_width,
+                        interval_ms,
+                        codec = "jpeg",
+                        jpeg_quality,
                         "capture preview stats"
                     );
                 }
@@ -430,14 +587,37 @@ fn encode_loop(inner: Arc<Inner>) {
     }
 }
 
-fn encode_preview_png(frame: &StillFrame) -> Result<EncodedPreview, String> {
+fn encode_preview_image(
+    frame: &StillFrame,
+    frame_id: u64,
+    jpeg_quality: u8,
+) -> Result<(EncodedPreview, u64, u64, u64), String> {
+    let pack_started = Instant::now();
     let packed = pack_preview_bgra(frame);
-    let png = crate::camera::color::encode_png_bgra(&packed, frame.width, frame.height)?;
-    Ok(EncodedPreview {
-        png_base64: crate::camera::color::base64_encode(&png),
-        width: frame.width,
-        height: frame.height,
-    })
+    let pack_us = pack_started.elapsed().as_micros() as u64;
+    let compress_started = Instant::now();
+    let jpeg = crate::camera::color::encode_jpeg_bgra_quality(
+        &packed,
+        frame.width,
+        frame.height,
+        jpeg_quality,
+    )?;
+    let compress_us = compress_started.elapsed().as_micros() as u64;
+    let b64_started = Instant::now();
+    let png_base64 = crate::camera::color::base64_encode(&jpeg);
+    let b64_us = b64_started.elapsed().as_micros() as u64;
+    Ok((
+        EncodedPreview {
+            png_base64,
+            width: frame.width,
+            height: frame.height,
+            frame_id,
+            mime_type: "image/jpeg",
+        },
+        pack_us,
+        compress_us,
+        b64_us,
+    ))
 }
 
 fn pack_preview_bgra(frame: &StillFrame) -> Vec<u8> {
@@ -464,6 +644,16 @@ fn preview_now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn atomic_max(slot: &AtomicU64, value: u64) {
+    let mut cur = slot.load(Ordering::Relaxed);
+    while value > cur {
+        match slot.compare_exchange_weak(cur, value, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(next) => cur = next,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -488,7 +678,7 @@ mod tests {
             *pending = Some(small);
         }
         hub.inner.last_accept_ms.store(0, Ordering::Relaxed);
-        hub.offer(&other);
+        hub.offer(other);
         assert!(hub.inner.pending.lock().expect("pending").is_some());
         assert_eq!(hub.inner.dropped.load(Ordering::Relaxed), 1);
     }
@@ -502,7 +692,7 @@ mod tests {
             height: 1,
             pitch: 4,
         };
-        hub.offer(&frame);
+        hub.offer(frame);
         let pending = hub.inner.pending.lock().expect("pending");
         assert!(pending.is_none());
     }

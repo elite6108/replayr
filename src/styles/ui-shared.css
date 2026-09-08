@@ -123,10 +123,14 @@ html[data-theme="light"] .btn.danger {
 .field input,
 .field select,
 .field textarea {
-  background: var(--bg-input);
+  background-color: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 8px 10px;
+}
+
+.field select {
+  padding-right: 32px;
 }
 
 .setting-row {

@@ -37,7 +37,7 @@ impl GraphicsCaptureApiHandler for PreviewOnlySession {
     ) -> Result<(), Self::Error> {
         if self.hub.should_accept() {
             if let Some(still) = pack_frame(frame) {
-                self.hub.offer(&still);
+                self.hub.offer(still);
             }
         }
         Ok(())

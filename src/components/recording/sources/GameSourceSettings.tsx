@@ -58,6 +58,23 @@ export function CaptureOutputFields({
           <option value={120}>120</option>
         </select>
       </div>
+      <div className="field">
+        <label htmlFor="record-preview-quality">Live preview quality</label>
+        <select
+          id="record-preview-quality"
+          value={settings.previewQuality}
+          onChange={(event) =>
+            onSave("previewQuality", event.target.value as AppSettings["previewQuality"])
+          }
+        >
+          <option value="full">Full (up to 1080p)</option>
+          <option value="balanced">Balanced (720p)</option>
+          <option value="performance">Performance (540p)</option>
+        </select>
+        <p className="muted" style={{ marginTop: 6 }}>
+          Does not change the recording file. Full size applies on the next recording session.
+        </p>
+      </div>
     </div>
   );
 }

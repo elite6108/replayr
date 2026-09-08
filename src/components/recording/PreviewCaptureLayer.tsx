@@ -6,7 +6,19 @@ import {
   updateCapturePreview,
 } from "../../services/tauri";
 import type { CapturePreviewFrame, CapturePreviewMode } from "../../types/capturePreview";
-import type { PreviewBackgroundMode } from "../../types/settings";
+import type { PreviewBackgroundMode, PreviewQuality } from "../../types/settings";
+import { useSettingsStore } from "../../stores/settingsStore";
+import {
+  createPreviewDiag,
+  decodePreviewDataUrl,
+  logPreviewDiag,
+  notePreviewTiming,
+  startPreviewPollLoop,
+} from "../../recording/previewPoll";
+
+function previewPollMs(quality: PreviewQuality): number {
+  return quality === "performance" ? 40 : 33;
+}
 
 export function PreviewCaptureLayer({
   mode,
@@ -25,14 +37,19 @@ export function PreviewCaptureLayer({
   monitorId?: string | null;
   onStatus?: (status: { live: boolean; label: string; source: string }) => void;
 }) {
+  const previewQuality = useSettingsStore((state) => state.settings.previewQuality);
   const [frame, setFrame] = useState<CapturePreviewFrame | null>(null);
-  const inflight = useRef(false);
+  const [displaySrc, setDisplaySrc] = useState("");
+  const lastFrameId = useRef(0);
+  const diag = useRef(createPreviewDiag());
   const target = useRef({ mode, pid, monitorId });
   target.current = { mode, pid, monitorId };
 
   useEffect(() => {
     if (!enabled) {
       setFrame(null);
+      setDisplaySrc("");
+      lastFrameId.current = 0;
       void stopCapturePreview();
       return;
     }
@@ -48,7 +65,10 @@ export function PreviewCaptureLayer({
         state: "unavailable",
         label: caught instanceof Error ? caught.message : "Preview unavailable",
         source: "none",
+        frameId: 0,
+        mimeType: "image/jpeg",
       });
+      setDisplaySrc("");
     });
     return () => {
       void stopCapturePreview();
@@ -63,28 +83,59 @@ export function PreviewCaptureLayer({
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    const pull = () => {
-      if (inflight.current) return;
-      inflight.current = true;
-      void getCapturePreviewFrame()
-        .then((next) => {
-          if (!cancelled && next) setFrame(normalizeFrame(next));
-        })
-        .catch(() => undefined)
-        .finally(() => {
-          inflight.current = false;
+    const stop = startPreviewPollLoop({
+      intervalMs: previewPollMs(previewQuality),
+      cancelled: () => cancelled,
+      pull: async () => {
+        const ipcStarted = performance.now();
+        const nextRaw = await getCapturePreviewFrame();
+        const ipcMs = performance.now() - ipcStarted;
+        if (cancelled || !nextRaw) return;
+        const next = normalizeFrame(nextRaw);
+        diag.current.offered += 1;
+        const frameId = next.frameId || 0;
+        if (frameId !== 0 && frameId === lastFrameId.current) {
+          diag.current.duplicatesSkipped += 1;
+          notePreviewTiming(diag.current, ipcMs, 0);
+          logPreviewDiag("capture", diag.current, {
+            width: next.width,
+            height: next.height,
+            mimeType: next.mimeType,
+          });
+          return;
+        }
+        if (!next.pngBase64) {
+          lastFrameId.current = frameId;
+          setFrame(next);
+          setDisplaySrc("");
+          diag.current.rendered += 1;
+          notePreviewTiming(diag.current, ipcMs, 0);
+          return;
+        }
+        const presentStarted = performance.now();
+        const url = await decodePreviewDataUrl(next.pngBase64, next.mimeType || "image/jpeg");
+        const presentMs = performance.now() - presentStarted;
+        if (cancelled) return;
+        lastFrameId.current = frameId;
+        setFrame(next);
+        setDisplaySrc(url);
+        diag.current.rendered += 1;
+        notePreviewTiming(diag.current, ipcMs, presentMs);
+        logPreviewDiag("capture", diag.current, {
+          width: next.width,
+          height: next.height,
+          frameId,
+          mimeType: next.mimeType,
         });
-    };
-    pull();
-    const timer = window.setInterval(pull, 33);
+      },
+    });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stop();
     };
-  }, [enabled]);
+  }, [enabled, previewQuality]);
 
-  const png = frame?.pngBase64;
-  const live = Boolean(png);
+  const live = Boolean(displaySrc);
   const label = frame?.label ?? (mode === "desktop" ? "Desktop Preview" : "Waiting for game");
 
   useEffect(() => {
@@ -93,16 +144,24 @@ export function PreviewCaptureLayer({
 
   return (
     <div className={`preview-capture fallback-${fallback}${live ? " is-live" : ""}`}>
-      {live ? <img src={`data:image/png;base64,${png}`} alt="" draggable={false} /> : <FallbackPlate mode={fallback} />}
+      {live ? <img src={displaySrc} alt="" draggable={false} /> : <FallbackPlate mode={fallback} />}
       {hideBadge ? null : <span className="preview-capture-label">{label}</span>}
     </div>
   );
 }
 
-function normalizeFrame(frame: CapturePreviewFrame & { png_base64?: string | null }): CapturePreviewFrame {
+function normalizeFrame(
+  frame: CapturePreviewFrame & {
+    png_base64?: string | null;
+    frame_id?: number;
+    mime_type?: string;
+  },
+): CapturePreviewFrame {
   return {
     ...frame,
     pngBase64: frame.pngBase64 ?? frame.png_base64 ?? null,
+    frameId: Number(frame.frameId ?? frame.frame_id ?? 0),
+    mimeType: frame.mimeType ?? frame.mime_type ?? "image/jpeg",
   };
 }
 

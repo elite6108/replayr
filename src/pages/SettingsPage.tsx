@@ -475,6 +475,23 @@ function RecordingPane({
           </select>
         </div>
         <div className="field">
+          <label htmlFor="preview-quality">Live preview quality</label>
+          <select
+            id="preview-quality"
+            value={settings.previewQuality}
+            onChange={(event) =>
+              void onChange("previewQuality", event.target.value as AppSettings["previewQuality"])
+            }
+          >
+            <option value="full">Full (up to 1080p)</option>
+            <option value="balanced">Balanced (720p)</option>
+            <option value="performance">Performance (540p)</option>
+          </select>
+          <p className="muted" style={{ marginTop: 6 }}>
+            Live Output Preview only. Does not change the recording file.
+          </p>
+        </div>
+        <div className="field">
           <label htmlFor="fps">FPS</label>
           <select
             id="fps"

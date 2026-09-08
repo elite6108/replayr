@@ -115,6 +115,10 @@ fn after_settings(
         app.state::<CameraEngine>().configure(&settings.webcam);
     }
 
+    if keys.iter().any(|key| key == "previewQuality") {
+        rec.shared.preview.apply_quality(&settings.preview_quality);
+    }
+
     if keys.iter().any(|key| key == "saveLocation") {
         crate::paths::allow_clip_asset_roots(app);
     }

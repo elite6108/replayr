@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AppSettings, CloudUploadWhen } from "../types/settings";
+import type { AppSettings, CloudUploadWhen, PreviewQuality } from "../types/settings";
 import { DEFAULT_SETTINGS } from "../types/settings";
 import { parseThemePreference, persistThemePreference, readStoredThemePreference } from "../theme/theme";
 import { sanitizeRecordingVisuals } from "../recording/visualFilters";
@@ -55,6 +55,11 @@ function resolveCloudUploadWhen(settings: AppSettings): CloudUploadWhen {
   return settings.pauseUploadsWhileGaming === false ? "immediate" : "afterGame";
 }
 
+function parsePreviewQuality(value: AppSettings["previewQuality"] | undefined): PreviewQuality {
+  if (value === "full" || value === "performance" || value === "balanced") return value;
+  return DEFAULT_SETTINGS.previewQuality;
+}
+
 function normalizeSettings(settings: AppSettings): AppSettings {
   return {
     ...DEFAULT_SETTINGS,
@@ -80,6 +85,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       mirrorRecording: settings.webcam?.mirrorRecording ?? false,
     },
     recordingVisuals: sanitizeRecordingVisuals(settings.recordingVisuals),
+    previewQuality: parsePreviewQuality(settings.previewQuality),
     theme: parseThemePreference(settings.theme),
   };
 }

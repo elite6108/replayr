@@ -1,6 +1,6 @@
 [package]
 name = "replay"
-version = "0.1.32"
+version = "0.1.33"
 description = "Project Replay desktop application"
 authors = ["Project Replay"]
 edition = "2021"
@@ -37,6 +37,7 @@ tauri-plugin-deep-link = "2.4.9"
 tauri-plugin-single-instance = { version = "2.4.3", features = ["deep-link"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+jpeg-encoder = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [

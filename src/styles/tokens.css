@@ -38,6 +38,7 @@ html[data-theme="dark"] {
   --switch-on-border: #3e7a90;
   --avatar-fg: #d7eef6;
   --toast-bg: #1c2027;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2.5 4.5L6 8L9.5 4.5' stroke='%238b93a3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --ctx-bg: #161b24;
   --banner-bg: #14171c;
   --badge-bg: #12161c;
@@ -132,6 +133,7 @@ html[data-theme="light"] {
   --switch-on-border: rgba(0, 216, 240, 0.45);
   --avatar-fg: #007a92;
   --toast-bg: #ffffff;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2.5 4.5L6 8L9.5 4.5' stroke='%23707b8c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --ctx-bg: #ffffff;
   --banner-bg: #f4f6f8;
   --badge-bg: #eef2f6;

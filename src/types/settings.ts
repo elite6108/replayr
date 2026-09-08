@@ -15,6 +15,8 @@ export type WebcamPlacement = "top-left" | "top-right" | "bottom-left" | "bottom
 export type WebcamShape = "rectangle" | "rounded" | "circle";
 export type GameplayVisualFilter = "none" | "bodycam" | "dashcam" | "vhs" | "cinematic";
 export type PreviewBackgroundMode = "mock" | "dark";
+/** Live Output Preview only. Does not change recording file size or encoder settings. */
+export type PreviewQuality = "full" | "balanced" | "performance";
 
 export interface RecordingOverlaySettings {
   recIndicator: boolean;
@@ -112,6 +114,8 @@ export interface AppSettings {
   discordRichPresence: boolean;
   webcam: WebcamSettings;
   recordingVisuals: RecordingVisualSettings;
+  /** Live Output Preview resolution/pace. Does not change the recording. */
+  previewQuality: PreviewQuality;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -154,4 +158,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   discordRichPresence: true,
   webcam: { ...DEFAULT_WEBCAM_SETTINGS },
   recordingVisuals: { ...DEFAULT_RECORDING_VISUALS, overlays: { ...DEFAULT_RECORDING_VISUALS.overlays } },
+  previewQuality: "balanced",
 };

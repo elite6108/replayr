@@ -64,12 +64,28 @@
 
 .clip-visibility {
   display: block;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
 .clip-visibility select {
   width: 100%;
   font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background-color: var(--bg-chip);
+  border-color: var(--border);
+  border-radius: 10px;
+  padding: 7px 28px 7px 10px;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 11px 11px;
+}
+
+.clip-visibility select:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-hover);
+  background-color: var(--bg-hover);
 }
 
 .clip-line {

@@ -355,10 +355,17 @@ export async function stopCameraPreview(): Promise<void> {
 
 export async function getCameraPreviewFrame(): Promise<CameraPreviewFrame | null> {
   try {
-    const next = await invoke<(CameraPreviewFrame & { png_base64?: string }) | null>("get_camera_preview_frame");
+    const next = await invoke<
+      (CameraPreviewFrame & { png_base64?: string; frame_id?: number }) | null
+    >("get_camera_preview_frame");
     if (!next) return null;
     const pngBase64 = next.pngBase64 || next.png_base64 || "";
-    return pngBase64 ? { ...next, pngBase64 } : null;
+    if (!pngBase64) return null;
+    return {
+      ...next,
+      pngBase64,
+      frameId: Number(next.frameId ?? next.frame_id ?? 0),
+    };
   } catch {
     return null;
   }
@@ -422,7 +429,15 @@ export async function listDisplays(): Promise<import("../recording/display/displ
 
 export async function getCapturePreviewFrame(): Promise<CapturePreviewFrame | null> {
   try {
-    return await invoke<CapturePreviewFrame>("get_capture_preview_frame");
+    const next = await invoke<
+      CapturePreviewFrame & { png_base64?: string | null; frame_id?: number; mime_type?: string }
+    >("get_capture_preview_frame");
+    return {
+      ...next,
+      pngBase64: next.pngBase64 ?? next.png_base64 ?? null,
+      frameId: Number(next.frameId ?? next.frame_id ?? 0),
+      mimeType: next.mimeType ?? next.mime_type ?? "image/jpeg",
+    };
   } catch {
     return null;
   }

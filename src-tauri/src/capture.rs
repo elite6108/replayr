@@ -52,8 +52,11 @@ pub struct ReplayStatus {
     pub disk_blocked: bool,
     pub saving: bool,
     /// Settings were saved but have not been applied to the running stream.
-    /// Do not silently clear its buffer or present pending settings as active.
+    /// Never present pending settings as active.
     pub settings_pending: bool,
+    pub bitrate_restart_pending: bool,
+    pub restarting: bool,
+    pub encoder: Option<crate::ir_runtime::IrEncoderStatus>,
 }
 
 impl Default for ReplayStatus {
@@ -69,6 +72,9 @@ impl Default for ReplayStatus {
             disk_blocked: false,
             saving: false,
             settings_pending: false,
+            bitrate_restart_pending: false,
+            restarting: false,
+            encoder: None,
         }
     }
 }
@@ -90,6 +96,8 @@ pub struct CaptureShared {
     pub last_still: Mutex<Option<StillFrame>>,
     pub exporting: AtomicBool,
     pub preview: crate::preview::PreviewHub,
+    pub ir_encoder: Mutex<Option<crate::ir_runtime::IrEncoderStatus>>,
+    pub restarting: AtomicBool,
 }
 
 impl Default for CaptureShared {
@@ -103,6 +111,8 @@ impl Default for CaptureShared {
             last_still: Mutex::new(None),
             exporting: AtomicBool::new(false),
             preview: crate::preview::PreviewHub::new(),
+            ir_encoder: Mutex::new(None),
+            restarting: AtomicBool::new(false),
         }
     }
 }
@@ -118,6 +128,9 @@ impl CaptureShared {
 }
 
 pub struct RecordingState {
+    /// Serializes capture lifecycle and exports. A quality restart must never
+    /// delete paths being read by a save, or race a manual start/stop.
+    lifecycle: Mutex<()>,
     inner: Mutex<Option<ActiveRecording>>,
     pub status: Mutex<RecordingStatus>,
     pub replay: Mutex<ReplayStatus>,
@@ -163,6 +176,11 @@ struct CaptureSettings {
 }
 
 impl CaptureSettings {
+    fn bitrate_differs(&self, settings: &AppSettings) -> bool {
+        let requested = Self::from_settings(settings);
+        self.bitrate != requested.bitrate || self.custom_kbps != requested.custom_kbps
+    }
+
     fn from_settings(settings: &AppSettings) -> Self {
         let bitrate = crate::recording_bitrate::QualityPreset::parse(&settings.bitrate);
         Self {
@@ -186,6 +204,7 @@ enum CaptureHandle {
 impl Default for RecordingState {
     fn default() -> Self {
         Self {
+            lifecycle: Mutex::new(()),
             inner: Mutex::new(None),
             status: Mutex::new(RecordingStatus::default()),
             replay: Mutex::new(ReplayStatus::default()),
@@ -611,38 +630,8 @@ mod windows_impl {
     }
 
     fn publish_replay(app: &AppHandle, state: &RecordingState, settings: &AppSettings, error: Option<String>) {
-        let buffered_ms = state
-            .shared
-            .buffer
-            .lock()
-            .map(|buffer| buffer.total_ms())
-            .unwrap_or(0);
-        let active = state.inner.lock().map(|inner| inner.is_some()).unwrap_or(false);
-        let target = state
-            .inner
-            .lock()
-            .ok()
-            .and_then(|inner| inner.as_ref().map(|session| session.title.clone()));
-        let save = PathBuf::from(&settings.save_location);
-        let disk_free_bytes = crate::disk::free_bytes(&save).ok();
-        let disk_blocked = disk_free_bytes
-            .map(|free| free < settings.min_free_disk_bytes)
-            .unwrap_or(false);
-        let status = ReplayStatus {
-            enabled: settings.instant_replay_enabled,
-            active: active && settings.instant_replay_enabled,
-            buffered_ms,
-            duration_ms: u64::from(settings.replay_duration_seconds) * 1000,
-            target,
-            error,
-            disk_free_bytes,
-            disk_blocked,
-            saving: state.shared.exporting.load(Ordering::SeqCst),
-            settings_pending: active && state.inner.lock().ok().is_some_and(|inner| {
-                inner.as_ref().is_some_and(|session|
-                    session.capture_settings != CaptureSettings::from_settings(settings))
-            }),
-        };
+        let mut status = replay_status(state, settings);
+        status.error = error;
         if let Ok(mut slot) = state.replay.lock() {
             *slot = status.clone();
         }
@@ -1200,8 +1189,55 @@ mod windows_impl {
             }
         }
 
+        apply_pending_bitrate(app, state)?;
         publish_replay(app, state, &settings, None);
         Ok(replay_status(state, &settings))
+    }
+
+    /// Called only while the outer lifecycle lock is held. A fresh writer and
+    /// empty buffer avoid mixing old settings / codec configuration into clips.
+    pub fn apply_pending_bitrate(app: &AppHandle, state: &RecordingState) -> AppResult<()> {
+        let settings = load_settings(app)?;
+        let target = state.inner.lock().ok().and_then(|inner| {
+            inner.as_ref().filter(|active|
+                crate::ir_runtime::should_restart_for_bitrate(
+                    settings.instant_replay_enabled, active.segmented, active.session,
+                    active.capture_settings.bitrate_differs(&settings),
+                )
+            ).map(|active| (active.pid, active.title.clone(), active.game_id.clone()))
+        });
+        let Some((pid, name, game_id)) = target else { return Ok(()); };
+        if state.shared.buffer.lock().map(|buffer| buffer.has_retained_frames()).unwrap_or(true) {
+            let error = AppError::Message("Bitrate restart is pending: recording footage is still retained by an unfinished save. Resolve the save before restarting Instant Replay.".into());
+            publish_replay(app, state, &settings, Some(error.to_string()));
+            return Err(error);
+        }
+        // Keep the current buffer intact if preflight already proves restart
+        // cannot succeed. Only rolling scratch is cleared by start(), never
+        // saved clips or the user's library.
+        let save = save_dir(app, &settings)?;
+        if let Err(error) = crate::disk::ensure_free_space(&save, settings.min_free_disk_bytes) {
+            publish_replay(app, state, &settings, Some(error.to_string()));
+            return Err(error);
+        }
+        state.shared.restarting.store(true, Ordering::SeqCst);
+        publish_replay(app, state, &settings, None);
+        let result = halt_capture(state).and_then(|_| {
+            start(app, state, pid, Some(name), game_id, true, false, None).map(|_| ())
+        });
+        state.shared.restarting.store(false, Ordering::SeqCst);
+        match &result {
+            Ok(()) => {
+                tracing::info!("IR bitrate change applied by restarting the rolling buffer");
+                let _ = app.emit("replay-bitrate-applied", ());
+                publish_replay(app, state, &settings, None);
+            }
+            Err(error) => {
+                tracing::error!(%error, "IR bitrate restart failed");
+                publish_replay(app, state, &settings, Some(format!("Instant Replay could not restart with the new bitrate: {error}")));
+            }
+        }
+        result
     }
 
     pub fn save_clip(app: &AppHandle, state: &RecordingState) -> AppResult<String> {
@@ -1410,6 +1446,7 @@ pub fn start(
     game_id: Option<String>,
     webcam_layout: Option<crate::overlay::OverlayLayout>,
 ) -> AppResult<RecordingStatus> {
+    let _lifecycle = state.lifecycle.lock().map_err(|e| AppError::Message(e.to_string()))?;
     let webcam_layout = match webcam_layout {
         Some(layout) => {
             state.set_session_webcam_layout(Some(layout.clone()));
@@ -1425,10 +1462,23 @@ pub fn start(
 }
 
 pub fn stop(app: &AppHandle, state: &RecordingState) -> AppResult<RecordingStatus> {
-    windows_impl::stop_recording(app, state)
+    let _lifecycle = state.lifecycle.lock().map_err(|e| AppError::Message(e.to_string()))?;
+    let result = windows_impl::stop_recording(app, state);
+    #[cfg(windows)]
+    if result.is_ok() {
+        // A preset changed during a manual session is applied only after the
+        // session has been finalized and saved successfully.
+        if let Err(error) = windows_impl::apply_pending_bitrate(app, state) {
+            tracing::warn!(%error, "IR bitrate restart after saved recording failed");
+        }
+    }
+    result
 }
 
 pub fn save_clip(app: &AppHandle, state: &RecordingState) -> AppResult<String> {
+    // Preserve duplicate-save rejection rather than queueing multiple hotkeys.
+    let _lifecycle = state.lifecycle.try_lock()
+        .map_err(|_| AppError::Message("Capture is busy saving or restarting. Try saving the clip again shortly.".into()))?;
     windows_impl::save_clip(app, state)
 }
 
@@ -1443,7 +1493,17 @@ pub fn sync_replay(
     game_name: Option<String>,
     game_id: Option<String>,
 ) -> AppResult<ReplayStatus> {
+    let _lifecycle = state.lifecycle.lock().map_err(|e| AppError::Message(e.to_string()))?;
     windows_impl::sync_replay(app, state, pid, game_name, game_id)
+}
+
+/// Settings work can wait behind an export. Resolve the game after that wait
+/// instead of restarting capture against an old detection snapshot.
+pub fn sync_replay_after_settings(app: &AppHandle, state: &RecordingState) -> AppResult<ReplayStatus> {
+    let _lifecycle = state.lifecycle.lock().map_err(|e| AppError::Message(e.to_string()))?;
+    let detection = app.state::<crate::detection::DetectionState>();
+    let snapshot = crate::detection::current_snapshot(&detection);
+    windows_impl::sync_replay(app, state, snapshot.pid, snapshot.name, snapshot.slug)
 }
 
 pub fn retain_preview(state: &RecordingState, mode: &str, pid: Option<u32>, monitor_id: Option<String>) {
@@ -1483,13 +1543,20 @@ pub fn status(state: &RecordingState) -> RecordingStatus {
 }
 
 pub fn replay_status(state: &RecordingState, settings: &AppSettings) -> ReplayStatus {
+    let mut encoder = state.shared.ir_encoder.lock().ok().and_then(|status| status.clone());
+    if let Some(encoder) = encoder.as_mut() {
+        encoder.request(crate::recording_bitrate::resolve_clip_bitrate(
+            encoder.width, encoder.height, encoder.fps,
+            crate::recording_bitrate::QualityPreset::parse(&settings.bitrate), settings.custom_bitrate_kbps,
+        ));
+    }
     let buffered_ms = state
         .shared
         .buffer
         .lock()
         .map(|buffer| buffer.total_ms())
         .unwrap_or(0);
-    let (active, target, settings_pending) = state
+    let (active, target, settings_pending, bitrate_restart_pending) = state
         .inner
         .lock()
         .ok()
@@ -1499,10 +1566,11 @@ pub fn replay_status(state: &RecordingState, settings: &AppSettings) -> ReplaySt
                     session.segmented && settings.instant_replay_enabled,
                     Some(session.title.clone()),
                     session.capture_settings != CaptureSettings::from_settings(settings),
+                    session.capture_settings.bitrate_differs(settings),
                 )
             })
         })
-        .unwrap_or((false, None, false));
+        .unwrap_or((false, None, false, false));
     let save = PathBuf::from(&settings.save_location);
     let disk_free_bytes = crate::disk::free_bytes(&save).ok();
     let disk_blocked = disk_free_bytes
@@ -1519,6 +1587,9 @@ pub fn replay_status(state: &RecordingState, settings: &AppSettings) -> ReplaySt
         disk_blocked,
         saving: state.shared.exporting.load(std::sync::atomic::Ordering::SeqCst),
         settings_pending: active && settings_pending,
+        bitrate_restart_pending: active && bitrate_restart_pending,
+        restarting: state.shared.restarting.load(Ordering::SeqCst),
+        encoder: if active { encoder } else { None },
     }
 }
 
@@ -1543,5 +1614,12 @@ mod capture_settings_tests {
         assert_eq!(running, CaptureSettings::from_settings(&settings));
         settings.resolution = "720p".into();
         assert_ne!(running, CaptureSettings::from_settings(&settings));
+        assert!(!running.bitrate_differs(&settings), "format changes alone do not clear the buffer");
+        settings.bitrate = "custom".into();
+        settings.custom_bitrate_kbps = 50_000;
+        assert!(running.bitrate_differs(&settings));
+        let custom = CaptureSettings::from_settings(&settings);
+        settings.custom_bitrate_kbps = 42_000;
+        assert!(custom.bitrate_differs(&settings));
     }
 }

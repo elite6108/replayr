@@ -18,6 +18,7 @@ import { useRecordingScene } from "../../recording/useRecordingScene";
 import { useStudioAudio } from "../../recording/useStudioAudio";
 import { AudioMixer } from "./AudioMixer";
 import { RecordControls } from "./RecordControls";
+import { IrEncoderDetails } from "../common/IrEncoderDetails";
 import { RecordingPreview } from "./RecordingPreview";
 import { SourceInspector } from "./SourceInspector";
 import { SourceList } from "./SourceList";
@@ -243,8 +244,9 @@ export function RecordWorkspace() {
         <footer className="studio-status">
           <span>Output: {outputSizeLabel(settings.resolution)} · {scene.outputMode === "composed" ? "Composed" : "Legacy"}</span>
           <span>{settings.fps} FPS</span>
-          <span>Video: {qualityLabel(settings.bitrate)}{replay.settingsPending ? " (pending IR restart)" : ""}</span>
+          <span>Selected video quality: {qualityLabel(settings.bitrate)}</span>
         </footer>
+        <IrEncoderDetails replay={replay} />
       </div>
       {propertiesSource ? (
         <SourcePropertiesDialog

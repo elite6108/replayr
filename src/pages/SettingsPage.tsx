@@ -4,6 +4,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { publicSiteUrl, APP_NAME } from "../branding";
 import { CloudSettings } from "../components/settings/CloudSettings";
 import { PageHeader } from "../components/common/PageHeader";
+import { IrEncoderDetails } from "../components/common/IrEncoderDetails";
+import { BitrateChangeInfo } from "../components/common/BitrateChangeInfo";
+import { CustomBitrateInput } from "../components/settings/CustomBitrateInput";
 import { HotkeyRecorder } from "../components/common/HotkeyRecorder";
 import { DEFAULT_HOTKEYS, findHotkeyConflicts, HOTKEY_ACTIONS, HOTKEY_LABELS } from "../utils/hotkeys";
 import { displayHotkey } from "../utils/format";
@@ -415,20 +418,14 @@ function RecordingPane({
   onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
   onBrowse: () => void;
 }) {
-  const settingsPending = useRecordingStore((state) => state.replay.settingsPending);
+  const replay = useRecordingStore((state) => state.replay);
   const composedActive = useRecordingStore(
     (state) => Boolean((state.status.active && state.status.composed) || state.startingComposed),
   );
   return (
     <>
       <p className="muted">Instant Replay keeps a rolling buffer. Start/stop still writes a full session file.</p>
-      {settingsPending ? (
-        <p className="muted" role="status">
-          Quality changes are saved but not active in the running replay buffer.
-          Save wanted clips, then turn Instant Replay off and on to apply them.
-          Restarting clears the rolling buffer.
-        </p>
-      ) : null}
+      <IrEncoderDetails replay={replay} />
       <label className="setting-row">
         <span className="setting-copy">
           Instant Replay
@@ -520,6 +517,7 @@ function RecordingPane({
         </div>
         <div className="field">
           <label htmlFor="bitrate">Bitrate</label>
+          <BitrateChangeInfo />
           <select
             id="bitrate"
             value={settings.bitrate}
@@ -536,17 +534,7 @@ function RecordingPane({
           {settings.bitrate === "custom" ? (
             <div className="field" style={{ marginTop: 8 }}>
               <label htmlFor="custom-bitrate">Custom bitrate (kbps)</label>
-              <input
-                id="custom-bitrate"
-                type="number"
-                min={1000}
-                max={120000}
-                step={500}
-                value={settings.customBitrateKbps}
-                onChange={(event) =>
-                  void onChange("customBitrateKbps", Math.max(1000, Math.min(120000, Number(event.target.value) || 15000)))
-                }
-              />
+              <CustomBitrateInput value={settings.customBitrateKbps} onSave={(value) => void onChange("customBitrateKbps", value)} />
             </div>
           ) : null}
         </div>

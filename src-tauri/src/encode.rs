@@ -258,6 +258,43 @@ fn bytes_to_hns(bytes: usize) -> i64 {
 }
 
 impl MfWriter {
+    pub fn dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    /// SinkWriter may put a colour converter at index zero. Codec controls
+    /// must address the video encoder, never an arbitrary transform.
+    fn ir_transform(&self) -> Result<IMFTransform, String> {
+        use windows::Win32::Media::MediaFoundation::MFT_CATEGORY_VIDEO_ENCODER;
+        unsafe {
+            let ex = self.writer.cast::<IMFSinkWriterEx>().map_err(|e| e.to_string())?;
+            for index in 0..16 {
+                let mut category = GUID::zeroed();
+                let mut transform = None;
+                if ex.GetTransformForStream(self.video_stream, index, Some(&mut category), &mut transform).is_err() {
+                    break;
+                }
+                if category == MFT_CATEGORY_VIDEO_ENCODER {
+                    if let Some(transform) = transform {
+                        return Ok(transform);
+                    }
+                }
+            }
+        }
+        Err("The video encoder does not expose bitrate diagnostics.".into())
+    }
+
+    fn ir_codec(&self) -> Result<windows::Win32::Media::MediaFoundation::ICodecAPI, String> {
+        self.ir_transform()?.cast().map_err(|e| e.to_string())
+    }
+
+    pub fn ir_reported_bitrate(&self) -> Option<u32> {
+        use windows::Win32::Media::MediaFoundation::CODECAPI_AVEncCommonMeanBitRate;
+        let codec = self.ir_codec().ok()?;
+        let value = unsafe { codec.GetValue(&CODECAPI_AVEncCommonMeanBitRate) }.ok()?;
+        u32::try_from(&value).ok().filter(|value| *value > 0)
+    }
+
     /// Read-only diagnostics for IR. Transform zero can be a colour converter,
     /// so identify the encoder by category instead of labelling it hardware.
     pub fn log_ir_configuration(&self, requested_bitrate: u32) {
@@ -1082,6 +1119,58 @@ fn fade_in_s16_stereo(pcm: &mut [u8], frames: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires Windows Media Foundation; generates synthetic frames only"]
+    fn ir_restarted_encoder_reports_each_requested_bitrate() {
+        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap(); }
+        let temp = tempfile::tempdir().unwrap();
+        for bitrate in [18_000_000, 50_000_000, 42_000_000] {
+            let path = temp.path().join(format!("restart-{bitrate}.mp4"));
+            let mut writer = MfWriter::new(&path, 1920, 1080, 60, bitrate, false, None, true, VideoInput::Bgra).unwrap();
+            assert_eq!(writer.dimensions(), (1920, 1080));
+            let reported = writer.ir_reported_bitrate();
+            println!("restart requested={bitrate} encoder_readback={reported:?}");
+            unsafe {
+                use windows::Win32::Media::MediaFoundation::*;
+                let transform = writer.ir_transform().unwrap();
+                let output = transform.GetOutputCurrentType(0).unwrap();
+                println!("profile={:?} level={:?}", output.GetUINT32(&MF_MT_MPEG2_PROFILE), output.GetUINT32(&MF_MT_MPEG2_LEVEL));
+                if let Ok(attributes) = transform.GetAttributes() {
+                    println!("encoder_clsid={:?}", attributes.GetGUID(&MFT_TRANSFORM_CLSID_Attribute));
+                }
+                let codec = writer.ir_codec().unwrap();
+                for (name, key) in [
+                    ("rate_control", CODECAPI_AVEncCommonRateControlMode),
+                    ("quality_vs_speed", CODECAPI_AVEncCommonQualityVsSpeed),
+                    ("quality", CODECAPI_AVEncCommonQuality),
+                    ("min_qp", CODECAPI_AVEncVideoMinQP),
+                ] { println!("{name}={:?}", codec.GetValue(&key)); }
+            }
+            assert_eq!(reported, Some(bitrate), "this host's encoder must acknowledge the startup bitrate");
+            let mut pixels = vec![0u8; 1920 * 1080 * 4];
+            for frame in 0..120usize {
+                for y in 0..1080usize {
+                    for x in 0..1920usize {
+                        let sx = (x + frame * 13) / 4;
+                        let sy = (y + frame * 7) / 4;
+                        let value = ((sx.wrapping_mul(37) ^ sy.wrapping_mul(73) ^ (sx * sy)) & 255) as u8;
+                        let offset = (y * 1920 + x) * 4;
+                        pixels[offset..offset + 4].copy_from_slice(&[value, value, value, 255]);
+                    }
+                }
+                writer.write_bgra(&pixels, 1920 * 4, 1920, 1080, (frame as i64 + 1) * 166_667, false).unwrap();
+            }
+            writer.finish().unwrap();
+            let bytes = std::fs::metadata(&path).unwrap().len();
+            println!("synthetic 1080p60 target={bitrate} file_bytes={bytes}");
+        }
+        if std::env::var_os("REPLAY_KEEP_SYNTHETIC_TEST_MEDIA").is_some() {
+            println!("synthetic test media: {}", temp.keep().display());
+        }
+    }
+
 
     #[test]
     fn a_second_of_pcm_is_a_second_of_timeline() {

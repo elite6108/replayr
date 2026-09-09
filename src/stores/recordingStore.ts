@@ -47,6 +47,9 @@ async function attachRecordingListeners() {
       useRecordingStore.setState({ replay });
       setClockTick(replay.active || useRecordingStore.getState().status.active);
     }),
+    await listen("replay-bitrate-applied", () => {
+      useToastStore.getState().show("Bitrate applied. Instant Replay restarted; the old buffer was cleared. Saved clips are unchanged.");
+    }),
     await listen<{ path: string; kind: string }>("local-clip-saved", (event) => {
       const kind =
         event.payload.kind === "clip"
@@ -72,6 +75,31 @@ async function attachRecordingListeners() {
 }
 
 let replayClock: number | null = null;
+let replayRevision = 0;
+let encoderPollInFlight = false;
+
+async function refreshEncoderStatus() {
+  if (encoderPollInFlight || !useRecordingStore.getState().replay.active) return;
+  encoderPollInFlight = true;
+  const revision = replayRevision;
+  try {
+    const fresh = await getReplayStatus();
+    const current = useRecordingStore.getState().replay;
+    // Never overwrite a newer stop/start/settings event with an older poll.
+    // Only diagnostics are polled; save progress and the buffer clock stay
+    // owned by the existing events and timer.
+    if (revision === replayRevision && fresh.active && current.active) {
+      useRecordingStore.setState({ replay: {
+        ...current, encoder: fresh.encoder, settingsPending: fresh.settingsPending,
+        bitrateRestartPending: fresh.bitrateRestartPending, restarting: fresh.restarting,
+      } });
+    }
+  } catch {
+    // A transient status failure must not interrupt recording or clip saving.
+  } finally {
+    encoderPollInFlight = false;
+  }
+}
 
 function startedAtMs(startedAt: string | null): number | null {
   if (!startedAt) return null;
@@ -89,6 +117,7 @@ function liveRecording(status: RecordingStatus): RecordingStatus {
 }
 
 function applyReplay(replay: ReplayStatus): ReplayStatus {
+  replayRevision += 1;
   if (!replay.active) {
     replayClock = null;
     return replay;
@@ -113,6 +142,7 @@ function setClockTick(active: boolean) {
         status: liveRecording(status),
         replay: tickReplay(replay),
       });
+      void refreshEncoderStatus();
     }, 1000);
   }
   if (!active && tick != null) {

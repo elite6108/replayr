@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BitrateChangeInfo } from "../common/BitrateChangeInfo";
 import { IconGear, IconRecord } from "../icons";
 import type { AppSettings } from "../../types/settings";
 import { displayHotkey, formatDuration } from "../../utils/format";
@@ -98,6 +99,7 @@ export function RecordControls({
           <CaptureOutputFields settings={settings} onSave={onSave} disabled={composedRecording} />
           <div className="field">
             <label htmlFor="record-quality">Quality</label>
+            <BitrateChangeInfo />
             <select
               id="record-quality"
               value={settings.bitrate}

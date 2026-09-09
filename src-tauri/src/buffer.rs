@@ -60,6 +60,12 @@ impl ReplayBuffer {
         self.segments.iter().map(|segment| segment.path.clone()).collect()
     }
 
+    /// Failed session finalization can leave retained footage even after the
+    /// recording UI stopped. An automatic settings restart must preserve it.
+    pub fn has_retained_frames(&self) -> bool {
+        self.session_active || self.segments.iter().any(|segment| segment.pinned || segment.locked)
+    }
+
     pub fn push(&mut self, mut segment: Segment) {
         if self.session_active {
             segment.pinned = true;
@@ -272,6 +278,23 @@ mod tests {
         assert_eq!(buffer.session_paths().len(), 10);
         buffer.end_session();
         assert_eq!(buffer.total_ms(), 6_000);
+    }
+
+    #[test]
+    fn retained_footage_blocks_automatic_bitrate_restart() {
+        let mut buffer = ReplayBuffer::new(60_000);
+        assert!(!buffer.has_retained_frames());
+        buffer.begin_session();
+        assert!(buffer.has_retained_frames(), "even an empty unfinished session is protected");
+        buffer.push(seg(1, 2_000, false));
+        buffer.end_session();
+        assert!(!buffer.has_retained_frames());
+        let _ = buffer.clip_paths(2_000);
+        assert!(buffer.has_retained_frames(), "export-locked footage is protected");
+        buffer.unlock_all();
+        assert!(!buffer.has_retained_frames());
+        buffer.push(seg(2, 2_000, true));
+        assert!(buffer.has_retained_frames(), "orphaned pinned footage is protected too");
     }
 
     #[test]

@@ -18,6 +18,18 @@ export const IDLE_RECORDING: RecordingStatus = {
   composed: false,
 };
 
+export interface IrEncoderStatus {
+  width: number;
+  height: number;
+  fps: number;
+  requestedBitrateBps: number;
+  activeTargetBitrateBps: number;
+  encoderReportedBitrateBps: number | null;
+  recentFileBitrateBps: number | null;
+  droppedFrames: number;
+  lastRotationMs: number;
+}
+
 export interface ReplayStatus {
   enabled: boolean;
   active: boolean;
@@ -29,6 +41,9 @@ export interface ReplayStatus {
   diskBlocked: boolean;
   saving: boolean;
   settingsPending?: boolean;
+  bitrateRestartPending?: boolean;
+  restarting?: boolean;
+  encoder?: IrEncoderStatus | null;
 }
 
 export const IDLE_REPLAY: ReplayStatus = {

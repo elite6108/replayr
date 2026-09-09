@@ -2,6 +2,7 @@ import type { DetectedGameSnapshot } from "../../types/game";
 import { displayHotkey } from "../../utils/format";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useRecordingStore } from "../../stores/recordingStore";
+import { IrEncoderDetails } from "./IrEncoderDetails";
 
 function formatDuration(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -74,12 +75,7 @@ export function DetectedGamePanel({
             {replay.error}
           </div>
         ) : null}
-        {replay.settingsPending ? (
-          <div className="hero-status" role="status">
-            Quality settings saved but not active yet. Save any clips you want to keep,
-            then turn Instant Replay off and on to apply them. Restarting clears the rolling buffer.
-          </div>
-        ) : null}
+        <IrEncoderDetails replay={replay} />
         {showControls ? (
           <div className="row">
             <button

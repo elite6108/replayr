@@ -13,6 +13,7 @@ mod buffer;
 mod camera;
 mod capture;
 mod capture_timing;
+mod ir_runtime;
 mod commands;
 mod database;
 mod detection;

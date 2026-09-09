@@ -91,7 +91,7 @@ fn patch_keys(patch: &Value) -> Vec<String> {
 fn after_settings(
     app: &AppHandle,
     rec: &RecordingState,
-    detection: &DetectionState,
+    _detection: &DetectionState,
     settings: &AppSettings,
     keys: &[String],
 ) -> AppResult<()> {
@@ -131,18 +131,11 @@ fn after_settings(
 
     if capture_changed {
         let handle = app.clone();
-        let snapshot = detection::current_snapshot(detection);
         let _ = std::thread::Builder::new()
             .name("sync-replay".into())
             .spawn(move || {
                 let rec = handle.state::<RecordingState>();
-                if let Err(err) = capture::sync_replay(
-                    &handle,
-                    &rec,
-                    snapshot.pid,
-                    snapshot.name.clone(),
-                    snapshot.slug.clone(),
-                ) {
+                if let Err(err) = capture::sync_replay_after_settings(&handle, &rec) {
                     tracing::warn!("sync replay after settings: {err}");
                 }
             });

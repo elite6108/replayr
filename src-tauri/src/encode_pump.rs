@@ -184,6 +184,12 @@ fn encode_thread_main(
     include_audio = include_audio && encoder.has_audio();
     if session.segmented {
         encoder.log_ir_configuration(session.bitrate);
+        let (width, height) = encoder.dimensions();
+        if let Ok(mut status) = session.shared.ir_encoder.lock() {
+            *status = Some(crate::ir_runtime::IrEncoderStatus::new(
+                width, height, session.fps, session.bitrate, encoder.ir_reported_bitrate(),
+            ));
+        }
     }
     if ready.send(Ok(include_audio)).is_err() {
         let _ = encoder.finish();
@@ -216,6 +222,11 @@ fn encode_thread_main(
                     "IR encode queue overflow; capture frames lost");
             }
             reported_drops = total;
+            if state.segmented {
+                if let Ok(mut status) = state.shared.ir_encoder.lock() {
+                    if let Some(status) = status.as_mut() { status.dropped_frames = total; }
+                }
+            }
             last_drop_report = Instant::now();
         }
         if let Err(err) = state.handle_frame(frame) {
@@ -224,6 +235,9 @@ fn encode_thread_main(
         }
     }
     let _ = state.finish_encoder();
+    if state.segmented {
+        if let Ok(mut status) = state.shared.ir_encoder.lock() { *status = None; }
+    }
     tracing::info!(dropped_frames = queue.dropped.load(Ordering::Relaxed), "capture encoder finished");
 }
 
@@ -250,6 +264,7 @@ mod tests {
 }
 
 impl EncodeState {
+
     fn handle_frame(&mut self, frame: QueuedFrame) -> Result<(), String> {
         let requested = self.shared.rotate.swap(false, Ordering::SeqCst);
         self.last_capture_hns = frame.capture_hns;
@@ -301,7 +316,22 @@ impl EncodeState {
         let mut encoder = open_session_encoder(&self.path, &session, self.include_audio)?;
         encoder.set_last_capture_hns(last_capture);
         self.include_audio = self.include_audio && encoder.has_audio();
+        if self.segmented {
+            if let Ok(mut status) = self.shared.ir_encoder.lock() {
+                if let Some(status) = status.as_mut() {
+                    status.active_target_bitrate_bps = self.bitrate;
+                    status.encoder_reported_bitrate_bps = encoder.ir_reported_bitrate();
+                }
+            }
+        }
         self.encoder = Some(encoder);
+        if self.segmented {
+            if let Ok(mut status) = self.shared.ir_encoder.lock() {
+                if let Some(status) = status.as_mut() {
+                    status.last_rotation_ms = rotation_started.elapsed().as_millis() as u64;
+                }
+            }
+        }
         self.shared.notify_rotate();
         // finish_encoder already swept finalized/pruned paths. Avoid a second
         // directory scan while incoming capture frames wait in the queue.
@@ -373,6 +403,11 @@ impl EncodeState {
             }
             encoder.finish().map_err(|err| err.to_string())?;
             if self.segmented && duration_ms > 0 {
+                let bitrate = std::fs::metadata(&path).ok()
+                    .and_then(|meta| crate::ir_runtime::file_bitrate_bps(meta.len(), duration_hns));
+                if let Ok(mut status) = self.shared.ir_encoder.lock() {
+                    if let Some(status) = status.as_mut() { status.recent_file_bitrate_bps = bitrate; }
+                }
                 let end_hns = self.last_capture_hns.max(0);
                 let start_hns = crate::capture_timing::segment_start_hns(end_hns, duration_hns);
                 if let Ok(mut buffer) = self.shared.buffer.lock() {

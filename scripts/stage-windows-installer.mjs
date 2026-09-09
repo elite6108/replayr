@@ -24,6 +24,26 @@ if (existsSync(sandboxCache)) {
 const tauriConf = JSON.parse(readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8"));
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const version = typeof tauriConf.version === "string" && tauriConf.version ? tauriConf.version : pkg.version;
+const notesPath = join(root, "docs", "release-notes.json");
+
+function resolveReleaseNotes(currentVersion) {
+  if (!existsSync(notesPath)) return `Replayr ${currentVersion}`;
+  try {
+    const raw = JSON.parse(readFileSync(notesPath, "utf8"));
+    const entry = raw?.[currentVersion];
+    if (typeof entry === "string" && entry.trim()) return entry.trim();
+    if (Array.isArray(entry)) {
+      const lines = entry
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean)
+        .map((line) => `- ${line}`);
+      if (lines.length) return lines.join("\n");
+    }
+  } catch (error) {
+    console.warn(`Could not parse ${notesPath}: ${String(error)}`);
+  }
+  return `Replayr ${currentVersion}`;
+}
 
 const setups = nsisDirs
   .filter((dir) => dir && existsSync(dir))
@@ -43,6 +63,9 @@ const setup = preferred
     .sort((a, b) => statSync(b.path).mtimeMs - statSync(a.path).mtimeMs)[0];
 
 mkdirSync(destDir, { recursive: true });
+if (existsSync(notesPath)) {
+  copyFileSync(notesPath, join(destDir, "release-notes.json"));
+}
 copyFileSync(setup.path, destExe);
 console.log(`Staged ${setup.name} -> web/public/releases/Replayr.exe`);
 
@@ -65,7 +88,7 @@ if (!signature) {
 
 const latest = {
   version,
-  notes: `Replayr ${version}`,
+  notes: resolveReleaseNotes(version),
   pub_date: new Date().toISOString(),
   platforms: {
     "windows-x86_64": {

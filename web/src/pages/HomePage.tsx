@@ -8,11 +8,13 @@ import { AppDownloadLink } from "../components/analytics/AppDownloadLink";
 import { MAC_DOWNLOAD_PATH, WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
 import { formatCount, formatDurationMs, formatHandle } from "../lib/format";
 import { fetchGames, fetchPublicClips, type CatalogGame, type PublicClipCard } from "../lib/games";
+import { fetchLatestReleaseNote, formatReleaseNotes } from "../lib/releaseNotes";
 
 export function HomePage() {
   const { session } = useAuth();
   const [games, setGames] = useState<CatalogGame[]>([]);
   const [clips, setClips] = useState<PublicClipCard[]>([]);
+  const [latestRelease, setLatestRelease] = useState<{ version: string; notes: string } | null>(null);
 
   useEffect(() => {
     void fetchGames()
@@ -22,6 +24,20 @@ export function HomePage() {
       .then(setClips)
       .catch(() => undefined);
   }, [session?.access_token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchLatestReleaseNote()
+      .then((entry) => {
+        if (!cancelled && entry) {
+          setLatestRelease({ version: entry.version, notes: formatReleaseNotes(entry.items) });
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <main className="landing">
@@ -49,6 +65,15 @@ export function HomePage() {
             <p className="hero-note">
               Windows Instant Replay · macOS app for library &amp; sharing
             </p>
+            {latestRelease ? (
+              <aside className="release-notes-card" aria-label="Latest release notes">
+                <strong>Latest desktop release: v{latestRelease.version}</strong>
+                <pre>{latestRelease.notes}</pre>
+                <Link className="release-notes-link" to="/releases">
+                  View all release notes
+                </Link>
+              </aside>
+            ) : null}
           </div>
           <DesktopPreview />
         </div>

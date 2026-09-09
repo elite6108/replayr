@@ -1,0 +1,36 @@
+{
+  "0.1.37": [
+    "Instant Replay bitrate changes now apply through a guarded buffer restart.",
+    "Added encoder status visibility for Instant Replay diagnostics.",
+    "Wider window title strip for easier dragging on Windows."
+  ],
+  "0.1.36": [
+    "Instant Replay capture integrity fixes for the rolling buffer.",
+    "More stable clip-save and capture session transitions."
+  ],
+  "0.1.35": [
+    "Composed recording negotiates actual output size before encode.",
+    "Instant Replay High bitrate increased for cleaner 1080p60 high-motion clips."
+  ],
+  "0.1.34": [
+    "Channel Mode controls with mono source centering.",
+    "Audio route polish for source balance and channel consistency."
+  ],
+  "0.1.33": [
+    "Sharper live preview.",
+    "In-app message clips.",
+    "Native selects polish across settings and studio controls."
+  ],
+  "0.1.32": [
+    "Scoped clip delete so library cleanup stays precise.",
+    "Studio mixer polish."
+  ],
+  "0.1.31": [
+    "Inline scene rename.",
+    "Live webcam preview improvements."
+  ],
+  "0.1.30": [
+    "Named scenes and layer order controls.",
+    "Overlay stacking fixes and cleaner save toasts."
+  ]
+}

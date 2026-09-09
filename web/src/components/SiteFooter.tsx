@@ -10,6 +10,7 @@ export function SiteFooter() {
           <Link to="/games">Games</Link>
           <Link to="/pricing">Pricing</Link>
           <Link to="/creators">Creators</Link>
+          <Link to="/releases">Release notes</Link>
           <Link to="/privacy">Privacy</Link>
           <Link to="/terms">Terms</Link>
           <a href={`mailto:${SUPPORT_EMAIL}`}>Help</a>

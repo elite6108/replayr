@@ -20,6 +20,7 @@ import { FoldersPage } from "./pages/FoldersPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { MessagesPage } from "./pages/MessagesPage";
 import { PricingPage } from "./pages/PricingPage";
+import { ReleaseNotesPage } from "./pages/ReleaseNotesPage";
 import { PublicFolderPage } from "./pages/PublicFolderPage";
 import { UserProfilePage } from "./pages/UserProfilePage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
@@ -83,6 +84,7 @@ function AppShell() {
           <Route path="/features" element={<FeaturesPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/creators" element={<CreatorsPage />} />
+          <Route path="/releases" element={<ReleaseNotesPage />} />
           <Route path="/explore" element={<ExplorePage />} />
           <Route path="/games" element={<GamesPage />} />
           <Route path="/games/:slug" element={<GamePage />} />

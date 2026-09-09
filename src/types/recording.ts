@@ -28,6 +28,7 @@ export interface ReplayStatus {
   diskFreeBytes: number | null;
   diskBlocked: boolean;
   saving: boolean;
+  settingsPending?: boolean;
 }
 
 export const IDLE_REPLAY: ReplayStatus = {

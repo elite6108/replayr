@@ -74,6 +74,12 @@ export function DetectedGamePanel({
             {replay.error}
           </div>
         ) : null}
+        {replay.settingsPending ? (
+          <div className="hero-status" role="status">
+            Quality settings saved but not active yet. Save any clips you want to keep,
+            then turn Instant Replay off and on to apply them. Restarting clears the rolling buffer.
+          </div>
+        ) : null}
         {showControls ? (
           <div className="row">
             <button

@@ -243,7 +243,7 @@ export function RecordWorkspace() {
         <footer className="studio-status">
           <span>Output: {outputSizeLabel(settings.resolution)} · {scene.outputMode === "composed" ? "Composed" : "Legacy"}</span>
           <span>{settings.fps} FPS</span>
-          <span>Video: {qualityLabel(settings.bitrate)}</span>
+          <span>Video: {qualityLabel(settings.bitrate)}{replay.settingsPending ? " (pending IR restart)" : ""}</span>
         </footer>
       </div>
       {propertiesSource ? (

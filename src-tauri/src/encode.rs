@@ -258,6 +258,43 @@ fn bytes_to_hns(bytes: usize) -> i64 {
 }
 
 impl MfWriter {
+    /// Read-only diagnostics for IR. Transform zero can be a colour converter,
+    /// so identify the encoder by category instead of labelling it hardware.
+    pub fn log_ir_configuration(&self, requested_bitrate: u32) {
+        use windows::Win32::Media::MediaFoundation::{
+            ICodecAPI, MFT_CATEGORY_VIDEO_ENCODER, CODECAPI_AVEncCommonRateControlMode,
+            CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonQualityVsSpeed,
+        };
+        unsafe {
+            let Ok(ex) = self.writer.cast::<IMFSinkWriterEx>() else {
+                tracing::info!(requested_bitrate, "IR encoder inspection unavailable");
+                return;
+            };
+            for index in 0..16 {
+                let mut category = GUID::zeroed();
+                let mut transform = None;
+                if ex.GetTransformForStream(self.video_stream, index, Some(&mut category), &mut transform).is_err() {
+                    break;
+                }
+                if category != MFT_CATEGORY_VIDEO_ENCODER { continue; }
+                let Some(transform) = transform else { continue; };
+                let output = transform.GetOutputCurrentType(0).ok();
+                let codec = transform.cast::<ICodecAPI>().ok();
+                let property = |key: &GUID| codec.as_ref().and_then(|api| api.GetValue(key).ok())
+                    .map(|value| format!("{value:?}"));
+                tracing::info!(requested_bitrate,
+                    profile = output.as_ref().and_then(|media| media.GetUINT32(&MF_MT_MPEG2_PROFILE).ok()),
+                    media_bitrate = output.as_ref().and_then(|media| media.GetUINT32(&MF_MT_AVG_BITRATE).ok()),
+                    mean_bitrate = ?property(&CODECAPI_AVEncCommonMeanBitRate),
+                    rate_control = ?property(&CODECAPI_AVEncCommonRateControlMode),
+                    quality_vs_speed = ?property(&CODECAPI_AVEncCommonQualityVsSpeed),
+                    "IR encoder negotiated configuration (not measured output bitrate)");
+                return;
+            }
+            tracing::info!(requested_bitrate, "IR encoder transform not exposed by SinkWriter");
+        }
+    }
+
     pub fn new(
         path: &Path,
         width: u32,

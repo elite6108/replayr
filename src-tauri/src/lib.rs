@@ -12,6 +12,7 @@ mod branding;
 mod buffer;
 mod camera;
 mod capture;
+mod capture_timing;
 mod commands;
 mod database;
 mod detection;

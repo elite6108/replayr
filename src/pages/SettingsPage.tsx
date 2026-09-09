@@ -415,12 +415,20 @@ function RecordingPane({
   onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
   onBrowse: () => void;
 }) {
+  const settingsPending = useRecordingStore((state) => state.replay.settingsPending);
   const composedActive = useRecordingStore(
     (state) => Boolean((state.status.active && state.status.composed) || state.startingComposed),
   );
   return (
     <>
       <p className="muted">Instant Replay keeps a rolling buffer. Start/stop still writes a full session file.</p>
+      {settingsPending ? (
+        <p className="muted" role="status">
+          Quality changes are saved but not active in the running replay buffer.
+          Save wanted clips, then turn Instant Replay off and on to apply them.
+          Restarting clears the rolling buffer.
+        </p>
+      ) : null}
       <label className="setting-row">
         <span className="setting-copy">
           Instant Replay

@@ -353,6 +353,77 @@ fn seek_reader(reader: &IMFSourceReader, position_hns: i64) -> Result<(), String
     Ok(())
 }
 
+#[cfg(test)]
+mod ir_boundary_tests {
+    use super::*;
+
+    fn video_samples(path: &Path) -> Vec<mp4::Mp4Sample> {
+        let file = std::fs::File::open(path).unwrap();
+        let size = file.metadata().unwrap().len();
+        let mut reader = mp4::Mp4Reader::read_header(std::io::BufReader::new(file), size).unwrap();
+        let id = *reader.tracks().iter()
+            .find(|(_, track)| track.track_type().ok() == Some(mp4::TrackType::Video))
+            .unwrap().0;
+        (1..=reader.sample_count(id).unwrap())
+            .map(|index| reader.read_sample(id, index).unwrap().unwrap()).collect()
+    }
+
+    #[test]
+    #[ignore = "requires Windows Media Foundation; generates synthetic frames only"]
+    fn ir_remux_preserves_every_compressed_sample_across_fractional_boundaries() {
+        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap(); }
+        let temp = tempfile::tempdir().unwrap();
+        let mut segments = Vec::new();
+        let mut expected = Vec::new();
+        let mut last_capture = None;
+        let mut capture_hns = 1_000_000_i64;
+        for index in 0..3 {
+            let path = temp.path().join(format!("segment-{index}.mp4"));
+            let mut encoder = crate::encode::MfWriter::create(
+                &path, 320, 180, 60, 4_000_000, false, None, true,
+                crate::encode::VideoInput::Bgra, false,
+            ).unwrap();
+            encoder.set_last_capture_hns(last_capture);
+            for frame in 0..45 {
+                capture_hns += 166_667 + (index * 113 + frame % 3) as i64;
+                let pixels = vec![(frame * 5 + index) as u8; 320 * 180 * 4];
+                encoder.write_bgra(&pixels, 320 * 4, 320, 180, capture_hns, false).unwrap();
+            }
+            let duration = encoder.timestamp();
+            last_capture = encoder.last_capture_hns();
+            encoder.finish().unwrap();
+            let samples = video_samples(&path);
+            assert!(samples[0].is_sync, "segment must begin with an independent sample");
+            expected.extend(samples.into_iter().map(|sample| sample.bytes));
+            segments.push(ConcatSegment {
+                path,
+                start_hns: crate::capture_timing::segment_start_hns(capture_hns, duration),
+                end_hns: capture_hns,
+            });
+        }
+        let output = temp.path().join("clip.mp4");
+        concat_mp4s(&segments, &output, segments[0].start_hns).unwrap();
+        let actual = video_samples(&output);
+        assert_eq!(actual.len(), expected.len(), "remux lost a compressed frame");
+        for (sample, bytes) in actual.iter().zip(expected) {
+            assert_eq!(sample.bytes, bytes, "remux changed compressed video");
+        }
+        // Compare the former placement too. Encoder/mux timestamp rounding can
+        // mask the false-overlap risk; do not claim this proves an incident's
+        // cause if the old path also retains every sample on this machine.
+        let rounded: Vec<_> = segments.iter().map(|segment| ConcatSegment {
+            path: segment.path.clone(),
+            start_hns: segment.end_hns - (segment.end_hns - segment.start_hns) / 10_000 * 10_000,
+            end_hns: segment.end_hns,
+        }).collect();
+        let old_output = temp.path().join("rounded-negative-control.mp4");
+        concat_mp4s(&rounded, &old_output, rounded[0].start_hns).unwrap();
+        let old_count = video_samples(&old_output).len();
+        println!("exact timing retained {} samples; old rounded timing retained {old_count}", actual.len());
+    }
+}
+
 fn open_reader(path: &Path) -> Result<IMFSourceReader, String> {
     let wide = wide_path(path);
     unsafe {

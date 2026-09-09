@@ -51,6 +51,9 @@ pub struct ReplayStatus {
     pub disk_free_bytes: Option<u64>,
     pub disk_blocked: bool,
     pub saving: bool,
+    /// Settings were saved but have not been applied to the running stream.
+    /// Do not silently clear its buffer or present pending settings as active.
+    pub settings_pending: bool,
 }
 
 impl Default for ReplayStatus {
@@ -65,6 +68,7 @@ impl Default for ReplayStatus {
             disk_free_bytes: None,
             disk_blocked: false,
             saving: false,
+            settings_pending: false,
         }
     }
 }
@@ -147,6 +151,29 @@ struct ActiveRecording {
     segmented: bool,
     session: bool,
     webcam_layout: Option<crate::overlay::OverlayLayout>,
+    capture_settings: CaptureSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CaptureSettings {
+    resolution: String,
+    fps: u32,
+    bitrate: crate::recording_bitrate::QualityPreset,
+    custom_kbps: u32,
+}
+
+impl CaptureSettings {
+    fn from_settings(settings: &AppSettings) -> Self {
+        let bitrate = crate::recording_bitrate::QualityPreset::parse(&settings.bitrate);
+        Self {
+            resolution: settings.resolution.clone(),
+            fps: settings.fps.clamp(24, 60),
+            bitrate,
+            custom_kbps: if bitrate == crate::recording_bitrate::QualityPreset::Custom {
+                settings.custom_bitrate_kbps
+            } else { 0 },
+        }
+    }
 }
 
 enum CaptureHandle {
@@ -190,6 +217,7 @@ mod windows_impl {
         flags: SessionFlags,
         clock: SessionClock,
         last_still_at: Instant,
+        cadence: crate::capture_timing::FrameCadence,
     }
 
     #[derive(Clone)]
@@ -259,6 +287,7 @@ mod windows_impl {
                 flags.camera.start_rolling(flags.dir.clone(), flags.replay_keep_ms);
             }
             Ok(Self {
+                cadence: crate::capture_timing::FrameCadence::new(flags.fps),
                 pump,
                 audio,
                 flags,
@@ -274,6 +303,12 @@ mod windows_impl {
             frame: &mut Frame,
             _capture_control: InternalCaptureControl,
         ) -> Result<(), Self::Error> {
+            // Timestamp before readback, resize, and preview work. Keep the
+            // existing SessionClock shared with audio; never rebase on a stall.
+            let capture_hns = self.clock.capture_hns();
+            if self.flags.segmented && !self.cadence.accept(capture_hns) {
+                return Ok(());
+            }
             let mut pixels = frame.buffer().map_err(|err| err.to_string())?;
             let width = pixels.width();
             let height = pixels.height();
@@ -302,8 +337,9 @@ mod windows_impl {
                     *still = Some(frame.clone());
                 }
             }
-            self.flags.shared.preview.offer(frame.clone());
-            let capture_hns = self.clock.capture_hns();
+            if self.flags.shared.preview.should_accept() {
+                self.flags.shared.preview.offer(frame.clone());
+            }
             self.pump.push(crate::encode_pump::QueuedFrame {
                 bgra: frame.bgra,
                 pitch: frame.pitch,
@@ -602,6 +638,10 @@ mod windows_impl {
             disk_free_bytes,
             disk_blocked,
             saving: state.shared.exporting.load(Ordering::SeqCst),
+            settings_pending: active && state.inner.lock().ok().is_some_and(|inner| {
+                inner.as_ref().is_some_and(|session|
+                    session.capture_settings != CaptureSettings::from_settings(settings))
+            }),
         };
         if let Ok(mut slot) = state.replay.lock() {
             *slot = status.clone();
@@ -660,7 +700,11 @@ mod windows_impl {
             }
         }
 
-        let fps = settings.fps.max(15).min(120);
+        let fps = if segmented {
+            settings.fps.clamp(24, 60)
+        } else {
+            settings.fps.max(15).min(120)
+        };
         // Encode pump clamps to 24–60; resolve clip bitrate against that encode FPS.
         let encode_fps = fps.min(60).max(24);
         let quality_preset = crate::recording_bitrate::QualityPreset::parse(&settings.bitrate);
@@ -816,6 +860,7 @@ mod windows_impl {
         };
         *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
         *inner = Some(ActiveRecording {
+            capture_settings: CaptureSettings::from_settings(&settings),
             control: Some(CaptureHandle::Session(control)),
             path: output,
             started: started_at,
@@ -1444,7 +1489,7 @@ pub fn replay_status(state: &RecordingState, settings: &AppSettings) -> ReplaySt
         .lock()
         .map(|buffer| buffer.total_ms())
         .unwrap_or(0);
-    let (active, target) = state
+    let (active, target, settings_pending) = state
         .inner
         .lock()
         .ok()
@@ -1453,10 +1498,11 @@ pub fn replay_status(state: &RecordingState, settings: &AppSettings) -> ReplaySt
                 (
                     session.segmented && settings.instant_replay_enabled,
                     Some(session.title.clone()),
+                    session.capture_settings != CaptureSettings::from_settings(settings),
                 )
             })
         })
-        .unwrap_or((false, None));
+        .unwrap_or((false, None, false));
     let save = PathBuf::from(&settings.save_location);
     let disk_free_bytes = crate::disk::free_bytes(&save).ok();
     let disk_blocked = disk_free_bytes
@@ -1472,9 +1518,30 @@ pub fn replay_status(state: &RecordingState, settings: &AppSettings) -> ReplaySt
         disk_free_bytes,
         disk_blocked,
         saving: state.shared.exporting.load(std::sync::atomic::Ordering::SeqCst),
+        settings_pending: active && settings_pending,
     }
 }
 
 fn chrono_like(unix_secs: u64) -> String {
     unix_secs.to_string()
+}
+
+#[cfg(test)]
+mod capture_settings_tests {
+    use super::*;
+
+    #[test]
+    fn running_snapshot_detects_quality_changes_and_reverting_clears_pending() {
+        let mut settings = AppSettings::default();
+        settings.bitrate = "medium".into();
+        let running = CaptureSettings::from_settings(&settings);
+        settings.bitrate = "high".into();
+        assert_ne!(running, CaptureSettings::from_settings(&settings));
+        settings.bitrate = "medium".into();
+        assert_eq!(running, CaptureSettings::from_settings(&settings));
+        settings.custom_bitrate_kbps += 1_000;
+        assert_eq!(running, CaptureSettings::from_settings(&settings));
+        settings.resolution = "720p".into();
+        assert_ne!(running, CaptureSettings::from_settings(&settings));
+    }
 }

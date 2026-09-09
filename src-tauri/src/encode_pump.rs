@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
@@ -43,6 +43,7 @@ struct FrameQueue {
     frames: Mutex<VecDeque<QueuedFrame>>,
     cv: Condvar,
     shutdown: AtomicBool,
+    dropped: AtomicU64,
 }
 
 impl FrameQueue {
@@ -51,6 +52,7 @@ impl FrameQueue {
             frames: Mutex::new(VecDeque::new()),
             cv: Condvar::new(),
             shutdown: AtomicBool::new(false),
+            dropped: AtomicU64::new(0),
         })
     }
 
@@ -63,6 +65,7 @@ impl FrameQueue {
         };
         while frames.len() >= QUEUE_CAP {
             frames.pop_front();
+            self.dropped.fetch_add(1, Ordering::Relaxed);
         }
         frames.push_back(frame);
         self.cv.notify_one();
@@ -179,6 +182,9 @@ fn encode_thread_main(
         }
     };
     include_audio = include_audio && encoder.has_audio();
+    if session.segmented {
+        encoder.log_ir_configuration(session.bitrate);
+    }
     if ready.send(Ok(include_audio)).is_err() {
         let _ = encoder.finish();
         return;
@@ -200,14 +206,47 @@ fn encode_thread_main(
         last_capture_hns: 0,
         stats_at_segment_start: MixStats::default(),
     };
+    let mut reported_drops = 0;
+    let mut last_drop_report = Instant::now();
     while let Some(frame) = queue.pop() {
+        if last_drop_report.elapsed() >= Duration::from_secs(5) {
+            let total = queue.dropped.load(Ordering::Relaxed);
+            if total > reported_drops {
+                tracing::warn!(dropped_frames = total - reported_drops, total_dropped_frames = total,
+                    "IR encode queue overflow; capture frames lost");
+            }
+            reported_drops = total;
+            last_drop_report = Instant::now();
+        }
         if let Err(err) = state.handle_frame(frame) {
             tracing::warn!("encode pump stopped: {err}");
             break;
         }
     }
     let _ = state.finish_encoder();
-    tracing::info!("capture encoder finished");
+    tracing::info!(dropped_frames = queue.dropped.load(Ordering::Relaxed), "capture encoder finished");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(time: i64) -> QueuedFrame {
+        QueuedFrame { bgra: vec![0; 4], pitch: 4, width: 1, height: 1, capture_hns: time }
+    }
+
+    #[test]
+    fn overflow_is_bounded_and_counted_without_retiming_frames() {
+        let queue = FrameQueue::new();
+        for time in 0..12 { queue.push(frame(time)); }
+        assert_eq!(queue.dropped.load(Ordering::Relaxed), 4);
+        assert_eq!(queue.frames.lock().unwrap().len(), QUEUE_CAP);
+        queue.close();
+        for time in 4..12 { assert_eq!(queue.pop().unwrap().capture_hns, time); }
+        assert!(queue.pop().is_none());
+        queue.push(frame(13));
+        assert!(queue.pop().is_none());
+    }
 }
 
 impl EncodeState {
@@ -245,6 +284,7 @@ impl EncodeState {
     }
 
     fn rotate(&mut self) -> Result<(), String> {
+        let rotation_started = Instant::now();
         let last_capture = self.encoder.as_ref().and_then(MfWriter::last_capture_hns);
         self.finish_encoder()?;
         match crate::disk::ensure_free_space(&self.dir, self.min_free_disk_bytes) {
@@ -263,7 +303,10 @@ impl EncodeState {
         self.include_audio = self.include_audio && encoder.has_audio();
         self.encoder = Some(encoder);
         self.shared.notify_rotate();
-        self.sweep_scratch();
+        // finish_encoder already swept finalized/pruned paths. Avoid a second
+        // directory scan while incoming capture frames wait in the queue.
+        tracing::info!(rotation_ms = rotation_started.elapsed().as_millis() as u64,
+            segment_index = self.segment_index, "IR encoder rotation completed");
         Ok(())
     }
 
@@ -304,7 +347,8 @@ impl EncodeState {
             } else {
                 let _ = encoder.write_pcm_closing(&[]);
             }
-            let duration_ms = (encoder.timestamp() / 10_000).max(0) as u64;
+            let duration_hns = encoder.timestamp().max(0);
+            let duration_ms = (duration_hns / 10_000) as u64;
             let skew_ms = encoder.av_skew_hns() / 10_000;
             let path = self.path.clone();
             if self.include_audio {
@@ -330,7 +374,7 @@ impl EncodeState {
             encoder.finish().map_err(|err| err.to_string())?;
             if self.segmented && duration_ms > 0 {
                 let end_hns = self.last_capture_hns.max(0);
-                let start_hns = end_hns.saturating_sub((duration_ms as i64).saturating_mul(10_000));
+                let start_hns = crate::capture_timing::segment_start_hns(end_hns, duration_hns);
                 if let Ok(mut buffer) = self.shared.buffer.lock() {
                     buffer.push(Segment {
                         path,

@@ -19,7 +19,8 @@
     "mobile:start": "npm start --prefix mobile",
     "web:dev": "npm run dev --prefix web",
     "web:build": "npm run build --prefix web",
-    "web:deploy": "node worker/scripts/ensure-web-dist.mjs && npm run build --prefix web && npm run deploy --prefix worker -- --var PUBLIC_APP_URL:https://replayr.tv --keep-vars",
+    "web:deploy": "node worker/scripts/ensure-web-dist.mjs && npm run build --prefix web && node scripts/strip-oversized-release-assets.mjs && npm run deploy --prefix worker -- --var PUBLIC_APP_URL:https://replayr.tv --keep-vars",
+    "installer:publish:windows": "node scripts/publish-windows-github-release.mjs",
     "worker:dev": "node worker/scripts/ensure-web-dist.mjs && npm run sync-env --prefix worker && npm run dev --prefix worker"
   },
   "dependencies": {

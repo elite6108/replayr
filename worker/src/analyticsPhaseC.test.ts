@@ -93,6 +93,23 @@ describe("download instrumentation", () => {
     expect(await macDmgReleaseAvailable(async () => new Response(null, { status: 200 }))).toBe(true);
   });
 
+  it("redirects Windows downloads to GitHub when the release exists", async () => {
+    const response = await serveInstallerDownload(
+      req("GET"),
+      {} as never,
+      "/releases/Replayr.exe",
+      async () =>
+        new Response(null, {
+          status: 200,
+          headers: { "content-type": "application/octet-stream" },
+        }),
+      (value) => value,
+      async () => new Response(null, { status: 200 }),
+    );
+    expect(response?.status).toBe(302);
+    expect(response?.headers.get("location")).toContain("/releases/download/windows/Replayr.exe");
+  });
+
   it("redirects to the GitHub DMG when Workers Assets has no binary", async () => {
     const response = await serveInstallerDownload(
       new Request("https://www.replayr.tv/releases/Replayr.dmg", { method: "GET" }),

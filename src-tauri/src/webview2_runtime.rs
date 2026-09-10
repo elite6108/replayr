@@ -1,4 +1,9 @@
 //! Windows Fixed Version WebView2 bootstrap for broken/ghost Evergreen installs.
+//!
+//! We intentionally use `webviewInstallMode: skip` and set
+//! `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` ourselves. Tauri's `fixedRuntime` mode
+//! sets that env var from `current_exe()` which often keeps the `\\?\` prefix,
+//! and WebView2 fails to launch with that path.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -6,15 +11,10 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 const FIXED_RUNTIME_DIR_NAME: &str = "webview2-fixed";
-const UI_WATCHDOG_SECS: u64 = 5;
+const UI_WATCHDOG_SECS: u64 = 8;
 
 /// Point WebView2 at the bundled Fixed Version runtime before Tauri creates windows.
 pub fn configure_fixed_runtime() {
-    if std::env::var_os("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER").is_some() {
-        tracing::info!("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER already set; leaving as-is");
-        return;
-    }
-
     let Some(runtime_dir) = resolve_bundled_runtime_dir() else {
         tracing::warn!(
             "bundled Fixed Version WebView2 not found next to the exe; falling back to system runtime"
@@ -22,6 +22,17 @@ pub fn configure_fixed_runtime() {
         return;
     };
 
+    let runtime_dir = strip_verbatim(runtime_dir);
+    let exe_path = runtime_dir.join("msedgewebview2.exe");
+    if !exe_path.is_file() {
+        tracing::error!(
+            path = %exe_path.display(),
+            "bundled WebView2 folder is missing msedgewebview2.exe"
+        );
+        return;
+    }
+
+    // Force a clean path every launch (do not trust a pre-set \\?\ value).
     std::env::set_var(
         "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER",
         runtime_dir.as_os_str(),
@@ -32,6 +43,7 @@ pub fn configure_fixed_runtime() {
     );
 
     if let Some(user_data) = fixed_user_data_dir() {
+        let user_data = strip_verbatim(user_data);
         if let Err(err) = std::fs::create_dir_all(&user_data) {
             tracing::warn!("could not create WebView2 user data dir: {err}");
         } else {
@@ -56,10 +68,22 @@ pub fn spawn_ui_watchdog(app: AppHandle) {
 
             let runtime_hint = std::env::var("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER")
                 .unwrap_or_else(|_| "(system / unset)".into());
+            let runtime_path = PathBuf::from(&runtime_hint);
+            let exe_path = runtime_path.join("msedgewebview2.exe");
+            let exe_state = if runtime_hint == "(system / unset)" {
+                "bundled runtime path unset".to_string()
+            } else if exe_path.is_file() {
+                format!("msedgewebview2.exe present ({})", exe_path.display())
+            } else {
+                format!("msedgewebview2.exe MISSING ({})", exe_path.display())
+            };
+
             let message = format!(
                 "Replayr could not start its UI.\n\n\
-WebView2 did not launch. The bundled runtime path was:\n{runtime_hint}\n\n\
-If antivirus blocked msedgewebview2.exe, whitelist the Replayr install folder and try again."
+WebView2 did not launch.\n\
+Runtime folder:\n{runtime_hint}\n\
+{exe_state}\n\n\
+Whitelist the whole Replayr folder (including webview2-fixed\\msedgewebview2.exe) in antivirus, then reinstall 0.1.43+."
             );
             tracing::error!("main UI webview failed to start; exiting");
             show_fatal_message(&message);
@@ -69,7 +93,7 @@ If antivirus blocked msedgewebview2.exe, whitelist the Replayr install folder an
 
 fn resolve_bundled_runtime_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let exe_dir = exe.parent()?;
+    let exe_dir = strip_verbatim(exe.parent()?.to_path_buf());
     let candidates = [
         exe_dir.join(FIXED_RUNTIME_DIR_NAME),
         // Dev: running from target/release or target/debug while runtime lives under src-tauri/
@@ -81,23 +105,20 @@ fn resolve_bundled_runtime_dir() -> Option<PathBuf> {
         exe_dir.join("..").join("..").join("webview2-fixed"),
     ];
     for candidate in candidates {
-        let Ok(canonical) = dunce_canonicalize(&candidate) else {
-            continue;
-        };
-        if canonical.join("msedgewebview2.exe").is_file() {
-            return Some(canonical);
+        let candidate = strip_verbatim(candidate);
+        if candidate.join("msedgewebview2.exe").is_file() {
+            return Some(candidate);
         }
     }
     None
 }
 
-fn dunce_canonicalize(path: &Path) -> std::io::Result<PathBuf> {
-    let path = path.canonicalize()?;
+fn strip_verbatim(path: PathBuf) -> PathBuf {
     let text = path.to_string_lossy();
     if let Some(rest) = text.strip_prefix(r"\\?\") {
-        Ok(PathBuf::from(rest))
+        PathBuf::from(rest)
     } else {
-        Ok(path)
+        path
     }
 }
 
@@ -121,7 +142,7 @@ fn ui_looks_alive(app: &AppHandle) -> bool {
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
-    std::thread::sleep(Duration::from_millis(750));
+    std::thread::sleep(Duration::from_millis(1000));
     window.is_visible().unwrap_or(false) || msedgewebview2_running()
 }
 
@@ -169,7 +190,8 @@ fn msedgewebview2_running() -> bool {
 }
 
 fn grant_app_container_read_execute(runtime_dir: &Path) {
-    let path = runtime_dir.to_string_lossy();
+    let path = strip_verbatim(runtime_dir.to_path_buf());
+    let path = path.to_string_lossy();
     for sid in ["*S-1-15-2-1", "*S-1-15-2-2"] {
         let status = std::process::Command::new("icacls")
             .args([path.as_ref(), "/grant", &format!("{sid}:(OI)(CI)(RX)")])

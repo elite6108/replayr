@@ -1,4 +1,8 @@
 {
+  "0.1.42": [
+    "Windows builds now ship a Fixed Version WebView2 runtime so Replayr can open even when system WebView2 is broken.",
+    "Shows a clear error instead of a silent tray-only process if the UI fails to start."
+  ],
   "0.1.41": [
     "Instant Replay stays locked to the selected game when Alt-Tabbing away.",
     "Game Audio stays pinned to the capture target across focus changes."

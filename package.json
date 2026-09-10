@@ -1,7 +1,7 @@
 {
   "name": "project-replay",
   "private": true,
-  "version": "0.1.41",
+  "version": "0.1.42",
   "description": "Project Replay desktop application",
   "type": "module",
   "scripts": {
@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build --bundles nsis",
+    "webview2:fetch": "node scripts/fetch-webview2-fixed.mjs",
+    "tauri:build": "npm run webview2:fetch && tauri build --bundles nsis",
     "tauri:build:macos": "tauri build --config src-tauri/tauri.macos.conf.json --bundles dmg --target aarch64-apple-darwin",
     "installer:stage": "node scripts/stage-windows-installer.mjs",
     "installer:stage:macos": "node scripts/stage-macos-dmg.mjs",

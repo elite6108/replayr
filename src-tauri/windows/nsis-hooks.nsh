@@ -10,6 +10,11 @@ SilentInstall silent
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; Win10 Fixed Version 120+ needs App Container RX on the bundled runtime.
+  IfFileExists "$INSTDIR\webview2-fixed\msedgewebview2.exe" 0 skip_webview_acl
+    nsExec::ExecToLog 'icacls "$INSTDIR\webview2-fixed" /grant *S-1-15-2-1:(OI)(CI)(RX)'
+    nsExec::ExecToLog 'icacls "$INSTDIR\webview2-fixed" /grant *S-1-15-2-2:(OI)(CI)(RX)'
+  skip_webview_acl:
   ${If} $UpdateMode != 1
     nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
   ${EndIf}

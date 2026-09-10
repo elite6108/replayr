@@ -3,6 +3,8 @@ dist/
 src-tauri/target/
 src-tauri/target-faststart/
 src-tauri/target-compose/
+src-tauri/webview2-fixed/
+src-tauri/.webview2-cache/
 /target-sync-audit/
 .env
 .env.*

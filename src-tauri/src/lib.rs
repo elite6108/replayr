@@ -49,6 +49,8 @@ mod system;
 #[cfg(windows)]
 mod thumb;
 mod upload;
+#[cfg(windows)]
+mod webview2_runtime;
 
 use database::AppState;
 use std::sync::Mutex;
@@ -73,6 +75,9 @@ pub fn run() {
         branding::APP_NAME,
         branding::APP_IDENTIFIER
     );
+
+    #[cfg(windows)]
+    webview2_runtime::configure_fixed_runtime();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -188,6 +193,8 @@ pub fn run() {
             if let Err(err) = app.deep_link().register("replayr") {
                 tracing::warn!("could not register replayr:// handler: {err}");
             }
+            #[cfg(windows)]
+            webview2_runtime::spawn_ui_watchdog(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {

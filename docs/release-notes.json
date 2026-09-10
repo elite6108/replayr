@@ -1,4 +1,8 @@
 {
+  "0.1.39": [
+    "Cloud uploads support larger high-bitrate clips by requesting multipart URLs in batches.",
+    "Raised the cloud upload size ceiling to 8 GB (was effectively ~640 MB)."
+  ],
   "0.1.38": [
     "Windows title bar now shows a centered app name with a wider drag strip.",
     "Settings updates view shows formatted release notes when an update is ready."

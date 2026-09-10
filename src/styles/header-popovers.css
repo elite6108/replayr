@@ -23,7 +23,7 @@
 .header-popover {
   position: fixed;
   z-index: 50;
-  top: calc(var(--topbar) + 6px);
+  top: calc(var(--shell-header) + 6px);
   right: 18px;
   width: min(360px, calc(100vw - 40px));
   max-height: min(70vh, 480px);

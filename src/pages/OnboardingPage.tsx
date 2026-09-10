@@ -8,8 +8,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { validateUsername } from "../utils/username";
 import type { AppSettings } from "../types/settings";
 import { MicrophoneControls } from "../components/settings/MicrophoneControls";
-import { WindowControls } from "../components/layout/WindowChrome";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { AppWindowTitleBar } from "../components/layout/AppWindowTitleBar";
 
 const STEPS = ["Welcome", "Account", "Quality", "Length", "Microphone", "Save folder", "Hotkey", "Startup", "Done"] as const;
 
@@ -79,9 +78,7 @@ export function OnboardingPage() {
 
   return (
     <div className="onboarding-shell">
-      <header className="titlebar-slim" data-tauri-drag-region onDoubleClick={() => void getCurrentWindow().toggleMaximize()}>
-        <WindowControls />
-      </header>
+      <AppWindowTitleBar />
       <div className="onboarding-body">
       <div className="onboarding panel stack">
         <div className="nav-brand onboarding-mark">

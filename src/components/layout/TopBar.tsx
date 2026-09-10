@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { HotkeyRecorder } from "../common/HotkeyRecorder";
 import { useAuthStore } from "../../stores/authStore";
 import { useDetectionStore } from "../../stores/detectionStore";
@@ -10,7 +9,6 @@ import { useToastStore } from "../../stores/toastStore";
 import type { AppSettings, ReplayDurationSeconds } from "../../types/settings";
 import { displayHotkey, formatBytes, initials } from "../../utils/format";
 import { NotificationBell } from "./NotificationBell";
-import { WindowControls } from "./WindowChrome";
 
 type OpenChip = "clip" | "record" | null;
 
@@ -62,7 +60,7 @@ export function TopBar() {
   }
 
   return (
-    <header className="topbar" data-tauri-drag-region onDoubleClick={() => void getCurrentWindow().toggleMaximize()}>
+    <header className="topbar">
       <div className={`topbar-game ${detected ? "live" : ""}`}>
         <div>
           <div className="topbar-kicker">{detected ? (snapshot.focused ? "Playing" : "Running") : "Waiting"}</div>
@@ -145,7 +143,6 @@ export function TopBar() {
         <span className="avatar">{initials(profile?.username || profile?.display_name || user?.email || "R")}</span>
         <span className="topbar-user-name">{user ? label : "Sign in"}</span>
       </Link>
-      <WindowControls />
     </header>
   );
 }

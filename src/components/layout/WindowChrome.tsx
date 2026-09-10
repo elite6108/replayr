@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type HTMLAttributes, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export function WindowControls() {
@@ -71,15 +71,17 @@ export function WindowControls() {
 export function WindowDragRegion({
   className,
   children,
+  ...rest
 }: {
   className?: string;
   children?: ReactNode;
-}) {
+} & HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={className}
       data-tauri-drag-region
       onDoubleClick={() => void getCurrentWindow().toggleMaximize()}
+      {...rest}
     >
       {children}
     </div>

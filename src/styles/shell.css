@@ -1,25 +1,30 @@
 .app-shell {
   display: grid;
   grid-template-columns: var(--rail) 1fr;
-  grid-template-rows: var(--topbar) 1fr;
+  grid-template-rows: var(--titlebar) var(--topbar) 1fr;
   height: 100%;
   overflow: hidden;
   background: var(--bg);
 }
 
+.app-shell .app-window-titlebar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
 .app-shell .nav-rail {
   grid-column: 1;
-  grid-row: 1 / -1;
+  grid-row: 2 / -1;
 }
 
 .app-shell .topbar {
   grid-column: 2;
-  grid-row: 1;
+  grid-row: 2;
 }
 
 .app-shell .workspace {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 3;
 }
 
 .workspace {

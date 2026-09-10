@@ -357,7 +357,12 @@ function GeneralPane({
           </span>
           <span className="muted">{updateStatusLabel(updateStatus, availableVersion, downloadPercent, updateError)}</span>
         </div>
-        {updateNotes && updateStatus === "ready" ? <p className="muted">{updateNotes}</p> : null}
+        {updateNotes && updateStatus === "ready" ? (
+          <div className="update-notes">
+            <p className="muted">What’s new:</p>
+            <pre>{updateNotes}</pre>
+          </div>
+        ) : null}
         <div className="row">
           <button type="button" className="btn" disabled={checkingUpdates || downloadingUpdate} onClick={onCheckUpdates}>
             {checkingUpdates ? "Checking…" : "Check for updates"}

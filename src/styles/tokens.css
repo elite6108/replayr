@@ -76,7 +76,9 @@ html[data-theme="dark"] {
   --workspace-glow: radial-gradient(900px 420px at 8% -18%, rgba(0, 216, 240, 0.1), transparent 58%),
     radial-gradient(640px 280px at 92% 0%, rgba(0, 216, 240, 0.05), transparent 48%);
   --rail: 76px;
+  --titlebar: 40px;
   --topbar: 50px;
+  --shell-header: calc(var(--titlebar) + var(--topbar));
   --aside: 280px;
   --radius: 20px;
   --radius-sm: 14px;
@@ -181,6 +183,7 @@ html.theme-no-motion * {
   html:not(.theme-no-motion) body,
   html:not(.theme-no-motion) .app-shell,
   html:not(.theme-no-motion) .nav-rail,
+  html:not(.theme-no-motion) .app-window-titlebar,
   html:not(.theme-no-motion) .topbar,
   html:not(.theme-no-motion) .workspace,
   html:not(.theme-no-motion) .panel,

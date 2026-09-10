@@ -1,4 +1,8 @@
 {
+  "0.1.38": [
+    "Windows title bar now shows a centered app name with a wider drag strip.",
+    "Settings updates view shows formatted release notes when an update is ready."
+  ],
   "0.1.37": [
     "Instant Replay bitrate changes now apply through a guarded buffer restart.",
     "Added encoder status visibility for Instant Replay diagnostics.",

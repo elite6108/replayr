@@ -43,7 +43,12 @@ Never put `SUPABASE_SERVICE_ROLE_KEY` or R2 keys in `EXPO_PUBLIC_*` or EAS secre
 - Privacy: https://www.replayr.tv/privacy
 - Terms: https://www.replayr.tv/terms
 - Support: the same address as the website
-- Universal Links need a hosted `apple-app-site-association` with your Apple Team ID. The custom scheme `tv.elite.replay://` works without it.
+- Universal / App Links:
+  - Canonical share URL: `https://replayr.tv/c/<slug>` (also accepts `/clip/<slug>`).
+  - iOS Associated Domains are in `app.json`. Host AASA at `https://replayr.tv/.well-known/apple-app-site-association` by setting Worker secret/var `APPLE_TEAM_ID`.
+  - Android App Links intent filters cover `/c` and `/clip`. Host `https://replayr.tv/.well-known/assetlinks.json` by setting `ANDROID_SHA256_CERT_FINGERPRINTS`.
+  - Custom scheme fallback: `tv.elite.replay://c/<slug>` (also accepts `replayr://` / `replay://` in the parser).
+  - Optional store fallbacks: `EXPO_PUBLIC_IOS_APP_STORE_URL`, `EXPO_PUBLIC_ANDROID_PLAY_STORE_URL` (and matching `VITE_*` on the website).
 - Delete account is `POST /v1/account/delete` (Worker, service-role). The in-app Account screen exposes it.
 - App Store privacy: video clips the user uploads from Windows; account email; no tracking SDK. Nutrition labels are filled in App Store Connect.
 - Play Data safety: same. Account deletion is required.

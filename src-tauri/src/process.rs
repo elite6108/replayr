@@ -70,6 +70,13 @@ mod windows_impl {
             Some(pid)
         }
     }
+
+    pub fn pid_alive(pid: u32) -> bool {
+        if pid == 0 {
+            return false;
+        }
+        list_processes().iter().any(|process| process.pid == pid)
+    }
 }
 
 #[cfg(not(windows))]
@@ -83,6 +90,11 @@ mod windows_impl {
     pub fn foreground_pid() -> Option<u32> {
         None
     }
+
+    pub fn pid_alive(pid: u32) -> bool {
+        let _ = pid;
+        false
+    }
 }
 
-pub use windows_impl::{foreground_pid, list_processes};
+pub use windows_impl::{foreground_pid, list_processes, pid_alive};

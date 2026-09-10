@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -7,19 +7,35 @@ import {
   Text,
   View,
 } from "react-native";
-import { Redirect, useRouter } from "expo-router";
+import { Redirect, useRouter, type Href } from "expo-router";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { Image } from "expo-image";
 import { SocialAuthRow } from "@/components/SocialAuthRow";
 import { Button, Field, Notice } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
+import { takePendingDeepLink } from "@/lib/pendingDeepLink";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 
 type SocialProvider = "google" | "discord" | "twitter" | "apple";
 
 WebBrowser.maybeCompleteAuthSession();
+
+function PendingRedirect() {
+  const [href, setHref] = useState<Href | null>(null);
+  useEffect(() => {
+    void takePendingDeepLink().then((next) => setHref((next as Href) || "/library"));
+  }, []);
+  if (!href) {
+    return (
+      <View style={[styles.flex, styles.page]}>
+        <Text style={styles.muted}>Loading…</Text>
+      </View>
+    );
+  }
+  return <Redirect href={href} />;
+}
 
 export default function SignInScreen() {
   const router = useRouter();
@@ -95,7 +111,9 @@ export default function SignInScreen() {
       </View>
     );
   }
-  if (session) return <Redirect href="/library" />;
+  if (session) {
+    return <PendingRedirect />;
+  }
 
   return (
     <KeyboardAvoidingView

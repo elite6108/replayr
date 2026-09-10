@@ -151,6 +151,7 @@ function AppShell() {
             }
           />
           <Route path="/c/:slug" element={<ClipPage />} />
+          <Route path="/clip/:slug" element={<ClipPage />} />
           <Route path="/f/:token" element={<PublicFolderPage />} />
           <Route
             path="/admin"

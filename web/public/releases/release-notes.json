@@ -1,4 +1,8 @@
 {
+  "0.1.41": [
+    "Instant Replay stays locked to the selected game when Alt-Tabbing away.",
+    "Game Audio stays pinned to the capture target across focus changes."
+  ],
   "0.1.40": [
     "Fixed Instant Replay segment joins that could drop opening keyframes."
   ],

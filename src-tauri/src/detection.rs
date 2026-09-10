@@ -11,6 +11,7 @@ use crate::process::{foreground_pid, list_processes};
 pub struct DetectionState {
     pub current: Mutex<DetectedGameSnapshot>,
     empty_polls: Mutex<u8>,
+    last_foreground_pid: Mutex<Option<u32>>,
 }
 
 impl Default for DetectionState {
@@ -18,6 +19,7 @@ impl Default for DetectionState {
         Self {
             current: Mutex::new(DetectedGameSnapshot::empty()),
             empty_polls: Mutex::new(0),
+            last_foreground_pid: Mutex::new(None),
         }
     }
 }
@@ -50,7 +52,8 @@ fn poll_once(app: &AppHandle) {
         catalog
     };
 
-    let observed = detect_games(&list_processes(), foreground_pid(), &catalog);
+    let fg = foreground_pid();
+    let observed = detect_games(&list_processes(), fg, &catalog);
     let detection = app.state::<DetectionState>();
     let mut empty_polls = match detection.empty_polls.lock() {
         Ok(guard) => guard,
@@ -81,8 +84,22 @@ fn poll_once(app: &AppHandle) {
     drop(current);
     drop(empty_polls);
 
+    log_foreground_vs_capture(app, &detection, fg);
+
     #[cfg(windows)]
     refresh_audio(app, &catalog, &snapshot);
+
+    let rec = app.state::<crate::capture::RecordingState>();
+    let ir_running = rec.ir_lock().is_some();
+    // Health-check a locked IR target every poll; otherwise only sync when
+    // detection actually changes (avoids idle scratch churn every 2s).
+    if ir_running || changed {
+        if let Err(err) =
+            crate::capture::sync_replay(app, &rec, snapshot.pid, snapshot.name.clone(), snapshot.slug.clone())
+        {
+            tracing::warn!("replay retarget: {err}");
+        }
+    }
 
     if !changed {
         return;
@@ -97,10 +114,29 @@ fn poll_once(app: &AppHandle) {
     let _ = app.emit("detected-game", &next);
     update_tray_tooltip(app, next.name.as_deref());
     crate::discord_presence::refresh(app);
-    let rec = app.state::<crate::capture::RecordingState>();
-    if let Err(err) = crate::capture::sync_replay(app, &rec, next.pid, next.name.clone(), next.slug.clone()) {
-        tracing::warn!("replay retarget: {err}");
+}
+
+fn log_foreground_vs_capture(app: &AppHandle, detection: &DetectionState, fg: Option<u32>) {
+    let Ok(mut last_fg) = detection.last_foreground_pid.lock() else {
+        return;
+    };
+    if *last_fg == fg {
+        return;
     }
+    let old = *last_fg;
+    *last_fg = fg;
+
+    let rec = app.state::<crate::capture::RecordingState>();
+    let Some((capture_pid, _, _)) = rec.ir_lock() else {
+        return;
+    };
+    tracing::info!(
+        old_foreground = old.unwrap_or(0),
+        new_foreground = fg.unwrap_or(0),
+        capture_pid = capture_pid.unwrap_or(0),
+        capture_target_unchanged = true,
+        "Foreground changed"
+    );
 }
 
 #[cfg(windows)]
@@ -112,10 +148,31 @@ fn refresh_audio(app: &AppHandle, catalog: &[crate::games::GameRecord], snapshot
             .ok()
             .and_then(|conn| crate::settings::load(&conn).ok())
     };
-    if let Some(settings) = settings {
-        app.state::<crate::audio::AudioRuntime>()
-            .apply_with_context(&settings, snapshot, catalog);
-    }
+    let Some(settings) = settings else {
+        return;
+    };
+    // While Instant Replay owns a process, keep Game Audio pinned to that
+    // capture target so Alt-Tab cannot retarget loopback to Discord/etc.
+    let pinned = {
+        let rec = app.state::<crate::capture::RecordingState>();
+        rec.ir_lock().and_then(|(pid, game_id, title)| {
+            pid.filter(|id| *id != 0).map(|pid| {
+                let mut pinned = snapshot.clone();
+                pinned.pid = Some(pid);
+                if pinned.slug.is_none() {
+                    pinned.slug = game_id;
+                }
+                if pinned.name.is_none() {
+                    pinned.name = Some(title);
+                }
+                pinned.focused = true;
+                pinned
+            })
+        })
+    };
+    let audio_snapshot = pinned.as_ref().unwrap_or(snapshot);
+    app.state::<crate::audio::AudioRuntime>()
+        .apply_with_context(&settings, audio_snapshot, catalog);
 }
 
 fn update_tray_tooltip(app: &AppHandle, game_name: Option<&str>) {

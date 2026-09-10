@@ -98,6 +98,10 @@ pub struct CaptureShared {
     pub preview: crate::preview::PreviewHub,
     pub ir_encoder: Mutex<Option<crate::ir_runtime::IrEncoderStatus>>,
     pub restarting: AtomicBool,
+    /// Last time a WGC frame was accepted into the encode path (IR diagnostics).
+    pub last_frame_at: Mutex<Option<Instant>>,
+    /// Whether we've already logged a source_no_frames stall for the current gap.
+    pub source_stall_logged: AtomicBool,
 }
 
 impl Default for CaptureShared {
@@ -113,6 +117,8 @@ impl Default for CaptureShared {
             preview: crate::preview::PreviewHub::new(),
             ir_encoder: Mutex::new(None),
             restarting: AtomicBool::new(false),
+            last_frame_at: Mutex::new(None),
+            source_stall_logged: AtomicBool::new(false),
         }
     }
 }
@@ -141,6 +147,19 @@ pub struct RecordingState {
 impl RecordingState {
     pub fn wgc_session_active(&self) -> bool {
         self.inner.lock().map(|inner| inner.is_some()).unwrap_or(true)
+    }
+
+    /// Instant Replay (rolling) session lock — process capture ownership.
+    pub fn ir_lock(&self) -> Option<(Option<u32>, Option<String>, String)> {
+        self.inner.lock().ok().and_then(|inner| {
+            inner.as_ref().and_then(|active| {
+                if active.segmented && !active.session {
+                    Some((active.pid, active.game_id.clone(), active.title.clone()))
+                } else {
+                    None
+                }
+            })
+        })
     }
 
     pub fn set_session_webcam_layout(&self, layout: Option<crate::overlay::OverlayLayout>) {
@@ -366,6 +385,22 @@ mod windows_impl {
                 height: frame.height,
                 capture_hns,
             });
+            if let Ok(mut last) = self.flags.shared.last_frame_at.lock() {
+                let was_stalled = self
+                    .flags
+                    .shared
+                    .source_stall_logged
+                    .swap(false, Ordering::SeqCst);
+                if was_stalled {
+                    if let Some(previous) = *last {
+                        tracing::info!(
+                            duration_ms = previous.elapsed().as_millis() as u64,
+                            "source_frames_resumed"
+                        );
+                    }
+                }
+                *last = Some(Instant::now());
+            }
             Ok(())
         }
 
@@ -663,6 +698,10 @@ mod windows_impl {
             state.shared.preview.resume_if_wanted();
             return Err(AppError::Message("Capture is already running.".into()));
         }
+        if let Ok(mut last) = state.shared.last_frame_at.lock() {
+            *last = None;
+        }
+        state.shared.source_stall_logged.store(false, Ordering::SeqCst);
 
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -923,6 +962,10 @@ mod windows_impl {
             _ => {}
         }
         state.shared.preview.mark_capture_live(false);
+        if let Ok(mut last) = state.shared.last_frame_at.lock() {
+            *last = None;
+        }
+        state.shared.source_stall_logged.store(false, Ordering::SeqCst);
         Ok(session)
     }
 
@@ -1140,46 +1183,66 @@ mod windows_impl {
             buffer.set_max_duration_ms(u64::from(settings.replay_duration_seconds) * 1000);
             buffer.prune(true);
         }
-        let (running, session, current_pid, segmented) = {
+        let (running, session, segmented) = {
             let inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
             match inner.as_ref() {
-                Some(active) => (true, active.session, active.pid, active.segmented),
-                None => (false, false, None, false),
+                Some(active) => (true, active.session, active.segmented),
+                None => (false, false, false),
             }
         };
 
         if settings.instant_replay_enabled {
-            let game_pid = pid.filter(|id| *id != 0);
-            if running && segmented && !session {
-                if game_pid.is_none() {
+            let detected_pid = pid.filter(|id| *id != 0);
+            let (running_ir, locked_pid) = {
+                let inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
+                match inner.as_ref() {
+                    Some(active) if active.segmented && !active.session => (true, active.pid),
+                    _ => (false, None),
+                }
+            };
+            let action = crate::ir_target::resolve_ir_sync(
+                running_ir,
+                locked_pid,
+                detected_pid,
+                crate::process::pid_alive,
+            );
+            match action {
+                crate::ir_target::IrSyncAction::KeepLocked { pid: locked } => {
+                    if detected_pid.is_some() && detected_pid != locked_pid && locked != 0 {
+                        tracing::info!(
+                            capture_pid = locked,
+                            detected_pid = detected_pid.unwrap_or(0),
+                            capture_target_unchanged = true,
+                            "IR target locked; ignoring detection retarget"
+                        );
+                    }
+                    note_ir_frame_health(state);
+                }
+                crate::ir_target::IrSyncAction::StopExited { pid: exited } => {
+                    tracing::info!(pid = exited, "IR capture target process exited; stopping buffer");
                     let _ = halt_capture(state);
                     if let Ok(dir) = replay_scratch_dir(app) {
                         discard_scratch(state, &dir);
                     }
-                } else if current_pid != game_pid {
-                    let _ = halt_capture(state);
-                    match start(app, state, game_pid, game_name, game_id, true, false, None) {
+                }
+                crate::ir_target::IrSyncAction::StartDetected { pid: start_pid } => {
+                    tracing::info!(
+                        process = %game_name.as_deref().unwrap_or("game"),
+                        hwnd_pid = start_pid,
+                        "IR target locked"
+                    );
+                    match start(app, state, Some(start_pid), game_name, game_id, true, false, None) {
                         Ok(_) => {}
                         Err(err) => {
-                            if let Ok(dir) = replay_scratch_dir(app) {
-                                discard_scratch(state, &dir);
-                            }
                             publish_replay(app, state, &settings, Some(err.to_string()));
                             return Ok(replay_status(state, &settings));
                         }
                     }
                 }
-            } else if !running {
-                if game_pid.is_some() {
-                    match start(app, state, game_pid, game_name, game_id, true, false, None) {
-                        Ok(_) => {}
-                        Err(err) => {
-                            publish_replay(app, state, &settings, Some(err.to_string()));
-                            return Ok(replay_status(state, &settings));
-                        }
+                crate::ir_target::IrSyncAction::Idle => {
+                    if let Ok(dir) = replay_scratch_dir(app) {
+                        discard_scratch(state, &dir);
                     }
-                } else if let Ok(dir) = replay_scratch_dir(app) {
-                    discard_scratch(state, &dir);
                 }
             }
         } else if running && segmented && !session {
@@ -1192,6 +1255,30 @@ mod windows_impl {
         apply_pending_bitrate(app, state)?;
         publish_replay(app, state, &settings, None);
         Ok(replay_status(state, &settings))
+    }
+
+    fn note_ir_frame_health(state: &RecordingState) {
+        let Ok(last) = state.shared.last_frame_at.lock() else {
+            return;
+        };
+        let Some(at) = *last else {
+            return;
+        };
+        let gap = at.elapsed();
+        if gap < Duration::from_secs(2) {
+            return;
+        }
+        if state
+            .shared
+            .source_stall_logged
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            tracing::info!(
+                duration_ms = gap.as_millis() as u64,
+                "source_no_frames"
+            );
+        }
     }
 
     /// Called only while the outer lifecycle lock is held. A fresh writer and

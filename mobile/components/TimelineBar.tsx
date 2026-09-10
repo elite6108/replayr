@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { StyleSheet, Text, View, type GestureResponderEvent } from "react-native";
 import { formatClockSeconds } from "@/lib/format";
+import { colors } from "@/lib/theme";
 
 export function TimelineBar({
   current,
@@ -25,10 +26,6 @@ export function TimelineBar({
 
   return (
     <View style={[styles.wrap, { bottom }]}>
-      <View style={styles.times}>
-        <Text style={styles.clock}>{formatClockSeconds(current)}</Text>
-        <Text style={styles.clock}>{formatClockSeconds(total)}</Text>
-      </View>
       <View
         style={styles.hit}
         onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
@@ -42,6 +39,10 @@ export function TimelineBar({
         </View>
         <View style={[styles.knob, { left: `${progress * 100}%` }]} />
       </View>
+      <View style={styles.times}>
+        <Text style={styles.clock}>{formatClockSeconds(current)}</Text>
+        <Text style={styles.clock}>{formatClockSeconds(total)}</Text>
+      </View>
     </View>
   );
 }
@@ -49,29 +50,30 @@ export function TimelineBar({
 const styles = StyleSheet.create({
   wrap: {
     position: "absolute",
-    left: 16,
-    right: 16,
-    gap: 4,
+    left: 14,
+    right: 14,
+    gap: 6,
   },
-  times: { flexDirection: "row", justifyContent: "space-between" },
-  clock: { color: "#ffffffcc", fontSize: 11, fontVariant: ["tabular-nums"] },
-  hit: { height: 16, justifyContent: "center" },
+  times: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  clock: { color: "rgba(255,255,255,0.78)", fontSize: 11, fontVariant: ["tabular-nums"], fontWeight: "600" },
+  hit: { height: 18, justifyContent: "center" },
   track: {
-    height: 2,
-    backgroundColor: "#ffffff33",
-    borderRadius: 1,
+    height: 3,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    borderRadius: 2,
     overflow: "hidden",
   },
   fill: {
-    height: 2,
-    backgroundColor: "#fff",
+    height: 3,
+    backgroundColor: colors.accent,
   },
   knob: {
     position: "absolute",
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     backgroundColor: "#fff",
-    marginLeft: -4,
+    marginLeft: -6,
+    top: 3,
   },
 });

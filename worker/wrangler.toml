@@ -53,3 +53,9 @@ crons = ["15 * * * *"]
 #
 # Coming-soon site gate (never VITE_):
 # SITE_ACCESS_PASSWORD
+#
+# Mobile Universal / App Links (optional until store builds ship):
+# APPLE_TEAM_ID
+# IOS_BUNDLE_ID                 (default tv.elite.replay)
+# ANDROID_PACKAGE_NAME          (default tv.elite.replay)
+# ANDROID_SHA256_CERT_FINGERPRINTS   (comma-separated SHA-256 fingerprints)

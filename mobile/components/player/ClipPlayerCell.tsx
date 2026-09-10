@@ -1,21 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView, type VideoPlayer } from "expo-video";
+import { Avatar } from "@/components/Avatar";
 import { CommentsSheet } from "@/components/CommentsSheet";
 import { PlayerTools } from "@/components/PlayerTools";
-import { PlayerAuthorBadge } from "@/components/player/PlayerAuthorBadge";
+import { PlayerTopChrome } from "@/components/player/PlayerTopChrome";
 import { PlayerVideoFrame, ReplayrWatermark } from "@/components/ReplayrWatermark";
 import { SendClipSheet } from "@/components/SendClipSheet";
 import { TimelineBar } from "@/components/TimelineBar";
 import { clipAllowsSocial, deleteCloudClip, setClipLiked, type PlaybackClip } from "@/lib/api";
-import { loadPlayback, type ClipFeedItem } from "@/lib/clipFeed";
+import { followUser } from "@/lib/api.follows";
+import { loadPlayback, type ClipFeedItem, getClipFeed } from "@/lib/clipFeed";
 import { feedPlaybackAllowed, registerFeedPlayer, unregisterFeedPlayer } from "@/lib/feedPlayers";
 import { formatHandle } from "@/lib/format";
 import { copyClipUrl, saveClipToPhotos, shareClipUrl } from "@/lib/media";
+import { setPendingDeepLink } from "@/lib/pendingDeepLink";
 import { clipShareUrl, getSupabase } from "@/lib/supabase";
+import { colors } from "@/lib/theme";
 import { saveWatchProgress } from "@/lib/watchProgress";
 import { PlayerMoreSheet } from "./PlayerMoreSheet";
 
@@ -35,7 +38,6 @@ export function ClipPlayerCell({
   token,
   userId,
   showAd,
-  onBack,
   onDeleted,
 }: {
   item: ClipFeedItem;
@@ -45,7 +47,7 @@ export function ClipPlayerCell({
   token?: string;
   userId?: string;
   showAd: boolean;
-  onBack: () => void;
+  onBack?: () => void;
   onDeleted: (slug: string) => void;
 }) {
   const [clip, setClip] = useState<PlaybackClip | null>(null);
@@ -84,7 +86,6 @@ export function ClipPlayerCell({
           token={token}
           userId={userId}
           showAd={showAd}
-          onBack={onBack}
           onDeleted={onDeleted}
         />
       ) : (
@@ -103,7 +104,6 @@ function ReadyCell({
   token,
   userId,
   showAd,
-  onBack,
   onDeleted,
 }: {
   clip: PlaybackClip;
@@ -112,7 +112,6 @@ function ReadyCell({
   token?: string;
   userId?: string;
   showAd: boolean;
-  onBack: () => void;
   onDeleted: (slug: string) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -120,11 +119,13 @@ function ReadyCell({
   const router = useRouter();
   const shareable = clipAllowsSocial(clip.visibility);
   const canManage = Boolean(userId && clipId);
+  const feedMode = getClipFeed()?.source === "foryou" ? "foryou" : getClipFeed()?.source === "library" ? "single" : "single";
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(fallbackDuration);
   const [liked, setLiked] = useState(Boolean(clip.liked));
   const [following, setFollowing] = useState(Boolean(clip.following));
   const [followPending, setFollowPending] = useState(Boolean(clip.followPending));
+  const [followBusy, setFollowBusy] = useState(false);
   const [likeCount, setLikeCount] = useState(clip.likeCount ?? 0);
   const [commentCount, setCommentCount] = useState(clip.commentCount ?? 0);
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -230,6 +231,39 @@ function ReadyCell({
     return true;
   }
 
+  async function goSignIn() {
+    await setPendingDeepLink(`/c/${clip.slug}`);
+    router.push("/signin");
+  }
+
+  async function onFollow() {
+    const username = clip.author?.username;
+    if (!username || clip.mine || following || followPending || followBusy) return;
+    if (!token) {
+      await goSignIn();
+      return;
+    }
+    setFollowBusy(true);
+    const optimistic = { following: !clip.author?.isPrivate, followPending: Boolean(clip.author?.isPrivate) };
+    setFollowing(optimistic.following);
+    setFollowPending(optimistic.followPending);
+    try {
+      const result = await followUser(token, username);
+      setFollowing(result.follow.viewerFollows);
+      setFollowPending(result.follow.viewerFollowPending);
+    } catch {
+      setFollowing(false);
+      setFollowPending(false);
+    } finally {
+      setFollowBusy(false);
+    }
+  }
+
+  const handle = formatHandle(clip.author);
+  const showFollow = Boolean(clip.author?.username) && !clip.mine && !following && !followPending;
+  const visibilityLabel =
+    clip.visibility === "public" ? "Public" : clip.visibility === "unlisted" ? "Unlisted" : "Private";
+
   return (
     <View style={styles.stage}>
       <PlayerVideoFrame width={clip.width} height={clip.height}>
@@ -237,33 +271,48 @@ function ReadyCell({
         <ReplayrWatermark show={clip.watermark !== false} />
       </PlayerVideoFrame>
       <Pressable style={styles.tap} onPress={togglePlayback} />
+      {active ? <PlayerTopChrome top={insets.top} mode={feedMode} /> : null}
       {showAd ? (
-        <Pressable style={[styles.houseAd, { top: insets.top + 52 }]} onPress={() => router.push("/account")}>
+        <Pressable style={[styles.houseAd, { top: insets.top + 56 }]} onPress={() => router.push("/account")}>
           <Text style={styles.houseAdTitle}>Replayr Premium — $4.99/mo</Text>
           <Text style={styles.houseAdCopy}>Remove the watermark · original quality</Text>
         </Pressable>
       ) : null}
       <View style={styles.hud} pointerEvents="box-none">
-        <Pressable
-          style={[styles.back, { top: insets.top + 8 }]}
-          onPress={() => {
-            pausePlayer(player);
-            onBack();
-          }}
-          hitSlop={12}
-        >
-          <Ionicons name="chevron-back" size={28} color="#fff" />
-        </Pressable>
-        <View style={[styles.caption, { bottom: insets.bottom + 36 }]} pointerEvents="none">
-          <Text style={styles.title}>{clip.title || "Untitled clip"}</Text>
-          <Text style={styles.muted}>
-            {clip.visibility === "public" ? formatHandle(clip.author) : clip.visibility}
+        <View style={[styles.meta, { bottom: 54 }]} pointerEvents="box-none">
+          <View style={styles.authorRow} pointerEvents="box-none">
+            <Pressable
+              style={styles.authorPress}
+              onPress={() => {
+                if (clip.author?.username) router.push(`/u/${clip.author.username}`);
+              }}
+              disabled={!clip.author?.username}
+            >
+              <Avatar name={clip.author?.displayName || clip.author?.username} uri={clip.author?.avatarUrl} size={40} />
+              <View style={styles.authorText}>
+                <View style={styles.handleRow}>
+                  <Text style={styles.handle}>{handle}</Text>
+                  {clip.author?.verified ? <Text style={styles.verified}>✓</Text> : null}
+                </View>
+              </View>
+            </Pressable>
+            {showFollow ? (
+              <Pressable style={styles.followBtn} onPress={() => void onFollow()} disabled={followBusy}>
+                <Text style={styles.followLabel}>Follow</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <Text style={styles.title} numberOfLines={2}>
+            {clip.title || "Untitled clip"}
           </Text>
+          <View style={styles.tags}>
+            <Text style={styles.tag}>{visibilityLabel}</Text>
+          </View>
         </View>
         <TimelineBar
           current={current}
           duration={duration}
-          bottom={insets.bottom + 8}
+          bottom={8}
           onSeek={(seconds) => {
             player.currentTime = seconds;
             setCurrent(seconds);
@@ -273,23 +322,10 @@ function ReadyCell({
           liked={liked}
           likeCount={likeCount}
           commentCount={commentCount}
-          bottom={insets.bottom + 88}
-          header={
-            <PlayerAuthorBadge
-              author={clip.author}
-              following={following}
-              followPending={followPending}
-              isOwn={Boolean(clip.mine)}
-              token={token}
-              onFollowed={(next) => {
-                setFollowing(next.following);
-                setFollowPending(next.followPending);
-              }}
-            />
-          }
+          bottom={72}
           onLike={() => {
             if (!token) {
-              router.push("/signin");
+              void goSignIn();
               return;
             }
             if (!requireSocial()) return;
@@ -315,7 +351,7 @@ function ReadyCell({
           }}
           onSend={() => {
             if (!token) {
-              router.push("/signin");
+              void goSignIn();
               return;
             }
             pausePlayer(player);
@@ -376,11 +412,27 @@ const styles = StyleSheet.create({
   video: { width: "100%", height: "100%", backgroundColor: "#000" },
   tap: { ...StyleSheet.absoluteFill },
   hud: { ...StyleSheet.absoluteFill, zIndex: 2, elevation: 2 },
-  back: { position: "absolute", top: 52, left: 12, padding: 8, zIndex: 3 },
-  caption: { position: "absolute", left: 16, right: 80, bottom: 28, gap: 4 },
-  title: { color: "#fff", fontSize: 18, fontWeight: "700" },
-  muted: { color: "#c8c8c8", fontSize: 13, textTransform: "capitalize" },
+  meta: { position: "absolute", left: 14, right: 78, gap: 8 },
+  authorRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  authorPress: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 },
+  authorText: { flexShrink: 1 },
+  handleRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  handle: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  verified: { color: colors.accent, fontSize: 13, fontWeight: "900" },
+  followBtn: {
+    borderWidth: 1.5,
+    borderColor: colors.accent,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  followLabel: { color: colors.accent, fontSize: 13, fontWeight: "800" },
+  title: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  tags: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  tag: { color: "rgba(255,255,255,0.72)", fontSize: 12, fontWeight: "600" },
+  muted: { color: "#c8c8c8", fontSize: 13 },
   center: { flex: 1, backgroundColor: "#000", padding: 24, justifyContent: "center", gap: 8 },
+  // title reused for unavailable state heading via styles.title
   houseAd: {
     position: "absolute",
     left: 16,

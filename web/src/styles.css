@@ -924,6 +924,45 @@ textarea {
   border-radius: 16px;
 }
 
+.open-in-app-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 216, 240, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(120deg, rgba(0, 216, 240, 0.12), rgba(12, 16, 24, 0.9));
+}
+
+.open-in-app-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.open-in-app-copy strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.open-in-app-copy span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.open-in-app-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+@media (min-width: 900px) {
+  .open-in-app-banner {
+    display: none;
+  }
+}
+
 .player {
   width: 100%;
   background: #000;

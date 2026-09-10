@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   StyleSheet,
-  useWindowDimensions,
   View,
+  type LayoutChangeEvent,
   type ViewToken,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -24,11 +24,11 @@ const VIEWABILITY = { itemVisiblePercentThreshold: 80 };
 
 export function ClipFeedPager({ slug, clipId }: { slug: string; clipId?: string }) {
   const router = useRouter();
-  const { height } = useWindowDimensions();
   const { session } = useAuth();
   const token = session?.access_token;
   const feed = useClipFeed();
   const listRef = useRef<FlatList>(null);
+  const [pageHeight, setPageHeight] = useState(0);
   const [focused, setFocused] = useState(0);
   const [showAd, setShowAd] = useState(true);
 
@@ -47,7 +47,8 @@ export function ClipFeedPager({ slug, clipId }: { slug: string; clipId?: string 
 
   function goBack() {
     stopFeedPlayers();
-    router.back();
+    if (router.canGoBack()) router.back();
+    else router.replace("/");
   }
 
   const items = feed?.items ?? [{ slug, clipId }];
@@ -58,7 +59,7 @@ export function ClipFeedPager({ slug, clipId }: { slug: string; clipId?: string 
 
   useEffect(() => {
     setFocused(startIndex);
-    if (startIndex > 0) {
+    if (startIndex > 0 && pageHeight > 0) {
       requestAnimationFrame(() => {
         try {
           listRef.current?.scrollToIndex({ index: startIndex, animated: false });
@@ -67,7 +68,7 @@ export function ClipFeedPager({ slug, clipId }: { slug: string; clipId?: string 
         }
       });
     }
-  }, [startIndex]);
+  }, [startIndex, pageHeight]);
 
   useEffect(() => {
     if (!token) {
@@ -106,44 +107,50 @@ export function ClipFeedPager({ slug, clipId }: { slug: string; clipId?: string 
     }
   }
 
+  function onLayout(event: LayoutChangeEvent) {
+    const next = Math.round(event.nativeEvent.layout.height);
+    if (next > 0 && next !== pageHeight) setPageHeight(next);
+  }
+
   return (
-    <View style={styles.stage}>
-      <FlatList
-        ref={listRef}
-        data={items}
-        keyExtractor={(item) => item.slug}
-        pagingEnabled
-        showsVerticalScrollIndicator={false}
-        snapToInterval={height}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        disableIntervalMomentum
-        getItemLayout={(_, index) => ({ length: height, offset: height * index, index })}
-        initialScrollIndex={startIndex}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={VIEWABILITY}
-        onEndReached={() => void loadMoreClipFeed(token)}
-        onEndReachedThreshold={0.4}
-        extraData={focused}
-        renderItem={({ item, index }) => (
-          <ClipPlayerCell
-            item={item}
-            active={index === focused}
-            nearby={Math.abs(index - focused) <= 1}
-            height={height}
-            token={token}
-            userId={session?.user.id}
-            showAd={showAd}
-            onBack={goBack}
-            onDeleted={onDeleted}
-          />
-        )}
-        onScrollToIndexFailed={({ index }) => {
-          requestAnimationFrame(() => {
-            listRef.current?.scrollToIndex({ index, animated: false });
-          });
-        }}
-      />
+    <View style={styles.stage} onLayout={onLayout}>
+      {pageHeight > 0 ? (
+        <FlatList
+          ref={listRef}
+          data={items}
+          keyExtractor={(item) => item.slug}
+          pagingEnabled
+          showsVerticalScrollIndicator={false}
+          snapToInterval={pageHeight}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          disableIntervalMomentum
+          getItemLayout={(_, index) => ({ length: pageHeight, offset: pageHeight * index, index })}
+          initialScrollIndex={startIndex}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={VIEWABILITY}
+          onEndReached={() => void loadMoreClipFeed(token)}
+          onEndReachedThreshold={0.4}
+          extraData={focused}
+          renderItem={({ item, index }) => (
+            <ClipPlayerCell
+              item={item}
+              active={index === focused}
+              nearby={Math.abs(index - focused) <= 1}
+              height={pageHeight}
+              token={token}
+              userId={session?.user.id}
+              showAd={showAd}
+              onDeleted={onDeleted}
+            />
+          )}
+          onScrollToIndexFailed={({ index }) => {
+            requestAnimationFrame(() => {
+              listRef.current?.scrollToIndex({ index, animated: false });
+            });
+          }}
+        />
+      ) : null}
     </View>
   );
 }

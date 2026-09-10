@@ -56,6 +56,7 @@ import {
   isSiteGatedPath,
   serveComingSoon,
 } from "./site-access";
+import { androidAssetLinks, appleAppSiteAssociation } from "./appLinks";
 
 export type {
   AddMembersBody,
@@ -307,6 +308,18 @@ async function route(
   const share = url.pathname.match(/^\/c\/([^/]+)\/?$/);
   if (request.method === "GET" && share?.[1]) {
     return clipPlayerPage(request, env, share[1]);
+  }
+  const clipAlias = url.pathname.match(/^\/clip\/([^/]+)\/?$/);
+  if (request.method === "GET" && clipAlias?.[1]) {
+    const target = new URL(`/c/${clipAlias[1]}`, url.origin);
+    target.search = url.search;
+    return Response.redirect(target.toString(), 302);
+  }
+  if (request.method === "GET" && url.pathname === "/.well-known/apple-app-site-association") {
+    return appleAppSiteAssociation(env);
+  }
+  if (request.method === "GET" && url.pathname === "/.well-known/assetlinks.json") {
+    return androidAssetLinks(env);
   }
   const folderShare = url.pathname.match(/^\/f\/([^/]+)\/?$/);
   if ((request.method === "GET" || request.method === "HEAD") && folderShare?.[1] && env.ASSETS) {

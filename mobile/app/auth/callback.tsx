@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { Redirect, useLocalSearchParams } from "expo-router";
+import { Redirect, useLocalSearchParams, type Href } from "expo-router";
 import { Notice } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
+import { takePendingDeepLink } from "@/lib/pendingDeepLink";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 
@@ -10,6 +11,7 @@ export default function AuthCallbackScreen() {
   const { session } = useAuth();
   const params = useLocalSearchParams<{ code?: string; error?: string; error_description?: string }>();
   const [error, setError] = useState<string | null>(params.error_description || params.error || null);
+  const [nextHref, setNextHref] = useState<Href | null>(null);
 
   useEffect(() => {
     if (error || !params.code || !supabaseConfigured() || session) return;
@@ -24,7 +26,14 @@ export default function AuthCallbackScreen() {
     return () => clearTimeout(timer);
   }, [error, params.code, session]);
 
-  if (session) return <Redirect href="/library" />;
+  useEffect(() => {
+    if (!session) return;
+    void takePendingDeepLink().then((pending) => {
+      setNextHref((pending as Href) || "/library");
+    });
+  }, [session]);
+
+  if (session && nextHref) return <Redirect href={nextHref} />;
 
   return (
     <View style={styles.page}>

@@ -54,6 +54,16 @@
               "scheme": "https",
               "host": "www.replayr.tv",
               "pathPrefix": "/c"
+            },
+            {
+              "scheme": "https",
+              "host": "replayr.tv",
+              "pathPrefix": "/clip"
+            },
+            {
+              "scheme": "https",
+              "host": "www.replayr.tv",
+              "pathPrefix": "/clip"
             }
           ],
           "category": [

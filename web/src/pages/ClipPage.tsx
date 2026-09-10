@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ClipSocial } from "../components/ClipSocial";
+import { OpenInReplayrBanner } from "../components/OpenInReplayrBanner";
 import { SendClipSheet } from "../components/SendClipSheet";
 import { Seo } from "../components/Seo";
 import { PlayerVideo } from "../components/ReplayrWatermark";
@@ -69,6 +70,7 @@ export function ClipPage() {
         <p className="muted">Loading…</p>
       ) : (
         <>
+          <OpenInReplayrBanner slug={clip.slug} />
           <h1>{clip.title || "Untitled clip"}</h1>
           <p className="muted">
             {clip.visibility === "public" ? formatHandle(clip.author) : clip.visibility}

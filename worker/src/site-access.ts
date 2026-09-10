@@ -5,7 +5,17 @@ import { requireServiceRole, serviceRest } from "./shared";
 const COOKIE_NAME = "replayr_site_access";
 const COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 30; // 30 days
 
-const ALWAYS_OPEN_PREFIXES = ["/v1/", "/internal/", "/releases/", "/c/", "/f/", "/assets/", "/auth/"];
+const ALWAYS_OPEN_PREFIXES = [
+  "/v1/",
+  "/internal/",
+  "/releases/",
+  "/c/",
+  "/clip/",
+  "/f/",
+  "/assets/",
+  "/auth/",
+  "/.well-known/",
+];
 
 /** Desktop/web OAuth returns must stay reachable without the site-access cookie. */
 export function isOAuthHandoff(url: URL): boolean {

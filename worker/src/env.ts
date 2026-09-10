@@ -27,6 +27,14 @@ export interface Env {
   BUNNY_INGEST_PUBLIC_ORIGIN?: string;
   /** Password that unlocks the full marketing site (coming-soon gate). Worker secret only. */
   SITE_ACCESS_PASSWORD?: string;
+  /** Apple Developer Team ID for Universal Links (AASA). Optional until configured. */
+  APPLE_TEAM_ID?: string;
+  /** iOS bundle id override; defaults to tv.elite.replay. */
+  IOS_BUNDLE_ID?: string;
+  /** Android applicationId override; defaults to tv.elite.replay. */
+  ANDROID_PACKAGE_NAME?: string;
+  /** Comma-separated SHA-256 cert fingerprints for assetlinks.json. */
+  ANDROID_SHA256_CERT_FINGERPRINTS?: string;
 }
 
 export interface AuthUser {

@@ -1,4 +1,7 @@
 {
+  "0.1.40": [
+    "Fixed Instant Replay segment joins that could drop opening keyframes."
+  ],
   "0.1.39": [
     "Cloud uploads support larger high-bitrate clips by requesting multipart URLs in batches.",
     "Raised the cloud upload size ceiling to 8 GB (was effectively ~640 MB)."

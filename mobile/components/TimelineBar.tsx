@@ -50,8 +50,8 @@ export function TimelineBar({
 const styles = StyleSheet.create({
   wrap: {
     position: "absolute",
-    left: 14,
-    right: 14,
+    left: 30,
+    right: 30,
     gap: 6,
   },
   times: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },

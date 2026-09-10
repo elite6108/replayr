@@ -27,7 +27,15 @@ function RootShell() {
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="signin" options={{ title: "Sign in" }} />
-          <Stack.Screen name="c/[slug]" options={{ headerShown: false, animation: "fade" }} />
+          <Stack.Screen
+            name="c/[slug]"
+            options={{
+              headerShown: false,
+              animation: "fade",
+              fullScreenGestureEnabled: false,
+              gestureResponseDistance: 20,
+            }}
+          />
           <Stack.Screen name="game/[slug]" options={{ title: "Game" }} />
           <Stack.Screen name="friends" options={{ title: "Following" }} />
           <Stack.Screen name="search" options={{ title: "Search" }} />

@@ -14,6 +14,8 @@ use crate::error::{AppError, AppResult};
 use crate::library::{self, LocalClipDto};
 
 const PART_SIZE: usize = 8 * 1024 * 1024;
+/// Must stay aligned with Worker `MAX_PRESIGN_PARTS` (urls minted per response).
+const MAX_PRESIGN_PARTS: usize = 80;
 
 /// One compose+upload at a time so webcam re-encode cannot run in parallel.
 static UPLOAD_GATE: Mutex<()> = Mutex::new(());
@@ -151,7 +153,7 @@ pub fn upload_local_clip(
         .build()
         .map_err(|err| AppError::Message(err.to_string()))?;
 
-    let (session, mut completed) = match try_resume_session(
+    let (mut session, mut completed) = match try_resume_session(
         &client,
         api_base,
         access_token,
@@ -204,13 +206,15 @@ pub fn upload_local_clip(
     }
     emit_progress(app, local_id, "uploading", None, Some(0), Some(file_size));
 
-    let etags = match put_parts(
+    let etags = match put_all_parts(
         app,
         local_id,
         &client,
+        api_base,
+        access_token,
         path,
         file_size,
-        &session,
+        &mut session,
         &mut completed,
         compose_guard.0.as_ref().map(|p| p.display().to_string()),
     ) {
@@ -439,11 +443,7 @@ fn try_resume_session(
         return Ok(None);
     }
     let done_numbers: Vec<u32> = resume.parts.iter().map(|part| part.part_number).collect();
-    let total_parts = if file_size > PART_SIZE as u64 {
-        ((file_size + PART_SIZE as u64 - 1) / PART_SIZE as u64) as u32
-    } else {
-        1
-    };
+    let total_parts = multipart_part_count(file_size);
     let remaining: Vec<u32> = (1..=total_parts)
         .filter(|n| !done_numbers.contains(n))
         .collect();
@@ -459,13 +459,14 @@ fn try_resume_session(
             resume.parts.clone(),
         )));
     }
+    let batch: Vec<u32> = remaining.into_iter().take(MAX_PRESIGN_PARTS).collect();
     match continue_session(
         client,
         api_base,
         access_token,
         &resume.clip_id,
         resume.upload_id.as_deref(),
-        &remaining,
+        &batch,
     ) {
         Ok(session) => Ok(Some((session, resume.parts.clone()))),
         Err(err) => {
@@ -536,6 +537,62 @@ fn start_session(
     parse_json(response)
 }
 
+fn multipart_part_count(file_size: u64) -> u32 {
+    if file_size > PART_SIZE as u64 {
+        ((file_size + PART_SIZE as u64 - 1) / PART_SIZE as u64) as u32
+    } else {
+        1
+    }
+}
+
+fn remaining_part_numbers(file_size: u64, completed: &[CompletedPart]) -> Vec<u32> {
+    let done: Vec<u32> = completed.iter().map(|part| part.part_number).collect();
+    (1..=multipart_part_count(file_size))
+        .filter(|n| !done.contains(n))
+        .collect()
+}
+
+fn put_all_parts(
+    app: &AppHandle,
+    local_id: &str,
+    client: &Client,
+    api_base: &str,
+    access_token: &str,
+    path: &Path,
+    file_size: u64,
+    session: &mut UploadSession,
+    completed: &mut Vec<CompletedPart>,
+    composed_path: Option<String>,
+) -> AppResult<Vec<CompletedPart>> {
+    loop {
+        put_parts(
+            app,
+            local_id,
+            client,
+            path,
+            file_size,
+            session,
+            completed,
+            composed_path.clone(),
+        )?;
+        let remaining = remaining_part_numbers(file_size, completed);
+        if remaining.is_empty() {
+            break;
+        }
+        let batch: Vec<u32> = remaining.into_iter().take(MAX_PRESIGN_PARTS).collect();
+        *session = continue_session(
+            client,
+            api_base,
+            access_token,
+            &session.clip_id,
+            session.upload_id.as_deref(),
+            &batch,
+        )?;
+    }
+    completed.sort_by_key(|part| part.part_number);
+    Ok(completed.clone())
+}
+
 fn put_parts(
     app: &AppHandle,
     local_id: &str,
@@ -545,7 +602,7 @@ fn put_parts(
     session: &UploadSession,
     completed: &mut Vec<CompletedPart>,
     composed_path: Option<String>,
-) -> AppResult<Vec<CompletedPart>> {
+) -> AppResult<()> {
     if session.parts.is_empty() && completed.is_empty() {
         return Err(AppError::Message(
             "Cloud API did not return upload URLs.".into(),
@@ -596,8 +653,7 @@ fn put_parts(
             Some(file_size),
         );
     }
-    completed.sort_by_key(|part| part.part_number);
-    Ok(completed.clone())
+    Ok(())
 }
 
 fn put_part_with_retry(

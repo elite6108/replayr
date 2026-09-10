@@ -90,6 +90,16 @@ export type {
 export type { Env } from "./env";
 
 const PART_SIZE = 8 * 1024 * 1024;
+/** Cap how many R2 part URLs we mint per continue-parts response. */
+const MAX_PRESIGN_PARTS = 80;
+/**
+ * Older desktops expect every part URL in the create-upload response.
+ * Keep full presigns through this many parts (~2 GB) for compatibility.
+ * Larger objects get the first batch only; 0.1.39+ clients request the rest.
+ */
+const LEGACY_FULL_PRESIGN_PARTS = 256;
+/** Absolute cloud object size. ~8 GB covers ~14 min at 75 Mbps. */
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024 * 1024;
 const SLUG_ALPHABET = "abcdefghijkmnopqrstuvwxyz23456789";
 const CONTENT_TYPE = "video/mp4";
 
@@ -409,6 +419,14 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
   if (!Number.isFinite(size) || size <= 0) {
     return json({ error: "Clip file size is required." }, 400);
   }
+  if (size > MAX_UPLOAD_BYTES) {
+    return json(
+      {
+        error: `That clip is ${(size / (1024 * 1024 * 1024)).toFixed(1)} GB. Cloud uploads are limited to ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024 * 1024))} GB — shorten the clip or lower bitrate.`,
+      },
+      400,
+    );
+  }
 
   await releaseExpiredUploads(env, user.id);
 
@@ -479,18 +497,10 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
       return json({ error: "R2 did not return an upload id." }, 502);
     }
     const count = Math.ceil(size / PART_SIZE);
-    const MAX_PRESIGN_PARTS = 80;
-    if (count > MAX_PRESIGN_PARTS) {
-      await abortMultipart(env, key, uploadId);
-      await failClip(env, user.id, clipId);
-      return json(
-        {
-          error: `That file needs ${count} parts. Split clips under ${Math.floor((MAX_PRESIGN_PARTS * PART_SIZE) / (1024 * 1024))} MB or contact support.`,
-        },
-        400,
-      );
-    }
-    const partNumbers = Array.from({ length: count }, (_, index) => index + 1);
+    // Full presign through LEGACY_FULL_PRESIGN_PARTS for older clients; otherwise first batch only.
+    const batchCount =
+      count <= LEGACY_FULL_PRESIGN_PARTS ? count : Math.min(count, MAX_PRESIGN_PARTS);
+    const partNumbers = Array.from({ length: batchCount }, (_, index) => index + 1);
     const signedParts = await mapPool(partNumbers, 16, async (partNumber) => {
       const signed = await aws.sign(
         `${endpoint}?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId!)}&X-Amz-Expires=3600`,
@@ -590,7 +600,7 @@ async function continueUploadParts(request: Request, env: Env, clipId: string): 
     ? [...new Set(body.partNumbers.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n >= 1))]
     : [];
   const expectedParts = Math.max(1, Math.ceil(Number(session.expected_size_bytes) / PART_SIZE));
-  if (partNumbers.some((n) => n > expectedParts) || partNumbers.length > 80) {
+  if (partNumbers.some((n) => n > expectedParts) || partNumbers.length > MAX_PRESIGN_PARTS) {
     return json({ error: "Invalid part numbers for this upload." }, 400);
   }
 
@@ -610,7 +620,9 @@ async function continueUploadParts(request: Request, env: Env, clipId: string): 
     });
     parts.push({ partNumber: 1, url: signed.url });
   } else {
-    const numbers = partNumbers.length ? partNumbers : Array.from({ length: expectedParts }, (_, i) => i + 1);
+    const numbers = partNumbers.length
+      ? partNumbers
+      : Array.from({ length: Math.min(expectedParts, MAX_PRESIGN_PARTS) }, (_, i) => i + 1);
     const signedParts = await mapPool(numbers, 16, async (partNumber) => {
       const signed = await aws.sign(
         `${endpoint}?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId)}&X-Amz-Expires=3600`,

@@ -13,8 +13,8 @@ use windows::Win32::Media::MediaFoundation::{
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 
 use super::audio::{
-    append_pcm_file, append_silence_file, fit_pcm_file, fit_pcm_to_video, hns_to_pcm_bytes,
-    load_segment_pcm, pcm_bytes_to_ms, write_stitched_aac,
+    append_pcm_file, fit_pcm_file, fit_pcm_to_video, hns_to_pcm_bytes, load_segment_pcm,
+    pcm_bytes_to_ms, write_stitched_aac,
 };
 use super::session_place::{
     clip_sample_keep, hold_hns, output_pts, placement_error_hns, plan_joins, ClipSampleKeep,
@@ -159,7 +159,7 @@ fn concat_session(
                 stream,
                 segment_index = plan.segment_index,
                 overlap_hns = plan.overlap_hns,
-                "session remux overlap; dropping prefix so the timeline does not double"
+                "session remux overlap; gameplay preserves the incoming keyframe and bounds the previous tail"
             );
         }
         let min_output_pts = match gaps {
@@ -207,31 +207,26 @@ fn concat_session(
             expected_output_first_pts = expected,
             placement_error_hns = placement_error_hns(copied.output_first_pts, expected),
             gap_from_previous_hns = plan.gap_from_previous_hns,
+            hold_hns = copied.hold_hns,
             "session remux join"
         );
         if let Some(pcm_file) = pcm_file.as_mut() {
-            if plan.gap_from_previous_hns > 0 || copied.hold_hns > 0 {
-                let silence = plan.gap_from_previous_hns.max(copied.hold_hns);
-                append_silence_file(pcm_file, &mut pcm_len, silence)?;
+            let (mut chunk, _) = load_segment_pcm(&segment.path);
+            let drift = place_session_pcm(
+                pcm_file,
+                &mut pcm_len,
+                &mut chunk,
+                plan.session_offset_hns,
+                copied.file_duration_hns,
+                video_time,
+            )?;
+            if drift.abs() > hns_to_pcm_bytes(200_000) as i64 {
+                tracing::warn!(
+                    "segment {} audio was {} ms off its video",
+                    segment.path.display(),
+                    pcm_bytes_to_ms(drift)
+                );
             }
-            let (mut chunk, from_sidecar) = load_segment_pcm(&segment.path);
-            if plan.overlap_hns > 0 {
-                let skip = hns_to_pcm_bytes(plan.overlap_hns).min(chunk.len());
-                chunk.drain(..skip);
-            }
-            if from_sidecar {
-                let drift = fit_pcm_to_video(&mut chunk, copied.file_duration_hns);
-                if drift.abs() > hns_to_pcm_bytes(200_000) as i64 {
-                    tracing::warn!(
-                        "segment {} audio was {} ms off its video",
-                        segment.path.display(),
-                        pcm_bytes_to_ms(drift)
-                    );
-                }
-            } else if chunk.is_empty() {
-                chunk = vec![0u8; hns_to_pcm_bytes(copied.file_duration_hns)];
-            }
-            append_pcm_file(pcm_file, &mut pcm_len, &chunk)?;
         }
     }
 
@@ -357,22 +352,209 @@ fn seek_reader(reader: &IMFSourceReader, position_hns: i64) -> Result<(), String
 mod ir_boundary_tests {
     use super::*;
 
+    #[test]
+    fn gameplay_rounding_shortens_tail_without_moving_next_start() {
+        assert_eq!(
+            gameplay_tail_duration(20_000_000, 166_667, 20_166_586).unwrap(),
+            166_586
+        );
+        assert_eq!(
+            gameplay_tail_duration(20_000_000, 166_667, 20_165_586).unwrap(),
+            165_586
+        );
+        assert_eq!(
+            gameplay_tail_duration(20_000_000, 166_667, 21_000_000).unwrap(),
+            166_667
+        );
+    }
+
+    #[test]
+    fn gameplay_frame_overlaps_fail_instead_of_discarding_references() {
+        assert!(gameplay_tail_duration(20_000_000, 166_667, 20_000_000).is_err());
+        assert!(gameplay_tail_duration(20_000_000, 166_667, 19_999_000).is_err());
+        assert!(gameplay_tail_duration(20_000_000, 166_667, 20_000_001).is_err());
+    }
+
+    #[test]
+    fn pcm_holds_follow_audio_and_next_head_is_not_trimmed() {
+        let mut file = tempfile::tempfile().unwrap();
+        let mut len = 0;
+        let mut first = vec![1; hns_to_pcm_bytes(20_000_000)];
+        place_session_pcm(&mut file, &mut len, &mut first, 0, 19_999_000, 21_000_000).unwrap();
+        let mut second = vec![2; hns_to_pcm_bytes(20_000_000)];
+        place_session_pcm(
+            &mut file,
+            &mut len,
+            &mut second,
+            21_000_000,
+            20_000_000,
+            41_000_000,
+        )
+        .unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+        let mut actual = Vec::new();
+        std::io::Read::read_to_end(&mut file, &mut actual).unwrap();
+        let first_end = hns_to_pcm_bytes(19_999_000);
+        let second_start = hns_to_pcm_bytes(21_000_000);
+        assert!(actual[..first_end].iter().all(|b| *b == 1));
+        assert!(actual[first_end..second_start].iter().all(|b| *b == 0));
+        assert_eq!(&actual[second_start..], second.as_slice());
+        assert_eq!(len as usize, hns_to_pcm_bytes(41_000_000));
+    }
+
+    #[test]
+    fn pcm_fractional_boundaries_do_not_accumulate_drift() {
+        let mut file = tempfile::tempfile().unwrap();
+        let mut len = 0;
+        for index in 0..150 {
+            let start = index * 19_999_920;
+            let end = start + 19_999_920;
+            let mut chunk = vec![1; hns_to_pcm_bytes(20_000_000)];
+            place_session_pcm(&mut file, &mut len, &mut chunk, start, 19_999_920, end).unwrap();
+            assert_eq!(len as usize, hns_to_pcm_bytes(end));
+        }
+    }
+
+    #[test]
+    #[ignore = "requires Windows Media Foundation; generates synthetic frames only"]
+    fn ir_remux_keeps_new_idr_with_natural_60fps_rounding_and_negative_overlap() {
+        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        unsafe {
+            CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap();
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let mut segments = Vec::new();
+        let mut expected = Vec::new();
+        let mut last_capture = None;
+        let mut global = 0;
+        for (index, count) in [121, 120].into_iter().enumerate() {
+            let path = temp.path().join(format!("segment-{index}.mp4"));
+            let mut encoder = crate::encode::MfWriter::create(
+                &path,
+                320,
+                180,
+                60,
+                4_000_000,
+                false,
+                None,
+                true,
+                crate::encode::VideoInput::Bgra,
+                false,
+            )
+            .unwrap();
+            encoder.set_last_capture_hns(last_capture);
+            for frame in 0..count {
+                global += 1;
+                let pixels = vec![(global % 255) as u8; 320 * 180 * 4];
+                encoder
+                    .write_bgra(
+                        &pixels,
+                        320 * 4,
+                        320,
+                        180,
+                        global * 166_666,
+                        frame + 1 == count,
+                    )
+                    .unwrap();
+            }
+            let duration = encoder.timestamp();
+            last_capture = encoder.last_capture_hns();
+            encoder.finish().unwrap();
+            let samples = video_samples(&path);
+            assert!(samples[0].is_sync);
+            expected.extend(samples.into_iter().map(|sample| sample.bytes));
+            let end = last_capture.unwrap();
+            segments.push(ConcatSegment {
+                path,
+                start_hns: crate::capture_timing::segment_start_hns(end, duration),
+                end_hns: end,
+            });
+        }
+        for overlap in [0, 1_000] {
+            let mut placed = segments.clone();
+            placed[1].start_hns -= overlap;
+            placed[1].end_hns -= overlap;
+            let output = temp.path().join(format!("overlap-{overlap}.mp4"));
+            concat_mp4s(&placed, &output, 0).unwrap();
+            let actual = video_samples(&output);
+            assert_eq!(
+                actual.len(),
+                241,
+                "lost compressed frame with {overlap} hns overlap"
+            );
+            assert!(actual[121].is_sync, "new encoder IDR was removed");
+            for (sample, bytes) in actual.iter().zip(&expected) {
+                assert_eq!(&sample.bytes, bytes);
+            }
+            assert!(actual.windows(2).all(|w| w[0].start_time < w[1].start_time));
+        }
+        // Exercise the real mux for five minutes, not only the placement math.
+        let mut repeated = Vec::new();
+        let mut end = 0;
+        for index in 0..150 {
+            let source = &segments[index % 2];
+            let duration = source.end_hns - source.start_hns;
+            repeated.push(ConcatSegment {
+                path: source.path.clone(),
+                start_hns: end,
+                end_hns: end + duration,
+            });
+            end += duration;
+        }
+        let long_output = temp.path().join("five-minutes.mp4");
+        concat_mp4s(&repeated, &long_output, 0).unwrap();
+        let long_samples = video_samples(&long_output);
+        assert_eq!(long_samples.len(), 241 * 75);
+        for (index, sample) in long_samples.iter().enumerate() {
+            assert_eq!(sample.bytes, expected[index % 241]);
+        }
+        assert!(long_samples
+            .windows(2)
+            .all(|w| w[0].start_time < w[1].start_time));
+        let file = std::fs::File::open(&long_output).unwrap();
+        let size = file.metadata().unwrap().len();
+        let reader = mp4::Mp4Reader::read_header(std::io::BufReader::new(file), size).unwrap();
+        let timescale = reader
+            .tracks()
+            .values()
+            .find(|track| track.track_type().ok() == Some(mp4::TrackType::Video))
+            .unwrap()
+            .timescale();
+        let last = long_samples.last().unwrap();
+        let actual_end = ((last.start_time + u64::from(last.duration)) * 10_000_000
+            / u64::from(timescale)) as i64;
+        assert!(
+            (actual_end - end).abs() < 1_000,
+            "session drift: {} hns",
+            actual_end - end
+        );
+        segments[1].start_hns -= 1_000_000;
+        assert!(concat_mp4s(&segments, &temp.path().join("unsafe-overlap.mp4"), 0).is_err());
+        assert!(segments.iter().all(|segment| segment.path.is_file()));
+    }
+
     fn video_samples(path: &Path) -> Vec<mp4::Mp4Sample> {
         let file = std::fs::File::open(path).unwrap();
         let size = file.metadata().unwrap().len();
         let mut reader = mp4::Mp4Reader::read_header(std::io::BufReader::new(file), size).unwrap();
-        let id = *reader.tracks().iter()
+        let id = *reader
+            .tracks()
+            .iter()
             .find(|(_, track)| track.track_type().ok() == Some(mp4::TrackType::Video))
-            .unwrap().0;
+            .unwrap()
+            .0;
         (1..=reader.sample_count(id).unwrap())
-            .map(|index| reader.read_sample(id, index).unwrap().unwrap()).collect()
+            .map(|index| reader.read_sample(id, index).unwrap().unwrap())
+            .collect()
     }
 
     #[test]
     #[ignore = "requires Windows Media Foundation; generates synthetic frames only"]
     fn ir_remux_preserves_every_compressed_sample_across_fractional_boundaries() {
         use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
-        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap(); }
+        unsafe {
+            CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap();
+        }
         let temp = tempfile::tempdir().unwrap();
         let mut segments = Vec::new();
         let mut expected = Vec::new();
@@ -381,20 +563,34 @@ mod ir_boundary_tests {
         for index in 0..3 {
             let path = temp.path().join(format!("segment-{index}.mp4"));
             let mut encoder = crate::encode::MfWriter::create(
-                &path, 320, 180, 60, 4_000_000, false, None, true,
-                crate::encode::VideoInput::Bgra, false,
-            ).unwrap();
+                &path,
+                320,
+                180,
+                60,
+                4_000_000,
+                false,
+                None,
+                true,
+                crate::encode::VideoInput::Bgra,
+                false,
+            )
+            .unwrap();
             encoder.set_last_capture_hns(last_capture);
             for frame in 0..45 {
                 capture_hns += 166_667 + (index * 113 + frame % 3) as i64;
                 let pixels = vec![(frame * 5 + index) as u8; 320 * 180 * 4];
-                encoder.write_bgra(&pixels, 320 * 4, 320, 180, capture_hns, false).unwrap();
+                encoder
+                    .write_bgra(&pixels, 320 * 4, 320, 180, capture_hns, false)
+                    .unwrap();
             }
             let duration = encoder.timestamp();
             last_capture = encoder.last_capture_hns();
             encoder.finish().unwrap();
             let samples = video_samples(&path);
-            assert!(samples[0].is_sync, "segment must begin with an independent sample");
+            assert!(
+                samples[0].is_sync,
+                "segment must begin with an independent sample"
+            );
             expected.extend(samples.into_iter().map(|sample| sample.bytes));
             segments.push(ConcatSegment {
                 path,
@@ -405,22 +601,33 @@ mod ir_boundary_tests {
         let output = temp.path().join("clip.mp4");
         concat_mp4s(&segments, &output, segments[0].start_hns).unwrap();
         let actual = video_samples(&output);
-        assert_eq!(actual.len(), expected.len(), "remux lost a compressed frame");
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "remux lost a compressed frame"
+        );
         for (sample, bytes) in actual.iter().zip(expected) {
             assert_eq!(sample.bytes, bytes, "remux changed compressed video");
         }
         // Compare the former placement too. Encoder/mux timestamp rounding can
         // mask the false-overlap risk; do not claim this proves an incident's
         // cause if the old path also retains every sample on this machine.
-        let rounded: Vec<_> = segments.iter().map(|segment| ConcatSegment {
-            path: segment.path.clone(),
-            start_hns: segment.end_hns - (segment.end_hns - segment.start_hns) / 10_000 * 10_000,
-            end_hns: segment.end_hns,
-        }).collect();
+        let rounded: Vec<_> = segments
+            .iter()
+            .map(|segment| ConcatSegment {
+                path: segment.path.clone(),
+                start_hns: segment.end_hns
+                    - (segment.end_hns - segment.start_hns) / 10_000 * 10_000,
+                end_hns: segment.end_hns,
+            })
+            .collect();
         let old_output = temp.path().join("rounded-negative-control.mp4");
         concat_mp4s(&rounded, &old_output, rounded[0].start_hns).unwrap();
         let old_count = video_samples(&old_output).len();
-        println!("exact timing retained {} samples; old rounded timing retained {old_count}", actual.len());
+        println!(
+            "exact timing retained {} samples; old rounded timing retained {old_count}",
+            actual.len()
+        );
     }
 }
 
@@ -471,6 +678,37 @@ struct PendingSample {
     sample: IMFSample,
     out_pts: i64,
     duration: i64,
+}
+
+/// Keep the incoming encoder's IDR and all its dependent samples. MF's MP4
+/// timescale can round the previous segment's end past the capture boundary.
+/// Shorten only that final sample's presentation duration, never an H.264 head.
+fn gameplay_tail_duration(pts: i64, duration: i64, next: i64) -> Result<i64, String> {
+    let remaining = next.saturating_sub(pts);
+    if remaining < duration && remaining < 10_000 {
+        return Err("Replay segments overlap by a frame or more; refusing to discard compressed video. Replay source segments have not been changed.".into());
+    }
+    Ok(duration.min(remaining))
+}
+
+/// Use absolute session positions so sub-sample rounding cannot accumulate.
+/// Any hold silence follows this segment's audio, not its beginning. A shortened
+/// video tail shortens the matching audio tail; the next audio head stays intact.
+fn place_session_pcm(
+    file: &mut std::fs::File,
+    len: &mut u64,
+    chunk: &mut Vec<u8>,
+    start: i64,
+    duration: i64,
+    end_with_hold: i64,
+) -> Result<i64, String> {
+    fit_pcm_file(file, len, start)?;
+    file.seek(SeekFrom::Start(*len))
+        .map_err(|err| err.to_string())?;
+    let drift = fit_pcm_to_video(chunk, duration);
+    append_pcm_file(file, len, chunk)?;
+    fit_pcm_file(file, len, end_with_hold)?;
+    Ok(drift)
 }
 
 fn copy_stream_session(
@@ -526,6 +764,11 @@ fn copy_stream_session(
             fallback_duration
         };
         let out_time = segment_offset.saturating_add(timestamp.max(0));
+        if let Some(next) = hold_until {
+            // This path is gameplay only. An overlap reaching an actual sample
+            // cannot be repaired by dropping the next encoder's reference frame.
+            gameplay_tail_duration(out_time, duration, next)?;
+        }
         if let Some(limit) = max_output_pts {
             match clip_sample_keep(out_time, limit) {
                 ClipSampleKeep::DropBefore => continue,
@@ -534,6 +777,9 @@ fn copy_stream_session(
             }
         }
         if out_time < min_output_pts {
+            if max_output_pts.is_none() {
+                return Err("Replay segment starts before the written timeline; refusing to drop its keyframe.".into());
+            }
             continue;
         }
         if let Some(previous) = pending.take() {
@@ -550,9 +796,25 @@ fn copy_stream_session(
             duration,
         });
     }
+    if max_output_pts.is_none() && pending.is_none() {
+        return Err("Replay segment contains no retained video.".into());
+    }
+    if let (Some(last), Some(next)) = (pending.as_mut(), hold_until) {
+        let bounded = gameplay_tail_duration(last.out_pts, last.duration, next)?;
+        if bounded != last.duration {
+            tracing::info!(
+                corrected_hns = last.duration - bounded,
+                next_segment_pts = next,
+                "bounded gameplay tail duration; incoming keyframe preserved"
+            );
+            last.duration = bounded;
+        }
+    }
     let hold = pending
         .as_ref()
-        .and_then(|last| hold_until.map(|until| hold_hns(last.out_pts.saturating_add(last.duration), until)))
+        .and_then(|last| {
+            hold_until.map(|until| hold_hns(last.out_pts.saturating_add(last.duration), until))
+        })
         .unwrap_or(0);
     if let Some(last) = pending.take() {
         file_end_pts = last.out_pts.saturating_add(last.duration);

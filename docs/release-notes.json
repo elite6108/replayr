@@ -1,4 +1,7 @@
 {
+  "0.1.45": [
+    "Maintenance rebuild of the thin Windows installer with system WebView2."
+  ],
   "0.1.44": [
     "Restored the thin Windows installer and system WebView2 (same approach as 0.1.41).",
     "Removes the bundled Fixed Version WebView2 runtime from Windows builds."

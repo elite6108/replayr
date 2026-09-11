@@ -35,7 +35,9 @@ use super::scene::{
 use super::sources::image::{load_image, DecodedImage};
 use super::sources::overlay::raster_filter_chrome;
 use super::sources::text::{clamp_text_raster, raster_hud_line, raster_text};
-use super::transforms::{contain_dest, cover_source, dest_rect, even_dim, FitMode, PixelRect};
+use super::transforms::{
+    crop_rect, crop_then_contain, crop_then_cover, dest_rect, even_dim, FitMode, PixelRect,
+};
 
 const MAX_STREAMS: usize = 16;
 
@@ -455,16 +457,14 @@ impl RecordingCompositor {
                     let Some(slot) = self.capture.as_ref() else {
                         continue;
                     };
-                    let dest = contain_dest(
-                        capture.width,
-                        capture.height,
-                        dest_rect(spec.capture.transform, self.out_w, self.out_h),
-                    );
+                    let box_rect = dest_rect(spec.capture.transform, self.out_w, self.out_h);
+                    let (dest, src) =
+                        crop_then_contain(spec.capture.crop, capture.width, capture.height, box_rect);
                     ops.push(BlitOp {
                         view: slot.view.clone(),
                         srv: None,
                         dest,
-                        src: None,
+                        src,
                         tex_w: slot.width,
                         tex_h: slot.height,
                         alpha: spec.capture.opacity,
@@ -479,7 +479,13 @@ impl RecordingCompositor {
                         continue;
                     };
                     let dest = dest_rect(spec_cam.transform, self.out_w, self.out_h);
-                    let src = cover_source(cam.width, cam.height, dest.w, dest.h);
+                    let src = crop_then_cover(
+                        spec_cam.crop,
+                        cam.width,
+                        cam.height,
+                        dest.w,
+                        dest.h,
+                    );
                     ops.push(BlitOp {
                         view: slot.view.clone(),
                         srv: None,
@@ -498,15 +504,26 @@ impl RecordingCompositor {
                     };
                     let box_rect = dest_rect(image.transform, self.out_w, self.out_h);
                     let (dest, src) = match image.fit {
-                        FitMode::Contain => (
-                            contain_dest(cached.src_w, cached.src_h, box_rect),
-                            None,
-                        ),
+                        FitMode::Contain => {
+                            crop_then_contain(image.crop, cached.src_w, cached.src_h, box_rect)
+                        }
                         FitMode::Cover => (
                             box_rect,
-                            Some(cover_source(cached.src_w, cached.src_h, box_rect.w, box_rect.h)),
+                            Some(crop_then_cover(
+                                image.crop,
+                                cached.src_w,
+                                cached.src_h,
+                                box_rect.w,
+                                box_rect.h,
+                            )),
                         ),
-                        FitMode::Stretch => (box_rect, None),
+                        FitMode::Stretch => {
+                            if image.crop.is_full() {
+                                (box_rect, None)
+                            } else {
+                                (box_rect, Some(crop_rect(image.crop, cached.src_w, cached.src_h)))
+                            }
+                        }
                     };
                     ops.push(BlitOp {
                         view: cached.slot.view.clone(),

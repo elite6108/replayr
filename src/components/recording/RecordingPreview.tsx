@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CameraStatus } from "../../types/camera";
 import type { PreviewBackgroundMode, RecordingVisualSettings, WebcamSettings } from "../../types/settings";
 import { IconCenter, IconFit, IconReset, IconSafeArea } from "../icons";
 import {
   defaultTransform,
   desktopCaptureSettingsOf,
+  FULL_CROP,
+  isCroppableSource,
   overlayToVisuals,
   primaryCapture,
   sourcesBackFirst,
@@ -12,6 +14,7 @@ import {
   transformFit,
   type RecordingScene,
   type RecordingSource,
+  type SourceCrop,
   type SourceTransform,
 } from "../../recording/scene";
 import { sourceComposedSupported } from "../../recording/registry";
@@ -35,6 +38,7 @@ export function RecordingPreview({
   compositionLocked,
   onSelect,
   onTransform,
+  onCrop,
 }: {
   scene: RecordingScene;
   webcam: WebcamSettings;
@@ -44,10 +48,12 @@ export function RecordingPreview({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onTransform: (id: string, transform: SourceTransform) => void;
+  onCrop?: (id: string, crop: SourceCrop) => void;
   compositionLocked?: boolean;
 }) {
   const [background, setBackground] = useState<PreviewBackgroundMode>("dark");
   const [safeZone, setSafeZone] = useState(false);
+  const [editMode, setEditMode] = useState<"move" | "crop">("move");
   const [preview, setPreview] = useState({ live: false, label: "Preview", source: "none" });
   const detectedPid = useDetectionStore((state) => state.snapshot.pid);
   const primary = primaryCapture(scene);
@@ -69,6 +75,21 @@ export function RecordingPreview({
   );
   const selected = scene.sources.find((source) => source.id === selectedId);
   const canLayout = Boolean(selected?.transform && !selected.locked && !compositionLocked);
+  const canCrop = Boolean(
+    selected &&
+      isCroppableSource(selected.type) &&
+      !selected.locked &&
+      !compositionLocked &&
+      onCrop,
+  );
+
+  useEffect(() => {
+    if (!canCrop && editMode === "crop") setEditMode("move");
+  }, [canCrop, editMode]);
+
+  useEffect(() => {
+    setEditMode("move");
+  }, [selectedId]);
 
   return (
     <section className="studio-panel studio-preview">
@@ -88,21 +109,48 @@ export function RecordingPreview({
               fallback={background}
               hideBadge
               monitorId={primary?.type === "display" ? desktopCaptureSettingsOf(primary).monitorId : null}
+              crop={primary?.crop ?? null}
               onStatus={setPreview}
             />
           }
         >
           <button type="button" className="preview-canvas-hit" aria-label="Select canvas" onPointerDown={() => onSelect(null)} />
+          {primary &&
+          selectedId === primary.id &&
+          canCrop &&
+          primary.transform ? (
+            <PreviewTransformBox
+              transform={primary.transform}
+              crop={primary.crop ?? FULL_CROP}
+              mode={editMode === "crop" ? "crop" : "move"}
+              selected
+              locked={false}
+              zIndex={2}
+              label={primary.name}
+              onSelect={() => onSelect(primary.id)}
+              onTransform={(next) => onTransform(primary.id, next)}
+              onCrop={(next) => onCrop?.(primary.id, next)}
+            >
+              {null}
+            </PreviewTransformBox>
+          ) : null}
           {layers.map((source, index) => (
             <PreviewTransformBox
               key={source.id}
               transform={source.transform!}
+              crop={source.crop}
+              mode={selectedId === source.id && editMode === "crop" && isCroppableSource(source.type) ? "crop" : "move"}
               selected={selectedId === source.id}
               locked={source.locked || Boolean(compositionLocked)}
               zIndex={3 + index}
               label={source.name}
               onSelect={() => onSelect(source.id)}
               onTransform={(next) => onTransform(source.id, next)}
+              onCrop={
+                isCroppableSource(source.type) && onCrop
+                  ? (next) => onCrop(source.id, next)
+                  : undefined
+              }
             >
               {composedTap ? null : <LayerBody source={source} webcam={webcam} camera={camera} />}
             </PreviewTransformBox>
@@ -118,7 +166,7 @@ export function RecordingPreview({
         <button
           type="button"
           className="studio-tool"
-          disabled={!canLayout}
+          disabled={!canLayout || editMode === "crop"}
           onClick={() => selected?.transform && onTransform(selected.id, transformFit(selected.transform))}
         >
           <IconFit size={14} />
@@ -127,7 +175,7 @@ export function RecordingPreview({
         <button
           type="button"
           className="studio-tool"
-          disabled={!canLayout}
+          disabled={!canLayout || editMode === "crop"}
           onClick={() => selected?.transform && onTransform(selected.id, transformCenter(selected.transform))}
         >
           <IconCenter size={14} />
@@ -135,11 +183,29 @@ export function RecordingPreview({
         </button>
         <button
           type="button"
+          className={`studio-tool${editMode === "crop" ? " is-on" : ""}`}
+          disabled={!canCrop}
+          onClick={() => setEditMode((mode) => (mode === "crop" ? "move" : "crop"))}
+        >
+          Crop
+        </button>
+        <button
+          type="button"
           className="studio-tool"
-          disabled={!canLayout}
-          onClick={() =>
-            selected && onTransform(selected.id, defaultTransform(selected.type, webcam) ?? selected.transform ?? transformCenter({ x: 0, y: 0, w: 1, h: 1 }))
-          }
+          disabled={!canLayout && !canCrop}
+          onClick={() => {
+            if (!selected) return;
+            if (editMode === "crop" && onCrop && isCroppableSource(selected.type)) {
+              onCrop(selected.id, { ...FULL_CROP });
+              return;
+            }
+            onTransform(
+              selected.id,
+              defaultTransform(selected.type, webcam) ??
+                selected.transform ??
+                transformCenter({ x: 0, y: 0, w: 1, h: 1 }),
+            );
+          }}
         >
           <IconReset size={14} />
           Reset

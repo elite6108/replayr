@@ -77,6 +77,59 @@
 .preview-handle.handle-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
 .preview-handle.handle-se { bottom: -4px; right: -4px; cursor: nwse-resize; }
 
+.preview-layer.is-cropping {
+  cursor: move;
+  outline-color: rgba(255, 196, 96, 0.9);
+}
+
+.preview-handle.is-crop {
+  border-color: #ffc460;
+  background: #2a2010;
+}
+
+.preview-crop-guide {
+  position: absolute;
+  border: 1px dashed rgba(255, 196, 96, 0.85);
+  box-shadow: 0 0 0 9999px rgba(5, 6, 8, 0.45);
+  pointer-events: none;
+}
+
+.preview-crop-guide .preview-handle {
+  pointer-events: auto;
+}
+
+.preview-crop-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  container-type: size;
+  pointer-events: none;
+}
+
+.preview-crop-fit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+}
+
+.preview-crop-contain {
+  width: min(100cqw, calc(100cqh * var(--crop-aspect, 1.777)));
+  height: min(100cqh, calc(100cqw / var(--crop-aspect, 1.777)));
+}
+
+.preview-crop-cover {
+  width: max(100cqw, calc(100cqh * var(--crop-aspect, 1.777)));
+  height: max(100cqh, calc(100cqw / var(--crop-aspect, 1.777)));
+}
+
+.preview-crop-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
 .preview-image,
 .preview-image-placeholder,
 .preview-text {
@@ -187,10 +240,25 @@
 .preview-capture img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
   image-rendering: auto;
   pointer-events: none;
+}
+
+.preview-crop-clip > img,
+.preview-webcam-crop-media {
+  object-fit: fill;
+}
+
+.preview-webcam-crop-media {
+  pointer-events: none;
+}
+
+.preview-webcam-crop-media .webcam-preview,
+.preview-webcam-crop-media .preview-webcam-placeholder {
+  width: 100%;
+  height: 100%;
 }
 
 .preview-capture-label {

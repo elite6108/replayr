@@ -1,4 +1,12 @@
 {
+  "0.1.46": [
+    "Record page settings scroll in place without trapping the studio layout.",
+    "Live Output Preview framing now matches composed encode (contain + 16:9 canvas).",
+    "Added source crop for game, desktop, webcam, and image layers (Shift+drag in preview)."
+  ],
+  "0.1.45": [
+    "Maintenance rebuild of the thin Windows installer with system WebView2."
+  ],
   "0.1.44": [
     "Restored the thin Windows installer and system WebView2 (same approach as 0.1.41).",
     "Removes the bundled Fixed Version WebView2 runtime from Windows builds."

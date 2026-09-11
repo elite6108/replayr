@@ -42,6 +42,7 @@ export function RecordWorkspace() {
     addSource,
     deleteSource,
     setTransform,
+    setCrop,
     selectScene,
     addScene,
     renameScene,
@@ -177,6 +178,10 @@ export function RecordWorkspace() {
             if (compositionLocked) return;
             setTransform(id, transform);
           }}
+          onCrop={(id, crop) => {
+            if (compositionLocked) return;
+            setCrop(id, crop);
+          }}
         />
         <SourceInspector
           source={selected}
@@ -208,6 +213,10 @@ export function RecordWorkspace() {
           onTransform={(id, transform) => {
             if (compositionLocked) return;
             setTransform(id, transform);
+          }}
+          onCrop={(id, crop) => {
+            if (compositionLocked) return;
+            setCrop(id, crop);
           }}
           onWebcamDevice={(device) => {
             if (compositionLocked) return;

@@ -17,6 +17,12 @@
  *   Cover center-crops; stretch only if the scene FitMode is stretch.
  * - Text: fills dest; alignment is left/center/right inside the box.
  *
+ * Source crop (UV)
+ * - Optional `crop { x,y,w,h }` is a fraction of the native source frame (default full).
+ * - Crop applies before fit: capture/image crop-then-contain; webcam crop-then-cover.
+ * - Dest `transform` stays placement-only (Fit / Center / Reset / corner snap unchanged).
+ * - Text, overlay, and audio have no UV crop.
+ *
  * Opacity / alpha
  * - Uploaded stills are straight (non-premultiplied) BGRA.
  * - Image opacity comes from image settings (0–1).

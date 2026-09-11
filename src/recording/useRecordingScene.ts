@@ -4,6 +4,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { useToastStore } from "../stores/toastStore";
 import {
   applySettingsFlags,
+  clampCrop,
   createSource,
   findSource,
   findSourceByType,
@@ -20,6 +21,7 @@ import {
   type RecordingSource,
   type RecordingSourceType,
   type ScenePresetId,
+  type SourceCrop,
   type SourceTransform,
   updateSource,
 } from "./scene";
@@ -195,6 +197,14 @@ export function useRecordingScene() {
     });
   }, []);
 
+  const setCrop = useCallback((id: string, crop: SourceCrop) => {
+    setLibrary((prev) => {
+      const next = replaceActive(prev, updateSource(activeSceneOf(prev), id, { crop: clampCrop(crop) }));
+      persistLibrary(next);
+      return next;
+    });
+  }, []);
+
   const selectScene = useCallback(
     (id: string) => {
       const previous = sceneRef.current;
@@ -265,6 +275,7 @@ export function useRecordingScene() {
     addSource,
     deleteSource,
     setTransform,
+    setCrop,
     writeSettings,
     setOutputMode,
     selectScene,

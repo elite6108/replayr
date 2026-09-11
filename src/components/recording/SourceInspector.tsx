@@ -3,15 +3,19 @@ import type { AppSettings, WebcamPlacement, WebcamShape } from "../../types/sett
 import { DEFAULT_WEBCAM_SETTINGS } from "../../types/settings";
 import { RecordingVisualControls } from "./RecordingVisualControls";
 import {
+  clampCrop,
   clampTransform,
   defaultTransform,
+  FULL_CROP,
   isAudioSource,
+  isCroppableSource,
   overlayToVisuals,
   placementToTransform,
   transformCenter,
   transformFill,
   transformFit,
   type RecordingSource,
+  type SourceCrop,
   type SourceTransform,
 } from "../../recording/scene";
 import { audioPeakFor } from "../../recording/useStudioAudio";
@@ -32,6 +36,7 @@ export function SourceInspector({
   onPatch,
   onToggle,
   onTransform,
+  onCrop,
   onWebcamDevice,
   compositionLocked,
   composed,
@@ -44,9 +49,10 @@ export function SourceInspector({
   camera: CameraStatus;
   levels: { micPeak: number; gamePeak: number; desktopPeak: number };
   onSaveSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
-  onPatch: (id: string, patch: { name?: string; settings?: Record<string, unknown>; transform?: SourceTransform | null; locked?: boolean }) => void;
+  onPatch: (id: string, patch: { name?: string; settings?: Record<string, unknown>; transform?: SourceTransform | null; crop?: SourceCrop | null; locked?: boolean }) => void;
   onToggle: (id: string, enabled: boolean) => void;
   onTransform: (id: string, transform: SourceTransform) => void;
+  onCrop?: (id: string, crop: SourceCrop) => void;
   onWebcamDevice: (device: CameraDevice) => void;
   compositionLocked?: boolean;
   composed?: boolean;
@@ -98,6 +104,12 @@ export function SourceInspector({
               source={source}
               settings={settings}
               onTransform={(next) => onTransform(source.id, next)}
+            />
+          ) : null}
+          {source && isCroppableSource(source.type) && onCrop ? (
+            <CropSection
+              source={source}
+              onCrop={(next) => onCrop(source.id, next)}
             />
           ) : null}
           </fieldset>
@@ -343,6 +355,90 @@ function TransformSection({
         onClick={() => onTransform(defaultTransform(source.type, settings.webcam) ?? transformCenter(transform))}
       >
         Reset Transform
+      </button>
+    </div>
+  );
+}
+
+function CropSection({
+  source,
+  onCrop,
+}: {
+  source: RecordingSource;
+  onCrop: (crop: SourceCrop) => void;
+}) {
+  const crop = source.crop ?? FULL_CROP;
+
+  function patch(partial: Partial<SourceCrop>) {
+    onCrop(clampCrop({ ...crop, ...partial }));
+  }
+
+  return (
+    <div className="studio-section">
+      <h3>Crop</h3>
+      <div className="studio-xy">
+        <label>
+          Origin
+          <span>
+            <em>X</em>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              disabled={source.locked}
+              value={toPct(crop.x)}
+              onChange={(event) => patch({ x: fromPct(event.target.value) })}
+            />
+          </span>
+          <span>
+            <em>Y</em>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              disabled={source.locked}
+              value={toPct(crop.y)}
+              onChange={(event) => patch({ y: fromPct(event.target.value) })}
+            />
+          </span>
+        </label>
+        <label>
+          Size
+          <span>
+            <em>W</em>
+            <input
+              type="number"
+              min={5}
+              max={100}
+              step={0.5}
+              disabled={source.locked}
+              value={toPct(crop.w)}
+              onChange={(event) => patch({ w: fromPct(event.target.value) })}
+            />
+          </span>
+          <span>
+            <em>H</em>
+            <input
+              type="number"
+              min={5}
+              max={100}
+              step={0.5}
+              disabled={source.locked}
+              value={toPct(crop.h)}
+              onChange={(event) => patch({ h: fromPct(event.target.value) })}
+            />
+          </span>
+        </label>
+      </div>
+      <button
+        type="button"
+        className="btn ghost sm studio-reset"
+        disabled={source.locked}
+        onClick={() => onCrop({ ...FULL_CROP })}
+      >
+        Reset Crop
       </button>
     </div>
   );

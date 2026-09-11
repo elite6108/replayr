@@ -37,6 +37,14 @@ export type SourceTransform = {
   h: number;
 };
 
+/** UV crop in native source space (fractions of the full frame). Default is the full frame. */
+export type SourceCrop = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
 export type ImageSourceSettings = {
   path: string;
   opacity: number;
@@ -72,6 +80,8 @@ export type RecordingSource = {
   order: number;
   capability: RecordingSourceCapability;
   transform: SourceTransform | null;
+  /** Source-space UV crop for game/display/webcam/image. Null for non-croppable types. */
+  crop: SourceCrop | null;
   settings: Record<string, unknown>;
 };
 
@@ -98,6 +108,8 @@ export const UNIQUE_SOURCE_TYPES: readonly RecordingSourceType[] = [
 ];
 
 export const FULL_FRAME: SourceTransform = { x: 0, y: 0, w: 1, h: 1 };
+export const FULL_CROP: SourceCrop = { x: 0, y: 0, w: 1, h: 1 };
+export const MIN_CROP = 0.05;
 
 const SCENE_VERSION = 1;
 export const MAX_SCENE_NAME = 64;
@@ -136,6 +148,11 @@ export function isVisualSource(type: RecordingSourceType): boolean {
   return !isAudioSource(type);
 }
 
+/** Game/display/window capture, webcam, and image support UV crop (composed + preview). */
+export function isCroppableSource(type: RecordingSourceType): boolean {
+  return isPrimaryCapture(type) || type === "webcam" || type === "image";
+}
+
 export function clampUnit(value: number, min = 0, max = 1): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
@@ -150,6 +167,39 @@ export function clampTransform(transform: SourceTransform): SourceTransform {
     x: clampUnit(transform.x, 0, 1 - w),
     y: clampUnit(transform.y, 0, 1 - h),
   };
+}
+
+export function clampCrop(crop: SourceCrop): SourceCrop {
+  const w = clampUnit(crop.w, MIN_CROP, 1);
+  const h = clampUnit(crop.h, MIN_CROP, 1);
+  return {
+    w,
+    h,
+    x: clampUnit(crop.x, 0, 1 - w),
+    y: clampUnit(crop.y, 0, 1 - h),
+  };
+}
+
+export function defaultCrop(type: RecordingSourceType): SourceCrop | null {
+  if (!isCroppableSource(type)) return null;
+  return { ...FULL_CROP };
+}
+
+export function isFullCrop(crop: SourceCrop | null | undefined): boolean {
+  if (!crop) return true;
+  return crop.x <= 1e-4 && crop.y <= 1e-4 && crop.w >= 1 - 1e-4 && crop.h >= 1 - 1e-4;
+}
+
+export function sanitizeCrop(raw: unknown, type: RecordingSourceType): SourceCrop | null {
+  if (!isCroppableSource(type)) return null;
+  if (!raw || typeof raw !== "object") return { ...FULL_CROP };
+  const value = raw as Partial<SourceCrop>;
+  return clampCrop({
+    x: Number(value.x),
+    y: Number(value.y),
+    w: Number(value.w),
+    h: Number(value.h),
+  });
 }
 
 export function defaultTransform(type: RecordingSourceType, webcam?: Pick<WebcamSettings, "defaultPlacement" | "defaultWidth">): SourceTransform | null {
@@ -360,6 +410,7 @@ export function createSource(
     locked?: boolean;
     name?: string;
     transform?: SourceTransform | null;
+    crop?: SourceCrop | null;
     settings?: Record<string, unknown>;
     webcam?: Pick<WebcamSettings, "defaultPlacement" | "defaultWidth" | "defaultShape">;
   },
@@ -378,6 +429,7 @@ export function createSource(
     order: options.order,
     capability,
     transform: options.transform === undefined ? defaultTransform(type, options.webcam) : options.transform,
+    crop: options.crop === undefined ? defaultCrop(type) : options.crop,
     settings,
   };
 }
@@ -389,6 +441,7 @@ export function replacePrimary(scene: RecordingScene, type: "game" | "display" |
     enabled: type !== "window",
     locked: true,
     transform: existing?.transform ?? { ...FULL_FRAME },
+    crop: existing?.crop ?? { ...FULL_CROP },
   });
   return {
     ...scene,
@@ -425,6 +478,7 @@ export function updateSource(
         ...patch,
         settings: patch.settings ? { ...source.settings, ...patch.settings } : source.settings,
         transform: patch.transform === undefined ? source.transform : patch.transform,
+        crop: patch.crop === undefined ? source.crop : patch.crop,
       };
     }),
   };
@@ -665,6 +719,7 @@ function sanitizeSource(raw: Partial<RecordingSource>, index: number): Recording
     order: Number.isFinite(raw.order) ? Number(raw.order) : index + 1,
     capability,
     transform: isAudioSource(type) ? null : transform,
+    crop: sanitizeCrop(raw.crop, type),
     settings: raw.settings && typeof raw.settings === "object" ? { ...raw.settings } : {},
   };
 }

@@ -448,11 +448,12 @@
 }
 
 .studio-preview-stage .preview-canvas {
-  width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
-  aspect-ratio: auto;
+  /* Largest output-aspect box that fits the stage (matches composed canvas). */
+  width: min(100cqw, calc(100cqh * 16 / 9));
+  height: min(100cqh, calc(100cqw * 9 / 16));
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 16 / 9;
   border: 0;
   border-radius: 0;
 }
@@ -579,6 +580,20 @@
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
   gap: 10px;
   min-width: 0;
+  /* Keep the mixer at its natural height when Recording output settings expand. */
+  align-items: start;
+}
+
+.studio-mixer {
+  align-self: start;
+  height: fit-content;
+}
+
+.studio-controls {
+  align-self: start;
+  max-height: min(100%, calc(100vh - 220px));
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .studio-mixer-row {

@@ -63,6 +63,26 @@ fn default_opacity() -> f32 {
     1.0
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositionCrop {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl Default for CompositionCrop {
+    fn default() -> Self {
+        Self {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureCompositionSource {
@@ -73,6 +93,8 @@ pub struct CaptureCompositionSource {
     pub enabled: bool,
     pub order: i32,
     pub transform: CompositionTransform,
+    #[serde(default)]
+    pub crop: CompositionCrop,
     #[serde(default)]
     pub monitor_id: Option<String>,
 }
@@ -86,6 +108,8 @@ pub struct WebcamCompositionSource {
     pub enabled: bool,
     pub order: i32,
     pub transform: CompositionTransform,
+    #[serde(default)]
+    pub crop: CompositionCrop,
     pub device_id: String,
     pub width: u32,
     pub height: u32,
@@ -102,6 +126,8 @@ pub struct ImageCompositionSource {
     pub enabled: bool,
     pub order: i32,
     pub transform: CompositionTransform,
+    #[serde(default)]
+    pub crop: CompositionCrop,
     pub path: String,
     #[serde(default)]
     pub fit: FitMode,
@@ -209,6 +235,7 @@ pub struct ValidatedCapture {
     pub kind: CaptureKind,
     pub order: i32,
     pub transform: NormRect,
+    pub crop: NormRect,
     pub opacity: f32,
     pub monitor_id: Option<String>,
 }
@@ -219,6 +246,7 @@ pub struct ValidatedWebcam {
     pub name: String,
     pub order: i32,
     pub transform: NormRect,
+    pub crop: NormRect,
     pub opacity: f32,
     pub device_id: String,
     pub width: u32,
@@ -233,6 +261,7 @@ pub struct ValidatedImage {
     pub name: String,
     pub order: i32,
     pub transform: NormRect,
+    pub crop: NormRect,
     pub opacity: f32,
     pub path: String,
     pub fit: FitMode,
@@ -321,6 +350,7 @@ impl RecordingComposition {
                         kind: src.capture,
                         order: src.order,
                         transform: validate_transform(&src.transform)?,
+                        crop: validate_crop(&src.crop)?,
                         opacity: src.transform.opacity.clamp(0.0, 1.0),
                         monitor_id: crate::displays::sanitize_monitor_id(src.monitor_id.as_deref()),
                     };
@@ -345,6 +375,7 @@ impl RecordingComposition {
                         name: sanitize_name(&src.name, "Webcam"),
                         order: src.order,
                         transform: validate_transform(&src.transform)?,
+                        crop: validate_crop(&src.crop)?,
                         opacity: src.transform.opacity.clamp(0.0, 1.0),
                         device_id,
                         width: src.width.clamp(160, 1920),
@@ -368,6 +399,7 @@ impl RecordingComposition {
                         name,
                         order: src.order,
                         transform: validate_transform(&src.transform)?,
+                        crop: validate_crop(&src.crop)?,
                         opacity: src.transform.opacity.clamp(0.0, 1.0),
                         path,
                         fit: src.fit,
@@ -484,6 +516,23 @@ fn validate_transform(value: &CompositionTransform) -> Result<NormRect, String> 
     }
     let w = value.w.clamp(0.02, 1.0);
     let h = value.h.clamp(0.02, 1.0);
+    Ok(NormRect {
+        x: value.x.clamp(0.0, 1.0 - w),
+        y: value.y.clamp(0.0, 1.0 - h),
+        w,
+        h,
+    })
+}
+
+fn validate_crop(value: &CompositionCrop) -> Result<NormRect, String> {
+    if ![value.x, value.y, value.w, value.h]
+        .iter()
+        .all(|n| n.is_finite())
+    {
+        return Err("A source crop was invalid.".into());
+    }
+    let w = value.w.clamp(0.05, 1.0);
+    let h = value.h.clamp(0.05, 1.0);
     Ok(NormRect {
         x: value.x.clamp(0.0, 1.0 - w),
         y: value.y.clamp(0.0, 1.0 - h),

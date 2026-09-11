@@ -5,6 +5,7 @@ import type { WebcamSettings } from "../../types/settings";
 import { cameraPreviewAllowed } from "../../recording/visualFilters";
 import type { SourceTransform } from "../../recording/scene";
 import { webcamSettingsOf, type RecordingSource } from "../../recording/scene";
+import { CroppedMediaFrame } from "./CroppedMediaFrame";
 import { webcamOverlayStyle } from "../../utils/clips";
 
 export function PreviewWebcamLayer({
@@ -43,26 +44,41 @@ export function PreviewWebcamLayer({
       ? transformStyle(transform)
       : webcamOverlayStyle(layout);
 
+  const sourceAspect =
+    webcam.width > 0 && webcam.height > 0 ? webcam.width / webcam.height : 16 / 9;
+
+  const body = live ? (
+    <WebcamPreview
+      active
+      deviceId={webcam.deviceId}
+      width={webcam.width}
+      height={webcam.height}
+      fps={webcam.fps}
+      mirror={webcam.mirrorPreview}
+      disconnected={false}
+      message=""
+    />
+  ) : (
+    <div className="preview-webcam-placeholder">
+      <span>{allowed ? "Camera" : "Camera: In use"}</span>
+    </div>
+  );
+
   return (
     <div
       className={`preview-webcam editor-webcam shape-${shape}${framed || transform ? " free" : ` place-${webcam.defaultPlacement}`}`}
       style={style}
     >
-      {live ? (
-        <WebcamPreview
-          active
-          deviceId={webcam.deviceId}
-          width={webcam.width}
-          height={webcam.height}
-          fps={webcam.fps}
-          mirror={webcam.mirrorPreview}
-          disconnected={false}
-          message=""
-        />
+      {framed || source ? (
+        <CroppedMediaFrame crop={source?.crop} sourceAspect={sourceAspect} fit="cover">
+          {(mediaStyle) => (
+            <div className="preview-webcam-crop-media" style={mediaStyle}>
+              {body}
+            </div>
+          )}
+        </CroppedMediaFrame>
       ) : (
-        <div className="preview-webcam-placeholder">
-          <span>{allowed ? "Camera" : "Camera: In use"}</span>
-        </div>
+        body
       )}
     </div>
   );

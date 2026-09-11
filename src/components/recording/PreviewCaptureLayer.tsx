@@ -15,6 +15,8 @@ import {
   notePreviewTiming,
   startPreviewPollLoop,
 } from "../../recording/previewPoll";
+import { CroppedMediaFrame } from "./CroppedMediaFrame";
+import type { SourceCrop } from "../../recording/scene";
 
 function previewPollMs(quality: PreviewQuality): number {
   return quality === "performance" ? 40 : 33;
@@ -27,6 +29,7 @@ export function PreviewCaptureLayer({
   fallback,
   hideBadge = false,
   monitorId = null,
+  crop = null,
   onStatus,
 }: {
   mode: CapturePreviewMode;
@@ -35,6 +38,7 @@ export function PreviewCaptureLayer({
   fallback: PreviewBackgroundMode;
   hideBadge?: boolean;
   monitorId?: string | null;
+  crop?: SourceCrop | null;
   onStatus?: (status: { live: boolean; label: string; source: string }) => void;
 }) {
   const previewQuality = useSettingsStore((state) => state.settings.previewQuality);
@@ -142,9 +146,18 @@ export function PreviewCaptureLayer({
     onStatus?.({ live, label, source: frame?.source ?? "none" });
   }, [live, label, frame?.source, onStatus]);
 
+  const sourceAspect =
+    frame && frame.width > 0 && frame.height > 0 ? frame.width / frame.height : 16 / 9;
+
   return (
     <div className={`preview-capture fallback-${fallback}${live ? " is-live" : ""}`}>
-      {live ? <img src={displaySrc} alt="" draggable={false} /> : <FallbackPlate mode={fallback} />}
+      {live ? (
+        <CroppedMediaFrame crop={crop} sourceAspect={sourceAspect} fit="contain">
+          {(mediaStyle) => <img src={displaySrc} alt="" draggable={false} style={mediaStyle} />}
+        </CroppedMediaFrame>
+      ) : (
+        <FallbackPlate mode={fallback} />
+      )}
       {hideBadge ? null : <span className="preview-capture-label">{label}</span>}
     </div>
   );

@@ -6,6 +6,7 @@
 //! - capture uses **contain** inside its dest box (letterbox)
 //! - webcam uses **cover** (center-crop) inside its dest box
 //! - images use the scene `FitMode` inside their dest box (default **contain**)
+//! - optional UV `crop` selects a region of the native frame first, then fit applies
 //! - text fills its dest box; alignment is inside the raster
 //! - results are clamped, even-aligned, never negative
 
@@ -15,6 +16,19 @@ pub struct NormRect {
     pub y: f32,
     pub w: f32,
     pub h: f32,
+}
+
+impl NormRect {
+    pub const FULL: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        w: 1.0,
+        h: 1.0,
+    };
+
+    pub fn is_full(self) -> bool {
+        self.x <= 1e-4 && self.y <= 1e-4 && self.w >= 1.0 - 1e-4 && self.h >= 1.0 - 1e-4
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +107,49 @@ pub fn contain_dest(src_w: u32, src_h: u32, box_rect: PixelRect) -> PixelRect {
     let y = box_rect.y as f64 + (box_rect.h as f64 - h) * 0.5;
     clamp_rect(x, y, w, h, box_rect.x as u32 + box_rect.w, box_rect.y as u32 + box_rect.h)
         .intersect(box_rect)
+}
+
+/// UV crop window as a pixel rect inside the native source frame.
+pub fn crop_rect(crop: NormRect, src_w: u32, src_h: u32) -> PixelRect {
+    dest_rect(crop, src_w, src_h)
+}
+
+/// Crop the native frame first, then cover that region into `dest` (webcam).
+/// Full UV crop is identical to [`cover_source`].
+pub fn crop_then_cover(crop: NormRect, src_w: u32, src_h: u32, dest_w: u32, dest_h: u32) -> PixelRect {
+    if crop.is_full() {
+        return cover_source(src_w, src_h, dest_w, dest_h);
+    }
+    let region = crop_rect(crop, src_w, src_h);
+    if region.is_empty() {
+        return cover_source(src_w, src_h, dest_w, dest_h);
+    }
+    let covered = cover_source(region.w, region.h, dest_w, dest_h);
+    PixelRect {
+        x: region.x + covered.x,
+        y: region.y + covered.y,
+        w: covered.w,
+        h: covered.h,
+    }
+}
+
+/// Crop the native frame first, then contain that region into `box_rect` (capture/image).
+/// Returns `(dest, src)` where `src` is `None` for a full-frame crop (legacy path).
+pub fn crop_then_contain(
+    crop: NormRect,
+    src_w: u32,
+    src_h: u32,
+    box_rect: PixelRect,
+) -> (PixelRect, Option<PixelRect>) {
+    if crop.is_full() {
+        return (contain_dest(src_w, src_h, box_rect), None);
+    }
+    let region = crop_rect(crop, src_w, src_h);
+    if region.is_empty() {
+        return (contain_dest(src_w, src_h, box_rect), None);
+    }
+    let dest = contain_dest(region.w, region.h, box_rect);
+    (dest, Some(region))
 }
 
 impl PixelRect {
@@ -227,5 +284,63 @@ mod tests {
         assert!(rect.y >= 0);
         assert!(rect.x as u32 + rect.w <= 1920);
         assert!(rect.y as u32 + rect.h <= 1080);
+    }
+
+    #[test]
+    fn full_crop_then_cover_matches_cover() {
+        let expected = cover_source(1920, 1080, 400, 400);
+        let got = crop_then_cover(NormRect::FULL, 1920, 1080, 400, 400);
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn crop_then_cover_stays_inside_crop_window() {
+        let crop = NormRect {
+            x: 0.25,
+            y: 0.1,
+            w: 0.5,
+            h: 0.8,
+        };
+        let region = crop_rect(crop, 1920, 1080);
+        let src = crop_then_cover(crop, 1920, 1080, 320, 320);
+        assert!(src.x >= region.x);
+        assert!(src.y >= region.y);
+        assert!(src.x + src.w as i32 <= region.x + region.w as i32);
+        assert!(src.y + src.h as i32 <= region.y + region.h as i32);
+    }
+
+    #[test]
+    fn crop_then_contain_uses_crop_as_blit_src() {
+        let crop = NormRect {
+            x: 0.1,
+            y: 0.2,
+            w: 0.4,
+            h: 0.4,
+        };
+        let box_rect = PixelRect {
+            x: 0,
+            y: 0,
+            w: 800,
+            h: 600,
+        };
+        let (dest, src) = crop_then_contain(crop, 1920, 1080, box_rect);
+        let region = crop_rect(crop, 1920, 1080);
+        assert_eq!(src, Some(region));
+        assert!(dest.w > 0 && dest.h > 0);
+        assert!(dest.x >= box_rect.x);
+        assert!(dest.y >= box_rect.y);
+    }
+
+    #[test]
+    fn full_crop_then_contain_has_no_src() {
+        let box_rect = PixelRect {
+            x: 0,
+            y: 0,
+            w: 400,
+            h: 400,
+        };
+        let (dest, src) = crop_then_contain(NormRect::FULL, 1920, 1080, box_rect);
+        assert!(src.is_none());
+        assert_eq!(dest, contain_dest(1920, 1080, box_rect));
     }
 }

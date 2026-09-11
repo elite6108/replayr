@@ -4,8 +4,10 @@ import { nearestWebcamPlacement } from "../utils/clips";
 import { filterComposedSupported, sourceComposedSupported } from "./registry";
 import {
   AUDIO_SOURCE_TYPES,
+  clampCrop,
   desktopCaptureSettingsOf,
   findSourceByType,
+  FULL_CROP,
   imageSettingsOf,
   isPrimaryCapture,
   overlaySettingsOf,
@@ -14,6 +16,7 @@ import {
   webcamSettingsOf,
   type RecordingScene,
   type RecordingSource,
+  type SourceCrop,
   type SourceTransform,
 } from "./scene";
 
@@ -25,6 +28,13 @@ export type CompositionTransform = {
   opacity: number;
 };
 
+export type CompositionCrop = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
 export type CaptureCompositionSource = {
   kind: "capture";
   id: string;
@@ -33,6 +43,7 @@ export type CaptureCompositionSource = {
   enabled: boolean;
   order: number;
   transform: CompositionTransform;
+  crop: CompositionCrop;
   monitorId?: string | null;
 };
 
@@ -43,6 +54,7 @@ export type WebcamCompositionSource = {
   enabled: boolean;
   order: number;
   transform: CompositionTransform;
+  crop: CompositionCrop;
   deviceId: string;
   width: number;
   height: number;
@@ -57,6 +69,7 @@ export type ImageCompositionSource = {
   enabled: boolean;
   order: number;
   transform: CompositionTransform;
+  crop: CompositionCrop;
   path: string;
 };
 
@@ -183,6 +196,10 @@ function asTransform(transform: SourceTransform | null | undefined, opacity = 1)
   };
 }
 
+function asCrop(crop: SourceCrop | null | undefined): CompositionCrop {
+  return clampCrop(crop ?? FULL_CROP);
+}
+
 function asCapture(source: RecordingSource): CaptureCompositionSource | null {
   if (!isPrimaryCapture(source.type)) return null;
   return {
@@ -193,6 +210,7 @@ function asCapture(source: RecordingSource): CaptureCompositionSource | null {
     enabled: source.enabled,
     order: source.order,
     transform: asTransform(source.transform),
+    crop: asCrop(source.crop),
     monitorId: source.type === "display" ? desktopCaptureSettingsOf(source).monitorId : null,
   };
 }
@@ -206,6 +224,7 @@ function asWebcam(source: RecordingSource, settings: AppSettings): WebcamComposi
     enabled: source.enabled,
     order: source.order,
     transform: asTransform(source.transform),
+    crop: asCrop(source.crop),
     deviceId: settings.webcam.deviceId,
     width: settings.webcam.width,
     height: settings.webcam.height,
@@ -224,6 +243,7 @@ function asImage(source: RecordingSource): ImageCompositionSource | null {
     enabled: source.enabled,
     order: source.order,
     transform: asTransform(source.transform, settings.opacity),
+    crop: asCrop(source.crop),
     path: settings.path,
   };
 }
@@ -268,6 +288,7 @@ export function snapshotRecordingComposition(scene: RecordingScene, settings: Ap
     sources: scene.sources.map((source) => ({
       ...source,
       transform: source.transform ? { ...source.transform } : null,
+      crop: source.crop ? { ...source.crop } : null,
       settings: { ...source.settings },
     })),
   };

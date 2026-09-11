@@ -18,6 +18,7 @@ function source(id: string, order: number): RecordingSource {
     order,
     capability: "preview_only",
     transform: { x: 0, y: 0, w: 1, h: 1 },
+    crop: { x: 0, y: 0, w: 1, h: 1 },
     settings: {},
   };
 }

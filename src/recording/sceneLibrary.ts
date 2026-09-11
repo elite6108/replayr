@@ -145,6 +145,7 @@ export function duplicateScene(library: RecordingSceneLibrary, id: string): Reco
       id: newSourceId(item.type),
       settings: { ...item.settings },
       transform: item.transform ? { ...item.transform } : null,
+      crop: item.crop ? { ...item.crop } : null,
     })),
   };
   return sanitizeLibrary({

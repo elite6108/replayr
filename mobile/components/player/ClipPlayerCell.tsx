@@ -122,6 +122,7 @@ function ReadyCell({
   const feedMode = getClipFeed()?.source === "foryou" ? "foryou" : getClipFeed()?.source === "library" ? "single" : "single";
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(fallbackDuration);
+  const scrubbingRef = useRef(false);
   const [liked, setLiked] = useState(Boolean(clip.liked));
   const [following, setFollowing] = useState(Boolean(clip.following));
   const [followPending, setFollowPending] = useState(Boolean(clip.followPending));
@@ -174,7 +175,9 @@ function ReadyCell({
     };
     const sub = player.addListener("timeUpdate", (event) => {
       latestTime = event.currentTime;
-      setCurrent(event.currentTime);
+      if (!scrubbingRef.current) {
+        setCurrent(event.currentTime);
+      }
       try {
         if (player.duration > 0) {
           latestDuration = player.duration;
@@ -313,9 +316,25 @@ function ReadyCell({
           current={current}
           duration={duration}
           bottom={8}
+          onSeekStart={() => {
+            scrubbingRef.current = true;
+          }}
           onSeek={(seconds) => {
-            player.currentTime = seconds;
+            try {
+              player.currentTime = seconds;
+            } catch {
+              /* native player already released */
+            }
             setCurrent(seconds);
+          }}
+          onSeekEnd={(seconds) => {
+            try {
+              player.currentTime = seconds;
+            } catch {
+              /* native player already released */
+            }
+            setCurrent(seconds);
+            scrubbingRef.current = false;
           }}
         />
         <PlayerTools

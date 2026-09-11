@@ -6,8 +6,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const destDir = join(root, "web", "public", "releases");
 const destExe = join(destDir, "Replayr.exe");
 const destLatest = join(destDir, "latest.json");
-/** Fat Fixed-WebView2 builds exceed Workers Assets (25 MiB); host on GitHub Releases. */
-const downloadUrl = "https://github.com/elite6108/replayr/releases/download/windows/Replayr.exe";
+const downloadUrl = "https://www.replayr.tv/releases/Replayr.exe";
 const nsisDirs = [
   join(root, "src-tauri", "target", "release", "bundle", "nsis"),
   process.env.CARGO_TARGET_DIR

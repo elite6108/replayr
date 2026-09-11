@@ -345,7 +345,7 @@ Do not put service-role or R2 secrets in the DMG.
 - [Node.js](https://nodejs.org/) 22+
 - [Rust](https://rustup.rs/) stable (`x86_64-pc-windows-msvc`)
 - [Visual Studio 2022 Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with **Desktop development with C++**
-- WebView2 Fixed Version is fetched automatically by `npm run tauri:build` into `src-tauri/webview2-fixed/` (gitignored). Manual: `npm run webview2:fetch`. System Evergreen WebView2 alone is not enough for broken/ghost installs.
+- WebView2 (usually already installed with Edge)
 
 **macOS DMG:** GitHub-hosted `macos-latest` runner, Node 22, Rust `aarch64-apple-darwin`. Local Mac packaging is optional; CI is the ship path.
 

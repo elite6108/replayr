@@ -11,10 +11,6 @@ export const INSTALLER_ARTIFACTS: Record<string, { platform: "windows" | "macos"
 /** Stable GitHub Release asset. CI updates the `macos` tag; Workers Assets is optional. */
 export const MAC_DMG_RELEASE_URL = "https://github.com/elite6108/replayr/releases/download/macos/Replayr.dmg";
 
-/** Fat Fixed-WebView2 Windows builds exceed Workers Assets (25 MiB). */
-export const WINDOWS_EXE_RELEASE_URL =
-  "https://github.com/elite6108/replayr/releases/download/windows/Replayr.exe";
-
 export function installerArtifact(pathname: string) {
   return INSTALLER_ARTIFACTS[pathname] ?? null;
 }
@@ -44,7 +40,7 @@ export function isInstallerPayload(response: Response): boolean {
  * latest.json is not an installer.
  * Resume Range requests (bytes>0) are not a new download.
  * 206 partials are not counted — avoids retry inflation.
- * 302 to the published GitHub installer counts as a completed handoff.
+ * 302 to the published GitHub DMG counts as a completed handoff.
  */
 export function shouldCountInstallerDownload(request: Request, response: Response): boolean {
   if (request.method !== "GET") return false;
@@ -80,32 +76,11 @@ export async function macDmgReleaseAvailable(
   }
 }
 
-export async function windowsExeReleaseAvailable(
-  fetchImpl: typeof fetch = fetch,
-): Promise<boolean> {
-  try {
-    const res = await fetchImpl(WINDOWS_EXE_RELEASE_URL, { method: "HEAD", redirect: "follow" });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 function installerMissing() {
   return new Response(JSON.stringify({ error: "Installer is not published." }), {
     status: 404,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-cache, must-revalidate",
-    },
-  });
-}
-
-function githubInstallerRedirect(url: string): Response {
-  return new Response(null, {
-    status: 302,
-    headers: {
-      location: url,
       "cache-control": "no-cache, must-revalidate",
     },
   });
@@ -121,17 +96,6 @@ export async function serveInstallerDownload(
 ): Promise<Response | null> {
   const artifact = installerArtifact(pathname);
   if (!artifact) return null;
-
-  // Prefer GitHub for Windows: Fixed-WebView2 installers exceed Workers Assets (25 MiB),
-  // and a stale small exe can linger in ASSETS after deploy strips the fat file.
-  if (artifact.platform === "windows" && (await windowsExeReleaseAvailable(fetchImpl))) {
-    const response = wrap(githubInstallerRedirect(WINDOWS_EXE_RELEASE_URL));
-    if (shouldCountInstallerDownload(request, response)) {
-      countInstaller(request, env, artifact);
-    }
-    return response;
-  }
-
   const asset = await fetchAsset(request);
   if (isInstallerPayload(asset)) {
     const response = wrap(asset);
@@ -141,7 +105,15 @@ export async function serveInstallerDownload(
     return response;
   }
   if (artifact.platform === "macos" && (await macDmgReleaseAvailable(fetchImpl))) {
-    const response = wrap(githubInstallerRedirect(MAC_DMG_RELEASE_URL));
+    const response = wrap(
+      new Response(null, {
+        status: 302,
+        headers: {
+          location: MAC_DMG_RELEASE_URL,
+          "cache-control": "no-cache, must-revalidate",
+        },
+      }),
+    );
     if (shouldCountInstallerDownload(request, response)) {
       countInstaller(request, env, artifact);
     }

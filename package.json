@@ -1,7 +1,7 @@
 {
   "name": "project-replay",
   "private": true,
-  "version": "0.1.43",
+  "version": "0.1.44",
   "description": "Project Replay desktop application",
   "type": "module",
   "scripts": {
@@ -11,16 +11,14 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "webview2:fetch": "node scripts/fetch-webview2-fixed.mjs",
-    "tauri:build": "npm run webview2:fetch && tauri build --bundles nsis",
+    "tauri:build": "tauri build --bundles nsis",
     "tauri:build:macos": "tauri build --config src-tauri/tauri.macos.conf.json --bundles dmg --target aarch64-apple-darwin",
     "installer:stage": "node scripts/stage-windows-installer.mjs",
     "installer:stage:macos": "node scripts/stage-macos-dmg.mjs",
     "mobile:start": "npm start --prefix mobile",
     "web:dev": "npm run dev --prefix web",
     "web:build": "npm run build --prefix web",
-    "web:deploy": "node worker/scripts/ensure-web-dist.mjs && npm run build --prefix web && node scripts/strip-oversized-release-assets.mjs && npm run deploy --prefix worker -- --var PUBLIC_APP_URL:https://replayr.tv --keep-vars",
-    "installer:publish:windows": "node scripts/publish-windows-github-release.mjs",
+    "web:deploy": "node worker/scripts/ensure-web-dist.mjs && npm run build --prefix web && npm run deploy --prefix worker -- --var PUBLIC_APP_URL:https://replayr.tv --keep-vars",
     "worker:dev": "node worker/scripts/ensure-web-dist.mjs && npm run sync-env --prefix worker && npm run dev --prefix worker"
   },
   "dependencies": {

@@ -17,8 +17,10 @@ import {
   type SourceCrop,
   type SourceTransform,
 } from "../../recording/scene";
+import { canvasFromSettings } from "../../recording/composition";
 import { sourceComposedSupported } from "../../recording/registry";
 import { useDetectionStore } from "../../stores/detectionStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { PreviewCanvas } from "./PreviewCanvas";
 import { PreviewCaptureLayer } from "./PreviewCaptureLayer";
 import { PreviewFilterLayer } from "./PreviewFilterLayer";
@@ -51,10 +53,17 @@ export function RecordingPreview({
   onCrop?: (id: string, crop: SourceCrop) => void;
   compositionLocked?: boolean;
 }) {
+  const settings = useSettingsStore((state) => state.settings);
   const [background, setBackground] = useState<PreviewBackgroundMode>("dark");
   const [safeZone, setSafeZone] = useState(false);
   const [editMode, setEditMode] = useState<"move" | "crop">("move");
-  const [preview, setPreview] = useState({ live: false, label: "Preview", source: "none" });
+  const [preview, setPreview] = useState({
+    live: false,
+    label: "Preview",
+    source: "none",
+    width: 0,
+    height: 0,
+  });
   const detectedPid = useDetectionStore((state) => state.snapshot.pid);
   const primary = primaryCapture(scene);
   const previewMode = primary?.type === "display" ? "desktop" : "game";
@@ -83,6 +92,14 @@ export function RecordingPreview({
       onCrop,
   );
 
+  const settingsCanvas = canvasFromSettings(settings);
+  const settingsAspect =
+    settingsCanvas.width > 0 && settingsCanvas.height > 0
+      ? settingsCanvas.width / settingsCanvas.height
+      : 16 / 9;
+  const previewAspect =
+    preview.width > 0 && preview.height > 0 ? preview.width / preview.height : settingsAspect;
+
   useEffect(() => {
     if (!canCrop && editMode === "crop") setEditMode("move");
   }, [canCrop, editMode]);
@@ -96,7 +113,10 @@ export function RecordingPreview({
       <div className="studio-preview-head">
         <h2>{scene.outputMode === "composed" ? "Live Output Preview" : "Recording Layout Preview"}</h2>
       </div>
-      <div className="studio-preview-stage">
+      <div
+        className="studio-preview-stage"
+        style={{ ["--preview-aspect" as string]: String(previewAspect) }}
+      >
         <PreviewCanvas
           background={background}
           safeZone={safeZone}
@@ -110,7 +130,15 @@ export function RecordingPreview({
               hideBadge
               monitorId={primary?.type === "display" ? desktopCaptureSettingsOf(primary).monitorId : null}
               crop={primary?.crop ?? null}
-              onStatus={setPreview}
+              onStatus={(status) =>
+                setPreview({
+                  live: status.live,
+                  label: status.label,
+                  source: status.source,
+                  width: status.width ?? 0,
+                  height: status.height ?? 0,
+                })
+              }
             />
           }
         >

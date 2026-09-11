@@ -39,7 +39,13 @@ export function PreviewCaptureLayer({
   hideBadge?: boolean;
   monitorId?: string | null;
   crop?: SourceCrop | null;
-  onStatus?: (status: { live: boolean; label: string; source: string }) => void;
+  onStatus?: (status: {
+    live: boolean;
+    label: string;
+    source: string;
+    width?: number;
+    height?: number;
+  }) => void;
 }) {
   const previewQuality = useSettingsStore((state) => state.settings.previewQuality);
   const [frame, setFrame] = useState<CapturePreviewFrame | null>(null);
@@ -143,8 +149,14 @@ export function PreviewCaptureLayer({
   const label = frame?.label ?? (mode === "desktop" ? "Desktop Preview" : "Waiting for game");
 
   useEffect(() => {
-    onStatus?.({ live, label, source: frame?.source ?? "none" });
-  }, [live, label, frame?.source, onStatus]);
+    onStatus?.({
+      live,
+      label,
+      source: frame?.source ?? "none",
+      width: frame && frame.width > 0 ? frame.width : undefined,
+      height: frame && frame.height > 0 ? frame.height : undefined,
+    });
+  }, [live, label, frame?.source, frame?.width, frame?.height, onStatus]);
 
   const sourceAspect =
     frame && frame.width > 0 && frame.height > 0 ? frame.width / frame.height : 16 / 9;

@@ -1,4 +1,8 @@
 {
+  "0.1.47": [
+    "Record page has a drag handle between preview and mixer so the live preview can grow.",
+    "Dragging the handle down shrinks the mixer from the top and keeps it flush on the bottom of the page."
+  ],
   "0.1.46": [
     "Record page settings scroll in place without trapping the studio layout.",
     "Live Output Preview framing now matches composed encode (contain + 16:9 canvas).",

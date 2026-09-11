@@ -130,6 +130,13 @@
   overflow: hidden;
 }
 
+.preview-crop-clip-full > img,
+.preview-crop-full .preview-crop-clip-full > * {
+  /* Full-frame path: media fills the aspect-matched canvas (no nested letterbox). */
+  object-fit: contain;
+  object-position: center;
+}
+
 .preview-image,
 .preview-image-placeholder,
 .preview-text {

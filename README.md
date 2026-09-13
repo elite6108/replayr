@@ -434,6 +434,7 @@ scripts/                     installer:stage (Windows + macOS)
 docs/ARCHITECTURE.md         Locked system design
 docs/AUDIO_ROUTING.md        Audio plan (Step 1 shipped)
 docs/analytics-metrics.md    Admin analytics dictionary
+docs/SECURITY_AUDIT.md       Point-in-time security review (findings + remediations)
 ```
 
 ## What is not done yet

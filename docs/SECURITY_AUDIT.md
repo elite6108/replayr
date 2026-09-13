@@ -208,7 +208,7 @@ The native HTTP client then sends `Authorization: Bearer <access_token>` to that
 | **Likelihood** | Low without WebView compromise; High with it |
 | **Location** | `src-tauri/src/share.rs`, `src-tauri/src/commands.rs` |
 
-**Description.** `reveal_local_clip` correctly calls `assert_reveal_allowed`. `share_local_clip` and `export_local_clip` do not, when the caller passes `file_path` / `source` instead of `local_id`:
+**Description.** `reveal_local_clip` calls `assert_reveal_allowed`. `share_local_clip` and `export_local_clip` do not, when the caller passes `file_path` / `source` instead of `local_id`:
 
 ```34:57:src-tauri/src/share.rs
     let clip = if let Some(id) = local_id { ... } else { None };
@@ -226,7 +226,7 @@ Any existing file the process can read can be handed to the OS share sheet, clip
 
 **Impact.** Local credential files, documents, or other users’ media on the same account can leave the machine.
 
-**Remediation.** Require a `local_id` from SQLite, **or** run the same `assert_reveal_allowed` check used by `reveal_local_clip` before any read.
+**Remediation.** Require a trusted `local_id` from SQLite (or otherwise resolve the source from a recorded clip row) before any read. Do **not** treat `assert_reveal_allowed` as sufficient: `reveal_roots` includes the entire app-data directory, Downloads, Videos, and the configurable save root (`src-tauri/src/paths.rs`). A path under app data still passes, including the plaintext non-Windows session files in R-04.
 
 ---
 
@@ -328,7 +328,9 @@ Any gated path with `?code=` is treated as an OAuth return and serves the full S
 
 **Impact.** The password gate is not a security boundary for the API (intentional). It **is** the boundary for Explore, account, and admin UI chrome. This bypass removes that chrome lock.
 
-**Remediation.** Restrict the `code` exception to `/` and `/auth/*`. After public launch, disable `SITE_ACCESS_PASSWORD` and treat this as closed.
+**Remediation.** Restrict the `code` exception to `/` and `/auth/*`.
+
+Do **not** “turn the gate off” by unsetting `SITE_ACCESS_PASSWORD`. `hasValidSiteAccess` returns `false` for every non-localhost request when the password is absent (`worker/src/site-access.ts`), so production stays locked on the coming-soon page. Opening the site requires a separate configuration flag or a code change that treats an unset password as ungated.
 
 ---
 
@@ -517,7 +519,7 @@ Runtime code also expands the asset scope to clip save roots (`src-tauri/src/pat
 
 **Description.** The marketing SPA and coming-soon page set CSP, `X-Frame-Options: DENY`, and `nosniff`. The embedded fallback clip HTML sets `content-type` only. Production normally serves `web/dist` via Workers Assets.
 
-**Remediation.** Run fallback HTML through `withWebSecurityHeaders`.
+**Remediation.** Add security headers to the fallback response, but do not pipe it through `withWebSecurityHeaders` unchanged. That helper sets `script-src 'self'`, and the fallback player’s loader is an inline `<script>` (`worker/src/index.ts`). In the no-`ASSETS` case this page is the only player, so a copy-paste CSP would block the fetch and leave “Loading clip…”. Externalize the script, or authorize it with a nonce or hash, then apply a fallback-specific CSP.
 
 ---
 
@@ -805,12 +807,12 @@ Single workflow: `.github/workflows/macos-dmg.yml`.
 
 1. **R-01** — Enforce clip visibility on public folder list/playback/download. Never sign a private object for a public token.
 2. **R-02** — Hard-code / allowlist Worker origin in Rust. Stop taking `api_base` from the UI.
-3. **R-03** — Path-sandbox share/export sources the same way as reveal.
+3. **R-03** — Resolve share/export sources from a recorded `local_id` (not `assert_reveal_allowed`).
 
 ### P1 — before a wide public launch
 
 4. **R-06** — Cloudflare (or DO/KV) rate limits on site-access, waitlist, errors, analytics, upload-create.
-5. **R-07** — Narrow `isOAuthHandoff` (or turn the gate off at launch).
+5. **R-07** — Narrow `isOAuthHandoff`. To open the site at launch, add an explicit ungated flag — unsetting `SITE_ACCESS_PASSWORD` keeps production locked.
 6. **R-04** — Encrypt macOS/Linux session files.
 7. **R-05**, **R-14**, **R-17** — Harden remaining desktop IPC (downloads, export dest, auth keys).
 8. **R-08** — MP4 `ftyp` check on complete.
@@ -849,20 +851,20 @@ Single workflow: `.github/workflows/macos-dmg.yml`.
 - [ ] `PUBLIC_APP_URL` is `https://replayr.tv` (or `https://www.replayr.tv`) in production vars.
 - [ ] R2 bucket is not world-listable; only presigned and Worker bindings.
 - [ ] Stripe and Bunny webhook secrets set; test events verified.
-- [ ] Coming-soon password disabled **or** `?code=` bypass removed.
+- [ ] Coming-soon gate opened via an explicit ungated flag (not by deleting `SITE_ACCESS_PASSWORD`) **or** `?code=` bypass removed while the gate remains on.
 - [ ] Upload complete verifies object size **and** MP4 identity.
 
 ### Desktop
 
 - [ ] Rust allowlists API origin and download hosts.
-- [ ] Share/export/reveal all use the same path sandbox.
+- [ ] Share/export resolve the source from a recorded clip `local_id` (reveal’s root list is too wide for that).
 - [ ] CSP `connect-src` no longer allows all `https:`.
 - [ ] Updater private key is in a hardware-backed or tightly ACL’d store; `latest.json` is only writable by CI.
 - [ ] Overlay capability is events-only.
 
 ### Web / mobile
 
-- [ ] CSP headers present on all HTML responses (including fallbacks).
+- [ ] CSP headers present on all HTML responses, including the fallback player (nonce/hash or external script — not a blind `script-src 'self'`).
 - [ ] No new `dangerouslySetInnerHTML` on user content.
 - [ ] Mobile store builds use SecureStore (not web localStorage) and pinned deep-link hosts.
 - [ ] `npm audit` clean enough for store review; lockfiles committed.

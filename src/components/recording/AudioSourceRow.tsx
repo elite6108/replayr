@@ -7,6 +7,7 @@ import { formatDb, formatPeakDb } from "../../recording/useStudioAudio";
 import type { RecordingSource } from "../../recording/scene";
 import { audioSourceMenuItems } from "./audioSourceMenu";
 import { SourceGlyph } from "./sourceGlyph";
+import { SourceNameEdit } from "./SourceNameEdit";
 import { StudioMeter } from "./StudioMeter";
 
 export function AudioSourceRow({
@@ -18,6 +19,8 @@ export function AudioSourceRow({
   onToggle,
   onRemove,
   onProperties,
+  onRename,
+  compositionLocked,
 }: {
   source: RecordingSource;
   selected: boolean;
@@ -27,8 +30,11 @@ export function AudioSourceRow({
   onToggle: (enabled: boolean) => void;
   onRemove: () => void;
   onProperties: () => void;
+  onRename: (name: string) => void;
+  compositionLocked?: boolean;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [renaming, setRenaming] = useState(false);
   const navigate = useNavigate();
   const entry = registryEntry(source.type);
   const caption = entry?.capability === "recorded" ? "" : (entry?.hint ?? capabilityCaption(source.capability));
@@ -48,17 +54,47 @@ export function AudioSourceRow({
         openMenu(event.clientX, event.clientY);
       }}
     >
-      <button type="button" className="studio-source-main" onClick={onSelect}>
-        <SourceGlyph type={source.type} />
-        <span className="studio-source-copy">
-          <span className="studio-audio-line">
-            <span className="studio-source-name">{source.name}</span>
-            <span className="studio-audio-db">{reading}</span>
+      {renaming ? (
+        <div className="studio-source-main is-renaming">
+          <SourceGlyph type={source.type} />
+          <span className="studio-source-copy">
+            <span className="studio-audio-line">
+              <SourceNameEdit
+                name={source.name}
+                onCommit={(name) => {
+                  onRename(name);
+                  setRenaming(false);
+                }}
+                onCancel={() => setRenaming(false)}
+              />
+              <span className="studio-audio-db">{reading}</span>
+            </span>
+            {caption ? <span className="studio-source-cap">{caption}</span> : null}
+            <StudioMeter level={level} compact />
           </span>
-          {caption ? <span className="studio-source-cap">{caption}</span> : null}
-          <StudioMeter level={level} compact />
-        </span>
-      </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="studio-source-main"
+          onClick={onSelect}
+          onDoubleClick={(event) => {
+            if (compositionLocked) return;
+            event.preventDefault();
+            setRenaming(true);
+          }}
+        >
+          <SourceGlyph type={source.type} />
+          <span className="studio-source-copy">
+            <span className="studio-audio-line">
+              <span className="studio-source-name">{source.name}</span>
+              <span className="studio-audio-db">{reading}</span>
+            </span>
+            {caption ? <span className="studio-source-cap">{caption}</span> : null}
+            <StudioMeter level={level} compact />
+          </span>
+        </button>
+      )}
       <div className="studio-source-actions">
         <button
           type="button"
@@ -89,6 +125,7 @@ export function AudioSourceRow({
             enabled: source.enabled,
             onAudioSettings: () => navigate("/settings?section=audio"),
             onProperties,
+            onRename: compositionLocked ? undefined : () => setRenaming(true),
             onToggleMute: () => onToggle(!source.enabled),
             onRemove,
           })}

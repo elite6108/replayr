@@ -1,4 +1,4 @@
-import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCameraStatus } from "../../services/tauri";
@@ -25,17 +25,24 @@ import { SourceList } from "./SourceList";
 import { SourcePropertiesDialog } from "./SourcePropertiesDialog";
 
 const DOCK_SPLIT_KEY = "replay.recordDockMaxPx";
-const DOCK_MIN_PX = 140;
+const DOCK_MIN_PX = 160;
 const DOCK_DEFAULT_PX = 200;
-const PREVIEW_MIN_PX = 180;
+const PREVIEW_MIN_PX = 320;
 
 function clampDockPx(value: number, workspaceHeight = 0) {
-  const maxByWindow = Math.round(window.innerHeight * 0.4);
+  const maxByWindow = Math.round(window.innerHeight * 0.28);
   const maxByWorkspace =
     workspaceHeight > PREVIEW_MIN_PX + DOCK_MIN_PX
       ? workspaceHeight - PREVIEW_MIN_PX
       : maxByWindow;
   return Math.min(Math.max(Math.round(value), DOCK_MIN_PX), Math.min(maxByWindow, maxByWorkspace));
+}
+
+function dockPxFromPointer(workspace: HTMLElement, clientY: number) {
+  const rect = workspace.getBoundingClientRect();
+  const status = workspace.querySelector(".studio-status");
+  const statusH = status instanceof HTMLElement ? status.getBoundingClientRect().height : 0;
+  return clampDockPx(rect.bottom - statusH - 10 - clientY, rect.height);
 }
 
 function loadDockMaxPx(): number {
@@ -87,37 +94,34 @@ export function RecordWorkspace() {
   const [camera, setCamera] = useState<CameraStatus>(IDLE_CAMERA_STATUS);
   const [propertiesId, setPropertiesId] = useState<string | null>(null);
   const [dockMaxPx, setDockMaxPx] = useState(DOCK_DEFAULT_PX);
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const { displays, error: displayError } = useDisplays();
   const levels = useStudioAudio();
   const propertiesSource = scene.sources.find((source) => source.id === propertiesId) ?? null;
   const quiet = status.active || replay.active || camera.rolling || camera.recording;
 
   useEffect(() => {
-    setDockMaxPx(loadDockMaxPx());
+    const height = workspaceRef.current?.getBoundingClientRect().height ?? 0;
+    setDockMaxPx(clampDockPx(loadDockMaxPx(), height));
   }, []);
 
   function beginDockSplit(event: ReactPointerEvent<HTMLButtonElement>) {
     event.preventDefault();
     const workspace = event.currentTarget.closest(".record-workspace");
     if (!(workspace instanceof HTMLElement)) return;
-    const startY = event.clientY;
-    const startDock = dockMaxPx;
-    const workspaceHeight = workspace.getBoundingClientRect().height;
 
     event.currentTarget.setPointerCapture(event.pointerId);
+    setDockMaxPx(dockPxFromPointer(workspace, event.clientY));
 
     const onMove = (moveEvent: PointerEvent) => {
-      const dy = moveEvent.clientY - startY;
-      setDockMaxPx(clampDockPx(startDock - dy, workspaceHeight));
+      setDockMaxPx(dockPxFromPointer(workspace, moveEvent.clientY));
     };
-    const onUp = () => {
+    const onUp = (upEvent: PointerEvent) => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      setDockMaxPx((current) => {
-        const next = clampDockPx(current, workspaceHeight);
-        persistDockMaxPx(next);
-        return next;
-      });
+      const next = dockPxFromPointer(workspace, upEvent.clientY);
+      setDockMaxPx(next);
+      persistDockMaxPx(next);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -180,117 +184,122 @@ export function RecordWorkspace() {
         <h1>Record</h1>
       </header>
       <div
+        ref={workspaceRef}
         className="record-workspace"
         style={{ ["--record-dock-max" as string]: `${dockMaxPx}px` }}
       >
-          <SourceList
-            scene={scene}
-            scenes={scenes}
-            selectedId={selectedId}
-            levels={levels}
-            settingsGain={{ mic: settings.micGain, desktop: settings.systemAudioGain, game: settings.gameAudioGain }}
-            compositionLocked={compositionLocked}
-            onSelect={setSelectedId}
-            onToggle={(id, enabled) => {
-              if (compositionLocked) return;
-              toggleSource(id, enabled);
-            }}
-            onLock={(id, locked) => {
-              if (compositionLocked) return;
-              patchSource(id, { locked });
-            }}
-            onRemove={(id) => {
-              if (compositionLocked) return;
-              deleteSource(id);
-            }}
-            onAdd={(type) => void addTypedSource(type)}
-            onReorder={(next) => {
-              if (compositionLocked) return;
-              commit(next);
-            }}
-            onSelectScene={(id) => {
-              if (compositionLocked) return;
-              selectScene(id);
-            }}
-            onCreateScene={(name, template) => {
-              if (compositionLocked) return;
-              addScene(name, template);
-            }}
-            onRenameScene={(id, name) => {
-              if (compositionLocked) return;
-              renameScene(id, name);
-            }}
-            onDuplicateScene={(id) => {
-              if (compositionLocked) return;
-              copyScene(id);
-            }}
-            onDeleteScene={(id) => {
-              if (compositionLocked) return;
-              removeScene(id);
-            }}
-            onProperties={(id) => {
-              setSelectedId(id);
-              setPropertiesId(id);
-            }}
-          />
-          <RecordingPreview
-            scene={scene}
-            webcam={{ ...settings.webcam, enabled: Boolean(findSourceByType(scene, "webcam")?.enabled) }}
-            visuals={settings.recordingVisuals}
-            camera={camera}
-            quiet={quiet}
-            selectedId={selectedId}
-            compositionLocked={compositionLocked}
-            onSelect={setSelectedId}
-            onTransform={(id, transform) => {
-              if (compositionLocked) return;
-              setTransform(id, transform);
-            }}
-            onCrop={(id, crop) => {
-              if (compositionLocked) return;
-              setCrop(id, crop);
-            }}
-          />
-          <SourceInspector
-            source={selected}
-            settings={settings}
-            camera={camera}
-            levels={levels}
-            compositionLocked={compositionLocked}
-            composed={scene.outputMode === "composed"}
-            displays={displays}
-            listError={displayError}
-            recording={status.active || startingComposed}
-            onSaveSetting={(key, value) => {
-              if (key === "microphoneId") {
-                if (status.active || startingComposed) return;
-                void writeSettings(key, value);
-                return;
-              }
-              if (compositionLocked) return;
+        <SourceList
+          scene={scene}
+          scenes={scenes}
+          selectedId={selectedId}
+          levels={levels}
+          settingsGain={{ mic: settings.micGain, desktop: settings.systemAudioGain, game: settings.gameAudioGain }}
+          compositionLocked={compositionLocked}
+          onSelect={setSelectedId}
+          onToggle={(id, enabled) => {
+            if (compositionLocked) return;
+            toggleSource(id, enabled);
+          }}
+          onLock={(id, locked) => {
+            if (compositionLocked) return;
+            patchSource(id, { locked });
+          }}
+          onRemove={(id) => {
+            if (compositionLocked) return;
+            deleteSource(id);
+          }}
+          onAdd={(type) => void addTypedSource(type)}
+          onReorder={(next) => {
+            if (compositionLocked) return;
+            commit(next);
+          }}
+          onSelectScene={(id) => {
+            if (compositionLocked) return;
+            selectScene(id);
+          }}
+          onCreateScene={(name, template) => {
+            if (compositionLocked) return;
+            addScene(name, template);
+          }}
+          onRenameScene={(id, name) => {
+            if (compositionLocked) return;
+            renameScene(id, name);
+          }}
+          onDuplicateScene={(id) => {
+            if (compositionLocked) return;
+            copyScene(id);
+          }}
+          onDeleteScene={(id) => {
+            if (compositionLocked) return;
+            removeScene(id);
+          }}
+          onProperties={(id) => {
+            setSelectedId(id);
+            setPropertiesId(id);
+          }}
+          onRenameSource={(id, name) => {
+            if (compositionLocked) return;
+            patchSource(id, { name });
+          }}
+        />
+        <RecordingPreview
+          scene={scene}
+          webcam={{ ...settings.webcam, enabled: Boolean(findSourceByType(scene, "webcam")?.enabled) }}
+          visuals={settings.recordingVisuals}
+          camera={camera}
+          quiet={quiet}
+          selectedId={selectedId}
+          compositionLocked={compositionLocked}
+          onSelect={setSelectedId}
+          onTransform={(id, transform) => {
+            if (compositionLocked) return;
+            setTransform(id, transform);
+          }}
+          onCrop={(id, crop) => {
+            if (compositionLocked) return;
+            setCrop(id, crop);
+          }}
+        />
+        <SourceInspector
+          source={selected}
+          settings={settings}
+          camera={camera}
+          levels={levels}
+          compositionLocked={compositionLocked}
+          composed={scene.outputMode === "composed"}
+          displays={displays}
+          listError={displayError}
+          recording={status.active || startingComposed}
+          onSaveSetting={(key, value) => {
+            if (key === "microphoneId") {
+              if (status.active || startingComposed) return;
               void writeSettings(key, value);
-            }}
-            onPatch={(id, patch) => {
-              if (compositionLocked) return;
-              patchSource(id, patch);
-            }}
-            onToggle={(id, enabled) => {
-              if (compositionLocked) return;
-              toggleSource(id, enabled);
-            }}
-            onTransform={(id, transform) => {
-              if (compositionLocked) return;
-              setTransform(id, transform);
-            }}
-            onCrop={(id, crop) => {
-              if (compositionLocked) return;
-              setCrop(id, crop);
-            }}
-            onWebcamDevice={(device) => {
-              if (compositionLocked) return;
-              saveWebcamDevice(device);
-            }}
-          />
+              return;
+            }
+            if (compositionLocked) return;
+            void writeSettings(key, value);
+          }}
+          onPatch={(id, patch) => {
+            if (compositionLocked) return;
+            patchSource(id, patch);
+          }}
+          onToggle={(id, enabled) => {
+            if (compositionLocked) return;
+            toggleSource(id, enabled);
+          }}
+          onTransform={(id, transform) => {
+            if (compositionLocked) return;
+            setTransform(id, transform);
+          }}
+          onCrop={(id, crop) => {
+            if (compositionLocked) return;
+            setCrop(id, crop);
+          }}
+          onWebcamDevice={(device) => {
+            if (compositionLocked) return;
+            saveWebcamDevice(device);
+          }}
+        />
         <button
           type="button"
           className="record-split"

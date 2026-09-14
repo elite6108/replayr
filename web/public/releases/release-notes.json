@@ -1,4 +1,9 @@
 {
+  "0.1.49": [
+    "Double-click a source in the source bar to rename it in place.",
+    "Removed unused Fit, Center, Crop, Reset, Safe Area, and Dev buttons under the preview.",
+    "Record page fills the window and keeps the mixer dock flush at the bottom."
+  ],
   "0.1.48": [
     "Leaving the Record page no longer gets stuck when the live preview is running."
   ],

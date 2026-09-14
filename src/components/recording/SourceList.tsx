@@ -34,6 +34,7 @@ export function SourceList({
   onDuplicateScene,
   onDeleteScene,
   onProperties,
+  onRenameSource,
   compositionLocked,
 }: {
   scene: RecordingScene;
@@ -53,6 +54,7 @@ export function SourceList({
   onDuplicateScene: (id: string) => void;
   onDeleteScene: (id: string) => void;
   onProperties: (id: string) => void;
+  onRenameSource: (id: string, name: string) => void;
   compositionLocked?: boolean;
 }) {
   const [visualMenu, setVisualMenu] = useState(false);
@@ -148,10 +150,7 @@ export function SourceList({
                 onMove={(direction) => onReorder(moveSourceAmong(scene, source.id, direction, (item) => isVisualSource(item.type)))}
                 onRemove={() => onRemove(source.id)}
                 onProperties={() => onProperties(source.id)}
-                onRename={() => {
-                  onSelect(source.id);
-                  window.requestAnimationFrame(() => document.getElementById("record-source-name")?.focus());
-                }}
+                onRename={(name) => onRenameSource(source.id, name)}
                 onGripDown={(event) => beginReorder(source.id, event)}
               />
             ))}
@@ -207,6 +206,8 @@ export function SourceList({
                 onToggle={(enabled) => onToggle(source.id, enabled)}
                 onRemove={() => onRemove(source.id)}
                 onProperties={() => onProperties(source.id)}
+                onRename={(name) => onRenameSource(source.id, name)}
+                compositionLocked={compositionLocked}
               />
             ))}
           </div>

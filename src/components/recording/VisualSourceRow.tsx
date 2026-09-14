@@ -4,6 +4,7 @@ import { IconEye, IconEyeOff, IconGrip, IconLock, IconMore, IconUnlock } from ".
 import { capabilityCaption, composedSourceCaption, registryEntry, sourceComposedSupported } from "../../recording/registry";
 import type { RecordingOutputMode, RecordingSource } from "../../recording/scene";
 import { SourceGlyph } from "./sourceGlyph";
+import { SourceNameEdit } from "./SourceNameEdit";
 
 export function VisualSourceRow({
   source,
@@ -29,12 +30,13 @@ export function VisualSourceRow({
   onMove: (direction: "front" | "back") => void;
   onRemove: () => void;
   onProperties: () => void;
-  onRename: () => void;
+  onRename: (name: string) => void;
   onGripDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   dropBefore?: boolean;
   compositionLocked?: boolean;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [renaming, setRenaming] = useState(false);
   const entry = registryEntry(source.type);
   const composedUnsupported = outputMode === "composed" && !sourceComposedSupported(source.type);
   const composedCap = outputMode === "composed" ? composedSourceCaption(source.type) : null;
@@ -59,13 +61,39 @@ export function VisualSourceRow({
       >
         <IconGrip size={14} />
       </button>
-      <button type="button" className="studio-source-main" onClick={onSelect}>
-        <SourceGlyph type={source.type} />
-        <span className="studio-source-copy">
-          <span className="studio-source-name">{source.name}</span>
-          {caption ? <span className="studio-source-cap">{caption}</span> : null}
-        </span>
-      </button>
+      {renaming ? (
+        <div className="studio-source-main is-renaming">
+          <SourceGlyph type={source.type} />
+          <span className="studio-source-copy">
+            <SourceNameEdit
+              name={source.name}
+              onCommit={(name) => {
+                onRename(name);
+                setRenaming(false);
+              }}
+              onCancel={() => setRenaming(false)}
+            />
+            {caption ? <span className="studio-source-cap">{caption}</span> : null}
+          </span>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="studio-source-main"
+          onClick={onSelect}
+          onDoubleClick={(event) => {
+            if (compositionLocked) return;
+            event.preventDefault();
+            setRenaming(true);
+          }}
+        >
+          <SourceGlyph type={source.type} />
+          <span className="studio-source-copy">
+            <span className="studio-source-name">{source.name}</span>
+            {caption ? <span className="studio-source-cap">{caption}</span> : null}
+          </span>
+        </button>
+      )}
       <div className="studio-source-actions">
         <button
           type="button"
@@ -110,7 +138,7 @@ export function VisualSourceRow({
               ? [{ label: "Layout changes apply to the next recording.", onClick: () => undefined }]
               : [
                   { label: "Properties", onClick: onProperties },
-                  { label: "Rename", onClick: onRename },
+                  { label: "Rename", onClick: () => setRenaming(true) },
                   { label: source.enabled ? "Hide" : "Show", onClick: () => onToggle(!source.enabled) },
                   { label: source.locked ? "Unlock" : "Lock", onClick: () => onLock(!source.locked) },
                   { label: "Move forward", onClick: () => onMove("front") },

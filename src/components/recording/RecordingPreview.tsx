@@ -1,17 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { CameraStatus } from "../../types/camera";
-import type { PreviewBackgroundMode, RecordingVisualSettings, WebcamSettings } from "../../types/settings";
-import { IconCenter, IconFit, IconReset, IconSafeArea } from "../icons";
+import type { RecordingVisualSettings, WebcamSettings } from "../../types/settings";
 import {
-  defaultTransform,
   desktopCaptureSettingsOf,
   FULL_CROP,
   isCroppableSource,
   overlayToVisuals,
   primaryCapture,
   sourcesBackFirst,
-  transformCenter,
-  transformFit,
   type RecordingScene,
   type RecordingSource,
   type SourceCrop,
@@ -54,9 +50,6 @@ export function RecordingPreview({
   compositionLocked?: boolean;
 }) {
   const settings = useSettingsStore((state) => state.settings);
-  const [background, setBackground] = useState<PreviewBackgroundMode>("dark");
-  const [safeZone, setSafeZone] = useState(false);
-  const [editMode, setEditMode] = useState<"move" | "crop">("move");
   const [preview, setPreview] = useState({
     live: false,
     label: "Preview",
@@ -83,7 +76,6 @@ export function RecordingPreview({
       (!composed || sourceComposedSupported(source.type)),
   );
   const selected = scene.sources.find((source) => source.id === selectedId);
-  const canLayout = Boolean(selected?.transform && !selected.locked && !compositionLocked);
   const canCrop = Boolean(
     selected &&
       isCroppableSource(selected.type) &&
@@ -100,14 +92,6 @@ export function RecordingPreview({
   const previewAspect =
     preview.width > 0 && preview.height > 0 ? preview.width / preview.height : settingsAspect;
 
-  useEffect(() => {
-    if (!canCrop && editMode === "crop") setEditMode("move");
-  }, [canCrop, editMode]);
-
-  useEffect(() => {
-    setEditMode("move");
-  }, [selectedId]);
-
   return (
     <section className="studio-panel studio-preview">
       <div className="studio-preview-head">
@@ -118,15 +102,15 @@ export function RecordingPreview({
         style={{ ["--preview-aspect" as string]: String(previewAspect) }}
       >
         <PreviewCanvas
-          background={background}
-          safeZone={safeZone}
+          background="dark"
+          safeZone={false}
           quiet={quiet}
           plate={
             <PreviewCaptureLayer
               mode={previewMode}
               pid={detectedPid}
               enabled={previewEnabled}
-              fallback={background}
+              fallback="dark"
               hideBadge
               monitorId={primary?.type === "display" ? desktopCaptureSettingsOf(primary).monitorId : null}
               crop={primary?.crop ?? null}
@@ -150,7 +134,7 @@ export function RecordingPreview({
             <PreviewTransformBox
               transform={primary.transform}
               crop={primary.crop ?? FULL_CROP}
-              mode={editMode === "crop" ? "crop" : "move"}
+              mode="move"
               selected
               locked={false}
               zIndex={2}
@@ -167,7 +151,7 @@ export function RecordingPreview({
               key={source.id}
               transform={source.transform!}
               crop={source.crop}
-              mode={selectedId === source.id && editMode === "crop" && isCroppableSource(source.type) ? "crop" : "move"}
+              mode="move"
               selected={selectedId === source.id}
               locked={source.locked || Boolean(compositionLocked)}
               zIndex={3 + index}
@@ -188,70 +172,6 @@ export function RecordingPreview({
         </PreviewCanvas>
         {compositionLocked ? (
           <p className="studio-lock-note">Layout changes apply to the next recording.</p>
-        ) : null}
-      </div>
-      <div className="studio-preview-toolbar">
-        <button
-          type="button"
-          className="studio-tool"
-          disabled={!canLayout || editMode === "crop"}
-          onClick={() => selected?.transform && onTransform(selected.id, transformFit(selected.transform))}
-        >
-          <IconFit size={14} />
-          Fit
-        </button>
-        <button
-          type="button"
-          className="studio-tool"
-          disabled={!canLayout || editMode === "crop"}
-          onClick={() => selected?.transform && onTransform(selected.id, transformCenter(selected.transform))}
-        >
-          <IconCenter size={14} />
-          Center
-        </button>
-        <button
-          type="button"
-          className={`studio-tool${editMode === "crop" ? " is-on" : ""}`}
-          disabled={!canCrop}
-          onClick={() => setEditMode((mode) => (mode === "crop" ? "move" : "crop"))}
-        >
-          Crop
-        </button>
-        <button
-          type="button"
-          className="studio-tool"
-          disabled={!canLayout && !canCrop}
-          onClick={() => {
-            if (!selected) return;
-            if (editMode === "crop" && onCrop && isCroppableSource(selected.type)) {
-              onCrop(selected.id, { ...FULL_CROP });
-              return;
-            }
-            onTransform(
-              selected.id,
-              defaultTransform(selected.type, webcam) ??
-                selected.transform ??
-                transformCenter({ x: 0, y: 0, w: 1, h: 1 }),
-            );
-          }}
-        >
-          <IconReset size={14} />
-          Reset
-        </button>
-        <button type="button" className={`studio-tool${safeZone ? " is-on" : ""}`} onClick={() => setSafeZone((open) => !open)}>
-          <IconSafeArea size={14} />
-          Safe Area
-        </button>
-        {import.meta.env.DEV ? (
-          <details className="studio-debug">
-            <summary>Dev</summary>
-            <button type="button" className="studio-chip" onClick={() => setBackground("mock")}>
-              Mock
-            </button>
-            <button type="button" className="studio-chip" onClick={() => setBackground("dark")}>
-              Dark
-            </button>
-          </details>
         ) : null}
       </div>
     </section>

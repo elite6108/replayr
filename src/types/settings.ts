@@ -44,6 +44,60 @@ export const DEFAULT_RECORDING_VISUALS: RecordingVisualSettings = {
   },
 };
 
+/**
+ * Clip studio scene library, persisted on the settings document rather than in localStorage.
+ *
+ * Save Clip is reachable from the F10 hotkey and the tray with no frontend payload, so the Rust
+ * side has to be able to read the clip scene on its own. These four types are hand-mirrored with
+ * `ClipStudioSettings` and friends in src-tauri/src/settings.rs — there is no codegen, and
+ * `set_document` re-serializes the whole document, so any field missing from the Rust structs is
+ * silently dropped on the next write.
+ *
+ * They live here rather than in recording/scene.ts to avoid a cycle: scene.ts already imports
+ * this module. Conversion to and from `RecordingScene` lives in recording/clipLibrary.ts.
+ */
+export interface SerializedClipRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** `capability` is intentionally not persisted — the frontend re-derives it from `type`. */
+export interface SerializedClipSource {
+  id: string;
+  type: string;
+  name: string;
+  enabled: boolean;
+  locked: boolean;
+  order: number;
+  transform: SerializedClipRect | null;
+  crop: SerializedClipRect | null;
+  settings: Record<string, unknown>;
+}
+
+/** `outputMode` is intentionally not persisted — clip scenes are always "layout, burn on save". */
+export interface SerializedClipScene {
+  id: string;
+  name: string;
+  sources: SerializedClipSource[];
+}
+
+export interface ClipStudioSettings {
+  version: number;
+  activeId: string;
+  /** Empty means "seed me from the current settings" — see `seedClipLibrary`. */
+  scenes: SerializedClipScene[];
+}
+
+export const CLIP_LIBRARY_VERSION = 1;
+
+export const DEFAULT_CLIP_STUDIO: ClipStudioSettings = {
+  version: CLIP_LIBRARY_VERSION,
+  activeId: "",
+  scenes: [],
+};
+
 export interface WebcamSettings {
   enabled: boolean;
   deviceId: string;
@@ -128,6 +182,8 @@ export interface AppSettings {
   discordRichPresence: boolean;
   webcam: WebcamSettings;
   recordingVisuals: RecordingVisualSettings;
+  /** Clip studio scene library. Layout and burn layers only — never changes what IR captures. */
+  clipStudio: ClipStudioSettings;
   /** Live Output Preview resolution/pace. Does not change the recording. */
   previewQuality: PreviewQuality;
 }
@@ -178,5 +234,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   discordRichPresence: true,
   webcam: { ...DEFAULT_WEBCAM_SETTINGS },
   recordingVisuals: { ...DEFAULT_RECORDING_VISUALS, overlays: { ...DEFAULT_RECORDING_VISUALS.overlays } },
+  clipStudio: { ...DEFAULT_CLIP_STUDIO, scenes: [] },
   previewQuality: "balanced",
 };

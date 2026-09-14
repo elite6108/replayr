@@ -1,5 +1,6 @@
 ﻿mod audio;
 mod compose;
+mod compose_scene;
 mod copy_remux;
 mod faststart;
 pub(crate) mod mux;
@@ -15,6 +16,8 @@ mod writer;
 #[allow(unused_imports)]
 pub(crate) use audio::{fit_pcm_to_video, spawn_compose_audio};
 pub use compose::sizing::fit_compose_size;
+#[allow(unused_imports)]
+pub(crate) use compose_scene::{compose_clip_scene_timed, ClipSceneComposeReport};
 #[allow(unused_imports)]
 pub(crate) use compose::{blank_direct_mft_long_test, compose_webcam_nv12, compose_webcam_rgb32};
 #[allow(unused_imports)]
@@ -79,7 +82,7 @@ pub fn compose_webcam_mp4(
 static ORPHAN_COMPOSE: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> =
     std::sync::Mutex::new(None);
 
-fn reap_orphan_compose() {
+pub(crate) fn reap_orphan_compose() {
     let handle = ORPHAN_COMPOSE
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

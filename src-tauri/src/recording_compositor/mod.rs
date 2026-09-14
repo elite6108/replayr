@@ -1,14 +1,19 @@
 //! Session-recording-only GPU compositor. Instant Replay and clips never
 //! consume this output.
+//!
+//! The offline clip burn (`export::compose_scene`) does reuse the pieces of this module that are
+//! pure data or pure CPU — the validated scene types, the transform math, the GDI text
+//! rasterizer, the filter chrome bitmaps, and `filters::tune_for`. It never starts the live
+//! compositor, never touches the encode pump, and never consumes a frame produced here.
 
 mod diagnostics;
-mod scene;
-mod transforms;
+pub(crate) mod scene;
+pub(crate) mod transforms;
 
 #[cfg(windows)]
 mod resolve_output;
 #[cfg(windows)]
-mod compositor;
+pub(crate) mod compositor;
 #[cfg(windows)]
 mod gpu;
 #[cfg(windows)]
@@ -16,9 +21,9 @@ mod hw_encode;
 #[cfg(windows)]
 mod nv12;
 #[cfg(windows)]
-mod sources;
+pub(crate) mod sources;
 #[cfg(windows)]
-mod filters;
+pub(crate) mod filters;
 #[cfg(windows)]
 mod still_blend;
 #[cfg(windows)]

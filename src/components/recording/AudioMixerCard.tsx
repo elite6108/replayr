@@ -21,6 +21,8 @@ export function AudioMixerCard({
   onGain,
   onProperties,
   onRemove,
+  readOnly = false,
+  readOnlyHint,
 }: {
   title: string;
   sourceType: RecordingSourceType;
@@ -33,6 +35,9 @@ export function AudioMixerCard({
   onGain: (gain: number) => void;
   onProperties: () => void;
   onRemove: () => void;
+  /** Mirror the live mix without owning it: meters stay live, every control is inert. */
+  readOnly?: boolean;
+  readOnlyHint?: string;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   /** Visual-only monitor arm — does not route, capture, persist, or affect mix. */
@@ -67,7 +72,7 @@ export function AudioMixerCard({
         <VerticalAudioFader
           label={`${title} volume`}
           gain={gain}
-          disabled={!enabled}
+          disabled={readOnly || !enabled}
           onGain={onGain}
         />
       </div>
@@ -75,8 +80,15 @@ export function AudioMixerCard({
         <button
           type="button"
           className={`studio-icon-btn studio-mix-tool${enabled ? " is-live" : ""}`}
-          title={enabled ? "Mute" : "Unmute"}
-          onClick={() => onToggle(!enabled)}
+          // Read-only: a state indicator, not a control. The Clips tab shows what the live mix is
+          // doing; changing it belongs to the Recordings tab and to Settings.
+          disabled={readOnly}
+          aria-disabled={readOnly}
+          title={readOnly ? readOnlyHint : enabled ? "Mute" : "Unmute"}
+          onClick={() => {
+            if (readOnly) return;
+            onToggle(!enabled);
+          }}
         >
           {enabled ? <IconSpeaker size={15} /> : <IconSpeakerOff size={15} />}
         </button>
@@ -110,8 +122,14 @@ export function AudioMixerCard({
             enabled,
             onAudioSettings: () => navigate("/settings?section=audio"),
             onProperties,
-            onToggleMute: () => onToggle(!enabled),
-            onRemove,
+            onToggleMute: () => {
+              if (readOnly) return;
+              onToggle(!enabled);
+            },
+            onRemove: () => {
+              if (readOnly) return;
+              onRemove();
+            },
           })}
         />
       ) : null}

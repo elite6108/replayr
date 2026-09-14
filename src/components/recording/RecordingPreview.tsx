@@ -105,6 +105,7 @@ export function RecordingPreview({
           background="dark"
           safeZone={false}
           quiet={quiet}
+          tune={composedTap ? "none" : previewVisuals.filter}
           plate={
             <PreviewCaptureLayer
               mode={previewMode}

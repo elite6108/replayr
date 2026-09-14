@@ -16,6 +16,9 @@
 .studio-page-head {
   flex: 0 0 auto;
   margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .studio-page-head h1 {
@@ -23,6 +26,45 @@
   font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.04em;
+}
+
+/* Recordings | Clips. Two studios over one workspace shell. */
+.studio-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.studio-tab {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  padding: 5px 14px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted, #9aa3ad);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.studio-tab:hover {
+  color: var(--text, #e9edf1);
+}
+
+.studio-tab.is-active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text, #e9edf1);
+}
+
+.studio-tab:focus-visible {
+  outline: 2px solid var(--accent, #6aa6ff);
+  outline-offset: 1px;
 }
 
 .record-workspace {

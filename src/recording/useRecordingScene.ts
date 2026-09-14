@@ -1,42 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { AppSettings, RecordingVisualSettings, WebcamSettings } from "../types/settings";
 import { useSettingsStore } from "../stores/settingsStore";
-import { useToastStore } from "../stores/toastStore";
 import {
   applySettingsFlags,
-  clampCrop,
-  createSource,
-  findSource,
   findSourceByType,
-  isPrimaryCapture,
-  nextOrder,
   overlayToVisuals,
   persistScene,
-  removeSource,
-  replacePrimary,
-  sceneEquals,
-  setSourceEnabled,
   type RecordingOutputMode,
   type RecordingScene,
   type RecordingSource,
-  type RecordingSourceType,
-  type ScenePresetId,
-  type SourceCrop,
-  type SourceTransform,
-  updateSource,
 } from "./scene";
-import {
-  activeSceneOf,
-  createScene,
-  deleteScene,
-  duplicateScene,
-  loadOrMigrateLibrary,
-  persistLibrary,
-  renameScene,
-  replaceActive,
-  switchScene,
-  type RecordingSceneLibrary,
-} from "./sceneLibrary";
+import { loadOrMigrateLibrary, persistLibrary } from "./sceneLibrary";
+import { useSceneStudio, type SceneStudioAdapter } from "./useSceneStudio";
+
+type WriteSettings = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
+
+/** Settings keys the Recordings studio owns, in both directions. The Clips studio owns none. */
+const RECORDING_INBOUND_KEYS = [
+  "webcam",
+  "micEnabled",
+  "gameAudioEnabled",
+  "systemAudioEnabled",
+  "recordingVisuals",
+] as const satisfies readonly (keyof AppSettings)[];
 
 function webcamFromScene(settings: WebcamSettings, source: RecordingSource | undefined): WebcamSettings {
   if (!source) return { ...settings, enabled: false };
@@ -56,249 +42,81 @@ function visualsFromOverlay(source: RecordingSource | undefined, fallback: Recor
 
 export function useRecordingScene() {
   const settings = useSettingsStore((state) => state.settings);
-  const update = useSettingsStore((state) => state.update);
-  const showToast = useToastStore((state) => state.show);
-  const [library, setLibrary] = useState<RecordingSceneLibrary>(() =>
-    loadOrMigrateLibrary(useSettingsStore.getState().settings),
+  // `onCommitted` needs the studio's own `writeSettings`, which does not exist until after the
+  // adapter is built. The ref closes that loop; it is only read from event handlers.
+  const writeSettingsRef = useRef<WriteSettings | null>(null);
+
+  const adapter: SceneStudioAdapter = useMemo(
+    () => ({
+      load: () => loadOrMigrateLibrary(useSettingsStore.getState().settings),
+      persist: persistLibrary,
+      persistActive: persistScene,
+      onCommitted: (next, previous) => {
+        const write = writeSettingsRef.current;
+        if (write) syncSettingsFromScene(next, previous, write);
+      },
+      inbound: applySettingsFlags,
+      inboundKeys: RECORDING_INBOUND_KEYS,
+      inboundDeps: [
+        settings.webcam.enabled,
+        settings.webcam.deviceId,
+        settings.webcam.defaultShape,
+        settings.micEnabled,
+        settings.gameAudioEnabled,
+        settings.systemAudioEnabled,
+        settings.recordingVisuals,
+      ],
+    }),
+    [
+      settings.webcam.enabled,
+      settings.webcam.deviceId,
+      settings.webcam.defaultShape,
+      settings.micEnabled,
+      settings.gameAudioEnabled,
+      settings.systemAudioEnabled,
+      settings.recordingVisuals,
+    ],
   );
-  const scene = activeSceneOf(library);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const skipInbound = useRef(0);
-  const libraryRef = useRef(library);
-  const sceneRef = useRef(scene);
-  libraryRef.current = library;
-  sceneRef.current = scene;
 
-  useEffect(() => {
-    persistLibrary(library);
-    persistScene(scene);
-  }, [library, scene]);
+  const studio = useSceneStudio(adapter);
+  writeSettingsRef.current = studio.writeSettings;
 
-  useEffect(() => {
-    if (skipInbound.current > 0) {
-      skipInbound.current -= 1;
-      return;
-    }
-    setLibrary((prev) => {
-      const current = activeSceneOf(prev);
-      const nextScene = applySettingsFlags(current, settings);
-      if (sceneEquals(current, nextScene)) return prev;
-      return replaceActive(prev, nextScene);
-    });
-  }, [
-    settings.webcam.enabled,
-    settings.webcam.deviceId,
-    settings.webcam.defaultShape,
-    settings.micEnabled,
-    settings.gameAudioEnabled,
-    settings.systemAudioEnabled,
-    settings.recordingVisuals,
-  ]);
-
-  const writeSettings = useCallback(
-    async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
-      const inbound =
-        key === "webcam" ||
-        key === "micEnabled" ||
-        key === "gameAudioEnabled" ||
-        key === "systemAudioEnabled" ||
-        key === "recordingVisuals";
-      try {
-        if (inbound) skipInbound.current += 1;
-        await update(key, value);
-      } catch (caught) {
-        if (inbound) skipInbound.current = Math.max(0, skipInbound.current - 1);
-        showToast(caught instanceof Error ? caught.message : "Could not save that setting.");
-      }
+  const { commit, scene } = studio;
+  const setOutputMode = useCallback(
+    (outputMode: RecordingOutputMode) => {
+      commit({ ...scene, outputMode });
     },
-    [showToast, update],
+    [commit, scene],
   );
-
-  const writeLibrary = useCallback((next: RecordingSceneLibrary, previous = sceneRef.current) => {
-    const clean = next;
-    persistLibrary(clean);
-    setLibrary(clean);
-    const upcoming = activeSceneOf(clean);
-    syncSettingsFromScene(upcoming, previous, writeSettings);
-  }, [writeSettings]);
-
-  const commit = useCallback(
-    (next: RecordingScene, previous = sceneRef.current) => {
-      writeLibrary(replaceActive(libraryRef.current, next), previous);
-    },
-    [writeLibrary],
-  );
-
-  const patchSource = useCallback(
-    (id: string, patch: Parameters<typeof updateSource>[2]) => {
-      commit(updateSource(sceneRef.current, id, patch));
-    },
-    [commit],
-  );
-
-  const toggleSource = useCallback(
-    (id: string, enabled: boolean) => {
-      commit(setSourceEnabled(sceneRef.current, id, enabled));
-    },
-    [commit],
-  );
-
-  const addSource = useCallback(
-    (type: RecordingSourceType, extra?: { settings?: Record<string, unknown>; name?: string }) => {
-      const current = sceneRef.current;
-      if (type === "window" || type === "browser" || type === "captureCard" || type === "videoFile" || type === "audioFile") {
-        return null;
-      }
-      if (isPrimaryCapture(type) && (type === "game" || type === "display")) {
-        const next = replacePrimary(current, type);
-        const added = findSourceByType(next, type);
-        commit(next);
-        if (added) setSelectedId(added.id);
-        return added?.id ?? null;
-      }
-      const created = createSource(type, {
-        order: nextOrder(current.sources),
-        enabled: true,
-        locked: type === "replayrOverlay",
-        name: extra?.name,
-        settings: extra?.settings,
-        webcam: useSettingsStore.getState().settings.webcam,
-      });
-      const uniqueExisting = current.sources.find((source) => source.type === type && type !== "image" && type !== "text");
-      if (uniqueExisting) {
-        setSelectedId(uniqueExisting.id);
-        return uniqueExisting.id;
-      }
-      commit({ ...current, sources: [...current.sources, created] });
-      setSelectedId(created.id);
-      return created.id;
-    },
-    [commit],
-  );
-
-  const deleteSource = useCallback(
-    (id: string) => {
-      const next = removeSource(sceneRef.current, id);
-      commit(next);
-      setSelectedId((current) => (current === id ? null : current));
-    },
-    [commit],
-  );
-
-  const setOutputMode = useCallback((outputMode: RecordingOutputMode) => {
-    commit({ ...sceneRef.current, outputMode });
-  }, [commit]);
-
-  const setTransform = useCallback((id: string, transform: SourceTransform) => {
-    setLibrary((prev) => {
-      const next = replaceActive(prev, updateSource(activeSceneOf(prev), id, { transform }));
-      persistLibrary(next);
-      return next;
-    });
-  }, []);
-
-  const setCrop = useCallback((id: string, crop: SourceCrop) => {
-    setLibrary((prev) => {
-      const next = replaceActive(prev, updateSource(activeSceneOf(prev), id, { crop: clampCrop(crop) }));
-      persistLibrary(next);
-      return next;
-    });
-  }, []);
-
-  const selectScene = useCallback(
-    (id: string) => {
-      const previous = sceneRef.current;
-      const next = switchScene(libraryRef.current, id);
-      writeLibrary(next, previous);
-      setSelectedId(primaryOrFirst(activeSceneOf(next)));
-    },
-    [writeLibrary],
-  );
-
-  const addScene = useCallback(
-    (name: string, template: ScenePresetId | null) => {
-      const result = createScene(libraryRef.current, useSettingsStore.getState().settings, { name, template });
-      if ("error" in result) {
-        showToast(result.error);
-        return;
-      }
-      writeLibrary(result, sceneRef.current);
-      setSelectedId(primaryOrFirst(activeSceneOf(result)));
-    },
-    [showToast, writeLibrary],
-  );
-
-  const renameActiveOrId = useCallback(
-    (id: string, name: string) => {
-      writeLibrary(renameScene(libraryRef.current, id, name), sceneRef.current);
-    },
-    [writeLibrary],
-  );
-
-  const removeScene = useCallback(
-    (id: string) => {
-      const result = deleteScene(libraryRef.current, id);
-      if ("error" in result) {
-        showToast(result.error);
-        return;
-      }
-      writeLibrary(result, sceneRef.current);
-      setSelectedId(primaryOrFirst(activeSceneOf(result)));
-    },
-    [showToast, writeLibrary],
-  );
-
-  const copyScene = useCallback(
-    (id: string) => {
-      const result = duplicateScene(libraryRef.current, id);
-      if ("error" in result) {
-        showToast(result.error);
-        return;
-      }
-      writeLibrary(result, sceneRef.current);
-      setSelectedId(primaryOrFirst(activeSceneOf(result)));
-    },
-    [showToast, writeLibrary],
-  );
-
-  const selected = findSource(scene, selectedId) ?? null;
 
   return {
-    scene,
-    scenes: library.scenes,
-    selected,
-    selectedId,
-    setSelectedId,
-    commit,
-    patchSource,
-    toggleSource,
-    addSource,
-    deleteSource,
-    setTransform,
-    setCrop,
-    writeSettings,
+    scene: studio.scene,
+    scenes: studio.scenes,
+    selected: studio.selected,
+    selectedId: studio.selectedId,
+    setSelectedId: studio.setSelectedId,
+    commit: studio.commit,
+    patchSource: studio.patchSource,
+    toggleSource: studio.toggleSource,
+    addSource: studio.addSource,
+    deleteSource: studio.deleteSource,
+    setTransform: studio.setTransform,
+    setCrop: studio.setCrop,
+    writeSettings: studio.writeSettings,
     setOutputMode,
-    selectScene,
-    addScene,
-    renameScene: renameActiveOrId,
-    removeScene,
-    copyScene,
+    selectScene: studio.selectScene,
+    addScene: studio.addScene,
+    renameScene: studio.renameScene,
+    removeScene: studio.removeScene,
+    copyScene: studio.copyScene,
   };
 }
 
-function primaryOrFirst(scene: RecordingScene): string | null {
-  return (
-    findSourceByType(scene, "game")?.id ??
-    findSourceByType(scene, "display")?.id ??
-    scene.sources[0]?.id ??
-    null
-  );
-}
-
+/** The Recordings studio pushes scene state back into global AppSettings. Clips must not. */
 function syncSettingsFromScene(
   next: RecordingScene,
   previous: RecordingScene,
-  writeSettings: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>,
+  writeSettings: WriteSettings,
 ) {
   const current = useSettingsStore.getState().settings;
   const prevWebcam = findSourceByType(previous, "webcam");

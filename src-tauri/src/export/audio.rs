@@ -376,6 +376,102 @@ pub(crate) fn probe_copyable_audio(path: &Path) -> Option<IMFMediaType> {
     Some(media_type)
 }
 
+/// Streams compressed AAC into an [`MfWriter`] *alongside* the video encode.
+///
+/// [`remux_aac`] writes the whole track after the last video frame, which is safe only when the
+/// sink has throttling disabled. Offline writers keep throttling on (see `MfWriter::create_ex`),
+/// and a sink with an audio stream that receives nothing will block `WriteSample` on video once
+/// the two streams drift apart — deadlocking the encoder. Feed this as the video clock advances
+/// and the streams never drift.
+///
+/// Same role as [`AacFeeder`], which does this for the direct `H264Mp4Mux` on the GPU path.
+pub(crate) struct AacSinkFeeder {
+    reader: IMFSourceReader,
+    end_hns: i64,
+    previous: Option<i64>,
+    /// How far the audio stream has been advanced, in the sink's own timeline.
+    audio_hns: i64,
+    done: bool,
+}
+
+impl AacSinkFeeder {
+    pub(crate) fn open(path: &Path, start_hns: i64, end_hns: i64) -> Result<Self, String> {
+        let reader = open_copy_reader(path)?;
+        if start_hns > 0 {
+            unsafe {
+                let position = PROPVARIANT::from(start_hns);
+                reader
+                    .SetCurrentPosition(&GUID::zeroed(), &position)
+                    .map_err(|err| format!("Could not seek compose audio: {err}"))?;
+            }
+        }
+        Ok(Self {
+            reader,
+            end_hns,
+            previous: None,
+            audio_hns: 0,
+            done: false,
+        })
+    }
+
+    pub(crate) fn is_done(&self) -> bool {
+        self.done
+    }
+
+    /// Write AAC packets until the audio clock reaches `target_hns` or the source runs out.
+    pub(crate) fn feed_until(
+        &mut self,
+        writer: &mut MfWriter,
+        target_hns: i64,
+    ) -> Result<(), String> {
+        while !self.done && self.audio_hns < target_hns {
+            let mut flags = 0_u32;
+            let mut timestamp = 0_i64;
+            let mut sample: Option<IMFSample> = None;
+            unsafe {
+                self.reader
+                    .ReadSample(
+                        MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32,
+                        0,
+                        None,
+                        Some(&mut flags),
+                        Some(&mut timestamp),
+                        Some(&mut sample),
+                    )
+                    .map_err(|err| format!("Could not read compose audio: {err}"))?;
+            }
+            if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 || timestamp >= self.end_hns {
+                self.done = true;
+                break;
+            }
+            let Some(sample) = sample else {
+                continue;
+            };
+            let from_sample = unsafe { sample.GetSampleDuration().unwrap_or(0) };
+            let from_delta = self
+                .previous
+                .map(|last: i64| timestamp.saturating_sub(last))
+                .unwrap_or(0);
+            self.previous = Some(timestamp);
+            let duration = if from_sample >= 10_000 {
+                from_sample
+            } else if from_delta >= 10_000 {
+                from_delta
+            } else {
+                10_000_000 / 48
+            };
+            writer.write_copied_audio(&sample, duration)?;
+            self.audio_hns += duration.max(10_000);
+        }
+        Ok(())
+    }
+
+    /// Drain whatever is left after the last video frame.
+    pub(crate) fn finish(&mut self, writer: &mut MfWriter) -> Result<(), String> {
+        self.feed_until(writer, i64::MAX)
+    }
+}
+
 pub(crate) fn remux_aac(
     writer: &mut MfWriter,
     path: &Path,

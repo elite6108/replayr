@@ -3,6 +3,7 @@ import type { AppSettings, CloudUploadWhen, PreviewQuality, CaptureResolution } 
 import { DEFAULT_SETTINGS, parseAudioChannelMode } from "../types/settings";
 import { parseThemePreference, persistThemePreference, readStoredThemePreference } from "../theme/theme";
 import { sanitizeRecordingVisuals } from "../recording/visualFilters";
+import { sanitizeClipStudio } from "../recording/clipLibrary";
 import { createDesktopShortcut, getAllSettings, getDefaultSaveLocation, removeDesktopShortcut, setSetting, setSettings } from "../services/tauri";
 import { enable as enableAutostart, disable as disableAutostart } from "@tauri-apps/plugin-autostart";
 
@@ -113,6 +114,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
       mirrorRecording: settings.webcam?.mirrorRecording ?? false,
     },
     recordingVisuals: sanitizeRecordingVisuals(settings.recordingVisuals),
+    clipStudio: sanitizeClipStudio(settings.clipStudio),
     previewQuality: parsePreviewQuality(settings.previewQuality),
     theme: parseThemePreference(settings.theme),
   };

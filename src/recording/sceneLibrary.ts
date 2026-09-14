@@ -47,34 +47,74 @@ export function replaceActive(library: RecordingSceneLibrary, scene: RecordingSc
   });
 }
 
-export function persistLibrary(library: RecordingSceneLibrary): void {
+/**
+ * Where a scene library is read from and written to.
+ *
+ * Everything else in this module is pure, so the only thing that separates the Recordings
+ * studio from the Clips studio is this adapter: Recordings persists to localStorage and mirrors
+ * the active scene into the legacy single-scene key, Clips persists into the settings document
+ * (so the F10 hotkey and tray can read it) and mirrors nothing.
+ */
+export type SceneLibraryStore = {
+  read(): RecordingSceneLibrary | null;
+  write(library: RecordingSceneLibrary): void;
+  /** Legacy single-scene mirror. Recordings only — clips must never write that key. */
+  mirrorActive?: (scene: RecordingScene) => void;
+  /** Presets to seed an empty library with. Clips pass `[]`. */
+  factories?: ScenePresetId[];
+};
+
+export const RECORDING_LIBRARY_STORE: SceneLibraryStore = {
+  read: loadStoredLibrary,
+  write(library) {
+    try {
+      localStorage.setItem(RECORDING_SCENE_LIBRARY_KEY, JSON.stringify(library));
+    } catch {
+      /* private mode */
+    }
+  },
+  mirrorActive: persistScene,
+  factories: FACTORY_PRESETS,
+};
+
+export function persistLibraryTo(store: SceneLibraryStore, library: RecordingSceneLibrary): void {
   const clean = sanitizeLibrary(library);
-  try {
-    localStorage.setItem(RECORDING_SCENE_LIBRARY_KEY, JSON.stringify(clean));
-  } catch {
-    /* private mode */
-  }
-  persistScene(activeSceneOf(clean));
+  store.write(clean);
+  store.mirrorActive?.(activeSceneOf(clean));
 }
 
-export function loadOrMigrateLibrary(settings: AppSettings): RecordingSceneLibrary {
-  const stored = loadStoredLibrary();
+export function loadOrMigrateLibraryFrom(
+  store: SceneLibraryStore,
+  settings: AppSettings,
+  migrateLegacy?: () => RecordingScene | null,
+): RecordingSceneLibrary {
+  const stored = store.read();
   if (stored) return stored;
-  const migrated = loadStoredScene();
+  const migrated = migrateLegacy?.() ?? null;
   if (migrated) {
     const seeded = seedMissingFactories(
       { version: LIBRARY_VERSION, activeId: migrated.id, scenes: [migrated] },
       settings,
+      store.factories,
     );
-    persistLibrary(seeded);
+    persistLibraryTo(store, seeded);
     return seeded;
   }
   const created = seedMissingFactories(
     { version: LIBRARY_VERSION, activeId: "", scenes: [] },
     settings,
+    store.factories,
   );
-  persistLibrary(created);
+  persistLibraryTo(store, created);
   return created;
+}
+
+export function persistLibrary(library: RecordingSceneLibrary): void {
+  persistLibraryTo(RECORDING_LIBRARY_STORE, library);
+}
+
+export function loadOrMigrateLibrary(settings: AppSettings): RecordingSceneLibrary {
+  return loadOrMigrateLibraryFrom(RECORDING_LIBRARY_STORE, settings, loadStoredScene);
 }
 
 export function loadActiveScene(settings: AppSettings): RecordingScene {
@@ -194,10 +234,14 @@ function loadStoredLibrary(): RecordingSceneLibrary | null {
   }
 }
 
-function seedMissingFactories(library: RecordingSceneLibrary, settings: AppSettings): RecordingSceneLibrary {
+function seedMissingFactories(
+  library: RecordingSceneLibrary,
+  settings: AppSettings,
+  factories: ScenePresetId[] = FACTORY_PRESETS,
+): RecordingSceneLibrary {
   const names = new Set(library.scenes.map((scene) => scene.name.toLowerCase()));
   const scenes = [...library.scenes];
-  for (const preset of FACTORY_PRESETS) {
+  for (const preset of factories) {
     if (scenes.length >= MAX_SCENE_LIBRARY) break;
     const name = presetSceneName(preset);
     if (names.has(name.toLowerCase())) continue;

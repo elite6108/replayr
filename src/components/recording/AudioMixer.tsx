@@ -14,6 +14,8 @@ export function AudioMixer({
   onSave,
   onProperties,
   onRemove,
+  readOnly = false,
+  mirrorOf,
 }: {
   scene: RecordingScene;
   settings: AppSettings;
@@ -26,10 +28,22 @@ export function AudioMixer({
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onProperties: (sourceId: string) => void;
   onRemove: (sourceId: string) => void;
+  /** Show the live mix without owning it: meters stay live, every control is inert. */
+  readOnly?: boolean;
+  /**
+   * Take per-channel enabled state from global settings rather than from scene sources. The
+   * Clips tab mirrors the live mix — which is exactly what micEnabled / gameAudioEnabled /
+   * systemAudioEnabled describe — because a clip scene owns no audio sources of its own.
+   */
+  mirrorOf?: { mic: boolean; game: boolean; desktop: boolean };
 }) {
   const mic = findSourceByType(scene, "microphone");
   const game = findSourceByType(scene, "gameAudio");
   const desktop = findSourceByType(scene, "desktopAudio");
+  const micOn = mirrorOf ? mirrorOf.mic : Boolean(mic?.enabled);
+  const gameOn = mirrorOf ? mirrorOf.game : Boolean(game?.enabled);
+  const desktopOn = mirrorOf ? mirrorOf.desktop : Boolean(desktop?.enabled);
+  const readOnlyHint = "Mixer is live for Instant Replay. Change it on the Recordings tab or in Settings.";
 
   return (
     <section className="studio-panel studio-mixer">
@@ -41,9 +55,11 @@ export function AudioMixer({
           title="Microphone"
           sourceType="microphone"
           selected={selectedId === mic?.id}
-          enabled={Boolean(mic?.enabled)}
+          enabled={micOn}
           peak={levels.micPeak}
           gain={settings.micGain}
+          readOnly={readOnly}
+          readOnlyHint={readOnlyHint}
           onSelect={() => onSelect(mic?.id ?? null)}
           onToggle={onToggleMic}
           onGain={(gain) => onSave("micGain", gain)}
@@ -58,9 +74,11 @@ export function AudioMixer({
           title="Desktop Audio"
           sourceType="desktopAudio"
           selected={selectedId === desktop?.id}
-          enabled={Boolean(desktop?.enabled)}
+          enabled={desktopOn}
           peak={levels.desktopPeak}
           gain={settings.systemAudioGain}
+          readOnly={readOnly}
+          readOnlyHint={readOnlyHint}
           onSelect={() => onSelect(desktop?.id ?? null)}
           onToggle={onToggleDesktop}
           onGain={(gain) => onSave("systemAudioGain", gain)}
@@ -75,9 +93,11 @@ export function AudioMixer({
           title="Game Audio"
           sourceType="gameAudio"
           selected={selectedId === game?.id}
-          enabled={Boolean(game?.enabled)}
+          enabled={gameOn}
           peak={levels.gamePeak}
           gain={settings.gameAudioGain}
+          readOnly={readOnly}
+          readOnlyHint={readOnlyHint}
           onSelect={() => onSelect(game?.id ?? null)}
           onToggle={onToggleGame}
           onGain={(gain) => onSave("gameAudioGain", gain)}

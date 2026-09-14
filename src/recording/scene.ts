@@ -358,7 +358,7 @@ export function primaryCapture(scene: RecordingScene): RecordingSource | undefin
     ?? scene.sources.find((source) => isPrimaryCapture(source.type));
 }
 
-function capabilityFor(type: RecordingSourceType): RecordingSourceCapability {
+export function capabilityFor(type: RecordingSourceType): RecordingSourceCapability {
   if (type === "webcam") return "sidecar";
   if (type === "image" || type === "text" || type === "replayrOverlay") return "preview_only";
   if (type === "window" || type === "browser" || type === "captureCard" || type === "videoFile" || type === "audioFile") {

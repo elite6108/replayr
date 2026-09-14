@@ -805,7 +805,8 @@ impl RecordingCompositor {
     }
 }
 
-fn hud_rect(
+/// Shared with the offline clip burn so a burned HUD lands where the preview showed it.
+pub(crate) fn hud_rect(
     id: &str,
     w: u32,
     h: u32,
@@ -851,6 +852,15 @@ fn wall_clock_stamp() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+    format_wall_clock(secs)
+}
+
+/// `YYYY-MM-DD HH:MM:SS` from Unix seconds.
+///
+/// Split out of `wall_clock_stamp` so the offline clip burn can stamp *capture* time per frame.
+/// Calling `SystemTime::now()` there would print the save time creeping forward across a
+/// multi-minute encode instead of the moment the footage was captured.
+pub(crate) fn format_wall_clock(secs: u64) -> String {
     let days = secs / 86_400;
     let tod = secs % 86_400;
     let hour = tod / 3600;

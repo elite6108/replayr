@@ -637,8 +637,15 @@ mod windows_impl {
         game_id: Option<String>,
         title: String,
         webcam_layout: Option<crate::overlay::OverlayLayout>,
+        burned: bool,
     ) -> AppResult<String> {
-        let preview = state.shared.last_still.lock().ok().and_then(|slot| slot.clone());
+        // `last_still` is a raw gameplay frame, so a burned clip's thumbnail would show none of
+        // its overlays. Passing None makes `library::insert` decode the composed file instead.
+        let preview = if burned {
+            None
+        } else {
+            state.shared.last_still.lock().ok().and_then(|slot| slot.clone())
+        };
         crate::library::insert(
             app,
             path,
@@ -1113,6 +1120,7 @@ mod windows_impl {
                 game_id,
                 title.clone(),
                 webcam_layout,
+                false,
             )?;
             emit_saved(app, &output, "recording", local_id);
             let status = RecordingStatus {
@@ -1153,6 +1161,7 @@ mod windows_impl {
             session.game_id,
             session.title.clone(),
             session.webcam_layout,
+            false,
         )?;
         emit_saved(app, &session.path, "recording", local_id);
         let status = RecordingStatus {
@@ -1363,7 +1372,44 @@ mod windows_impl {
         }
     }
 
+    /// Everything `finish_clip` needs once the replay ring is out of the picture.
+    struct StagedClip {
+        settings: crate::settings::AppSettings,
+        output: PathBuf,
+        clip_ms: u64,
+        width: u32,
+        height: u32,
+        fps: u32,
+        game_id: Option<String>,
+        title: String,
+        placement: crate::overlay_notification::PlacementHint,
+        /// Unix seconds at the clip's first frame, for the burned HUD timestamp.
+        started_unix_secs: u64,
+    }
+
+    /// Save Clip in two halves.
+    ///
+    /// `stage_clip` is the part that touches live capture state, so it runs under `lifecycle`.
+    /// `finish_clip` only touches a file already on disk plus the database, so it must NOT hold
+    /// `lifecycle` — overlay burning lands there in a later merge, and a multi-minute burn under
+    /// that lock would block `start`, `stop`, `sync_replay`, and `sync_replay_after_settings`.
+    ///
+    /// `exporting` still spans both halves (see `save_clip` above), so a second Save Clip is
+    /// still rejected with "Already saving a clip."
     fn save_clip_inner(app: &AppHandle, state: &RecordingState) -> AppResult<String> {
+        let staged = {
+            let _lifecycle = state.lifecycle.try_lock().map_err(|_| {
+                AppError::Message(
+                    "Capture is busy saving or restarting. Try saving the clip again shortly."
+                        .into(),
+                )
+            })?;
+            stage_clip(app, state)?
+        };
+        finish_clip(app, state, staged)
+    }
+
+    fn stage_clip(app: &AppHandle, state: &RecordingState) -> AppResult<StagedClip> {
         let settings = load_settings(app)?;
         let save = save_dir(app, &settings)?;
         crate::disk::ensure_free_space(&save, settings.min_free_disk_bytes)?;
@@ -1421,7 +1467,13 @@ mod windows_impl {
             let _ = std::fs::remove_file(&output);
             return Err(AppError::Message(err));
         }
-        camera.save_overlap_sidecar(&output, window.start_hns, window.end_hns);
+        // Turning the webcam off on the clip scene means "no sidecar for this save". The rotate
+        // above stays unconditional: it keeps the camera ring healthy for the *next* save.
+        if crate::clip_scene::webcam_enabled(&settings) {
+            camera.save_overlap_sidecar(&output, window.start_hns, window.end_hns);
+        } else {
+            tracing::info!("clip scene has the webcam off; skipping the sidecar for this save");
+        }
         let clip_ms = window.duration_ms();
         tracing::info!(
             session_window_duration_hns = window.duration_hns(),
@@ -1429,25 +1481,156 @@ mod windows_impl {
             segments = window.paths.len(),
             "instant replay clip duration from session window"
         );
-        let local_id = insert_local_clip(
-            app,
-            state,
-            &output,
+        // The window we just saved ends "now", so it started `clip_ms` ago. The burned HUD clock
+        // counts forward from here rather than from SystemTime::now() per frame, which would
+        // stamp the save time creeping forward across a long encode.
+        let started_unix_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_secs())
+            .unwrap_or(0)
+            .saturating_sub(clip_ms / 1000);
+
+        Ok(StagedClip {
+            settings,
+            output,
             clip_ms,
             width,
             height,
             fps,
             game_id,
-            format!("{title} clip"),
-            None,
+            title,
+            placement,
+            started_unix_secs,
+        })
+    }
+
+    /// Runs without `lifecycle`. Nothing here reads live capture state: the gameplay file and
+    /// its sidecar are already written, `insert_local_clip` needs only `last_still` and the DB,
+    /// and the emits are pure. A concurrent start/stop restarts the ring, which this cannot see.
+    /// Re-encode `output` with the clip scene's overlays burned in, then swap it into place.
+    ///
+    /// Rename-aside rather than remove-then-rename: on Windows a failed second step in the
+    /// remove-first form leaves nothing recoverable, whereas this always has the original under
+    /// `*.clip-raw.mp4` until the swap succeeds.
+    ///
+    /// The final file keeps its original `clip-<stamp>.mp4` name so `webcam_sidecar_path` still
+    /// resolves and `attach_saved_sources` still finds the sidecar.
+    fn burn_clip_in_place(
+        output: &Path,
+        plan: &crate::clip_scene::ClipBurnPlan,
+        fps: u32,
+        clip_ms: u64,
+        width: u32,
+        height: u32,
+    ) -> Result<(), String> {
+        // Generous but finite: a CPU re-encode runs a few times slower than realtime, and the
+        // point of the deadline is only to stop a stalled Media Foundation call from holding the
+        // `exporting` flag forever. Past it the raw remux is kept and the clip still saves.
+        let timeout = std::time::Duration::from_secs(
+            (clip_ms / 1000).saturating_mul(8).clamp(180, 1_800),
+        );
+        let stem = output
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("clip");
+        let temp = output.with_file_name(format!("{stem}.clip-burn.mp4"));
+        let raw = output.with_file_name(format!("{stem}.clip-raw.mp4"));
+        let _ = std::fs::remove_file(&temp);
+        let _ = std::fs::remove_file(&raw);
+
+        let report = crate::export::compose_clip_scene_timed(
+            output,
+            &temp,
+            &plan.composition,
+            &plan.hud_clock,
+            fps,
+            width,
+            height,
+            timeout,
+        )
+        .map_err(|error| {
+            // A timed-out burn still owns `temp`; the orphan reaper deletes it once it lands.
+            error
+        })?;
+        let ok = std::fs::metadata(&temp)
+            .map(|meta| meta.is_file() && meta.len() > 0)
+            .unwrap_or(false);
+        if !ok || report.frames == 0 {
+            let _ = std::fs::remove_file(&temp);
+            return Err("The composed clip was empty.".into());
+        }
+
+        std::fs::rename(output, &raw).map_err(|err| err.to_string())?;
+        match std::fs::rename(&temp, output) {
+            Ok(()) => {
+                // Only now is the pre-burn file redundant; leaving it would store every clip twice.
+                let _ = std::fs::remove_file(&raw);
+                Ok(())
+            }
+            Err(err) => {
+                let _ = std::fs::rename(&raw, output);
+                let _ = std::fs::remove_file(&temp);
+                Err(format!("Could not replace the clip with the composed file: {err}"))
+            }
+        }
+    }
+
+    fn finish_clip(
+        app: &AppHandle,
+        state: &RecordingState,
+        staged: StagedClip,
+    ) -> AppResult<String> {
+        // An identity clip scene skips this entirely and Save Clip stays a pure remux, exactly as
+        // it behaved before the clip studio existed.
+        let mut burned = false;
+        match crate::clip_scene::burn_plan(&staged.settings, staged.started_unix_secs) {
+            Some(plan) => {
+                let _ = app.emit("clip-save", serde_json::json!({ "phase": "composing" }));
+                match burn_clip_in_place(
+                    &staged.output,
+                    &plan,
+                    staged.fps,
+                    staged.clip_ms,
+                    staged.width,
+                    staged.height,
+                ) {
+                    Ok(()) => burned = true,
+                    Err(error) => {
+                        // Never lose a saved clip over an overlay. Keep the raw remux and say so.
+                        tracing::warn!(%error, "clip overlay burn failed; keeping the raw remux");
+                        let _ = app.emit(
+                            "clip-save",
+                            serde_json::json!({ "phase": "overlays-skipped", "message": error }),
+                        );
+                    }
+                }
+            }
+            None => {
+                tracing::info!("clip scene is identity; saving the remux without a re-encode");
+            }
+        }
+
+        let webcam_layout = crate::clip_scene::webcam_layout(&staged.settings);
+        let local_id = insert_local_clip(
+            app,
+            state,
+            &staged.output,
+            staged.clip_ms,
+            staged.width,
+            staged.height,
+            staged.fps,
+            staged.game_id,
+            format!("{} clip", staged.title),
+            webcam_layout,
+            burned,
         )?;
-        emit_saved(app, &output, "clip", local_id);
+        emit_saved(app, &staged.output, "clip", local_id);
         crate::overlay_notification::notify_clip_saved(
             app,
-            placement,
-            Some(settings.replay_duration_seconds),
+            staged.placement,
+            Some(staged.settings.replay_duration_seconds),
         );
-        Ok(output.display().to_string())
+        Ok(staged.output.display().to_string())
     }
 
     pub fn screenshot(app: &AppHandle, state: &RecordingState) -> AppResult<String> {
@@ -1481,6 +1664,7 @@ mod windows_impl {
             game_id,
             format!("{title} screenshot"),
             None,
+            false,
         )?;
         emit_saved(app, &output, "screenshot", local_id);
         Ok(output.display().to_string())
@@ -1563,9 +1747,10 @@ pub fn stop(app: &AppHandle, state: &RecordingState) -> AppResult<RecordingStatu
 }
 
 pub fn save_clip(app: &AppHandle, state: &RecordingState) -> AppResult<String> {
-    // Preserve duplicate-save rejection rather than queueing multiple hotkeys.
-    let _lifecycle = state.lifecycle.try_lock()
-        .map_err(|_| AppError::Message("Capture is busy saving or restarting. Try saving the clip again shortly.".into()))?;
+    // Duplicate-save rejection still happens, one layer down: `windows_impl::save_clip` swaps
+    // the `exporting` flag, and `save_clip_inner` takes `lifecycle` for the staging half only.
+    // The lock is no longer held across the whole save so that the overlay burn added in a
+    // later merge cannot block start / stop / sync_replay for the length of a re-encode.
     windows_impl::save_clip(app, state)
 }
 

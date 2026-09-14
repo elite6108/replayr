@@ -222,6 +222,51 @@
   background: #050608;
 }
 
+/*
+  Base-filter colour grading — stage 2 of the composed pipeline in
+  src/recording/composedSemantics.ts. Values mirror `tune_for` in
+  src-tauri/src/recording_compositor/filters/mod.rs, which is what the live composed recorder
+  and the offline clip burn both apply:
+
+    contrast(1 + c)  saturate(1 + s)  hue-rotate(h * 180deg)
+
+  `brightness` is the one approximation: tune_for's term is additive (v += b * 255) while CSS
+  brightness() is multiplicative. At these magnitudes the difference is a couple of levels on
+  mid-grey, well under what the eye picks up in a side-by-side.
+
+  Applied to the gameplay plate only, never to the overlay layers above it — burned text and
+  images are not graded either.
+*/
+.preview-canvas[class*="tune-"] > .preview-capture,
+.preview-canvas[class*="tune-"] > .preview-mock,
+.preview-canvas[class*="tune-"] > .preview-dark {
+  transition: filter 120ms ease;
+}
+
+.preview-canvas.tune-bodycam > .preview-capture,
+.preview-canvas.tune-bodycam > .preview-mock,
+.preview-canvas.tune-bodycam > .preview-dark {
+  filter: brightness(0.96) contrast(1.12) saturate(0.82);
+}
+
+.preview-canvas.tune-dashcam > .preview-capture,
+.preview-canvas.tune-dashcam > .preview-mock,
+.preview-canvas.tune-dashcam > .preview-dark {
+  filter: brightness(1.04) contrast(1.08) saturate(0.94) hue-rotate(-7.2deg);
+}
+
+.preview-canvas.tune-vhs > .preview-capture,
+.preview-canvas.tune-vhs > .preview-mock,
+.preview-canvas.tune-vhs > .preview-dark {
+  filter: brightness(1.02) contrast(1.16) saturate(0.78) hue-rotate(5.4deg);
+}
+
+.preview-canvas.tune-cinematic > .preview-capture,
+.preview-canvas.tune-cinematic > .preview-mock,
+.preview-canvas.tune-cinematic > .preview-dark {
+  filter: brightness(0.94) contrast(1.22) saturate(0.88);
+}
+
 .preview-capture,
 .preview-mock,
 .preview-dark,

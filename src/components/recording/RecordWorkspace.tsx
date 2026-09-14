@@ -1,380 +1,48 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
-import { getCameraStatus } from "../../services/tauri";
-import { useRecordingStore } from "../../stores/recordingStore";
-import { useSettingsStore } from "../../stores/settingsStore";
-import { IDLE_CAMERA_STATUS, type CameraDevice, type CameraStatus } from "../../types/camera";
-import type { AppSettings } from "../../types/settings";
-import {
-  createSource,
-  findSourceByType,
-  nextOrder,
-  visualsToOverlaySettings,
-  type RecordingSourceType,
-} from "../../recording/scene";
-import { useDisplays } from "../../recording/display/useDisplays";
-import { useRecordingScene } from "../../recording/useRecordingScene";
-import { useStudioAudio } from "../../recording/useStudioAudio";
-import { AudioMixer } from "./AudioMixer";
-import { RecordControls } from "./RecordControls";
-import { IrEncoderDetails } from "../common/IrEncoderDetails";
-import { RecordingPreview } from "./RecordingPreview";
-import { SourceInspector } from "./SourceInspector";
-import { SourceList } from "./SourceList";
-import { SourcePropertiesDialog } from "./SourcePropertiesDialog";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { ClipStudio } from "./ClipStudio";
+import { RecordingStudio } from "./RecordingStudio";
+import { StudioShell, type StudioTab } from "./StudioShell";
 
-const DOCK_SPLIT_KEY = "replay.recordDockMaxPx";
-const DOCK_MIN_PX = 160;
-const DOCK_DEFAULT_PX = 200;
-const PREVIEW_MIN_PX = 320;
+const TAB_KEY = "replay.recordStudioTab";
 
-function clampDockPx(value: number, workspaceHeight = 0) {
-  const maxByWindow = Math.round(window.innerHeight * 0.28);
-  const maxByWorkspace =
-    workspaceHeight > PREVIEW_MIN_PX + DOCK_MIN_PX
-      ? workspaceHeight - PREVIEW_MIN_PX
-      : maxByWindow;
-  return Math.min(Math.max(Math.round(value), DOCK_MIN_PX), Math.min(maxByWindow, maxByWorkspace));
-}
-
-function dockPxFromPointer(workspace: HTMLElement, clientY: number) {
-  const rect = workspace.getBoundingClientRect();
-  const status = workspace.querySelector(".studio-status");
-  const statusH = status instanceof HTMLElement ? status.getBoundingClientRect().height : 0;
-  return clampDockPx(rect.bottom - statusH - 10 - clientY, rect.height);
-}
-
-function loadDockMaxPx(): number {
+function storedTab(): StudioTab {
   try {
-    const raw = localStorage.getItem(DOCK_SPLIT_KEY);
-    const value = raw == null ? DOCK_DEFAULT_PX : Number(raw);
-    if (!Number.isFinite(value)) return DOCK_DEFAULT_PX;
-    return clampDockPx(value);
+    return localStorage.getItem(TAB_KEY) === "clip" ? "clip" : "recording";
   } catch {
-    return DOCK_DEFAULT_PX;
-  }
-}
-
-function persistDockMaxPx(value: number) {
-  try {
-    localStorage.setItem(DOCK_SPLIT_KEY, String(Math.round(value)));
-  } catch {
-    /* private mode */
+    return "recording";
   }
 }
 
 export function RecordWorkspace() {
-  const settings = useSettingsStore((state) => state.settings);
-  const status = useRecordingStore((state) => state.status);
-  const replay = useRecordingStore((state) => state.replay);
-  const startingComposed = useRecordingStore((state) => state.startingComposed);
-  const compositionLocked = Boolean((status.active && status.composed) || startingComposed);
-  const {
-    scene,
-    scenes,
-    selected,
-    selectedId,
-    setSelectedId,
-    commit,
-    patchSource,
-    toggleSource,
-    addSource,
-    deleteSource,
-    setTransform,
-    setCrop,
-    selectScene,
-    addScene,
-    renameScene,
-    removeScene,
-    copyScene,
-    writeSettings,
-    setOutputMode,
-  } = useRecordingScene();
-  const [camera, setCamera] = useState<CameraStatus>(IDLE_CAMERA_STATUS);
-  const [propertiesId, setPropertiesId] = useState<string | null>(null);
-  const [dockMaxPx, setDockMaxPx] = useState(DOCK_DEFAULT_PX);
-  const workspaceRef = useRef<HTMLDivElement>(null);
-  const { displays, error: displayError } = useDisplays();
-  const levels = useStudioAudio();
-  const propertiesSource = scene.sources.find((source) => source.id === propertiesId) ?? null;
-  const quiet = status.active || replay.active || camera.rolling || camera.recording;
+  const [params, setParams] = useSearchParams();
+  const [tab, setTab] = useState<StudioTab>(() => (params.get("studio") === "clip" ? "clip" : storedTab()));
 
   useEffect(() => {
-    const height = workspaceRef.current?.getBoundingClientRect().height ?? 0;
-    setDockMaxPx(clampDockPx(loadDockMaxPx(), height));
-  }, []);
+    try {
+      localStorage.setItem(TAB_KEY, tab);
+    } catch {
+      /* private mode */
+    }
+  }, [tab]);
 
-  function beginDockSplit(event: ReactPointerEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    const workspace = event.currentTarget.closest(".record-workspace");
-    if (!(workspace instanceof HTMLElement)) return;
-
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setDockMaxPx(dockPxFromPointer(workspace, event.clientY));
-
-    const onMove = (moveEvent: PointerEvent) => {
-      setDockMaxPx(dockPxFromPointer(workspace, moveEvent.clientY));
-    };
-    const onUp = (upEvent: PointerEvent) => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      const next = dockPxFromPointer(workspace, upEvent.clientY);
-      setDockMaxPx(next);
-      persistDockMaxPx(next);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }
-
+  // The deep link from Settings is a one-shot: drop it once it has selected the tab so a later
+  // manual switch is not undone by a refresh.
   useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    void getCameraStatus().then((next) => {
-      if (!cancelled && next) setCamera(next);
-    });
-    void listen<{ status: CameraStatus }>("camera-status", (event) => {
-      if (event.payload?.status) setCamera(event.payload.status);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [settings.webcam.enabled, settings.webcam.deviceId, replay.active, status.active]);
-
-  async function addTypedSource(type: RecordingSourceType) {
-    if (compositionLocked) return;
-    if (type === "image") {
-      const selectedPath = await open({
-        multiple: false,
-        filters: [{ name: "Images", extensions: scene.outputMode === "composed" ? ["png", "jpg", "jpeg"] : ["png", "jpg", "jpeg", "webp", "gif"] }],
-      });
-      if (typeof selectedPath !== "string" || !selectedPath) return;
-      addSource("image", { settings: { path: selectedPath, opacity: 1 } });
-      return;
-    }
-    if (type === "replayrOverlay") {
-      addSource("replayrOverlay", { settings: visualsToOverlaySettings(settings.recordingVisuals) });
-      return;
-    }
-    addSource(type);
-  }
-
-  function toggleAudio(type: "microphone" | "gameAudio" | "desktopAudio", enabled: boolean) {
-    const existing = findSourceByType(scene, type);
-    if (existing) {
-      toggleSource(existing.id, enabled);
-      return;
-    }
-    if (!enabled) return;
-    const created = createSource(type, { order: nextOrder(scene.sources), enabled: true });
-    commit({ ...scene, sources: [...scene.sources, created] });
-  }
-
-  function saveWebcamDevice(device: CameraDevice) {
-    void writeSettings("webcam", { ...settings.webcam, deviceId: device.id, name: device.name });
-  }
+    if (!params.has("studio")) return;
+    const next = new URLSearchParams(params);
+    next.delete("studio");
+    setParams(next, { replace: true });
+  }, [params, setParams]);
 
   return (
-    <div className="record-studio">
-      <header className="studio-page-head">
-        <h1>Record</h1>
-      </header>
-      <div
-        ref={workspaceRef}
-        className="record-workspace"
-        style={{ ["--record-dock-max" as string]: `${dockMaxPx}px` }}
-      >
-        <SourceList
-          scene={scene}
-          scenes={scenes}
-          selectedId={selectedId}
-          levels={levels}
-          settingsGain={{ mic: settings.micGain, desktop: settings.systemAudioGain, game: settings.gameAudioGain }}
-          compositionLocked={compositionLocked}
-          onSelect={setSelectedId}
-          onToggle={(id, enabled) => {
-            if (compositionLocked) return;
-            toggleSource(id, enabled);
-          }}
-          onLock={(id, locked) => {
-            if (compositionLocked) return;
-            patchSource(id, { locked });
-          }}
-          onRemove={(id) => {
-            if (compositionLocked) return;
-            deleteSource(id);
-          }}
-          onAdd={(type) => void addTypedSource(type)}
-          onReorder={(next) => {
-            if (compositionLocked) return;
-            commit(next);
-          }}
-          onSelectScene={(id) => {
-            if (compositionLocked) return;
-            selectScene(id);
-          }}
-          onCreateScene={(name, template) => {
-            if (compositionLocked) return;
-            addScene(name, template);
-          }}
-          onRenameScene={(id, name) => {
-            if (compositionLocked) return;
-            renameScene(id, name);
-          }}
-          onDuplicateScene={(id) => {
-            if (compositionLocked) return;
-            copyScene(id);
-          }}
-          onDeleteScene={(id) => {
-            if (compositionLocked) return;
-            removeScene(id);
-          }}
-          onProperties={(id) => {
-            setSelectedId(id);
-            setPropertiesId(id);
-          }}
-          onRenameSource={(id, name) => {
-            if (compositionLocked) return;
-            patchSource(id, { name });
-          }}
-        />
-        <RecordingPreview
-          scene={scene}
-          webcam={{ ...settings.webcam, enabled: Boolean(findSourceByType(scene, "webcam")?.enabled) }}
-          visuals={settings.recordingVisuals}
-          camera={camera}
-          quiet={quiet}
-          selectedId={selectedId}
-          compositionLocked={compositionLocked}
-          onSelect={setSelectedId}
-          onTransform={(id, transform) => {
-            if (compositionLocked) return;
-            setTransform(id, transform);
-          }}
-          onCrop={(id, crop) => {
-            if (compositionLocked) return;
-            setCrop(id, crop);
-          }}
-        />
-        <SourceInspector
-          source={selected}
-          settings={settings}
-          camera={camera}
-          levels={levels}
-          compositionLocked={compositionLocked}
-          composed={scene.outputMode === "composed"}
-          displays={displays}
-          listError={displayError}
-          recording={status.active || startingComposed}
-          onSaveSetting={(key, value) => {
-            if (key === "microphoneId") {
-              if (status.active || startingComposed) return;
-              void writeSettings(key, value);
-              return;
-            }
-            if (compositionLocked) return;
-            void writeSettings(key, value);
-          }}
-          onPatch={(id, patch) => {
-            if (compositionLocked) return;
-            patchSource(id, patch);
-          }}
-          onToggle={(id, enabled) => {
-            if (compositionLocked) return;
-            toggleSource(id, enabled);
-          }}
-          onTransform={(id, transform) => {
-            if (compositionLocked) return;
-            setTransform(id, transform);
-          }}
-          onCrop={(id, crop) => {
-            if (compositionLocked) return;
-            setCrop(id, crop);
-          }}
-          onWebcamDevice={(device) => {
-            if (compositionLocked) return;
-            saveWebcamDevice(device);
-          }}
-        />
-        <button
-          type="button"
-          className="record-split"
-          aria-label="Resize preview and mixer"
-          title="Drag to resize preview"
-          onPointerDown={beginDockSplit}
-        />
-        <div className="record-dock">
-          <AudioMixer
-            scene={scene}
-            settings={settings}
-            selectedId={selectedId}
-            levels={levels}
-            onSelect={setSelectedId}
-            onToggleMic={(enabled) => toggleAudio("microphone", enabled)}
-            onToggleGame={(enabled) => toggleAudio("gameAudio", enabled)}
-            onToggleDesktop={(enabled) => toggleAudio("desktopAudio", enabled)}
-            onSave={(key, value) => void writeSettings(key, value)}
-            onProperties={(id) => {
-              setSelectedId(id);
-              setPropertiesId(id);
-            }}
-            onRemove={(id) => {
-              if (compositionLocked) return;
-              deleteSource(id);
-            }}
-          />
-          <RecordControls
-            settings={settings}
-            outputMode={scene.outputMode}
-            onOutputMode={setOutputMode}
-            onSave={(key, value) => void writeSettings(key, value)}
-          />
-        </div>
-        <footer className="studio-status">
-          <span>Output: {outputSizeLabel(settings.resolution)} · {scene.outputMode === "composed" ? "Composed" : "Legacy"}</span>
-          <span>{settings.fps} FPS</span>
-          <span>Selected video quality: {qualityLabel(settings.bitrate)}</span>
-          <IrEncoderDetails replay={replay} />
-        </footer>
-      </div>
-      {propertiesSource ? (
-        <SourcePropertiesDialog
-          source={propertiesSource}
-          settings={settings}
-          displays={displays}
-          listError={displayError}
-          recording={status.active || startingComposed}
-          onMonitorId={(monitorId) => {
-            if (status.active || startingComposed) return;
-            patchSource(propertiesSource.id, { settings: { monitorId } });
-          }}
-          onSaveSetting={(key, value) => {
-            if (key === "microphoneId" && (status.active || startingComposed)) return;
-            void writeSettings(key, value);
-          }}
-          onClose={() => setPropertiesId(null)}
-        />
-      ) : null}
-    </div>
+    <StudioShell tab={tab} onTab={setTab}>
+      {/*
+        Conditional render, never CSS-hidden. The capture preview tap is a global singleton in
+        Rust (`retain_preview` / `release_preview`), so two mounted previews would fight over it
+        and unmounting one would kill the other's feed.
+      */}
+      {tab === "clip" ? <ClipStudio /> : <RecordingStudio />}
+    </StudioShell>
   );
-}
-
-function outputSizeLabel(resolution: AppSettings["resolution"]) {
-  if (resolution === "auto") return "Auto (≤1080p)";
-  if (resolution === "1080p") return "1920 × 1080";
-  if (resolution === "1440p") return "2560 × 1440";
-  if (resolution === "4k") return "3840 × 2160";
-  if (resolution === "720p") return "1280 × 720";
-  return "Native";
-}
-
-function qualityLabel(bitrate: AppSettings["bitrate"]) {
-  if (bitrate === "low") return "Low Quality";
-  if (bitrate === "high") return "Maximum";
-  if (bitrate === "custom") return "Custom";
-  return "High Quality";
 }

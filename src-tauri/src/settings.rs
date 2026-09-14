@@ -129,6 +129,12 @@ pub struct AppSettings {
     /// Phase 3 may add optional per-filter params as siblings under this object.
     #[serde(default)]
     pub recording_visuals: RecordingVisualSettings,
+    /// Clip studio scene library. Read by the Save Clip path at save time so the F10 hotkey
+    /// and the tray work with the Record page closed. Layout and burn layers only: this never
+    /// changes what Instant Replay captures, and it is deliberately absent from `CAPTURE_KEYS`
+    /// so editing a clip scene cannot restart the buffer.
+    #[serde(default)]
+    pub clip_studio: ClipStudioSettings,
     /// Live Output Preview quality only. Does not change recording encode settings.
     #[serde(default = "default_preview_quality")]
     pub preview_quality: String,
@@ -176,6 +182,252 @@ impl RecordingVisualSettings {
             "bodycam" | "dashcam" | "vhs" | "cinematic" => self.filter.clone(),
             _ => default_visual_filter(),
         };
+    }
+}
+
+/// Mirrors `MAX_SCENE_LIBRARY` in src/recording/sceneLibrary.ts.
+pub const MAX_CLIP_SCENES: usize = 32;
+/// Mirrors `MAX_SOURCES` in src-tauri/src/recording_compositor/scene.rs.
+pub const MAX_CLIP_SOURCES: usize = 16;
+/// Mirrors `MAX_SCENE_NAME` in src/recording/scene.ts.
+const MAX_CLIP_SCENE_NAME: usize = 64;
+/// Mirrors `MAX_TEXT` / `MAX_PATH` in src-tauri/src/recording_compositor/scene.rs.
+const MAX_CLIP_TEXT: usize = 280;
+const MAX_CLIP_PATH: usize = 1024;
+
+/// Every `RecordingSourceType` in src/recording/scene.ts:17-31. Unknown kinds are dropped
+/// rather than defaulted, so a newer frontend cannot smuggle a source past this build.
+const CLIP_SOURCE_KINDS: [&str; 14] = [
+    "game",
+    "display",
+    "window",
+    "webcam",
+    "microphone",
+    "desktopAudio",
+    "gameAudio",
+    "image",
+    "text",
+    "replayrOverlay",
+    "browser",
+    "captureCard",
+    "videoFile",
+    "audioFile",
+];
+
+/// Normalized 0-1 rectangle. Hand-mirrored with `SerializedClipRect` in src/types/settings.ts.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipRect {
+    #[serde(default)]
+    pub x: f32,
+    #[serde(default)]
+    pub y: f32,
+    #[serde(default = "default_unit")]
+    pub w: f32,
+    #[serde(default = "default_unit")]
+    pub h: f32,
+}
+
+impl ClipRect {
+    pub const FULL: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        w: 1.0,
+        h: 1.0,
+    };
+
+    /// Mirrors `clampTransform` (src/recording/scene.ts:160).
+    fn sanitize_transform(&mut self) {
+        let w = clamp_unit(self.w, 0.06, 1.0);
+        let h = clamp_unit(self.h, 0.06, 1.0);
+        self.w = w;
+        self.h = h;
+        self.x = clamp_unit(self.x, 0.0, 1.0 - w);
+        self.y = clamp_unit(self.y, 0.0, 1.0 - h);
+    }
+
+    /// Mirrors `clampCrop` (src/recording/scene.ts:169), where `MIN_CROP` is 0.05.
+    fn sanitize_crop(&mut self) {
+        let w = clamp_unit(self.w, 0.05, 1.0);
+        let h = clamp_unit(self.h, 0.05, 1.0);
+        self.w = w;
+        self.h = h;
+        self.x = clamp_unit(self.x, 0.0, 1.0 - w);
+        self.y = clamp_unit(self.y, 0.0, 1.0 - h);
+    }
+}
+
+/// Hand-mirrored with `SerializedClipSource` in src/types/settings.ts.
+///
+/// `capability` and the scene's `outputMode` are deliberately not mirrored: the frontend
+/// re-derives both on load. Anything else a clip source carries must be added here, because
+/// `set_document` re-serializes the whole document and silently drops unmirrored fields.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipSceneSource {
+    #[serde(default)]
+    pub id: String,
+    #[serde(rename = "type", default)]
+    pub kind: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub locked: bool,
+    #[serde(default)]
+    pub order: i32,
+    #[serde(default)]
+    pub transform: Option<ClipRect>,
+    #[serde(default)]
+    pub crop: Option<ClipRect>,
+    /// Type-specific bag mirroring `RecordingSource.settings` (src/recording/scene.ts:85).
+    #[serde(default)]
+    pub settings: serde_json::Map<String, Value>,
+}
+
+/// Hand-mirrored with `SerializedClipScene` in src/types/settings.ts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipScene {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub sources: Vec<ClipSceneSource>,
+}
+
+/// Hand-mirrored with `ClipStudioSettings` in src/types/settings.ts.
+///
+/// An empty `scenes` list is the "seed me from current settings" signal to the frontend, so a
+/// user who has never opened the Clips tab keeps today's Save Clip behaviour exactly.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipStudioSettings {
+    #[serde(default = "default_clip_library_version")]
+    pub version: u32,
+    #[serde(default)]
+    pub active_id: String,
+    #[serde(default)]
+    pub scenes: Vec<ClipScene>,
+}
+
+impl Default for ClipStudioSettings {
+    fn default() -> Self {
+        Self {
+            version: default_clip_library_version(),
+            active_id: String::new(),
+            scenes: Vec::new(),
+        }
+    }
+}
+
+impl ClipStudioSettings {
+    pub fn sanitize(&mut self) {
+        if self.version == 0 || self.version > default_clip_library_version() {
+            self.version = default_clip_library_version();
+        }
+        self.scenes.truncate(MAX_CLIP_SCENES);
+        let mut seen_scenes: Vec<String> = Vec::with_capacity(self.scenes.len());
+        self.scenes.retain_mut(|scene| {
+            let Some(id) = sanitize_clip_scene_id(&scene.id) else {
+                return false;
+            };
+            if seen_scenes.iter().any(|seen| seen == &id) {
+                return false;
+            }
+            seen_scenes.push(id.clone());
+            scene.id = id;
+            scene.name = sanitize_clip_scene_name(&scene.name);
+            scene.sanitize_sources();
+            true
+        });
+        if !self.scenes.iter().any(|scene| scene.id == self.active_id) {
+            self.active_id = self
+                .scenes
+                .first()
+                .map(|scene| scene.id.clone())
+                .unwrap_or_default();
+        }
+    }
+}
+
+impl ClipScene {
+    fn sanitize_sources(&mut self) {
+        self.sources.truncate(MAX_CLIP_SOURCES);
+        let mut seen: Vec<String> = Vec::with_capacity(self.sources.len());
+        self.sources.retain_mut(|source| {
+            if !CLIP_SOURCE_KINDS.contains(&source.kind.as_str()) {
+                return false;
+            }
+            if source.id.is_empty() || source.id.len() > 64 || seen.contains(&source.id) {
+                return false;
+            }
+            seen.push(source.id.clone());
+            source.name = sanitize_clip_scene_name(&source.name);
+            match source.transform.as_mut() {
+                Some(transform) => transform.sanitize_transform(),
+                None => {}
+            }
+            match source.crop.as_mut() {
+                Some(crop) => crop.sanitize_crop(),
+                None => {}
+            }
+            truncate_clip_setting(&mut source.settings, "text", MAX_CLIP_TEXT);
+            truncate_clip_setting(&mut source.settings, "path", MAX_CLIP_PATH);
+            true
+        });
+    }
+}
+
+fn default_clip_library_version() -> u32 {
+    1
+}
+
+fn default_unit() -> f32 {
+    1.0
+}
+
+/// Mirrors `clampUnit` (src/recording/scene.ts:155): non-finite collapses to `min`.
+fn clamp_unit(value: f32, min: f32, max: f32) -> f32 {
+    if !value.is_finite() {
+        return min;
+    }
+    value.clamp(min, max.max(min))
+}
+
+/// Mirrors `sanitizeSceneId` (src/recording/scene.ts:132).
+fn sanitize_clip_scene_id(raw: &str) -> Option<String> {
+    if raw.len() > 64 {
+        return None;
+    }
+    let rest = raw.strip_prefix("scene-")?;
+    if rest.is_empty() || !rest.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+        return None;
+    }
+    Some(raw.to_string())
+}
+
+/// Mirrors `sanitizeSceneName` (src/recording/scene.ts:125).
+fn sanitize_clip_scene_name(raw: &str) -> String {
+    let stripped: String = raw
+        .chars()
+        .filter(|ch| !ch.is_control() && *ch != '\u{7f}')
+        .collect();
+    let trimmed: String = stripped.trim().chars().take(MAX_CLIP_SCENE_NAME).collect();
+    if trimmed.is_empty() {
+        "Scene".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn truncate_clip_setting(settings: &mut serde_json::Map<String, Value>, key: &str, max: usize) {
+    if let Some(Value::String(text)) = settings.get_mut(key) {
+        if text.chars().count() > max {
+            *text = text.chars().take(max).collect();
+        }
     }
 }
 
@@ -318,6 +570,7 @@ impl Default for AppSettings {
             discord_rich_presence: true,
             webcam: WebcamSettings::default(),
             recording_visuals: RecordingVisualSettings::default(),
+            clip_studio: ClipStudioSettings::default(),
             preview_quality: default_preview_quality(),
         }
     }
@@ -433,6 +686,7 @@ fn parse_settings_json(json: &str) -> AppSettings {
     settings.codec = sanitize_codec(&settings.codec);
     settings.webcam.sanitize();
     settings.recording_visuals.sanitize();
+    settings.clip_studio.sanitize();
     settings
 }
 
@@ -502,6 +756,7 @@ pub fn set_document(conn: &Connection, patch: Value) -> AppResult<AppSettings> {
     settings.system_audio_pan = settings.system_audio_pan.clamp(-1.0, 1.0);
     settings.webcam.sanitize();
     settings.recording_visuals.sanitize();
+    settings.clip_studio.sanitize();
     for app in &mut settings.extra_apps {
         app.gain = app.gain.clamp(0.0, 2.0);
         if app.id.trim().is_empty() {
@@ -679,6 +934,207 @@ mod tests {
         assert_eq!(loaded.recording_visuals.filter, "none");
         assert!(!loaded.recording_visuals.overlays.rec_indicator);
         assert!(!loaded.recording_visuals.overlays.timestamp);
+    }
+
+    #[test]
+    fn clip_studio_defaults_when_missing() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("clipStudio");
+        let loaded = parse_settings_json(&value.to_string());
+        assert_eq!(loaded.clip_studio.version, 1);
+        assert_eq!(loaded.clip_studio.active_id, "");
+        assert!(loaded.clip_studio.scenes.is_empty());
+    }
+
+    fn clip_scene_with(sources: Vec<ClipSceneSource>) -> ClipScene {
+        ClipScene {
+            id: "scene-abc123".into(),
+            name: "Clip".into(),
+            sources,
+        }
+    }
+
+    fn clip_source(id: &str, kind: &str) -> ClipSceneSource {
+        ClipSceneSource {
+            id: id.into(),
+            kind: kind.into(),
+            name: kind.into(),
+            enabled: true,
+            locked: false,
+            order: 1,
+            transform: None,
+            crop: None,
+            settings: serde_json::Map::new(),
+        }
+    }
+
+    #[test]
+    fn clip_studio_sanitize_clamps_transform_and_crop() {
+        let mut source = clip_source("game-1", "game");
+        // Below the 0.06 transform floor, x past the right edge, y negative, h non-finite.
+        source.transform = Some(ClipRect {
+            x: 1.5,
+            y: -3.0,
+            w: 0.01,
+            h: f32::NAN,
+        });
+        // Below the 0.05 crop floor.
+        source.crop = Some(ClipRect {
+            x: 0.5,
+            y: 0.5,
+            w: 0.0,
+            h: 2.0,
+        });
+        let mut studio = ClipStudioSettings {
+            version: 1,
+            active_id: "scene-abc123".into(),
+            scenes: vec![clip_scene_with(vec![source])],
+        };
+        studio.sanitize();
+
+        let source = &studio.scenes[0].sources[0];
+        let transform = source.transform.unwrap();
+        assert_eq!(transform.w, 0.06);
+        assert_eq!(transform.h, 0.06);
+        assert_eq!(transform.x, 0.94);
+        assert_eq!(transform.y, 0.0);
+        let crop = source.crop.unwrap();
+        assert_eq!(crop.w, 0.05);
+        assert_eq!(crop.h, 1.0);
+        assert_eq!(crop.x, 0.5);
+        assert_eq!(crop.y, 0.0);
+    }
+
+    #[test]
+    fn clip_studio_sanitize_drops_bad_ids_and_caps_length() {
+        let mut long_text = clip_source("text-1", "text");
+        long_text
+            .settings
+            .insert("text".into(), Value::String("x".repeat(MAX_CLIP_TEXT + 40)));
+
+        let mut studio = ClipStudioSettings {
+            version: 9,
+            active_id: "scene-gone".into(),
+            scenes: vec![
+                ClipScene {
+                    id: "not-a-scene-id".into(),
+                    name: "Bad".into(),
+                    sources: Vec::new(),
+                },
+                ClipScene {
+                    id: "scene-abc123".into(),
+                    name: "  \u{1}Trimmed\u{7f}  ".into(),
+                    sources: vec![
+                        clip_source("game-1", "game"),
+                        clip_source("bogus-1", "notARealKind"),
+                        clip_source("game-1", "display"), // duplicate id
+                        long_text,
+                    ],
+                },
+            ],
+        };
+        studio.sanitize();
+
+        assert_eq!(studio.version, 1, "out-of-range versions fall back to 1");
+        assert_eq!(studio.scenes.len(), 1, "malformed scene ids are dropped");
+        let scene = &studio.scenes[0];
+        assert_eq!(scene.name, "Trimmed");
+        assert_eq!(
+            scene.sources.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["game-1", "text-1"],
+            "unknown kinds and duplicate ids are dropped"
+        );
+        let text = scene.sources[1].settings.get("text").unwrap();
+        assert_eq!(text.as_str().unwrap().chars().count(), MAX_CLIP_TEXT);
+        assert_eq!(
+            studio.active_id, "scene-abc123",
+            "a dangling activeId falls back to the first surviving scene"
+        );
+    }
+
+    #[test]
+    fn clip_studio_round_trip_preserves_sources() {
+        let mut overlay = clip_source("overlay-1", "replayrOverlay");
+        overlay.settings.insert("filter".into(), Value::String("vhs".into()));
+        overlay.settings.insert("recIndicator".into(), Value::Bool(false));
+        overlay.settings.insert("timestamp".into(), Value::Bool(true));
+        let mut webcam = clip_source("webcam-1", "webcam");
+        webcam.transform = Some(ClipRect {
+            x: 0.03,
+            y: 0.03,
+            w: 0.22,
+            h: 0.124,
+        });
+        webcam.settings.insert("shape".into(), Value::String("circle".into()));
+
+        let mut settings = AppSettings::default();
+        settings.clip_studio = ClipStudioSettings {
+            version: 1,
+            active_id: "scene-abc123".into(),
+            scenes: vec![clip_scene_with(vec![
+                clip_source("game-1", "game"),
+                webcam,
+                overlay,
+            ])],
+        };
+        settings.clip_studio.sanitize();
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let loaded = parse_settings_json(&json);
+        assert_eq!(loaded.clip_studio, settings.clip_studio);
+    }
+
+    #[test]
+    fn setting_clip_studio_leaves_recording_visuals_and_audio_untouched() {
+        let dir = tempdir().unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+
+        // Give every key the clip studio must never write a non-default value first.
+        let before = set_document(
+            &conn,
+            serde_json::json!({
+                "micEnabled": true,
+                "gameAudioEnabled": false,
+                "systemAudioEnabled": true,
+                "recordingVisuals": { "filter": "cinematic", "overlays": { "recIndicator": true, "timestamp": true } },
+                "webcam": { "enabled": true, "defaultPlacement": "top-left", "defaultShape": "circle", "defaultWidth": 0.3 },
+            }),
+        )
+        .unwrap();
+
+        let after = set_document(
+            &conn,
+            serde_json::json!({
+                "clipStudio": {
+                    "version": 1,
+                    "activeId": "scene-abc123",
+                    "scenes": [{
+                        "id": "scene-abc123",
+                        "name": "Clip",
+                        "sources": [{
+                            "id": "overlay-1",
+                            "type": "replayrOverlay",
+                            "name": "Replayr overlay",
+                            "enabled": true,
+                            "locked": false,
+                            "order": 2,
+                            "transform": null,
+                            "crop": null,
+                            "settings": { "filter": "bodycam", "recIndicator": true, "timestamp": false }
+                        }]
+                    }]
+                }
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(after.clip_studio.scenes.len(), 1, "the clip scene was stored");
+        assert_eq!(after.recording_visuals, before.recording_visuals);
+        assert_eq!(after.mic_enabled, before.mic_enabled);
+        assert_eq!(after.game_audio_enabled, before.game_audio_enabled);
+        assert_eq!(after.system_audio_enabled, before.system_audio_enabled);
+        assert_eq!(after.webcam, before.webcam);
     }
 
     #[test]

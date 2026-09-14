@@ -15,6 +15,7 @@ mod capture;
 mod capture_timing;
 mod ir_runtime;
 mod ir_target;
+mod clip_scene;
 mod commands;
 mod database;
 mod detection;

@@ -30,6 +30,11 @@ const LIVE_AUDIO_KEYS: &[&str] = &[
     "systemAudioPan",
     "extraApps",
 ];
+/// Settings that restart Instant Replay when they change.
+///
+/// `clipStudio` is deliberately absent: the Clips tab only describes how a saved clip is framed
+/// and decorated, so editing a clip scene must never restart the buffer. Keep it out of this
+/// list and out of `LIVE_AUDIO_KEYS`.
 const CAPTURE_KEYS: &[&str] = &[
     "instantReplayEnabled",
     "replayDurationSeconds",

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Application manifest for every linked target: the app binary and `cargo test` binaries alike.
+
+  It must live here rather than come from tauri_build, because the only build-script directive
+  that reaches the lib's unit-test harness is `cargo:rustc-link-arg`, which also reaches the app
+  binary. Two manifest sources on one binary fails the link with CVT1100 (duplicate resource),
+  so there has to be exactly one — this file. build.rs therefore calls
+  `WindowsAttributes::new_without_app_manifest()`.
+
+  Why it matters: tauri-plugin-dialog -> rfd statically imports TaskDialogIndirect, which only
+  comctl32 6.0 exports. Without this manifest the loader binds comctl32 5.82 from System32 and
+  the process dies with STATUS_ENTRYPOINT_NOT_FOUND (0xC0000139) before main. That is exactly
+  what used to happen to every test binary.
+
+  The contents are byte-for-byte equivalent to the manifest tauri_build generated before, which
+  declared this same single dependency and nothing else. Do not add DPI awareness, UAC, or
+  supportedOS entries here without checking what that changes for the shipped app.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*"
+      />
+    </dependentAssembly>
+  </dependency>
+</assembly>

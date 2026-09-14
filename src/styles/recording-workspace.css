@@ -1,6 +1,6 @@
 .page:has(.record-studio) {
-  height: calc(100vh - var(--shell-header));
-  max-height: calc(100vh - var(--shell-header));
+  height: 100%;
+  max-height: 100%;
   min-height: 0;
   padding: 12px 16px 10px;
   overflow: hidden;

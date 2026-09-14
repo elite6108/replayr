@@ -1,5 +1,5 @@
-import { NavLink } from "react-router-dom";
-import type { ComponentType } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
+import type { ComponentType, MouseEvent } from "react";
 import { useAuthStore } from "../../stores/authStore";
 import { useBillingStore } from "../../stores/billingStore";
 import { useDetectionStore } from "../../stores/detectionStore";
@@ -37,6 +37,7 @@ const items: { to: string; label: string; icon: Glyph; end?: boolean; live?: boo
 ];
 
 export function NavRail() {
+  const navigate = useNavigate();
   const detected = Boolean(useDetectionStore((state) => state.snapshot.name));
   const recording = useRecordingStore((state) => state.status.active);
   const clips = useLibraryStore((state) => state.clips);
@@ -52,6 +53,11 @@ export function NavRail() {
   const messagesUnread = useSocialUnreadStore((state) => state.messagesUnread);
   const accountName = profile?.display_name || profile?.username || (user ? "Online" : "Guest");
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+
+  function go(event: MouseEvent, to: string) {
+    event.preventDefault();
+    navigate(to, { flushSync: true });
+  }
 
   return (
     <nav className="nav-rail" aria-label="Primary">
@@ -75,6 +81,7 @@ export function NavRail() {
                 .join(" ")
             }
             title={item.label}
+            onClick={(event) => go(event, item.to)}
           >
             {({ isActive }) => (
               <>
@@ -92,7 +99,7 @@ export function NavRail() {
       })}
       <div className="nav-spacer" />
       {admin ? (
-        <NavLink to="/admin" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")} title="Admin">
+        <NavLink to="/admin" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")} title="Admin" onClick={(event) => go(event, "/admin")}>
           {({ isActive }) => (
             <>
               <span className="nav-icon">
@@ -103,7 +110,12 @@ export function NavRail() {
           )}
         </NavLink>
       ) : null}
-      <NavLink to="/settings" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")} title="Settings">
+      <NavLink
+        to="/settings"
+        className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
+        title="Settings"
+        onClick={(event) => go(event, "/settings")}
+      >
         {({ isActive }) => (
           <>
             <span className="nav-icon">
@@ -118,6 +130,7 @@ export function NavRail() {
         to="/profile"
         className={({ isActive }) => (isActive ? "nav-account active" : "nav-account")}
         title="Account"
+        onClick={(event) => go(event, "/profile")}
       >
         <span className="avatar">{initials(profile?.username || profile?.display_name || user?.email || "R")}</span>
         <span className="nav-account-copy">

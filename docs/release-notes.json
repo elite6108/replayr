@@ -1,4 +1,7 @@
 {
+  "0.1.48": [
+    "Leaving the Record page no longer gets stuck when the live preview is running."
+  ],
   "0.1.47": [
     "Record page has a drag handle between preview and mixer so the live preview can grow.",
     "Dragging the handle down shrinks the mixer from the top and keeps it flush on the bottom of the page."

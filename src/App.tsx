@@ -94,7 +94,7 @@ export default function App() {
         <ToastRegion />
       </>
     ) : (
-      <HashRouter>
+      <HashRouter useTransitions={false}>
       <Routes>
         <Route element={<AppShell />}>
           <Route path="/" element={<HomePage />} />

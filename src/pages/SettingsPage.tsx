@@ -22,6 +22,8 @@ import { useRecordingStore } from "../stores/recordingStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useDetectionStore } from "../stores/detectionStore";
 import { useToastStore } from "../stores/toastStore";
+import { useScreenshotStore } from "../stores/screenshotStore";
+import { ScreenshotDowngradeBanner, ScreenshotUsageBar } from "../components/library/ScreenshotUsage";
 import { AudioSourceRow } from "../components/settings/AudioSourceRow";
 import { MicrophoneControls } from "../components/settings/MicrophoneControls";
 import { RecordingSources } from "../components/sources/RecordingSources";
@@ -49,6 +51,7 @@ const SECTIONS = [
   { id: "account", label: "Account" },
   { id: "recording", label: "Recording" },
   { id: "audio", label: "Audio" },
+  { id: "screenshots", label: "Screenshots" },
   { id: "storage", label: "Storage" },
   { id: "cloud", label: "Cloud" },
   { id: "hotkeys", label: "Shortcuts" },
@@ -161,6 +164,9 @@ export function SettingsPage() {
             <RecordingPane settings={settings} onChange={onChange} onBrowse={() => void chooseSaveLocation()} />
           ) : null}
           {section === "audio" ? <AudioPanel settings={settings} update={update} showToast={showToast} /> : null}
+          {section === "screenshots" ? (
+            <ScreenshotsPane settings={settings} onChange={onChange} onBrowse={() => void chooseSaveLocation()} />
+          ) : null}
           {section === "storage" ? (
             <StoragePane settings={settings} onChange={onChange} onBrowse={() => void chooseSaveLocation()} />
           ) : null}
@@ -628,6 +634,110 @@ function LocalSaveLocation({ path, onBrowse }: { path: string; onBrowse: () => v
   );
 }
 
+function ScreenshotsPane({
+  settings,
+  onChange,
+  onBrowse,
+}: {
+  settings: AppSettings;
+  onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
+  onBrowse: () => void;
+}) {
+  const usage = useScreenshotStore((state) => state.usage);
+  const refreshUsage = useScreenshotStore((state) => state.refreshUsage);
+  const session = useAuthStore((state) => state.session);
+  const folder = settings.saveLocation.trim()
+    ? `${settings.saveLocation.replace(/[\\/]+$/, "")}\\Screenshots`
+    : "Videos\\Project Replay\\Screenshots";
+  const screenshotConflict = findHotkeyConflicts(settings.hotkeys).regionScreenshot;
+
+  useEffect(() => {
+    if (session?.access_token) void refreshUsage();
+  }, [refreshUsage, session?.access_token]);
+
+  async function patchScreenshots<K extends keyof AppSettings["screenshots"]>(
+    key: K,
+    value: AppSettings["screenshots"][K],
+  ) {
+    await onChange("screenshots", { ...settings.screenshots, [key]: value });
+  }
+
+  return (
+    <>
+      <p className="muted">
+        Freeze every monitor, drag a rectangle, and save a PNG. The shortcut is changeable here and
+        under Shortcuts, the same way Instant Replay and recording are.
+      </p>
+      <ScreenshotDowngradeBanner usage={usage} />
+      {session ? <ScreenshotUsageBar usage={usage} /> : null}
+      <label className="setting-row" htmlFor="hotkey-regionScreenshot-settings">
+        <span className="setting-copy">
+          Take Screenshot
+          <small>{displayHotkey(settings.hotkeys.regionScreenshot) || "Not set"}</small>
+        </span>
+        <HotkeyRecorder
+          id="hotkey-regionScreenshot-settings"
+          value={settings.hotkeys.regionScreenshot}
+          onChange={(next) => onChange("hotkeys", { ...settings.hotkeys, regionScreenshot: next })}
+        />
+      </label>
+      {screenshotConflict ? (
+        <span className="error-text">Conflicts with {HOTKEY_LABELS[screenshotConflict]}</span>
+      ) : null}
+      <label className="setting-row">
+        <span className="setting-copy">
+          Auto-upload
+          <small>Signed-out captures still copy the image.</small>
+        </span>
+        <input
+          className="switch"
+          type="checkbox"
+          checked={settings.screenshots.autoUpload}
+          onChange={(event) => void patchScreenshots("autoUpload", event.target.checked)}
+        />
+      </label>
+      <div className="settings-fields">
+        <div className="field">
+          <label htmlFor="screenshot-copy-mode">After upload, copy</label>
+          <select
+            id="screenshot-copy-mode"
+            value={settings.screenshots.copyMode}
+            onChange={(event) => void patchScreenshots("copyMode", event.target.value === "image" ? "image" : "link")}
+          >
+            <option value="link">Share link</option>
+            <option value="image">Image</option>
+          </select>
+        </div>
+      </div>
+      <label className="setting-row">
+        <span className="setting-copy">
+          Overlay
+          <small>Show “Link copied” after a screenshot.</small>
+        </span>
+        <input
+          className="switch"
+          type="checkbox"
+          checked={settings.screenshots.showOverlay}
+          onChange={(event) => void patchScreenshots("showOverlay", event.target.checked)}
+        />
+      </label>
+      <div className="settings-group">
+        <div className="settings-group-label">Folder</div>
+        <p className="muted">PNGs go in a Screenshots folder next to your clips.</p>
+        <div className="field">
+          <label htmlFor="screenshot-folder">Saved to</label>
+          <div className="row">
+            <input id="screenshot-folder" readOnly value={folder} title={folder} />
+            <button type="button" className="btn" onClick={onBrowse}>
+              Browse
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function StoragePane({
   settings,
   onChange,
@@ -692,7 +802,10 @@ function HotkeysPane({
           <label className="setting-row" htmlFor={`hotkey-${action}`}>
             <span className="setting-copy">
               {HOTKEY_LABELS[action]}
-              <small>{displayHotkey(settings.hotkeys[action]) || "Not set"}</small>
+              <small>
+                {displayHotkey(settings.hotkeys[action]) || "Not set"}
+                {action === "regionScreenshot" ? " · Click and press a new combo, same as Instant Replay and recording." : ""}
+              </small>
             </span>
             <HotkeyRecorder
               id={`hotkey-${action}`}

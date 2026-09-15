@@ -183,6 +183,7 @@ export function LibraryFolderTabs() {
       <NavLink to="/library" end>
         Clips
       </NavLink>
+      <NavLink to="/library/screenshots">Screenshots</NavLink>
       <NavLink to="/library/folders">Folders</NavLink>
     </nav>
   );

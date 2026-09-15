@@ -13,10 +13,12 @@
 //! bitmaps zero themselves on drop, and the cropped image is zeroed once it has been saved.
 
 pub mod clipboard;
+pub mod cloud;
 pub mod commands;
 pub mod crop;
 pub mod encode;
 pub mod geometry;
+pub mod session;
 pub mod store;
 
 #[cfg(windows)]
@@ -96,6 +98,14 @@ fn run(app: &AppHandle, trigger: SnipTrigger) -> Result<(), String> {
     use zeroize::Zeroize;
 
     let settings = load_settings(app)?;
+    if settings.screenshots.auto_upload {
+        let app = app.clone();
+        let _ = std::thread::Builder::new().name("snip-warm".into()).spawn(move || {
+            if let Some(session) = session::broker().request(&app, false, session::SESSION_TIMEOUT) {
+                cloud::warm(&session.api_base);
+            }
+        });
+    }
     let restore = if trigger == SnipTrigger::InApp { MainWindowRestore::hide(app) } else { MainWindowRestore::none() };
     if restore.was_hidden {
         std::thread::sleep(HIDE_MAIN_SETTLE);
@@ -130,7 +140,7 @@ fn save(
     image: &crate::still::StillFrame,
     monitor_rect: geometry::PhysRect,
 ) -> Result<(), String> {
-    use crate::overlay_notification::{notify_screenshot, MonitorInfo, ScreenshotNotice};
+    use crate::overlay_notification::{notify_screenshot, MonitorInfo};
 
     let started = Instant::now();
     let png = encode::png(image)?;
@@ -165,10 +175,7 @@ fn save(
     };
     with_db(app, |conn| store::insert(conn, &record).map_err(|err| err.to_string()))?;
 
-    let copied = clipboard::set_image(image, &png);
-    if let Err(err) = &copied {
-        tracing::warn!(%err, "screenshot saved but could not be copied");
-    }
+    let notice = finish_copy_and_upload(app, settings, &record, image, &png)?;
 
     tracing::info!(
         id = %record.id,
@@ -180,15 +187,125 @@ fn save(
         "screenshot saved"
     );
 
-    if copied.is_ok() {
+    if let Some(notice) = notice {
         notify_screenshot(
             app,
             MonitorInfo { x: monitor_rect.x, y: monitor_rect.y, width: monitor_rect.w, height: monitor_rect.h },
-            ScreenshotNotice::ImageCopied,
+            notice,
         );
     }
-    let _ = app.emit("screenshot-saved", &record);
+    let latest = with_db(app, |conn| store::get(conn, &record.id).map_err(|err| err.to_string()))?
+        .unwrap_or(record);
+    let _ = app.emit("screenshot-saved", &latest);
     Ok(())
+}
+
+#[cfg(windows)]
+fn finish_copy_and_upload(
+    app: &AppHandle,
+    settings: &AppSettings,
+    record: &store::ScreenshotRecord,
+    image: &crate::still::StillFrame,
+    png: &[u8],
+) -> Result<Option<crate::overlay_notification::ScreenshotNotice>, String> {
+    use crate::overlay_notification::ScreenshotNotice;
+
+    let signed_in = settings.screenshots.auto_upload;
+    if !signed_in {
+        copy_image_best_effort(image, png);
+        return Ok(Some(ScreenshotNotice::ImageCopied));
+    }
+
+    let upload_started = Instant::now();
+    with_db(app, |conn| {
+        store::set_upload(conn, &record.id, "uploading", None, None, None, None).map_err(|err| err.to_string())
+    })?;
+    emit_updated(app, &record.id);
+
+    let mut session = session::broker().request(app, false, session::SESSION_TIMEOUT);
+    if session.as_ref().is_none_or(|item| item.access_token.is_empty()) {
+        copy_image_best_effort(image, png);
+        with_db(app, |conn| {
+            store::set_upload(conn, &record.id, "local", None, None, None, None).map_err(|err| err.to_string())
+        })?;
+        emit_updated(app, &record.id);
+        return Ok(Some(ScreenshotNotice::ImageCopied));
+    }
+
+    let mut result = cloud::upload(&session.as_ref().unwrap().api_base, &session.as_ref().unwrap().access_token, png);
+    if matches!(result, Err(cloud::CloudError::Unauthorized)) {
+        session = session::broker().request(app, true, session::SESSION_TIMEOUT);
+        if let Some(ref next) = session {
+            result = cloud::upload(&next.api_base, &next.access_token, png);
+        }
+    }
+
+    match result {
+        Ok(ok) => {
+            with_db(app, |conn| {
+                store::set_upload(
+                    conn,
+                    &record.id,
+                    "ready",
+                    Some(&ok.id),
+                    Some(&ok.slug),
+                    Some(&ok.share_url),
+                    None,
+                )
+                .map_err(|err| err.to_string())?;
+                if !ok.evicted_ids.is_empty() {
+                    store::mark_evicted_by_cloud_ids(conn, &ok.evicted_ids).map_err(|err| err.to_string())?;
+                }
+                Ok(())
+            })?;
+            if settings.screenshots.copies_link() {
+                if let Err(err) = clipboard::set_text(&ok.share_url) {
+                    tracing::warn!(%err, "could not copy share link; copying the image instead");
+                    copy_image_best_effort(image, png);
+                }
+            } else {
+                copy_image_best_effort(image, png);
+            }
+            tracing::info!(
+                id = %record.id,
+                slug = %ok.slug,
+                upload_ms = upload_started.elapsed().as_millis() as u64,
+                "screenshot uploaded"
+            );
+            emit_updated(app, &record.id);
+            Ok(Some(if ok.replaced_oldest {
+                ScreenshotNotice::LinkCopiedReplacedOldest
+            } else if settings.screenshots.copies_link() {
+                ScreenshotNotice::LinkCopied
+            } else {
+                ScreenshotNotice::ImageCopied
+            }))
+        }
+        Err(err) => {
+            tracing::warn!(error = err.message(), "screenshot upload failed");
+            with_db(app, |conn| {
+                store::set_upload(conn, &record.id, "failed", None, None, None, Some(err.message()))
+                    .map_err(|e| e.to_string())
+            })?;
+            copy_image_best_effort(image, png);
+            emit_updated(app, &record.id);
+            Ok(Some(ScreenshotNotice::UploadFailedImageCopied))
+        }
+    }
+}
+
+#[cfg(windows)]
+fn copy_image_best_effort(image: &crate::still::StillFrame, png: &[u8]) {
+    if let Err(err) = clipboard::set_image(image, png) {
+        tracing::warn!(%err, "screenshot saved but could not be copied");
+    }
+}
+
+#[cfg(windows)]
+fn emit_updated(app: &AppHandle, id: &str) {
+    if let Ok(Some(record)) = with_db(app, |conn| store::get(conn, id).map_err(|err| err.to_string())) {
+        let _ = app.emit("screenshot-updated", &record);
+    }
 }
 
 /// `{save location}\Screenshots`, alongside clips but in its own folder.

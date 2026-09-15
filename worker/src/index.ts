@@ -57,6 +57,7 @@ import {
   serveComingSoon,
 } from "./site-access";
 import { androidAssetLinks, appleAppSiteAssociation } from "./appLinks";
+import { handleScreenshotApi, handleScreenshotShare, purgeUserScreenshots, sweepScreenshots } from "./screenshots";
 
 export type {
   AddMembersBody,
@@ -135,7 +136,10 @@ export default {
       return cors(await route(request, env, url, ctx), request);
     } catch (caught) {
       if (caught instanceof HttpError) {
-        return cors(json({ error: caught.message }, caught.status), request);
+        return cors(
+          json(caught.code ? { error: caught.message, code: caught.code } : { error: caught.message }, caught.status),
+          request,
+        );
       }
       const message = caught instanceof Error ? caught.message : "Worker failed.";
       ctx.waitUntil(recordWorkerError(env, message, url.pathname));
@@ -147,6 +151,11 @@ export default {
       (async () => {
         await cleanupExpiredUploadsGlobal(env);
         await reconcileWatermarkJobs(env);
+        try {
+          await sweepScreenshots(env, ctx);
+        } catch (caught) {
+          console.error("screenshot_sweep_failed", caught instanceof Error ? caught.message : "unknown");
+        }
         try {
           const result = await runRecentAnalyticsRollup(env);
           console.log("analytics_scheduled_rollup_ok", JSON.stringify(result));
@@ -213,6 +222,13 @@ async function route(
   if (request.method === "GET" && bunnySource?.[1]) {
     return handleBunnySource(request, env, bunnySource[1]);
   }
+  const screenshots = await handleScreenshotApi(request, env, url, ctx);
+  if (screenshots) return screenshots;
+  const screenshotShare = await handleScreenshotShare(request, env, url, {
+    streams: { wrapFixedLength: (_length, body) => body },
+    fetchSpaShell: (req, workerEnv) => fetchSpaShell(req, workerEnv),
+  });
+  if (screenshotShare) return screenshotShare;
   const billing = await handleBilling(request, env, url);
   if (billing) return billing;
   if (
@@ -379,8 +395,7 @@ async function route(
  * Workers Assets canonicalizes `/index.html` → `/` with 307; if we forward that
  * redirect, `/c/:slug` becomes the homepage and React never mounts ClipPage.
  */
-async function serveMarketingSpa(request: Request, env: Env): Promise<Response> {
-  // Fetch by URL string so run_worker_first does not re-enter the cookie gate.
+async function fetchSpaShell(request: Request, env: Env): Promise<string> {
   let asset = await env.ASSETS!.fetch(new URL("/", request.url).toString());
   if (!asset.ok) {
     asset = await env.ASSETS!.fetch(new URL("/index.html", request.url).toString());
@@ -389,12 +404,16 @@ async function serveMarketingSpa(request: Request, env: Env): Promise<Response> 
       if (loc) asset = await env.ASSETS!.fetch(new URL(loc, request.url).toString());
     }
   }
-  const headers = new Headers(asset.headers);
-  headers.set("content-type", "text/html; charset=utf-8");
-  headers.set("cache-control", "no-store");
-  return withWebSecurityHeaders(
-    new Response(asset.body, { status: 200, statusText: "OK", headers }),
-  );
+  return asset.text();
+}
+
+async function serveMarketingSpa(request: Request, env: Env): Promise<Response> {
+  const html = await fetchSpaShell(request, env);
+  const headers = new Headers({
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  return withWebSecurityHeaders(new Response(html, { status: 200, statusText: "OK", headers }));
 }
 
 function withWebSecurityHeaders(response: Response): Response {
@@ -854,6 +873,8 @@ async function deleteAccount(request: Request, env: Env): Promise<Response> {
     if (clips.length < 100) break;
     offset += clips.length;
   }
+
+  await purgeUserScreenshots(env, user.id);
 
   const response = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${user.id}`, {
     method: "DELETE",

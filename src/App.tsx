@@ -100,6 +100,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/library" element={<LibraryPage view="local" />} />
           <Route path="/library/cloud" element={<LibraryPage view="cloud" />} />
+          <Route path="/library/screenshots" element={<LibraryPage view="screenshots" />} />
           <Route path="/library/folders" element={<FoldersPage />} />
           <Route path="/library/folders/:folderId" element={<FolderPage />} />
           <Route path="/games" element={<GamesPage />} />

@@ -2,6 +2,7 @@ export type DeleteClipScope = "pc" | "cloud" | "both";
 
 export function DeleteClipDialog({
   count = 1,
+  noun = "clip",
   showPc,
   showCloud,
   showBoth,
@@ -9,14 +10,15 @@ export function DeleteClipDialog({
   onChoose,
 }: {
   count?: number;
+  noun?: "clip" | "screenshot";
   showPc: boolean;
   showCloud: boolean;
   showBoth: boolean;
   onClose: () => void;
   onChoose: (scope: DeleteClipScope) => void;
 }) {
-  const plural = count === 1 ? "clip" : "clips";
-  const title = count === 1 ? "Delete clip" : `Delete ${count} clips`;
+  const plural = count === 1 ? noun : `${noun}s`;
+  const title = count === 1 ? `Delete ${noun}` : `Delete ${count} ${plural}`;
 
   return (
     <div className="studio-modal-backdrop" onClick={onClose} role="presentation">

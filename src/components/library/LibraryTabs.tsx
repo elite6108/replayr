@@ -9,6 +9,9 @@ export function LibraryTabs() {
       <NavLink to="/library/cloud" className={({ isActive }) => (isActive ? "active" : undefined)}>
         Cloud
       </NavLink>
+      <NavLink to="/library/screenshots" className={({ isActive }) => (isActive ? "active" : undefined)}>
+        Screenshots
+      </NavLink>
       <NavLink to="/library/folders" className={({ isActive }) => (isActive ? "active" : undefined)}>
         Folders
       </NavLink>

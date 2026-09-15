@@ -227,6 +227,66 @@ export async function deleteClipComment(slug: string, commentId: string, accessT
   return { commentCount: Number(body.commentCount) || 0 };
 }
 
+export async function fetchPublicScreenshot(slug: string): Promise<PublicScreenshot> {
+  const response = await fetch(apiUrl(`/v1/screenshots/public/${encodeURIComponent(slug)}`), {
+    headers: { accept: "application/json" },
+  });
+  return readApiJson<PublicScreenshot>(response, "That screenshot was not found.");
+}
+
+export interface PublicScreenshot {
+  slug: string;
+  width: number;
+  height: number;
+  bytes: number;
+  createdAt: string;
+}
+
+export async function fetchScreenshotUsage(accessToken: string): Promise<ScreenshotUsage> {
+  const response = await fetch(apiUrl("/v1/screenshots/usage"), {
+    headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
+  });
+  return readApiJson<ScreenshotUsage>(response, "Could not load screenshot usage.");
+}
+
+export interface CloudScreenshot {
+  id: string;
+  slug: string;
+  shareUrl: string | null;
+  width: number;
+  height: number;
+  bytes: number;
+  status: string;
+  createdAt: string;
+}
+
+export async function fetchUserScreenshots(
+  accessToken: string,
+  page = 1,
+): Promise<{ screenshots: CloudScreenshot[]; total: number }> {
+  const response = await fetch(apiUrl(`/v1/screenshots?page=${page}&limit=48`), {
+    headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
+  });
+  return readApiJson(response, "Could not load screenshots.");
+}
+
+export async function deleteUserScreenshot(id: string, accessToken: string): Promise<void> {
+  const response = await fetch(apiUrl(`/v1/screenshots/${id}`), {
+    method: "DELETE",
+    headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
+  });
+  if (response.ok) return;
+  throw new Error(await readApiError(response, "Could not delete that screenshot."));
+}
+
+export interface ScreenshotUsage {
+  count: number;
+  bytes: number;
+  countLimit: number | null;
+  bytesLimit: number | null;
+  trimAfter: string | null;
+}
+
 export async function deleteAccount(accessToken: string): Promise<void> {
   const response = await fetch(apiUrl("/v1/account/delete"), {
     method: "POST",

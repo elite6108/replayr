@@ -35,13 +35,23 @@ pub fn screenshot_list(app: AppHandle, limit: Option<u32>) -> AppResult<Vec<Scre
     Ok(records)
 }
 
-/// Remove a screenshot from the Library, and optionally its file on disk.
+/// Remove a screenshot from the Library, and optionally its file on disk and/or cloud copy.
 ///
 /// File deletion goes through the same allow-list as "reveal in folder": a database row is never
 /// enough on its own to delete an arbitrary path.
 #[tauri::command]
-pub fn screenshot_delete(app: AppHandle, id: String, delete_file: bool) -> AppResult<()> {
+pub fn screenshot_delete(app: AppHandle, id: String, delete_file: bool, delete_cloud: Option<bool>) -> AppResult<()> {
     let record = find(&app, &id)?;
+    let drop_cloud = delete_cloud.unwrap_or(false);
+    if drop_cloud {
+        if let Some(cloud_id) = record.cloud_id.as_deref() {
+            let session = super::session::broker()
+                .request(&app, false, super::session::SESSION_TIMEOUT)
+                .ok_or_else(|| AppError::Message("Sign in to delete the cloud copy.".into()))?;
+            super::cloud::delete_remote(&session.api_base, &session.access_token, cloud_id)
+                .map_err(|err| AppError::Message(err.message().into()))?;
+        }
+    }
     if delete_file {
         remove_owned_file(&app, &record.file_path, "png")?;
         if let Some(thumb) = &record.thumb_path {
@@ -51,7 +61,14 @@ pub fn screenshot_delete(app: AppHandle, id: String, delete_file: bool) -> AppRe
             }
         }
     }
-    with_db(&app, |conn| store::remove(conn, &id).map_err(|err| err.to_string())).map_err(to_app_error)?;
+    if delete_file || !drop_cloud {
+        with_db(&app, |conn| store::remove(conn, &id).map_err(|err| err.to_string())).map_err(to_app_error)?;
+    } else {
+        with_db(&app, |conn| {
+            store::set_upload(conn, &id, "local", None, None, None, None).map_err(|err| err.to_string())
+        })
+        .map_err(to_app_error)?;
+    }
     Ok(())
 }
 
@@ -84,6 +101,83 @@ pub fn screenshot_reveal(app: AppHandle, id: String) -> AppResult<()> {
     let record = find(&app, &id)?;
     crate::paths::assert_reveal_allowed(&app, &record.file_path)?;
     crate::library::reveal(&record.file_path)
+}
+
+/// Answer a `screenshot-session-request`. Unknown ids are ignored.
+#[tauri::command]
+pub fn screenshot_provide_session(request_id: u64, access_token: Option<String>, api_base: Option<String>) {
+    let session = match (access_token, api_base) {
+        (Some(token), Some(base)) if !token.is_empty() && super::cloud::api_base_allowed(&base) => {
+            Some(super::session::CloudSession { access_token: token, api_base: base })
+        }
+        _ => None,
+    };
+    super::session::broker().provide(request_id, session);
+}
+
+#[tauri::command]
+pub fn screenshot_retry_upload(app: AppHandle, id: String) -> AppResult<ScreenshotRecord> {
+    let record = find(&app, &id)?;
+    crate::paths::assert_reveal_allowed(&app, &record.file_path)?;
+    let png = std::fs::read(&record.file_path).map_err(|_| AppError::Message("That screenshot is no longer on disk.".into()))?;
+    let session = super::session::broker()
+        .request(&app, false, super::session::SESSION_TIMEOUT)
+        .ok_or_else(|| AppError::Message("Sign in to upload screenshots.".into()))?;
+    let mut result = super::cloud::upload(&session.api_base, &session.access_token, &png);
+    if matches!(result, Err(super::cloud::CloudError::Unauthorized)) {
+        if let Some(next) = super::session::broker().request(&app, true, super::session::SESSION_TIMEOUT) {
+            result = super::cloud::upload(&next.api_base, &next.access_token, &png);
+        }
+    }
+    match result {
+        Ok(ok) => {
+            with_db(&app, |conn| {
+                store::set_upload(conn, &id, "ready", Some(&ok.id), Some(&ok.slug), Some(&ok.share_url), None)
+                    .map_err(|err| err.to_string())?;
+                if !ok.evicted_ids.is_empty() {
+                    store::mark_evicted_by_cloud_ids(conn, &ok.evicted_ids).map_err(|err| err.to_string())?;
+                }
+                Ok(())
+            })
+            .map_err(to_app_error)?;
+            #[cfg(windows)]
+            {
+                let _ = super::clipboard::set_text(&ok.share_url);
+            }
+        }
+        Err(err) => {
+            with_db(&app, |conn| {
+                store::set_upload(conn, &id, "failed", None, None, None, Some(err.message())).map_err(|e| e.to_string())
+            })
+            .map_err(to_app_error)?;
+            return Err(AppError::Message(err.message().into()));
+        }
+    }
+    find(&app, &id)
+}
+
+#[tauri::command]
+pub fn screenshot_sync_cloud(app: AppHandle) -> AppResult<Vec<ScreenshotRecord>> {
+    let Some(session) = super::session::broker().request(&app, false, super::session::SESSION_TIMEOUT) else {
+        return screenshot_list(app, None);
+    };
+    let remote = super::cloud::list_ready_ids(&session.api_base, &session.access_token).map_err(|err| {
+        AppError::Message(err.message().into())
+    })?;
+    with_db(&app, |conn| {
+        let local = store::list(conn, 1000).map_err(|err| err.to_string())?;
+        let remote_set: std::collections::HashSet<&str> = remote.iter().map(String::as_str).collect();
+        let stale: Vec<String> = local
+            .into_iter()
+            .filter(|row| row.upload_status == "ready")
+            .filter_map(|row| row.cloud_id)
+            .filter(|cloud_id| !remote_set.contains(cloud_id.as_str()))
+            .collect();
+        store::mark_evicted_by_cloud_ids(conn, &stale).map_err(|err| err.to_string())?;
+        Ok(())
+    })
+    .map_err(to_app_error)?;
+    screenshot_list(app, None)
 }
 
 fn find(app: &AppHandle, id: &str) -> AppResult<ScreenshotRecord> {

@@ -35,6 +35,7 @@ export function RecordControls({
   return (
     <section className="studio-panel studio-controls">
       {studio === "recording" ? (
+      <>
       <div className="studio-record-card">
         <button
           type="button"
@@ -119,6 +120,7 @@ export function RecordControls({
           </div>
         </div>
       ) : null}
+      </>
       ) : (
         <p className="studio-clip-hint">
           Overlays, text, and images burn into the clip when you save. Webcam stays a separate track you can still move later.

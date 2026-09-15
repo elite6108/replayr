@@ -11,6 +11,11 @@ describe("isSiteGatedPath", () => {
     expect(isSiteGatedPath("/")).toBe(true);
     expect(isSiteGatedPath("/signin")).toBe(true);
   });
+
+  it("keeps screenshot share links open", () => {
+    expect(isSiteGatedPath("/s/abcdefghijk2")).toBe(false);
+    expect(isSiteGatedPath("/s/abcdefghijk2.png")).toBe(false);
+  });
 });
 
 describe("isOAuthHandoff", () => {

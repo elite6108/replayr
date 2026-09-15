@@ -172,6 +172,33 @@ pub fn remove(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
     Ok(conn.execute("DELETE FROM screenshots WHERE id = ?1", [id])? > 0)
 }
 
+pub fn set_upload(
+    conn: &Connection,
+    id: &str,
+    upload_status: &str,
+    cloud_id: Option<&str>,
+    slug: Option<&str>,
+    share_url: Option<&str>,
+    upload_error: Option<&str>,
+) -> rusqlite::Result<bool> {
+    Ok(conn.execute(
+        "UPDATE screenshots SET upload_status = ?1, cloud_id = ?2, slug = ?3, share_url = ?4, upload_error = ?5 WHERE id = ?6",
+        params![upload_status, cloud_id, slug, share_url, upload_error, id],
+    )? > 0)
+}
+
+/// Oldest cloud copies that the Worker evicted. Keep the local PNG; hide the dead share link.
+pub fn mark_evicted_by_cloud_ids(conn: &Connection, cloud_ids: &[String]) -> rusqlite::Result<u64> {
+    let mut changed = 0u64;
+    for cloud_id in cloud_ids {
+        changed += conn.execute(
+            "UPDATE screenshots SET upload_status = 'evicted', share_url = NULL, upload_error = NULL WHERE cloud_id = ?1",
+            [cloud_id],
+        )? as u64;
+    }
+    Ok(changed)
+}
+
 /// ISO-8601 UTC, lexically sortable, for `created_at`.
 pub fn now_iso() -> String {
     let millis = SystemTime::now()

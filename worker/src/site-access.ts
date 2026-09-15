@@ -12,6 +12,7 @@ const ALWAYS_OPEN_PREFIXES = [
   "/c/",
   "/clip/",
   "/f/",
+  "/s/",
   "/assets/",
   "/auth/",
   "/.well-known/",

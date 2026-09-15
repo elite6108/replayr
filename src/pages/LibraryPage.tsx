@@ -8,17 +8,20 @@ import { DeleteClipDialog, type DeleteClipScope } from "../components/common/Del
 import { PageHeader } from "../components/common/PageHeader";
 import { SelectionBar } from "../components/common/SelectionBar";
 import { LibraryTabs } from "../components/library/LibraryTabs";
+import { ScreenshotCard } from "../components/library/ScreenshotCard";
+import { ScreenshotDowngradeBanner, ScreenshotUsageBar } from "../components/library/ScreenshotUsage";
 import { SearchToolbar } from "../components/ui/SearchToolbar";
 import { useAuthStore } from "../stores/authStore";
 import { useCloudStore } from "../stores/cloudStore";
 import { useLibraryStore } from "../stores/libraryStore";
+import { useScreenshotStore } from "../stores/screenshotStore";
 import { formatBytes } from "../utils/format";
 
 type PendingDelete =
   | { source: "local"; localIds: string[]; linkedCloud: boolean }
   | { source: "cloud"; cloudIds: string[]; allHaveLocal: boolean; anyHaveLocal: boolean };
 
-export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
+export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "screenshots" }) {
   const navigate = useNavigate();
   const clips = useLibraryStore((state) => state.clips);
   const localError = useLibraryStore((state) => state.error);
@@ -65,6 +68,19 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
   const selectedCloud = useCloudStore((state) => state.selectedIds);
   const [query, setQuery] = useState("");
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const screenshots = useScreenshotStore((state) => state.items);
+  const screenshotsLoaded = useScreenshotStore((state) => state.loaded);
+  const screenshotUsage = useScreenshotStore((state) => state.usage);
+  const refreshScreenshots = useScreenshotStore((state) => state.refresh);
+  const refreshScreenshotUsage = useScreenshotStore((state) => state.refreshUsage);
+  const syncScreenshots = useScreenshotStore((state) => state.syncCloud);
+  const copyScreenshot = useScreenshotStore((state) => state.copy);
+  const revealScreenshot = useScreenshotStore((state) => state.reveal);
+  const retryScreenshot = useScreenshotStore((state) => state.retry);
+  const removeScreenshot = useScreenshotStore((state) => state.remove);
+  const takeScreenshot = useScreenshotStore((state) => state.take);
+  const [selectedShots, setSelectedShots] = useState<string[]>([]);
+  const [pendingShotDelete, setPendingShotDelete] = useState<string[] | null>(null);
   const visible = useMemo(() => {
     const list = favoritesOnly ? clips.filter((clip) => clip.favorite) : clips;
     const needle = query.trim().toLowerCase();
@@ -87,6 +103,15 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
     void refreshLocal();
     if (userId) void refreshCloud();
   }, [refreshCloud, refreshLocal, userId]);
+
+  useEffect(() => {
+    if (view !== "screenshots") return;
+    void refreshScreenshots();
+    if (userId) {
+      void refreshScreenshotUsage();
+      void syncScreenshots();
+    }
+  }, [refreshScreenshotUsage, refreshScreenshots, syncScreenshots, userId, view]);
 
   function openLocalDelete(localIds: string[]) {
     const linkedCloud = clips.some((clip) => localIds.includes(clip.localId) && clip.cloudClipId);
@@ -141,11 +166,30 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
     clearCloudSelection();
   }
 
+  const visibleShots = screenshots.filter((shot) => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return true;
+    return `${shot.width}x${shot.height}`.includes(needle) || (shot.shareUrl ?? "").toLowerCase().includes(needle);
+  });
+  const selectedShotRows = visibleShots.filter((shot) => selectedShots.includes(shot.id));
+
+  async function applyShotDelete(scope: DeleteClipScope) {
+    const ids = pendingShotDelete;
+    setPendingShotDelete(null);
+    if (!ids?.length) return;
+    const deleteFile = scope === "pc" || scope === "both";
+    const deleteCloud = scope === "cloud" || scope === "both";
+    for (const id of ids) {
+      await removeScreenshot(id, deleteFile, deleteCloud);
+    }
+    setSelectedShots([]);
+  }
+
   return (
     <>
       <PageHeader
         title="My Library"
-        subtitle="Your clips across this PC and cloud."
+        subtitle={view === "screenshots" ? "Region screenshots on this PC and in the cloud." : "Your clips across this PC and cloud."}
       >
         <LibraryTabs />
         {view === "local" ? (
@@ -157,8 +201,69 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
             {favoritesOnly ? "All clips" : "Favorites"}
           </button>
         ) : null}
+        {view === "screenshots" ? (
+          <button type="button" className="btn primary" onClick={() => void takeScreenshot()}>
+            Take screenshot
+          </button>
+        ) : null}
       </PageHeader>
 
+      {view === "screenshots" ? (
+        <>
+          <SearchToolbar value={query} onChange={setQuery} placeholder="Search screenshots">
+            <span className="muted">Newest first</span>
+          </SearchToolbar>
+          <ScreenshotDowngradeBanner usage={screenshotUsage} />
+          {user ? <ScreenshotUsageBar usage={screenshotUsage} /> : null}
+          {!screenshotsLoaded ? (
+            <p className="muted">Loading screenshots…</p>
+          ) : visibleShots.length === 0 ? (
+            <ClipGrid
+              title="No screenshots yet"
+              body="Press the screenshot shortcut or Take screenshot. Drag a rectangle on the frozen screen."
+            />
+          ) : (
+            <section className="panel flush">
+              <div className="panel-head">
+                <h2>Screenshots</h2>
+                <span className="badge">{visibleShots.length}</span>
+              </div>
+              <div className="clip-grid">
+                {visibleShots.map((shot) => (
+                  <ScreenshotCard
+                    key={shot.id}
+                    shot={shot}
+                    selected={selectedShots.includes(shot.id)}
+                    onSelect={(item) =>
+                      setSelectedShots((current) =>
+                        current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id],
+                      )
+                    }
+                    onCopy={(item, what) => void copyScreenshot(item.id, what)}
+                    onReveal={(item) => void revealScreenshot(item.id)}
+                    onRetry={user ? (item) => void retryScreenshot(item.id) : undefined}
+                    onDelete={(item) => setPendingShotDelete([item.id])}
+                  />
+                ))}
+              </div>
+              <SelectionBar
+                count={selectedShotRows.length}
+                onClear={() => setSelectedShots([])}
+                onSelectAll={() => setSelectedShots(visibleShots.map((shot) => shot.id))}
+              >
+                <button
+                  type="button"
+                  className="btn danger"
+                  onClick={() => setPendingShotDelete(selectedShotRows.map((shot) => shot.id))}
+                >
+                  Delete
+                </button>
+              </SelectionBar>
+            </section>
+          )}
+        </>
+      ) : (
+        <>
       <SearchToolbar value={query} onChange={setQuery} placeholder="Search clips">
         <span className="muted">Newest first</span>
       </SearchToolbar>
@@ -318,6 +423,8 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
           )}
         </div>
       )}
+        </>
+      )}
       {pendingDelete ? (
         <DeleteClipDialog
           count={pendingDelete.source === "local" ? pendingDelete.localIds.length : pendingDelete.cloudIds.length}
@@ -330,6 +437,17 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" }) {
           }
           onClose={() => setPendingDelete(null)}
           onChoose={(scope) => void applyDelete(scope)}
+        />
+      ) : null}
+      {pendingShotDelete ? (
+        <DeleteClipDialog
+          noun="screenshot"
+          count={pendingShotDelete.length}
+          showPc
+          showCloud={screenshots.some((shot) => pendingShotDelete.includes(shot.id) && shot.cloudId && shot.uploadStatus === "ready")}
+          showBoth={screenshots.some((shot) => pendingShotDelete.includes(shot.id) && shot.cloudId && shot.uploadStatus === "ready")}
+          onClose={() => setPendingShotDelete(null)}
+          onChoose={(scope) => void applyShotDelete(scope)}
         />
       ) : null}
     </>

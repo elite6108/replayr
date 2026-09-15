@@ -32,6 +32,14 @@ export function publicShareUrl(): string {
   return "https://replayr.tv";
 }
 
+export function screenshotShareUrl(slug: string): string {
+  return `${publicShareUrl()}/s/${slug}`;
+}
+
+export function screenshotImageUrl(slug: string): string {
+  return `${publicShareUrl()}/s/${slug}.png`;
+}
+
 export function clipShareUrl(slug: string): string {
   return `${publicShareUrl()}/c/${slug}`;
 }

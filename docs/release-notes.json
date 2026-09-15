@@ -1,4 +1,9 @@
 {
+  "0.1.50": [
+    "Region screenshots upload to the cloud and copy a replayr.tv/s/ share link.",
+    "Screenshot links open the image even without the coming-soon password, with Discord image previews.",
+    "Library and Settings include cloud screenshot controls and a changeable region-screenshot hotkey."
+  ],
   "0.1.49": [
     "Double-click a source in the source bar to rename it in place.",
     "Removed unused Fit, Center, Crop, Reset, Safe Area, and Dev buttons under the preview.",

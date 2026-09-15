@@ -14,6 +14,8 @@ interface PlanRow {
   max_upload_quality: string | null;
   watermark: boolean;
   ads: boolean;
+  screenshot_count_limit: number | null;
+  screenshot_bytes_limit: number | null;
 }
 
 interface SettingsRow {
@@ -58,6 +60,8 @@ export interface BillingStatus {
   storageLimitBytes: number;
   maxClipDurationMs: number | null;
   maxUploadQuality: string | null;
+  screenshotCountLimit: number | null;
+  screenshotBytesLimit: number | null;
   premium: boolean;
 }
 
@@ -86,7 +90,7 @@ export async function loadStatus(env: Env, userId: string): Promise<BillingStatu
     serviceRest<StorageJoin[]>(
       env,
       "GET",
-      `/user_storage?user_id=eq.${userId}&select=storage_used_bytes,storage_limit_bytes,plans(slug,storage_limit_bytes,max_clip_duration_ms,max_upload_quality,watermark,ads)`,
+      `/user_storage?user_id=eq.${userId}&select=storage_used_bytes,storage_limit_bytes,plans(slug,storage_limit_bytes,max_clip_duration_ms,max_upload_quality,watermark,ads,screenshot_count_limit,screenshot_bytes_limit)`,
     ),
     serviceRest<SubscriptionRow[]>(
       env,
@@ -119,6 +123,8 @@ export async function loadStatus(env: Env, userId: string): Promise<BillingStatu
     storageLimitBytes: Number(storage?.storage_limit_bytes ?? plan.storage_limit_bytes),
     maxClipDurationMs: plan.max_clip_duration_ms,
     maxUploadQuality: plan.max_upload_quality,
+    screenshotCountLimit: plan.screenshot_count_limit ?? null,
+    screenshotBytesLimit: plan.screenshot_bytes_limit ?? null,
     premium,
   };
 }
@@ -500,6 +506,8 @@ function fallbackFree(): PlanRow {
     max_upload_quality: "1080p",
     watermark: true,
     ads: true,
+    screenshot_count_limit: 10,
+    screenshot_bytes_limit: null,
   };
 }
 

@@ -18,10 +18,12 @@ import { LegalPage } from "./pages/LegalPage";
 import { FolderPage } from "./pages/FolderPage";
 import { FoldersPage } from "./pages/FoldersPage";
 import { LibraryPage } from "./pages/LibraryPage";
+import { LibraryScreenshotsPage } from "./pages/LibraryScreenshotsPage";
 import { MessagesPage } from "./pages/MessagesPage";
 import { PricingPage } from "./pages/PricingPage";
 import { ReleaseNotesPage } from "./pages/ReleaseNotesPage";
 import { PublicFolderPage } from "./pages/PublicFolderPage";
+import { ScreenshotPage } from "./pages/ScreenshotPage";
 import { UserProfilePage } from "./pages/UserProfilePage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { AuthDesktopPage } from "./pages/AuthDesktopPage";
@@ -102,6 +104,14 @@ function AppShell() {
             }
           />
           <Route
+            path="/library/screenshots"
+            element={
+              <RequireAuth>
+                <LibraryScreenshotsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
             path="/library/folders"
             element={
               <RequireAuth>
@@ -152,6 +162,7 @@ function AppShell() {
           />
           <Route path="/c/:slug" element={<ClipPage />} />
           <Route path="/clip/:slug" element={<ClipPage />} />
+          <Route path="/s/:slug" element={<ScreenshotPage />} />
           <Route path="/f/:token" element={<PublicFolderPage />} />
           <Route
             path="/admin"

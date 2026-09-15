@@ -8,7 +8,11 @@ import {
   overlayToVisuals,
   primaryCapture,
   sourcesBackFirst,
-import type { RecordingScene, RecordingSource, SourceCrop, SourceTransform } from "../../recording/scene";
+  type RecordingScene,
+  type RecordingSource,
+  type SourceCrop,
+  type SourceTransform,
+} from "../../recording/scene";
 import type { StudioMode } from "../../recording/studioMode";
 import { canvasFromSettings } from "../../recording/composition";
 import { sourceComposedSupported } from "../../recording/registry";

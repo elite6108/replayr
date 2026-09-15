@@ -18,6 +18,7 @@ import { handleAdminAnnouncements } from "./announcements";
 import { applyPlan, stripeForm } from "./billing";
 import { listAdminErrors, openErrorCount, resolveAdminError } from "./errors";
 import { ownedObjectKey, type Env } from "./shared";
+import { ownedScreenshotKey } from "./screenshotsCore";
 import { HttpError, json } from "./http";
 import { deleteBunnyAssetForClip } from "./watermark";
 
@@ -146,6 +147,10 @@ export async function handleAdmin(request: Request, env: Env, url: URL): Promise
   const clipItem = path.match(/^\/v1\/admin\/clips\/([^/]+)$/);
   if (request.method === "DELETE" && clipItem?.[1]) {
     return deleteClip(env, actor, clipItem[1]);
+  }
+  const screenshotItem = path.match(/^\/v1\/admin\/screenshots\/([^/]+)$/);
+  if (request.method === "DELETE" && screenshotItem?.[1]) {
+    return deleteScreenshot(env, actor, screenshotItem[1]);
   }
   if (request.method === "GET" && path === "/v1/admin/storage") {
     return listStorage(env, actor);
@@ -787,6 +792,37 @@ async function deleteClip(env: Env, actor: AdminActor, clipId: string): Promise<
     metadata: { slug: clip.slug, userId: clip.user_id },
   });
   return json({ clipId, status: "deleted" });
+}
+
+async function deleteScreenshot(env: Env, actor: AdminActor, screenshotId: string): Promise<Response> {
+  if (!UUID.test(screenshotId)) throw new HttpError(400, "Screenshot id is invalid.");
+  const rows = await serviceRest<
+    { id: string; user_id: string; slug: string; status: string; storage_key: string | null }[]
+  >(env, actor, "GET", `/screenshots?id=eq.${screenshotId}&select=id,user_id,slug,status,storage_key`);
+  const row = rows[0];
+  if (!row || row.status === "deleted") {
+    throw new HttpError(404, "That screenshot was not found.");
+  }
+  if (ownedScreenshotKey(row.user_id, row.storage_key)) {
+    requireR2(env);
+    await deleteObject(env, row.storage_key);
+  }
+  await serviceRest(env, actor, "PATCH", `/screenshots?id=eq.${screenshotId}`, {
+    status: "deleted",
+    deleted_reason: "abuse",
+    deleted_at: new Date().toISOString(),
+    storage_key: null,
+  });
+  await writeAuditLog(env, {
+    actorUserId: actor.id,
+    actorType: "admin",
+    action: AUDIT_ACTIONS.moderationScreenshotRemoved,
+    targetType: "screenshot",
+    targetId: screenshotId,
+    requestId: actor.requestId,
+    metadata: { slug: row.slug, userId: row.user_id },
+  });
+  return json({ id: screenshotId, status: "deleted" });
 }
 
 async function listStorage(env: Env, actor: AdminActor): Promise<Response> {

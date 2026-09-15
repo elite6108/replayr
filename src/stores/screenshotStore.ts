@@ -1,14 +1,21 @@
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
+import { publicApiUrl } from "../branding";
+import { fetchScreenshotUsage, type ScreenshotUsage } from "../services/screenshots";
+import { getSupabase, supabaseConfigured } from "../services/supabase";
 import {
   copyScreenshot,
   deleteScreenshot,
   listScreenshots,
+  provideScreenshotSession,
   revealScreenshot,
+  retryScreenshotUpload,
   startRegionScreenshot,
+  syncScreenshotCloud,
 } from "../services/tauri";
 import type { Screenshot } from "../types/screenshot";
 import { invokeErrorMessage } from "../utils/format";
+import { useAuthStore } from "./authStore";
 import { useToastStore } from "./toastStore";
 
 /**
@@ -18,11 +25,15 @@ import { useToastStore } from "./toastStore";
 interface ScreenshotState {
   items: Screenshot[];
   loaded: boolean;
+  usage: ScreenshotUsage | null;
   refresh: () => Promise<void>;
+  refreshUsage: () => Promise<void>;
   take: () => Promise<void>;
   copy: (id: string, what: "image" | "link") => Promise<void>;
-  remove: (id: string, deleteFile: boolean) => Promise<void>;
+  remove: (id: string, deleteFile: boolean, deleteCloud?: boolean) => Promise<void>;
   reveal: (id: string) => Promise<void>;
+  retry: (id: string) => Promise<void>;
+  syncCloud: () => Promise<void>;
 }
 
 const LISTEN_KEY = "__replayScreenshotListeners";
@@ -35,6 +46,7 @@ function upsert(items: Screenshot[], next: Screenshot): Screenshot[] {
 export const useScreenshotStore = create<ScreenshotState>((set) => ({
   items: [],
   loaded: false,
+  usage: null,
 
   refresh: async () => {
     try {
@@ -42,6 +54,19 @@ export const useScreenshotStore = create<ScreenshotState>((set) => ({
     } catch (caught) {
       set({ loaded: true });
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not load screenshots"));
+    }
+  },
+
+  refreshUsage: async () => {
+    const token = useAuthStore.getState().session?.access_token;
+    if (!token) {
+      set({ usage: null });
+      return;
+    }
+    try {
+      set({ usage: await fetchScreenshotUsage(token) });
+    } catch {
+      /* usage is optional chrome; the grid still works */
     }
   },
 
@@ -62,10 +87,21 @@ export const useScreenshotStore = create<ScreenshotState>((set) => ({
     }
   },
 
-  remove: async (id, deleteFile) => {
+  remove: async (id, deleteFile, deleteCloud = false) => {
     try {
-      await deleteScreenshot(id, deleteFile);
-      set((state) => ({ items: state.items.filter((item) => item.id !== id) }));
+      await deleteScreenshot(id, deleteFile, deleteCloud);
+      if (deleteFile || !deleteCloud) {
+        set((state) => ({ items: state.items.filter((item) => item.id !== id) }));
+      } else {
+        set((state) => ({
+          items: state.items.map((item) =>
+            item.id === id
+              ? { ...item, cloudId: null, slug: null, shareUrl: null, uploadStatus: "local", uploadError: null }
+              : item,
+          ),
+        }));
+      }
+      void useScreenshotStore.getState().refreshUsage();
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not delete that screenshot"));
     }
@@ -76,6 +112,30 @@ export const useScreenshotStore = create<ScreenshotState>((set) => ({
       await revealScreenshot(id);
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not show that file"));
+    }
+  },
+
+  retry: async (id) => {
+    try {
+      const next = await retryScreenshotUpload(id);
+      set((state) => ({ items: upsert(state.items, next) }));
+      void useScreenshotStore.getState().refreshUsage();
+      useToastStore.getState().show(next.shareUrl ? "Link copied" : "Uploaded");
+    } catch (caught) {
+      useToastStore.getState().show(invokeErrorMessage(caught, "Could not upload that screenshot"));
+    }
+  },
+
+  syncCloud: async () => {
+    try {
+      set({ items: await syncScreenshotCloud(), loaded: true });
+    } catch (caught) {
+      const message = invokeErrorMessage(caught, "");
+      if (/not allowed|not found/i.test(message)) {
+        await useScreenshotStore.getState().refresh();
+        return;
+      }
+      useToastStore.getState().show(message || "Could not sync screenshots");
     }
   },
 }));
@@ -90,6 +150,7 @@ export async function attachScreenshotListeners(): Promise<void> {
   slot[LISTEN_KEY] = [
     await listen<Screenshot>("screenshot-saved", (event) => {
       useScreenshotStore.setState((state) => ({ items: upsert(state.items, event.payload) }));
+      void useScreenshotStore.getState().refreshUsage();
     }),
     await listen<Screenshot>("screenshot-updated", (event) => {
       useScreenshotStore.setState((state) => ({ items: upsert(state.items, event.payload) }));
@@ -97,5 +158,30 @@ export async function attachScreenshotListeners(): Promise<void> {
     await listen<string>("screenshot-failed", (event) => {
       useToastStore.getState().show(event.payload || "Screenshot failed");
     }),
+    await listen<{ requestId: number; forceRefresh: boolean }>("screenshot-session-request", (event) => {
+      void answerScreenshotSession(event.payload.requestId, event.payload.forceRefresh);
+    }),
   ];
+}
+
+async function answerScreenshotSession(requestId: number, forceRefresh: boolean): Promise<void> {
+  let accessToken: string | null = null;
+  try {
+    if (supabaseConfigured()) {
+      const supabase = getSupabase();
+      const { data } = forceRefresh ? await supabase.auth.refreshSession() : await supabase.auth.getSession();
+      accessToken = data.session?.access_token ?? null;
+    }
+  } catch {
+    accessToken = null;
+  }
+  try {
+    await provideScreenshotSession(requestId, accessToken, accessToken ? publicApiUrl() : null);
+  } catch {
+    try {
+      await provideScreenshotSession(requestId, null, null);
+    } catch {
+      /* timed out on the Rust side */
+    }
+  }
 }

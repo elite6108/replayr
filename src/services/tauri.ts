@@ -292,8 +292,8 @@ export async function listScreenshots(limit?: number): Promise<Screenshot[]> {
   return invoke("screenshot_list", { limit: limit ?? null });
 }
 
-export async function deleteScreenshot(id: string, deleteFile: boolean): Promise<void> {
-  return invoke("screenshot_delete", { id, deleteFile });
+export async function deleteScreenshot(id: string, deleteFile: boolean, deleteCloud = false): Promise<void> {
+  return invoke("screenshot_delete", { id, deleteFile, deleteCloud });
 }
 
 export async function copyScreenshot(id: string, what: "image" | "link"): Promise<void> {
@@ -302,6 +302,22 @@ export async function copyScreenshot(id: string, what: "image" | "link"): Promis
 
 export async function revealScreenshot(id: string): Promise<void> {
   return invoke("screenshot_reveal", { id });
+}
+
+export async function provideScreenshotSession(
+  requestId: number,
+  accessToken: string | null,
+  apiBase: string | null,
+): Promise<void> {
+  return invoke("screenshot_provide_session", { requestId, accessToken, apiBase });
+}
+
+export async function retryScreenshotUpload(id: string): Promise<Screenshot> {
+  return invoke("screenshot_retry_upload", { id });
+}
+
+export async function syncScreenshotCloud(): Promise<Screenshot[]> {
+  return invoke("screenshot_sync_cloud");
 }
 
 /** Shortcuts that could not be bound on the last sync (usually held by another app). */

@@ -1,4 +1,4 @@
-import { DEFAULT_RECORDING_VISUALS, DEFAULT_WEBCAM_SETTINGS, type AppSettings } from "../types/settings";
+import { DEFAULT_WEBCAM_SETTINGS, type AppSettings } from "../types/settings";
 import { clipSceneNeedsCompose, isForbiddenClipSettingKey, seedClipLibrary, seedClipScene } from "./clipScene";
 import { createSource, FULL_FRAME, type RecordingScene } from "./scene";
 

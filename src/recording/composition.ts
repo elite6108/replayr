@@ -60,6 +60,7 @@ export type WebcamCompositionSource = {
   height: number;
   fps: number;
   mirror: boolean;
+  shape?: "rectangle" | "rounded" | "circle";
 };
 
 export type ImageCompositionSource = {
@@ -140,7 +141,7 @@ export function isAudioRouted(route: ComposedAudioSourceRoute): boolean {
   return route.present && !route.muted;
 }
 
-/** Session-only overlay. Instant Replay clips keep using `settings.webcam.defaultPlacement`. */
+/** Webcam sidecar layout from a studio scene. Used by session recordings and clip saves. */
 export function sessionWebcamLayoutFromScene(scene: RecordingScene): ClipSourceLayout | null {
   const webcam = findSourceByType(scene, "webcam");
   if (!webcam?.enabled) return null;
@@ -230,6 +231,7 @@ function asWebcam(source: RecordingSource, settings: AppSettings): WebcamComposi
     height: settings.webcam.height,
     fps: settings.webcam.fps,
     mirror: settings.webcam.mirrorPreview,
+    shape: webcamSettingsOf(source).shape,
   };
 }
 

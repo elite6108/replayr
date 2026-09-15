@@ -5,10 +5,38 @@ Gameplay clipper. Identifier `tv.elite.replay`. Site: [www.replayr.tv](https://w
 It is a **native Tauri 2 app**, not a website in a wrapper.
 
 - **Windows** is the clipper: Instant Replay, hotkeys, local library, then an optional cloud copy while signed in.
-- **macOS** (Apple Silicon DMG) is the same signed-in shell: cloud library, folders, friends, messages, Explore. Recording and Instant Replay are Windows-only.
+- **macOS** (Apple Silicon DMG) is the same signed-in shell: cloud library, folders, Following, messages, Explore. Recording and Instant Replay are Windows-only.
 - The website (`web/`) and mobile app (`mobile/`) are the cloud library and share player. They do not record.
 
-The locked design lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Audio routing decisions live in [docs/AUDIO_ROUTING.md](docs/AUDIO_ROUTING.md). Admin metric names live in [docs/analytics-metrics.md](docs/analytics-metrics.md). This README is the operator and developer map.
+How systems work: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).  
+Audio routing: [docs/AUDIO_ROUTING.md](docs/AUDIO_ROUTING.md).  
+Admin metric names: [docs/analytics-metrics.md](docs/analytics-metrics.md).  
+This README is the operator and developer map.
+
+## Contents
+
+- [Hard rules](#hard-rules-read-these-first)
+- [How to start](#how-to-start)
+- [How the product is split](#how-the-product-is-split)
+- [Current status](#current-status)
+- [Capture, Instant Replay, and Record](#capture-instant-replay-and-record)
+- [Local and cloud library](#local-and-cloud-library)
+- [Following and social](#following-and-social)
+- [Accounts](#accounts)
+- [Cloud upload](#cloud-upload)
+- [Website and mobile](#website-and-mobile)
+- [Admin](#admin)
+- [Desktop internals developers hit](#desktop-internals-developers-hit)
+- [Windows download and updates](#windows-download-and-updates)
+- [macOS DMG](#macos-dmg)
+- [Required software](#required-software)
+- [Environment](#environment)
+- [Setup](#setup)
+- [Commands](#commands)
+- [Data](#data)
+- [Directory layout](#directory-layout)
+- [What is not done yet](#what-is-not-done-yet)
+- [Security rules to keep](#security-rules-to-keep)
 
 ## Hard rules (read these first)
 
@@ -21,7 +49,39 @@ These are easy to break and expensive to undo.
 - **Admin** is `app_metadata.role === "admin"`, never `user_metadata`.
 - **Unlisted clips** are watchable with the link. They must never appear in public listings, Explore, or For You.
 - **No GPL FFmpeg sidecar.** Encode with Media Foundation.
-- **Do not start audio Step 2** (process-isolated Game audio) until someone confirms Step 1 clips sound right. Step 1 is one mixed AAC track (system loopback + optional mic).
+- **Do not start audio Step 2** (separate MP4 tracks, isolated Discord / extra-app sources, Mode 2 exclusions) until mix-only clips are confirmed. Step 1 is **one mixed AAC track** (game process loopback when it works, optional desktop loopback, optional mic). Details: [docs/AUDIO_ROUTING.md](docs/AUDIO_ROUTING.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## How to start
+
+Three processes. Desktop talks to the Worker at **8787**, not to the website Vite server.
+
+1. Copy `.env.example` to `.env`. Put Worker / R2 / service-role secrets in `.env.cloudflare` (gitignored). See [Environment](#environment).
+2. `npm install` at the repo root, then in `worker/`, `web/`, and `mobile/` as needed.
+3. Three terminals:
+
+```bash
+npm run worker:dev
+npm run web:dev
+npm run tauri:dev
+```
+
+| Process | Port | What it is |
+| --- | --- | --- |
+| `worker:dev` | **8787** | API + share routes. Desktop `.env` must set `VITE_PUBLIC_APP_URL=http://127.0.0.1:8787` |
+| `web:dev` | **5174** | Public website. Proxies `/v1` → 8787. Not the desktop API host |
+| `tauri:dev` | Vite **1420** | Desktop WebView. Needs MSVC `vcvars64` on Windows |
+
+Health check: [http://127.0.0.1:8787/v1/health](http://127.0.0.1:8787/v1/health) → `{"ok":true,"storage":true}`.
+
+Windows `tauri:dev` via `cmd.exe` (PowerShell breaks `(x86)` paths):
+
+```bat
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && npm run tauri:dev
+```
+
+The app window **opens immediately**. Settings and auth load in the background (fail-open after a hung invoke). Do not run Instant Replay / WASAPI / Media Foundation on the Tauri UI thread.
+
+Mobile (separate): `npm run mobile:start`. Website-only: worker + `web:dev` is enough.
 
 ## How the product is split
 
@@ -33,10 +93,10 @@ flowchart LR
     UI[React UI]
     Core[Rust core]
     SQLite[Local SQLite]
-    Capture[WGC + MF + WASAPI]
+    Capture[WGC plus MF plus WASAPI]
   end
   subgraph cloud [Cloud]
-    Auth[Supabase Auth + Postgres]
+    Auth[Supabase Auth plus Postgres]
     API[Cloudflare Worker]
     R2[Cloudflare R2]
     Web[Public website]
@@ -58,7 +118,7 @@ flowchart LR
 
 | Layer | Role |
 | --- | --- |
-| React + Vite (`src/`) | Shell, library, folders, Explore, friends, messages, account, settings. Supabase **anon** key only. |
+| React + Vite (`src/`) | Shell, library, folders, Explore, Following, messages, account, settings. Supabase **anon** key only. |
 | Rust / Tauri (`src-tauri/`) | Tray, hotkeys, filesystem, SQLite, capture, encode, remux, upload to R2, updater. Capture/encode are Windows-only. |
 | SQLite | Local clips, settings, game catalog, upload queue. No auth tokens. |
 | Supabase Auth | Email/password plus Google, Discord, and X. Session JWT is cloud identity. |
@@ -72,7 +132,7 @@ Production Worker origin is `https://www.replayr.tv`. Local desktop `.env` shoul
 
 ## Current status
 
-Windows is usable end to end: capture, local library, cloud upload, folders, friends, messages, public/unlisted share links, likes/comments on **public** clips, in-app Windows updates.
+Windows is usable end to end: capture, local library, cloud upload, folders, following, messages, public/unlisted share links, likes/comments on **public** clips, in-app Windows updates.
 
 | Area | Status |
 | --- | --- |
@@ -81,10 +141,12 @@ Windows is usable end to end: capture, local library, cloud upload, folders, fri
 | Game detection | Done (catalog from cloud + local SQLite) |
 | WGC + Media Foundation + WASAPI → local MP4 | Done (Windows) |
 | Instant Replay, Save Clip, session record, screenshot | Done (Windows) |
+| Composed recording (layout burned into one MP4) | Done (Windows) |
 | Local library (player, thumbs, favorite / rename / delete) | Done |
 | Cloud upload to R2, quota, owner library | Done |
+| Defer uploads until after the game (`cloudUploadWhen`) | Done |
 | Folders (collab, public links, clip edits, activity) | Done |
-| Friends, follows, DMs, notifications | Done |
+| Following, follow requests, DMs, notifications | Done |
 | Public `/c/{slug}` player, `/f/{token}` folder links | Done |
 | Explore / For You (public clips only) | Done |
 | Free / Premium billing (Stripe) | Done |
@@ -92,28 +154,32 @@ Windows is usable end to end: capture, local library, cloud upload, folders, fri
 | macOS Apple Silicon DMG (cloud + social, no capture) | Done |
 | Admin analytics (`/admin/analytics`) | Done |
 | Mic mixed into the one AAC track (Step 1) | Done — do not start Step 2 yet |
-| Isolated Game/Discord tracks, Apple Sign-In, Intel Mac, notarization | Not started |
+| Isolated Discord/app tracks, Apple Sign-In, Intel Mac, notarization | Not started |
 | DXGI exclusive-fullscreen fallback | Not started |
 
-**Desktop nav:** Home, Library, Explore, Games, Record, Friends, Messages, Settings, Profile, Admin (admins only). Library has This PC / Cloud / Folders. The rail is fixed; only the page scrolls.
+**Desktop nav:** Home, Library, Explore, Games, Record, **Following** (route `/friends`), Messages, Settings, Profile, Admin (admins only). Library has This PC / Cloud / Folders. The rail is fixed; only the page scrolls.
 
 **Mac Record** is in the rail but capture commands return “Recording is only available on Windows.”
 
-## Capture and Instant Replay
+## Capture, Instant Replay, and Record
 
-Windows only.
+Windows only. Internals: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#instant-replay).
 
 ```
 Detected game window
   → Windows Graphics Capture
   → Media Foundation H.264 (hardware MFT when available)
-  → WASAPI (default-device loopback + optional mic)
+  → WASAPI (game process loopback when it works + optional desktop + optional mic)
   → session MP4, or a short segmented replay buffer
 ```
 
-**Game detection** runs in Rust. The catalog is data (`games.process_names`, wildcards allowed). The focused window wins if it is a catalog game; otherwise a running match is kept so alt-tabbing to Replayr does not clear detection. Instant Replay starts when a game is detected.
+**Game detection** runs in Rust. The catalog is data (`games.process_names`, wildcards allowed). The focused window wins if it is a catalog game; otherwise a running match is kept so alt-tabbing to Replayr does not clear detection. Instant Replay then **locks the PID** — alt-tab does not retarget capture.
 
-**Instant Replay** writes scratch segments into app cache (`replay-buffer`), not the Videos folder. Those files are wiped when IR stops, the game closes, or IR is turned off. **Save Clip** remuxes the last N seconds (bitstream copy) into a library MP4.
+**Instant Replay** is always-on rolling capture while enabled and a game is detected. It writes scratch segments into app cache (`replay-buffer`), not the Videos folder. Those files are wiped when IR stops, the game closes, or IR is turned off. **Save Clip** remuxes the last N seconds (bitstream copy) into a library MP4.
+
+**Start Recording (legacy)** uses the same encoder. If IR is already rolling, recording **pins** the buffer (no restart). Stop concatenates the pinned window. Webcam is a sidecar `{file}-webcam.mp4`, not burned into gameplay.
+
+**Composed recording** burns the Record layout (capture + webcam/image/text + overlay) into one MP4. IR must be off. Scenes live on the Record page (sources | preview | inspector; mixer + controls in the dock). Double-click a source in the source bar to rename it.
 
 | Action | Default |
 | --- | --- |
@@ -121,31 +187,44 @@ Detected game window
 | Start/Stop recording | Ctrl+F9 |
 | Screenshot | Ctrl+F11 |
 
-Manual Start/Stop writes a full session MP4. Screenshots are local BMP stills and are not uploaded.
+Screenshots are local BMP stills and are not uploaded.
 
 Exclusive fullscreen can miss Graphics Capture; borderless or windowed is reliable.
 
 ### Audio (Step 1)
 
-Settings → Audio: system loopback on/off, one microphone (on/off, device, gain, meter). New installs leave the mic **off** until the user opts in. Live mic changes apply without rewriting the Instant Replay buffer.
+Settings → Audio: Game Audio, system/desktop loopback on/off, one microphone (on/off, device, gain, meter). New installs leave the mic **off** until the user opts in. Live mic changes apply without rewriting the Instant Replay buffer.
 
 The mic meter can open the device for level only. It does **not** mix into clips unless Microphone is on.
 
-Do not run WASAPI open, Media Foundation, or `sync_replay` on the Tauri UI thread. Those hang the splash (“Starting Replayr…”) and freeze settings. Capture and audio apply on background threads.
+Do not run WASAPI open, Media Foundation, or `sync_replay` on the Tauri UI thread.
 
 ## Local and cloud library
 
 Library is one page with three views. Local and cloud copies stay distinct.
 
-- **This PC** — files in the save folder (default Videos), SQLite `local_clips`, in-app player, thumbs, favorite / rename / delete.
+- **This PC** — files in the save folder (default `{Videos}/Project Replay`), SQLite `local_clips`, in-app player, thumbs, favorite / rename / delete.
 - **Cloud** — owner clips from the API. A fresh install has an empty This PC list even if Cloud has clips from another machine.
 - **Folders** — shared collections (members, activity, optional public `/f/{token}` link, clip edits). Same folders on desktop, web, and mobile.
 
 A local clip can point at a `cloud_clip_id`. Delete on desktop also deletes the cloud copy. “Remove from cloud” unlinks the upload and leaves the file on this PC.
 
-Automatic upload defaults to **All clips** (Settings: Off or Favorites only).
+Automatic upload defaults to **All clips** (Settings: Off or Favorites only). Settings can wait until you **exit the game** before uploading.
 
 Cloud play asks the Worker for a signed URL (`GET /v1/clips/:slug` with the JWT), then the in-app `<video>` loads that URL. The Worker CORS list includes Windows (`https://tauri.localhost`) and Mac (`tauri://localhost`).
+
+## Following and social
+
+The desktop **Following** tab (route `/friends`) is the follow graph, not a separate friends product.
+
+- Follow a **public** profile and it accepts immediately.
+- Follow a **private** profile and it stays pending until they accept. Their clips/posts stay locked until then.
+- Legacy `/v1/friends` still means **mutual accepted follows**. DMs require that mutual follow.
+- Block is a separate table and clears follows.
+- Explore / For You lists **public + ready** clips only. Unlisted is link-only (`/c/{slug}`) and must never appear in feeds.
+- Likes and comments are public clips only.
+
+Tables, endpoints, and the Worker vs RLS split: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#following-and-social).
 
 ## Accounts
 
@@ -209,7 +288,7 @@ The public marketing site is behind a **coming-soon gate** (`SITE_ACCESS_PASSWOR
 | `/explore` | Public For You feed |
 | `/library` | Signed-in cloud clips |
 | `/library/folders` | Signed-in folders |
-| `/friends`, `/messages` | Social |
+| `/friends`, `/messages` | Following and DMs |
 | `/c/{slug}` | Clip share player |
 | `/f/{token}` | Public folder |
 | `/auth/desktop` | Desktop OAuth handoff → `replayr://` |
@@ -251,9 +330,9 @@ Tauri 2 denies any app command that is not allowed. Custom permissions live in `
 
 ### Do not block the UI thread
 
-`set_setting` must not restart Instant Replay on the IPC thread. Only capture-related keys call `sync_replay`, and that runs on a background thread. Setup must not call `sync_replay` on the main thread either — that freezes “Starting Replayr…”.
+`set_setting` must not restart Instant Replay on the IPC thread. Only capture-related keys call `sync_replay`, and that runs on a background thread. Setup must not call `sync_replay` on the main thread either.
 
-The splash waits for settings + auth, then fail-opens after 2.5s so a hung invoke cannot pin the window forever.
+The window opens immediately. Settings and auth init in the background and fail-open after ~2.5s so a hung invoke cannot pin the UI forever.
 
 ### `tauri:dev` vs installed build
 
@@ -289,7 +368,7 @@ Paste `.tauri/updater.key.pub` into `pubkey`. Never commit the private key. If i
 
 ### Ship a Windows update
 
-1. Bump `version` in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` (all three).
+1. Bump `version` in `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `replay` package entry in `src-tauri/Cargo.lock`. Add notes in `docs/release-notes.json` and `web/public/releases/release-notes.json`.
 2. Build the NSIS bundle on a Windows machine that has a local `.env` (MSVC env required):
 
 ```bat
@@ -369,7 +448,7 @@ Copy `.env.example` to `.env`.
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Anon / publishable key |
 | `EXPO_PUBLIC_APP_URL` | Production: `https://www.replayr.tv` |
 
-**Worker / R2 (never `VITE_`):** `.env.cloudflare` (gitignored) → `npm run worker:dev` copies into `worker/.dev.vars`.
+**Worker / R2 (never `VITE_`):** `.env.cloudflare` (gitignored) → `npm run worker:dev` copies into `worker/.dev.vars`. There is no checked-in example file; required keys include `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, R2 account/bucket/keys, and `PUBLIC_APP_URL` (forced to `http://127.0.0.1:8787` locally).
 
 **Mac CI:** same two `VITE_SUPABASE_*` values as Actions secrets on the `Replayr` environment. Not committed.
 
@@ -380,20 +459,17 @@ Copy `.env.example` to `.env`.
 3. Put URL + anon key in `.env`. Set `VITE_PUBLIC_APP_URL=http://127.0.0.1:8787`.
 4. Create an R2 bucket and API token. Put keys in `.env.cloudflare`.
 5. `npm install` at the repo root, then `npm install` in `worker/`, `web/`, and `mobile/` as needed.
+6. Start the three terminals in [How to start](#how-to-start).
 
 ## Commands
 
-Three terminals for desktop + cloud + website:
-
-```bash
-npm run worker:dev
-npm run web:dev
-npm run tauri:dev
-```
-
 | Command | What it does |
 | --- | --- |
-| `npm run tauri:dev` | Desktop with Vite. Needs `vcvars64` on Windows. |
+| `npm run worker:dev` | Wrangler on 8787. Syncs `.env` + `.env.cloudflare` into `worker/.dev.vars`. |
+| `npm run web:dev` | Website Vite on 5174. |
+| `npm run tauri:dev` | Desktop (`tauri dev --no-watch`). Needs `vcvars64` on Windows. |
+| `npm run tauri:dev:watch` | Same, with Tauri file watch. |
+| `npm run dev` | Desktop Vite only (port 1420), no Tauri/Rust. |
 | `npm run tauri:build` | Release NSIS installer (Windows only). |
 | `npm run tauri:build:macos` | Apple Silicon DMG. Used by CI, not by `tauri:build`. |
 | `npm run installer:stage` | `Replayr.exe` + `latest.json` from the matching `.sig`. |
@@ -411,7 +487,7 @@ Worker health: `http://127.0.0.1:8787/v1/health` → `{"ok":true,"storage":true}
 
 ## Data
 
-**Postgres:** `plans`, `profiles`, `user_storage`, `games`, `clips`, `upload_sessions`, `creator_applications`, `clip_likes`, `clip_comments`, folders + members + activity, friends/follows/blocks, conversations, billing, announcements, waitlist, analytics events and daily aggregates. Video never goes in Postgres. Apply every file in `supabase/migrations/` in order. Likes/comments have RLS enabled and **no client policies** — Worker service-role only. Triggers keep `clips.like_count` / `comment_count`.
+**Postgres:** `plans`, `profiles`, `user_storage`, `games`, `clips`, `upload_sessions`, `creator_applications`, `clip_likes`, `clip_comments`, `follows`, `blocks`, folders + members + activity, conversations, billing, announcements, waitlist, analytics events and daily aggregates. Video never goes in Postgres. Apply every file in `supabase/migrations/` in order. Likes/comments have RLS enabled and **no client policies** — Worker service-role only. Triggers keep `clips.like_count` / `comment_count`.
 
 **SQLite (desktop):** `settings`, `local_clips`, `upload_queue`, `games`. Migrations in `src-tauri/migrations/`.
 
@@ -428,20 +504,22 @@ worker/                      API + share player + production static assets
 web/                         Public website
 web/public/releases          Staged Replayr.exe + latest.json (gitignored binaries)
 mobile/                      Expo cloud app (no capture)
+packages/social-types        Shared follow / folder types
 .github/workflows/macos-dmg.yml  Apple Silicon DMG CI + GitHub Release
 scripts/                     installer:stage (Windows + macOS)
 .tauri/                      updater private key (gitignored)
-docs/ARCHITECTURE.md         Locked system design
+docs/ARCHITECTURE.md         Current system design
 docs/AUDIO_ROUTING.md        Audio plan (Step 1 shipped)
 docs/analytics-metrics.md    Admin analytics dictionary
+docs/release-notes.json      Updater notes keyed by version
 ```
 
 ## What is not done yet
 
-- Isolated Game / Discord / app audio (Mode 1) and separate tracks
+- Isolated Discord / extra-app audio sources and **separate MP4 audio tracks** (Mode 1 Step 2)
+- Mode 2 desktop mix with exclusions
 - DXGI exclusive-fullscreen fallback
 - Resume of interrupted multipart after a desktop restart
-- Pause uploads while gaming
 - Apple Sign-In on desktop
 - Intel Mac DMG and Apple notarization
 - Recording / Instant Replay on macOS

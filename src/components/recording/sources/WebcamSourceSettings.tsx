@@ -3,6 +3,7 @@ import { listCameraDevices } from "../../../services/tauri";
 import type { CameraDevice, CameraStatus } from "../../../types/camera";
 import type { WebcamPlacement, WebcamSettings, WebcamShape } from "../../../types/settings";
 import { webcamSettingsOf, type RecordingSource } from "../../../recording/scene";
+import type { StudioMode } from "../../../recording/studioMode";
 
 const PLACEMENTS: { id: WebcamPlacement; label: string }[] = [
   { id: "top-left", label: "TL" },
@@ -26,6 +27,7 @@ export function WebcamSourceSettings({
   onSnap,
   onDevice,
   onMirror,
+  studio = "recording",
 }: {
   source: RecordingSource;
   webcam: WebcamSettings;
@@ -35,6 +37,7 @@ export function WebcamSourceSettings({
   onSnap: (placement: WebcamPlacement) => void;
   onDevice: (device: CameraDevice) => void;
   onMirror: (mirror: boolean) => void;
+  studio?: StudioMode;
 }) {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const shape = webcamSettingsOf(source).shape;
@@ -105,7 +108,9 @@ export function WebcamSourceSettings({
         </div>
       </div>
       <p className="studio-output-hint">
-        Session recordings use this preview position. Instant Replay clips still use the clip webcam corner in Settings.
+        {studio === "clip"
+          ? "This preview position is saved with Instant Replay clips. Webcam stays a separate file."
+          : "Session recordings use this preview position. Instant Replay clip layout is edited on the Clips tab."}
       </p>
     </div>
   );

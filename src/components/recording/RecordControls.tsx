@@ -4,6 +4,7 @@ import { IconGear, IconRecord } from "../icons";
 import type { AppSettings } from "../../types/settings";
 import { useRecordingStore } from "../../stores/recordingStore";
 import type { RecordingOutputMode } from "../../recording/scene";
+import type { StudioMode } from "../../recording/studioMode";
 import { CaptureOutputFields } from "./sources/GameSourceSettings";
 import { formatBitrateEstimate } from "../../utils/recordingBitrate";
 import { IrControlsCard } from "./IrControlsCard";
@@ -13,11 +14,13 @@ export function RecordControls({
   outputMode,
   onOutputMode,
   onSave,
+  studio = "recording",
 }: {
   settings: AppSettings;
   outputMode: RecordingOutputMode;
   onOutputMode: (mode: RecordingOutputMode) => void;
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  studio?: StudioMode;
 }) {
   const status = useRecordingStore((state) => state.status);
   const busy = useRecordingStore((state) => state.busy);
@@ -31,6 +34,7 @@ export function RecordControls({
 
   return (
     <section className="studio-panel studio-controls">
+      {studio === "recording" ? (
       <div className="studio-record-card">
         <button
           type="button"
@@ -91,7 +95,7 @@ export function RecordControls({
             </p>
           ) : (
             <p className="studio-output-hint">
-              Session recordings follow the webcam box in this preview. Instant Replay clips still use the clip webcam corner in Settings.
+              Session recordings follow the webcam box in this preview.
             </p>
           )}
           <CaptureOutputFields settings={settings} onSave={onSave} disabled={composedRecording} />
@@ -115,6 +119,11 @@ export function RecordControls({
           </div>
         </div>
       ) : null}
+      ) : (
+        <p className="studio-clip-hint">
+          Overlays, text, and images burn into the clip when you save. Webcam stays a separate track you can still move later.
+        </p>
+      )}
 
       <IrControlsCard settings={settings} onSave={onSave} composedRecording={composedRecording} />
     </section>

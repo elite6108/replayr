@@ -213,6 +213,10 @@ export interface AppSettings {
   screenshots: ScreenshotSettings;
   /** Live Output Preview resolution/pace. Does not change the recording. */
   previewQuality: PreviewQuality;
+  /** Clip studio scene library. Untrusted JSON; sanitized before use. */
+  clipSceneLibrary: unknown | null;
+  /** Frozen clip composition snapshot for Save Clip / F10. */
+  clipComposition: unknown | null;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -264,4 +268,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   clipStudio: { ...DEFAULT_CLIP_STUDIO, scenes: [] },
   screenshots: { ...DEFAULT_SCREENSHOT_SETTINGS },
   previewQuality: "balanced",
+  clipSceneLibrary: null,
+  clipComposition: null,
 };

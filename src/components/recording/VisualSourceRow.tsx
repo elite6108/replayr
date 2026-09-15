@@ -1,8 +1,9 @@
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ContextMenu } from "../common/ContextMenu";
 import { IconEye, IconEyeOff, IconGrip, IconLock, IconMore, IconUnlock } from "../icons";
-import { capabilityCaption, composedSourceCaption, registryEntry, sourceComposedSupported } from "../../recording/registry";
+import { capabilityCaption, clipSourceCaption, composedSourceCaption, registryEntry, sourceComposedSupported } from "../../recording/registry";
 import type { RecordingOutputMode, RecordingSource } from "../../recording/scene";
+import type { StudioMode } from "../../recording/studioMode";
 import { SourceGlyph } from "./sourceGlyph";
 import { SourceNameEdit } from "./SourceNameEdit";
 
@@ -20,6 +21,7 @@ export function VisualSourceRow({
   onGripDown,
   dropBefore,
   compositionLocked,
+  studio = "recording",
 }: {
   source: RecordingSource;
   outputMode?: RecordingOutputMode;
@@ -34,6 +36,7 @@ export function VisualSourceRow({
   onGripDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   dropBefore?: boolean;
   compositionLocked?: boolean;
+  studio?: StudioMode;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -41,7 +44,9 @@ export function VisualSourceRow({
   const composedUnsupported = outputMode === "composed" && !sourceComposedSupported(source.type);
   const composedCap = outputMode === "composed" ? composedSourceCaption(source.type) : null;
   const caption =
-    composedCap ?? (entry?.capability === "recorded" ? "" : (entry?.hint ?? capabilityCaption(source.capability)));
+    studio === "clip"
+      ? clipSourceCaption(source.type) ?? capabilityCaption(source.capability, studio)
+      : composedCap ?? (entry?.capability === "recorded" ? "" : (entry?.hint ?? capabilityCaption(source.capability)));
 
   return (
     <div

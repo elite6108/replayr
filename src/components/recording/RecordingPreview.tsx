@@ -8,11 +8,8 @@ import {
   overlayToVisuals,
   primaryCapture,
   sourcesBackFirst,
-  type RecordingScene,
-  type RecordingSource,
-  type SourceCrop,
-  type SourceTransform,
-} from "../../recording/scene";
+import type { RecordingScene, RecordingSource, SourceCrop, SourceTransform } from "../../recording/scene";
+import type { StudioMode } from "../../recording/studioMode";
 import { canvasFromSettings } from "../../recording/composition";
 import { sourceComposedSupported } from "../../recording/registry";
 import { useDetectionStore } from "../../stores/detectionStore";
@@ -34,6 +31,7 @@ export function RecordingPreview({
   quiet,
   selectedId,
   compositionLocked,
+  studio = "recording",
   onSelect,
   onTransform,
   onCrop,
@@ -48,6 +46,7 @@ export function RecordingPreview({
   onTransform: (id: string, transform: SourceTransform) => void;
   onCrop?: (id: string, crop: SourceCrop) => void;
   compositionLocked?: boolean;
+  studio?: StudioMode;
 }) {
   const settings = useSettingsStore((state) => state.settings);
   const [preview, setPreview] = useState({
@@ -95,7 +94,13 @@ export function RecordingPreview({
   return (
     <section className="studio-panel studio-preview">
       <div className="studio-preview-head">
-        <h2>{scene.outputMode === "composed" ? "Live Output Preview" : "Recording Layout Preview"}</h2>
+          <h2>
+            {studio === "clip"
+              ? "Clip Layout Preview"
+              : scene.outputMode === "composed"
+                ? "Live Output Preview"
+                : "Recording Layout Preview"}
+          </h2>
       </div>
       <div
         className="studio-preview-stage"

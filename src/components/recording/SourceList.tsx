@@ -10,6 +10,7 @@ import {
   type RecordingSourceType,
   type ScenePresetId,
 } from "../../recording/scene";
+import type { StudioMode } from "../../recording/studioMode";
 import { audioPeakFor } from "../../recording/useStudioAudio";
 import { AddSourceMenu } from "./AddSourceMenu";
 import { AudioSourceRow } from "./AudioSourceRow";
@@ -36,6 +37,8 @@ export function SourceList({
   onProperties,
   onRenameSource,
   compositionLocked,
+  studio = "recording",
+  audioLocked = false,
 }: {
   scene: RecordingScene;
   scenes: RecordingScene[];
@@ -56,6 +59,8 @@ export function SourceList({
   onProperties: (id: string) => void;
   onRenameSource: (id: string, name: string) => void;
   compositionLocked?: boolean;
+  studio?: StudioMode;
+  audioLocked?: boolean;
 }) {
   const [visualMenu, setVisualMenu] = useState(false);
   const [audioMenu, setAudioMenu] = useState(false);
@@ -128,6 +133,7 @@ export function SourceList({
           onClose={() => setVisualMenu(false)}
           onAdd={onAdd}
           composed={scene.outputMode === "composed"}
+          studio={studio}
         />
         {compositionLocked ? (
           <p className="studio-lock-note">Layout changes apply to the next recording.</p>
@@ -143,6 +149,7 @@ export function SourceList({
                 outputMode={scene.outputMode}
                 selected={selectedId === source.id}
                 compositionLocked={compositionLocked}
+                studio={studio}
                 dropBefore={Boolean(drag && drag.id !== source.id && drag.overId === source.id)}
                 onSelect={() => onSelect(source.id)}
                 onToggle={(enabled) => onToggle(source.id, enabled)}
@@ -164,7 +171,7 @@ export function SourceList({
           <button
             type="button"
             className="studio-add"
-            disabled={compositionLocked}
+            disabled={compositionLocked || audioLocked}
             onClick={() => {
               setVisualMenu(false);
               setAudioMenu((open) => !open);
@@ -174,7 +181,9 @@ export function SourceList({
             Add
           </button>
         </div>
-        <p className="studio-section-copy">Inputs mixed into the recording</p>
+        <p className="studio-section-copy">
+          {audioLocked ? "Live Instant Replay mix — edit it on Recordings or in Settings" : "Inputs mixed into the recording"}
+        </p>
         <AddSourceMenu
           scene={scene}
           open={audioMenu}
@@ -182,6 +191,7 @@ export function SourceList({
           groups={["audio"]}
           onClose={() => setAudioMenu(false)}
           onAdd={onAdd}
+          studio={studio}
         />
         {audios.length === 0 ? (
           <p className="studio-empty">No audio sources in this scene.</p>
@@ -207,7 +217,7 @@ export function SourceList({
                 onRemove={() => onRemove(source.id)}
                 onProperties={() => onProperties(source.id)}
                 onRename={(name) => onRenameSource(source.id, name)}
-                compositionLocked={compositionLocked}
+                compositionLocked={compositionLocked || audioLocked}
               />
             ))}
           </div>

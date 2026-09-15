@@ -1,5 +1,6 @@
-import { REGISTRY_GROUPS, SOURCE_REGISTRY, capabilityCaption, composedSourceCaption, sourceComposedSupported, type SourceRegistryEntry } from "../../recording/registry";
+import { REGISTRY_GROUPS, SOURCE_REGISTRY, capabilityCaption, clipSourceCaption, composedSourceCaption, sourceComposedSupported, type SourceRegistryEntry } from "../../recording/registry";
 import { findSourceByType, isPrimaryCapture, type RecordingScene, type RecordingSourceType } from "../../recording/scene";
+import type { StudioMode } from "../../recording/studioMode";
 
 export function AddSourceMenu({
   scene,
@@ -9,6 +10,7 @@ export function AddSourceMenu({
   groups,
   title = "Add Source",
   composed,
+  studio = "recording",
 }: {
   scene: RecordingScene;
   open: boolean;
@@ -17,6 +19,7 @@ export function AddSourceMenu({
   groups?: SourceRegistryEntry["group"][];
   title?: string;
   composed?: boolean;
+  studio?: StudioMode;
 }) {
   if (!open) return null;
   const visible = groups ? REGISTRY_GROUPS.filter((group) => groups.includes(group.id)) : REGISTRY_GROUPS;
@@ -38,11 +41,14 @@ export function AddSourceMenu({
             const composedBlocked = Boolean(composed) && !sourceComposedSupported(entry.type);
             const taken = entry.unique && Boolean(existing) && !isPrimaryCapture(entry.type);
             const disabled = unsupported || taken || composedBlocked;
-            const caption = composedBlocked
-              ? composedSourceCaption(entry.type)
-              : taken
-                ? "Already added"
-                : capabilityCaption(entry.capability);
+            const caption =
+              studio === "clip"
+                ? clipSourceCaption(entry.type) ?? capabilityCaption(entry.capability, studio)
+                : composedBlocked
+                  ? composedSourceCaption(entry.type)
+                  : taken
+                    ? "Already added"
+                    : capabilityCaption(entry.capability, studio);
             return (
               <button
                 key={entry.type}

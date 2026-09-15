@@ -1,4 +1,5 @@
 import type { RecordingSourceCapability, RecordingSourceType } from "./scene";
+import type { StudioMode } from "./studioMode";
 
 export type SourceRegistryEntry = {
   type: RecordingSourceType;
@@ -135,11 +136,31 @@ export function registryEntry(type: RecordingSourceType): SourceRegistryEntry | 
   return SOURCE_REGISTRY.find((entry) => entry.type === type);
 }
 
-export function capabilityCaption(capability: RecordingSourceCapability): string {
+export function capabilityCaption(capability: RecordingSourceCapability, studio: StudioMode = "recording"): string {
+  if (studio === "clip") {
+    if (capability === "preview_only") return "Burned into clip on save";
+    if (capability === "unsupported") return "Coming later";
+    if (capability === "sidecar") return "Recorded separately";
+    return "Layout only";
+  }
   if (capability === "preview_only") return "Preview only";
   if (capability === "unsupported") return "Coming later";
   if (capability === "sidecar") return "Recorded separately";
   return "Recorded";
+}
+
+export function clipSourceCaption(type: RecordingSourceType): string | null {
+  if (type === "game" || type === "display") {
+    return "Layout only — Instant Replay still captures the detected game";
+  }
+  if (type === "image" || type === "text" || type === "replayrOverlay") {
+    return "Burned into clip on save";
+  }
+  if (type === "webcam") return "Recorded separately";
+  if (type === "microphone" || type === "desktopAudio" || type === "gameAudio") {
+    return "Uses the live Instant Replay mix";
+  }
+  return null;
 }
 
 export type SourceCapabilities = {

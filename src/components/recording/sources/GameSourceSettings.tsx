@@ -5,9 +5,11 @@ import type { AppSettings } from "../../../types/settings";
 export function GameSourceSettings({
   settings,
   onSave,
+  layoutOnly = false,
 }: {
   settings: AppSettings;
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  layoutOnly?: boolean;
 }) {
   const snapshot = useDetectionStore((state) => state.snapshot);
   void settings;
@@ -16,7 +18,11 @@ export function GameSourceSettings({
   return (
     <div className="stack">
       <DetectedGamePanel snapshot={snapshot} showControls={false} />
-      <p className="muted">Uses the current auto-detected game. Session video is this capture.</p>
+      <p className="muted">
+        {layoutOnly
+          ? "Frames how Instant Replay gameplay is placed in the saved clip. Capture still follows the detected game."
+          : "Uses the current auto-detected game. Session video is this capture."}
+      </p>
     </div>
   );
 }

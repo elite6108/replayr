@@ -18,6 +18,7 @@ import {
   type SourceCrop,
   type SourceTransform,
 } from "../../recording/scene";
+import type { StudioMode } from "../../recording/studioMode";
 import { audioPeakFor } from "../../recording/useStudioAudio";
 import { AudioSourceSettings } from "./sources/AudioSourceSettings";
 import type { DisplayInfo } from "../../recording/display/displayTypes";
@@ -43,6 +44,7 @@ export function SourceInspector({
   displays,
   listError,
   recording,
+  studio = "recording",
 }: {
   source: RecordingSource | null;
   settings: AppSettings;
@@ -59,6 +61,7 @@ export function SourceInspector({
   displays?: DisplayInfo[];
   listError?: string | null;
   recording?: boolean;
+  studio?: StudioMode;
 }) {
   return (
     <section className="studio-panel studio-inspector">
@@ -98,6 +101,7 @@ export function SourceInspector({
             displays={displays}
             listError={listError}
             recording={recording}
+            studio={studio}
           />
           {source.transform && !isAudioSource(source.type) ? (
             <TransformSection
@@ -132,6 +136,7 @@ function InspectorBody({
   displays,
   listError,
   recording,
+  studio = "recording",
 }: {
   source: RecordingSource;
   settings: AppSettings;
@@ -145,9 +150,10 @@ function InspectorBody({
   displays?: DisplayInfo[];
   listError?: string | null;
   recording?: boolean;
+  studio?: StudioMode;
 }) {
   if (source.type === "game") {
-    return <GameSourceSettings settings={settings} onSave={onSaveSetting} />;
+    return <GameSourceSettings settings={settings} onSave={onSaveSetting} layoutOnly={studio === "clip"} />;
   }
   if (source.type === "display") {
     return (
@@ -178,6 +184,7 @@ function InspectorBody({
         }
         onDevice={onWebcamDevice}
         onMirror={(mirrorRecording) => onSaveSetting("webcam", { ...settings.webcam, mirrorRecording })}
+        studio={studio}
       />
     );
   }

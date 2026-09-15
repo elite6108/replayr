@@ -118,6 +118,8 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     screenshots: sanitizeScreenshotSettings(settings.screenshots),
     previewQuality: parsePreviewQuality(settings.previewQuality),
     theme: parseThemePreference(settings.theme),
+    clipSceneLibrary: settings.clipSceneLibrary ?? null,
+    clipComposition: settings.clipComposition ?? null,
   };
 }
 

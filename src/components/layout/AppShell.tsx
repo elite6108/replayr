@@ -12,6 +12,7 @@ import { ToastRegion } from "../common/ToastRegion";
 import { UploadQueuePanel } from "./UploadQueuePanel";
 import { MicDisconnectToasts } from "./MicDisconnectToasts";
 import { CameraDisconnectToasts } from "./CameraDisconnectToasts";
+import { attachScreenshotListeners } from "../../stores/screenshotStore";
 
 function TrayNavigation() {
   const navigate = useNavigate();
@@ -32,10 +33,19 @@ function TrayNavigation() {
   return null;
 }
 
+/** Screenshots taken by hotkey or tray while the app is open still reach the Library. */
+function ScreenshotEvents() {
+  useEffect(() => {
+    void attachScreenshotListeners();
+  }, []);
+  return null;
+}
+
 export function AppShell() {
   return (
     <div className="app-shell">
       <TrayNavigation />
+      <ScreenshotEvents />
       <AppWindowTitleBar />
       <TopBar />
       <NavRail />

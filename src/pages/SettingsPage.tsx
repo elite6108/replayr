@@ -8,7 +8,15 @@ import { IrEncoderDetails } from "../components/common/IrEncoderDetails";
 import { BitrateChangeInfo } from "../components/common/BitrateChangeInfo";
 import { CustomBitrateInput } from "../components/settings/CustomBitrateInput";
 import { HotkeyRecorder } from "../components/common/HotkeyRecorder";
-import { DEFAULT_HOTKEYS, findHotkeyConflicts, HOTKEY_ACTIONS, HOTKEY_LABELS } from "../utils/hotkeys";
+import {
+  DEFAULT_HOTKEYS,
+  describeHotkeyFailure,
+  failureFor,
+  findHotkeyConflicts,
+  HOTKEY_ACTIONS,
+  HOTKEY_LABELS,
+  type HotkeyFailure,
+} from "../utils/hotkeys";
 import { displayHotkey } from "../utils/format";
 import { useRecordingStore } from "../stores/recordingStore";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -17,7 +25,13 @@ import { useToastStore } from "../stores/toastStore";
 import { AudioSourceRow } from "../components/settings/AudioSourceRow";
 import { MicrophoneControls } from "../components/settings/MicrophoneControls";
 import { RecordingSources } from "../components/sources/RecordingSources";
-import { addExtraAudioApp, getAudioStatus, getDiscordPresenceStatus, listAudioSessions } from "../services/tauri";
+import {
+  addExtraAudioApp,
+  getAudioStatus,
+  getDiscordPresenceStatus,
+  getHotkeyFailures,
+  listAudioSessions,
+} from "../services/tauri";
 import type { AudioEngineStatus, AudioSession } from "../types/audio";
 import type { AppSettings, ExtraAudioApp } from "../types/settings";
 import type { DiscordPresenceStatus } from "../types/discord";
@@ -654,6 +668,22 @@ function HotkeysPane({
   conflicts: Partial<Record<(typeof HOTKEY_ACTIONS)[number], (typeof HOTKEY_ACTIONS)[number]>>;
   onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
 }) {
+  // Shortcuts another app already holds. Replayr still starts; these just do nothing until changed.
+  const [failures, setFailures] = useState<HotkeyFailure[]>([]);
+  const hotkeysKey = JSON.stringify(settings.hotkeys);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getHotkeyFailures()
+      .then((next) => {
+        if (!cancelled) setFailures(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [hotkeysKey]);
+
   return (
     <>
       <p className="muted">Click a shortcut, then press the keys. These work while a game is focused.</p>
@@ -672,7 +702,10 @@ function HotkeysPane({
           </label>
           {conflicts[action] ? (
             <span className="error-text">Conflicts with {HOTKEY_LABELS[conflicts[action]]}</span>
-          ) : null}
+          ) : (() => {
+            const failure = failureFor(failures, action);
+            return failure ? <span className="error-text">{describeHotkeyFailure(failure)}</span> : null;
+          })()}
         </div>
       ))}
       <button type="button" className="btn" onClick={() => void onChange("hotkeys", { ...DEFAULT_HOTKEYS })}>

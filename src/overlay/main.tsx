@@ -7,12 +7,8 @@ if (new URLSearchParams(window.location.search).has("preview")) {
   document.documentElement.classList.add("preview");
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <ClipSavedOverlay />
-  </React.StrictMode>,
-);
-
+// Rendered once. This previously created two roots on the same element, mounting the overlay
+// (and its event listeners) twice.
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ClipSavedOverlay />

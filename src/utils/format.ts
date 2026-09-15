@@ -27,6 +27,8 @@ export function displayHotkey(combo: string): string {
   return combo
     .replaceAll("CommandOrControl", "Ctrl")
     .replaceAll("Control", "Ctrl")
+    // Match the key cap rather than the API name.
+    .replaceAll("PrintScreen", "PrtSc")
     .replaceAll("+", " + ");
 }
 

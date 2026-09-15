@@ -38,6 +38,8 @@ tauri-plugin-single-instance = { version = "2.4.3", features = ["deep-link"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 jpeg-encoder = "0.6"
+# Wipes captured screen pixels once a screenshot is cropped or cancelled.
+zeroize = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [
@@ -58,8 +60,11 @@ windows = { version = "0.61", features = [
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
     "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+    "Win32_System_SystemInformation",
     "Win32_Media",
     "Win32_Media_Audio",
     "Win32_Media_MediaFoundation",

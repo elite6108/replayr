@@ -7,6 +7,8 @@ import type { LocalClip } from "../types/clip";
 import type { DetectedGameSnapshot, GameCatalogEntry } from "../types/game";
 import type { DiscordPresenceStatus } from "../types/discord";
 import type { RecordingStatus, ReplayStatus } from "../types/recording";
+import type { Screenshot } from "../types/screenshot";
+import type { HotkeyFailure } from "../utils/hotkeys";
 import { invokeErrorMessage } from "../utils/format";
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -279,6 +281,32 @@ export async function saveClip(): Promise<string> {
 
 export async function saveScreenshot(): Promise<string> {
   return invoke("save_screenshot");
+}
+
+/** Start a drag-to-select screenshot. Replayr hides itself while the screen is frozen. */
+export async function startRegionScreenshot(): Promise<void> {
+  return invoke("screenshot_start");
+}
+
+export async function listScreenshots(limit?: number): Promise<Screenshot[]> {
+  return invoke("screenshot_list", { limit: limit ?? null });
+}
+
+export async function deleteScreenshot(id: string, deleteFile: boolean): Promise<void> {
+  return invoke("screenshot_delete", { id, deleteFile });
+}
+
+export async function copyScreenshot(id: string, what: "image" | "link"): Promise<void> {
+  return invoke("screenshot_copy", { id, what });
+}
+
+export async function revealScreenshot(id: string): Promise<void> {
+  return invoke("screenshot_reveal", { id });
+}
+
+/** Shortcuts that could not be bound on the last sync (usually held by another app). */
+export async function getHotkeyFailures(): Promise<HotkeyFailure[]> {
+  return invoke("get_hotkey_failures");
 }
 
 export async function listCameraDevices(): Promise<CameraDevice[]> {

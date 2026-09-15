@@ -3,6 +3,7 @@ identifier = "allow-app-commands"
 description = "Replayr desktop commands for settings, library, catalog, and recording"
 commands.allow = [
   "get_all_settings",
+  "get_hotkey_failures",
   "set_setting",
   "set_settings",
   "list_local_clips",
@@ -37,6 +38,11 @@ commands.allow = [
   "list_displays",
   "save_clip",
   "save_screenshot",
+  "screenshot_start",
+  "screenshot_list",
+  "screenshot_delete",
+  "screenshot_copy",
+  "screenshot_reveal",
   "upload_local_clip",
   "delete_cloud_clip"
 ]

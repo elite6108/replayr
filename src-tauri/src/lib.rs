@@ -45,6 +45,7 @@ mod process_loopback;
 mod settings;
 mod share;
 mod shortcut;
+mod snip;
 mod still;
 mod system;
 #[cfg(windows)]
@@ -174,7 +175,15 @@ pub fn run() {
             crate::overlay_notification::prepare(app.handle());
             crate::discord_presence::start(app.handle());
             detection::start(app.handle().clone());
-            hotkeys::sync(app.handle()).map_err(|err| err.to_string())?;
+            // Best-effort: a shortcut held by another app must never stop Replayr launching.
+            // Failures are kept in HotkeyMap for the Settings Shortcuts pane.
+            match hotkeys::sync(app.handle()) {
+                Ok(failures) if !failures.is_empty() => {
+                    let _ = app.handle().emit("hotkey-registration-failed", &failures);
+                }
+                Ok(_) => {}
+                Err(err) => tracing::warn!(%err, "could not load hotkeys; starting without them"),
+            }
             {
                 let handle = app.handle().clone();
                 let _ = std::thread::Builder::new()
@@ -216,6 +225,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_all_settings,
+            commands::get_hotkey_failures,
             commands::set_setting,
             commands::set_settings,
             commands::list_audio_devices,
@@ -267,6 +277,11 @@ pub fn run() {
             commands::get_replay_status,
             commands::save_clip,
             commands::save_screenshot,
+            snip::commands::screenshot_start,
+            snip::commands::screenshot_list,
+            snip::commands::screenshot_delete,
+            snip::commands::screenshot_copy,
+            snip::commands::screenshot_reveal,
             commands::upload_local_clip,
             commands::delete_cloud_clip,
             commands::create_desktop_shortcut,

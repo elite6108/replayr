@@ -36,6 +36,9 @@ pub struct Hotkeys {
     pub save_replay: String,
     pub toggle_recording: String,
     pub screenshot: String,
+    /// Drag-to-select screenshot. Independent of Instant Replay and of `screenshot` above.
+    #[serde(default = "default_region_screenshot_hotkey")]
+    pub region_screenshot: String,
 }
 
 impl Default for Hotkeys {
@@ -44,8 +47,58 @@ impl Default for Hotkeys {
             save_replay: "CommandOrControl+F10".into(),
             toggle_recording: "CommandOrControl+F9".into(),
             screenshot: "CommandOrControl+F11".into(),
+            region_screenshot: default_region_screenshot_hotkey(),
         }
     }
+}
+
+/// Ctrl+PrintScreen: the region-capture convention (ShareX), clear of Windows' own PrtScn,
+/// Win+Shift+S and Alt+PrtScn, and rarely bound by games. If another tool already holds it,
+/// registration fails soft and Settings says so.
+fn default_region_screenshot_hotkey() -> String {
+    "CommandOrControl+PrintScreen".into()
+}
+
+/// Region screenshot behaviour. Hand-mirrored with `ScreenshotSettings` in src/types/settings.ts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotSettings {
+    /// Upload each screenshot and copy its share link. Signed-out users always get the image.
+    #[serde(default = "default_true")]
+    pub auto_upload: bool,
+    /// What lands on the clipboard after an upload succeeds: `"link"` or `"image"`.
+    #[serde(default = "default_screenshot_copy_mode")]
+    pub copy_mode: String,
+    /// Show the on-screen confirmation.
+    #[serde(default = "default_true")]
+    pub show_overlay: bool,
+}
+
+impl Default for ScreenshotSettings {
+    fn default() -> Self {
+        Self {
+            auto_upload: true,
+            copy_mode: default_screenshot_copy_mode(),
+            show_overlay: true,
+        }
+    }
+}
+
+impl ScreenshotSettings {
+    pub fn sanitize(&mut self) {
+        self.copy_mode = match self.copy_mode.as_str() {
+            "image" => "image".into(),
+            _ => default_screenshot_copy_mode(),
+        };
+    }
+
+    pub fn copies_link(&self) -> bool {
+        self.copy_mode == "link"
+    }
+}
+
+fn default_screenshot_copy_mode() -> String {
+    "link".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -135,6 +188,9 @@ pub struct AppSettings {
     /// so editing a clip scene cannot restart the buffer.
     #[serde(default)]
     pub clip_studio: ClipStudioSettings,
+    /// Region screenshot behaviour.
+    #[serde(default)]
+    pub screenshots: ScreenshotSettings,
     /// Live Output Preview quality only. Does not change recording encode settings.
     #[serde(default = "default_preview_quality")]
     pub preview_quality: String,
@@ -571,6 +627,7 @@ impl Default for AppSettings {
             webcam: WebcamSettings::default(),
             recording_visuals: RecordingVisualSettings::default(),
             clip_studio: ClipStudioSettings::default(),
+            screenshots: ScreenshotSettings::default(),
             preview_quality: default_preview_quality(),
         }
     }
@@ -687,6 +744,7 @@ fn parse_settings_json(json: &str) -> AppSettings {
     settings.webcam.sanitize();
     settings.recording_visuals.sanitize();
     settings.clip_studio.sanitize();
+    settings.screenshots.sanitize();
     settings
 }
 
@@ -757,6 +815,7 @@ pub fn set_document(conn: &Connection, patch: Value) -> AppResult<AppSettings> {
     settings.webcam.sanitize();
     settings.recording_visuals.sanitize();
     settings.clip_studio.sanitize();
+    settings.screenshots.sanitize();
     for app in &mut settings.extra_apps {
         app.gain = app.gain.clamp(0.0, 2.0);
         if app.id.trim().is_empty() {
@@ -934,6 +993,37 @@ mod tests {
         assert_eq!(loaded.recording_visuals.filter, "none");
         assert!(!loaded.recording_visuals.overlays.rec_indicator);
         assert!(!loaded.recording_visuals.overlays.timestamp);
+    }
+
+    #[test]
+    fn screenshot_settings_default_when_missing() {
+        // A settings file written before region screenshots existed must still parse strictly,
+        // not fall back to the merge path, and pick up the new defaults.
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("screenshots");
+        object
+            .get_mut("hotkeys")
+            .and_then(|hotkeys| hotkeys.as_object_mut())
+            .unwrap()
+            .remove("regionScreenshot");
+        let strict: AppSettings = serde_json::from_value(value.clone()).expect("old files parse strictly");
+        assert_eq!(strict.hotkeys.region_screenshot, "CommandOrControl+PrintScreen");
+        assert!(strict.screenshots.auto_upload, "auto-upload is on by default");
+        assert_eq!(strict.screenshots.copy_mode, "link");
+        assert!(strict.screenshots.show_overlay);
+        // The existing Instant Replay screenshot binding is untouched.
+        assert_eq!(strict.hotkeys.screenshot, "CommandOrControl+F11");
+    }
+
+    #[test]
+    fn screenshot_copy_mode_sanitizes_unknown_values() {
+        let mut settings = ScreenshotSettings { copy_mode: "gif".into(), ..Default::default() };
+        settings.sanitize();
+        assert_eq!(settings.copy_mode, "link");
+        let mut image = ScreenshotSettings { copy_mode: "image".into(), ..Default::default() };
+        image.sanitize();
+        assert!(!image.copies_link());
     }
 
     #[test]

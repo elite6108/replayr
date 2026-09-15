@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { displayHotkey, formatDuration } from "../../utils/format";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { useRecordingStore } from "../../stores/recordingStore";
+import { useScreenshotStore } from "../../stores/screenshotStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 const GREETINGS = [
@@ -50,6 +51,7 @@ export function HeroCapturePanel({ name }: { name?: string }) {
   const start = useRecordingStore((state) => state.start);
   const stop = useRecordingStore((state) => state.stop);
   const saveClip = useRecordingStore((state) => state.saveClip);
+  const takeScreenshot = useScreenshotStore((state) => state.take);
   const detected = Boolean(snapshot.name);
   const cover = catalog.find((game) => game.slug === snapshot.slug)?.coverUrl;
   const bufferReady = replay.active && replay.bufferedMs >= 400;
@@ -75,6 +77,15 @@ export function HeroCapturePanel({ name }: { name?: string }) {
           </button>
           <button type="button" className="btn" disabled={saving} onClick={() => void (status.active ? stop() : start())}>
             {status.active ? "Stop Recording" : "Record"}
+          </button>
+          {/* Independent of Instant Replay: works whether or not the buffer is running. */}
+          <button
+            type="button"
+            className="btn"
+            title="Drag to capture any part of your screen"
+            onClick={() => void takeScreenshot()}
+          >
+            {`Screenshot  ${displayHotkey(hotkeys.regionScreenshot)}`}
           </button>
         </div>
         <Link className="hero-inline-link" to="/library">

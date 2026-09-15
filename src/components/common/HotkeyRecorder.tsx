@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { comboFromKeyboardEvent } from "../../utils/hotkeys";
+import { comboFromKeyboardEvent, isKeyupOnlyKey } from "../../utils/hotkeys";
 import { displayHotkey } from "../../utils/format";
 
 export function HotkeyRecorder({
@@ -20,6 +20,12 @@ export function HotkeyRecorder({
 
   useEffect(() => {
     if (!listening) return;
+
+    function onKeyUp(event: KeyboardEvent) {
+      // PrintScreen never produces a keydown in WebView2; its release is the only signal.
+      if (!isKeyupOnlyKey(event)) return;
+      onKeyDown(event);
+    }
 
     function onKeyDown(event: KeyboardEvent) {
       event.preventDefault();
@@ -64,9 +70,11 @@ export function HotkeyRecorder({
     }
 
     window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("pointerdown", onPointerDown, true);
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("pointerdown", onPointerDown, true);
     };
   }, [listening, onChange]);

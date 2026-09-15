@@ -107,9 +107,13 @@ fn after_settings(
     let capture_changed = keys.iter().any(|key| CAPTURE_KEYS.contains(&key.as_str()));
     let webcam_changed = keys.iter().any(|key| key == "webcam");
 
-    if hotkeys_changed {
-        hotkeys::register_all(app, &settings.hotkeys)?;
-    }
+    // The setting is already saved by now. Shortcuts that cannot bind are reported at the end, so
+    // the side effects for any other keys in the same patch still run.
+    let hotkey_failures = if hotkeys_changed {
+        hotkeys::register_all(app, &settings.hotkeys)
+    } else {
+        Vec::new()
+    };
 
     #[cfg(windows)]
     if audio_changed {
@@ -145,7 +149,20 @@ fn after_settings(
                 }
             });
     }
+
+    if !hotkey_failures.is_empty() {
+        return Err(AppError::Message(format!(
+            "Saved, but some shortcuts are unavailable: {}.",
+            hotkeys::describe_failures(&hotkey_failures)
+        )));
+    }
     Ok(())
+}
+
+/// Shortcuts that could not be bound on the last sync, for the Settings Shortcuts pane.
+#[tauri::command]
+pub fn get_hotkey_failures(app: AppHandle) -> Vec<hotkeys::HotkeyFailure> {
+    hotkeys::last_failures(&app)
 }
 
 #[tauri::command]

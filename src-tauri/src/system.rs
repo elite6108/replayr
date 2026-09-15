@@ -11,6 +11,7 @@ use crate::settings;
 
 pub fn setup_tray(app: &AppHandle) -> AppResult<()> {
     let open = item(app, "open", "Open", true)?;
+    let screenshot = item(app, "take_screenshot", "Take Screenshot", true)?;
     let save_clip = item(app, "save_clip", "Save Clip", true)?;
     let start = item(app, "start_recording", "Start Recording", true)?;
     let stop = item(app, "stop_recording", "Stop Recording", true)?;
@@ -21,6 +22,8 @@ pub fn setup_tray(app: &AppHandle) -> AppResult<()> {
 
     let menu = MenuBuilder::new(app)
         .item(&open)
+        .separator()
+        .item(&screenshot)
         .separator()
         .item(&save_clip)
         .item(&start)
@@ -45,6 +48,8 @@ pub fn setup_tray(app: &AppHandle) -> AppResult<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main(app),
+            // Starts on its own thread; the tray menu has already closed by the time it runs.
+            "take_screenshot" => crate::snip::start(app, crate::snip::SnipTrigger::Tray),
             "save_clip" => {
                 let app = app.clone();
                 std::thread::spawn(move || {

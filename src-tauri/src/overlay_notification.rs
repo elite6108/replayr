@@ -44,10 +44,27 @@ pub struct MonitorInfo {
     pub height: u32,
 }
 
-/// Extensible notification kinds. V1 implements ClipSaved only.
+/// Extensible notification kinds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OverlayNotification {
     ClipSaved { duration_seconds: Option<u32> },
+    /// A region screenshot finished. Gated by `settings.screenshots.show_overlay`, not by the
+    /// clip-saved setting.
+    Screenshot { notice: ScreenshotNotice },
+}
+
+/// What happened to a region screenshot, as shown in the confirmation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScreenshotNotice {
+    /// Uploaded; the share link is on the clipboard.
+    LinkCopied,
+    /// Uploaded; the plan limit meant the oldest cloud image was replaced.
+    LinkCopiedReplacedOldest,
+    /// Saved locally with the image on the clipboard (signed out, or copy mode is "image").
+    ImageCopied,
+    /// Saved locally, upload failed, image on the clipboard instead.
+    UploadFailedImageCopied,
 }
 
 struct OverlayManager {
@@ -67,6 +84,8 @@ pub enum DpiAwareness {
 struct OverlayShowPayload {
     kind: OverlayKind,
     duration_seconds: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    screenshot: Option<ScreenshotNotice>,
     generation: u64,
 }
 
@@ -74,6 +93,7 @@ struct OverlayShowPayload {
 #[serde(rename_all = "camelCase")]
 enum OverlayKind {
     ClipSaved,
+    Screenshot,
 }
 
 pub fn prepare(app: &AppHandle) {
@@ -107,6 +127,15 @@ pub fn notify_clip_saved(app: &AppHandle, hint: PlacementHint, duration_seconds:
     );
 }
 
+/// Confirm a region screenshot on the monitor it was taken on. Never fails the screenshot.
+pub fn notify_screenshot(app: &AppHandle, monitor: MonitorInfo, notice: ScreenshotNotice) {
+    show(
+        app,
+        OverlayNotification::Screenshot { notice },
+        PlacementHint { pid: None, last_monitor: Some(monitor) },
+    );
+}
+
 pub fn show(app: &AppHandle, notification: OverlayNotification, hint: PlacementHint) {
     if let Err(panic) = std::panic::catch_unwind(AssertUnwindSafe(|| {
         show_unguarded(app, notification, hint);
@@ -116,7 +145,7 @@ pub fn show(app: &AppHandle, notification: OverlayNotification, hint: PlacementH
 }
 
 fn show_unguarded(app: &AppHandle, notification: OverlayNotification, hint: PlacementHint) {
-    if !overlay_enabled(app) {
+    if !overlay_enabled(app, &notification) {
         return;
     }
     if let Err(err) = show_inner(app, &notification, hint) {
@@ -130,12 +159,19 @@ fn overlay_payload(notification: &OverlayNotification, token: u64) -> OverlaySho
         OverlayNotification::ClipSaved { duration_seconds } => OverlayShowPayload {
             kind: OverlayKind::ClipSaved,
             duration_seconds: *duration_seconds,
+            screenshot: None,
+            generation: token,
+        },
+        OverlayNotification::Screenshot { notice } => OverlayShowPayload {
+            kind: OverlayKind::Screenshot,
+            duration_seconds: None,
+            screenshot: Some(*notice),
             generation: token,
         },
     }
 }
 
-fn overlay_enabled(app: &AppHandle) -> bool {
+fn overlay_enabled(app: &AppHandle, notification: &OverlayNotification) -> bool {
     let Some(state) = app.try_state::<crate::database::AppState>() else {
         return true;
     };
@@ -143,7 +179,10 @@ fn overlay_enabled(app: &AppHandle) -> bool {
         return true;
     };
     crate::settings::load(&conn)
-        .map(|settings| settings.clip_saved_notification)
+        .map(|settings| match notification {
+            OverlayNotification::ClipSaved { .. } => settings.clip_saved_notification,
+            OverlayNotification::Screenshot { .. } => settings.screenshots.show_overlay,
+        })
         .unwrap_or(true)
 }
 
@@ -229,11 +268,31 @@ fn fallback_os_toast(app: &AppHandle, notification: &OverlayNotification) {
                 }
                 let _ = builder.show();
             }
+            OverlayNotification::Screenshot { notice } => {
+                let (title, body) = screenshot_copy(*notice);
+                let mut builder = app.notification().builder().title(title);
+                if let Some(body) = body {
+                    builder = builder.body(body);
+                }
+                let _ = builder.show();
+            }
         }
     }
     #[cfg(not(windows))]
     {
         let _ = (app, notification);
+    }
+}
+
+/// Title and optional subtitle for a screenshot confirmation. The frontend overlay mirrors these
+/// strings; this copy is the OS-toast fallback.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn screenshot_copy(notice: ScreenshotNotice) -> (&'static str, Option<&'static str>) {
+    match notice {
+        ScreenshotNotice::LinkCopied => ("Link copied", None),
+        ScreenshotNotice::LinkCopiedReplacedOldest => ("Link copied", Some("Replaced your oldest screenshot")),
+        ScreenshotNotice::ImageCopied => ("Screenshot copied", None),
+        ScreenshotNotice::UploadFailedImageCopied => ("Upload failed", Some("Image copied instead")),
     }
 }
 

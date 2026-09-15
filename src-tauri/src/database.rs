@@ -19,6 +19,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (6, include_str!("../migrations/006_editor_crop.sql")),
     (7, include_str!("../migrations/007_clip_sources.sql")),
     (8, include_str!("../migrations/008_upload_resume.sql")),
+    (9, include_str!("../migrations/009_screenshots.sql")),
 ];
 
 pub fn database_path(app: &AppHandle) -> AppResult<PathBuf> {
@@ -86,7 +87,9 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 7);
+        // Tie the expectation to the migration list so adding one can't silently break this test.
+        assert_eq!(version, MIGRATIONS.last().map(|(version, _)| *version).unwrap());
+        assert_eq!(version as usize, MIGRATIONS.len());
 
         let tables: Vec<String> = {
             let mut stmt = conn

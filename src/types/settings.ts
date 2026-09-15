@@ -92,6 +92,31 @@ export interface ClipStudioSettings {
 
 export const CLIP_LIBRARY_VERSION = 1;
 
+/** Region screenshot behaviour. Hand-mirrored with `ScreenshotSettings` in src-tauri/src/settings.rs. */
+export interface ScreenshotSettings {
+  /** Upload each screenshot and copy its share link. Signed-out users always get the image. */
+  autoUpload: boolean;
+  /** What lands on the clipboard after an upload succeeds. */
+  copyMode: "link" | "image";
+  /** Show the on-screen confirmation. */
+  showOverlay: boolean;
+}
+
+export const DEFAULT_SCREENSHOT_SETTINGS: ScreenshotSettings = {
+  autoUpload: true,
+  copyMode: "link",
+  showOverlay: true,
+};
+
+export function sanitizeScreenshotSettings(raw: unknown): ScreenshotSettings {
+  const value = raw && typeof raw === "object" ? (raw as Partial<ScreenshotSettings>) : {};
+  return {
+    autoUpload: typeof value.autoUpload === "boolean" ? value.autoUpload : DEFAULT_SCREENSHOT_SETTINGS.autoUpload,
+    copyMode: value.copyMode === "image" ? "image" : "link",
+    showOverlay: typeof value.showOverlay === "boolean" ? value.showOverlay : DEFAULT_SCREENSHOT_SETTINGS.showOverlay,
+  };
+}
+
 export const DEFAULT_CLIP_STUDIO: ClipStudioSettings = {
   version: CLIP_LIBRARY_VERSION,
   activeId: "",
@@ -184,6 +209,8 @@ export interface AppSettings {
   recordingVisuals: RecordingVisualSettings;
   /** Clip studio scene library. Layout and burn layers only — never changes what IR captures. */
   clipStudio: ClipStudioSettings;
+  /** Region screenshots. Independent of Instant Replay. */
+  screenshots: ScreenshotSettings;
   /** Live Output Preview resolution/pace. Does not change the recording. */
   previewQuality: PreviewQuality;
 }
@@ -235,5 +262,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   webcam: { ...DEFAULT_WEBCAM_SETTINGS },
   recordingVisuals: { ...DEFAULT_RECORDING_VISUALS, overlays: { ...DEFAULT_RECORDING_VISUALS.overlays } },
   clipStudio: { ...DEFAULT_CLIP_STUDIO, scenes: [] },
+  screenshots: { ...DEFAULT_SCREENSHOT_SETTINGS },
   previewQuality: "balanced",
 };

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { AppSettings, CloudUploadWhen, PreviewQuality, CaptureResolution } from "../types/settings";
-import { DEFAULT_SETTINGS, parseAudioChannelMode } from "../types/settings";
+import { DEFAULT_SETTINGS, parseAudioChannelMode, sanitizeScreenshotSettings } from "../types/settings";
 import { parseThemePreference, persistThemePreference, readStoredThemePreference } from "../theme/theme";
 import { sanitizeRecordingVisuals } from "../recording/visualFilters";
 import { sanitizeClipStudio } from "../recording/clipLibrary";
@@ -115,6 +115,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     },
     recordingVisuals: sanitizeRecordingVisuals(settings.recordingVisuals),
     clipStudio: sanitizeClipStudio(settings.clipStudio),
+    screenshots: sanitizeScreenshotSettings(settings.screenshots),
     previewQuality: parsePreviewQuality(settings.previewQuality),
     theme: parseThemePreference(settings.theme),
   };

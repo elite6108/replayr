@@ -19,6 +19,7 @@ import { Button } from "@/components/ui";
 import { deleteCloudClip, fetchLibrary, type ManagedClip } from "@/lib/api";
 import { foldersHref } from "@/lib/api.folders";
 import { seedClipFeed } from "@/lib/clipFeed";
+import { ScreenshotLibraryGrid } from "@/components/ScreenshotLibraryGrid";
 import { useAuth } from "@/lib/auth";
 import { formatSectionLabel } from "@/lib/format";
 import { colors, glowSm } from "@/lib/theme";
@@ -26,6 +27,7 @@ import { colors, glowSm } from "@/lib/theme";
 const PAGE_SIZE = 24;
 const GAP = 3;
 type Filter = "all" | "public" | "unlisted" | "private";
+type LibraryPane = "clips" | "screenshots";
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All Clips" },
@@ -50,6 +52,7 @@ export default function LibraryScreen() {
   const [filter, setFilter] = useState<Filter>("all");
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [pane, setPane] = useState<LibraryPane>("clips");
 
   const loadFirst = useCallback(async () => {
     if (!token) return;
@@ -187,11 +190,12 @@ export default function LibraryScreen() {
       <View style={styles.topBar}>
         <Pressable
           onPress={() => {
+            if (pane !== "clips") return;
             setSelecting((current) => !current);
             setSelectedIds([]);
           }}
         >
-          <Text style={styles.topAction}>{selecting ? "Cancel" : "Select"}</Text>
+          <Text style={[styles.topAction, pane !== "clips" && styles.disabled]}>{selecting ? "Cancel" : "Select"}</Text>
         </Pressable>
         <Text style={styles.topTitle}>Library</Text>
         {selecting ? (
@@ -209,12 +213,31 @@ export default function LibraryScreen() {
         )}
       </View>
       <View style={styles.libraryTabs}>
-        <Text style={[styles.libraryTab, styles.libraryTabOn]}>Clips</Text>
+        <Pressable
+          onPress={() => {
+            setPane("clips");
+          }}
+        >
+          <Text style={[styles.libraryTab, pane === "clips" && styles.libraryTabOn]}>Clips</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            setPane("screenshots");
+            setSelecting(false);
+            setSelectedIds([]);
+          }}
+        >
+          <Text style={[styles.libraryTab, pane === "screenshots" && styles.libraryTabOn]}>Screenshots</Text>
+        </Pressable>
         <Pressable onPress={() => router.push(foldersHref())}>
           <Text style={styles.libraryTab}>Folders</Text>
         </Pressable>
       </View>
 
+      {pane === "screenshots" && token ? (
+        <ScreenshotLibraryGrid token={token} />
+      ) : (
+        <>
       <View style={styles.filterRow}>
         <Pressable style={styles.iconBtn} onPress={() => setSearchOpen((current) => !current)}>
           <Ionicons name="search" size={18} color={colors.text} />
@@ -302,6 +325,8 @@ export default function LibraryScreen() {
           </View>
         )}
       />
+        </>
+      )}
     </SafeAreaView>
   );
 }

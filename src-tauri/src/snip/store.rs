@@ -172,6 +172,10 @@ pub fn remove(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
     Ok(conn.execute("DELETE FROM screenshots WHERE id = ?1", [id])? > 0)
 }
 
+pub fn set_file_path(conn: &Connection, id: &str, file_path: &str) -> rusqlite::Result<bool> {
+    Ok(conn.execute("UPDATE screenshots SET file_path = ?1 WHERE id = ?2", params![file_path, id])? > 0)
+}
+
 pub fn set_upload(
     conn: &Connection,
     id: &str,

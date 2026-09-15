@@ -45,6 +45,7 @@ commands.allow = [
   "screenshot_reveal",
   "screenshot_provide_session",
   "screenshot_retry_upload",
+  "screenshot_export",
   "screenshot_sync_cloud",
   "upload_local_clip",
   "delete_cloud_clip"

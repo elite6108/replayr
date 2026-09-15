@@ -43,6 +43,14 @@ export function clipShareUrl(slug: string): string {
   return `${publicShareUrl()}/c/${slug}`;
 }
 
+export function screenshotShareUrl(slug: string): string {
+  return `${publicShareUrl()}/s/${slug}`;
+}
+
+export function screenshotImageUrl(slug: string): string {
+  return `${publicShareUrl()}/s/${slug}.png`;
+}
+
 export function apiUrl(path: string): string {
   const suffix = path.startsWith("/") ? path : `/${path}`;
   return `${publicAppUrl()}${suffix}`;

@@ -9,6 +9,7 @@ import { PageHeader } from "../components/common/PageHeader";
 import { SelectionBar } from "../components/common/SelectionBar";
 import { LibraryTabs } from "../components/library/LibraryTabs";
 import { ScreenshotCard } from "../components/library/ScreenshotCard";
+import { ScreenshotViewer } from "../components/library/ScreenshotViewer";
 import { ScreenshotDowngradeBanner, ScreenshotUsageBar } from "../components/library/ScreenshotUsage";
 import { SearchToolbar } from "../components/ui/SearchToolbar";
 import { useAuthStore } from "../stores/authStore";
@@ -77,10 +78,12 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "sc
   const copyScreenshot = useScreenshotStore((state) => state.copy);
   const revealScreenshot = useScreenshotStore((state) => state.reveal);
   const retryScreenshot = useScreenshotStore((state) => state.retry);
+  const downloadScreenshot = useScreenshotStore((state) => state.download);
   const removeScreenshot = useScreenshotStore((state) => state.remove);
   const takeScreenshot = useScreenshotStore((state) => state.take);
   const [selectedShots, setSelectedShots] = useState<string[]>([]);
   const [pendingShotDelete, setPendingShotDelete] = useState<string[] | null>(null);
+  const [openShotId, setOpenShotId] = useState<string | null>(null);
   const visible = useMemo(() => {
     const list = favoritesOnly ? clips.filter((clip) => clip.favorite) : clips;
     const needle = query.trim().toLowerCase();
@@ -172,6 +175,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "sc
     return `${shot.width}x${shot.height}`.includes(needle) || (shot.shareUrl ?? "").toLowerCase().includes(needle);
   });
   const selectedShotRows = visibleShots.filter((shot) => selectedShots.includes(shot.id));
+  const openShot = screenshots.find((shot) => shot.id === openShotId) ?? null;
 
   async function applyShotDelete(scope: DeleteClipScope) {
     const ids = pendingShotDelete;
@@ -239,6 +243,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "sc
                         current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id],
                       )
                     }
+                    onOpen={(item) => setOpenShotId(item.id)}
                     onCopy={(item, what) => void copyScreenshot(item.id, what)}
                     onReveal={(item) => void revealScreenshot(item.id)}
                     onRetry={user ? (item) => void retryScreenshot(item.id) : undefined}
@@ -448,6 +453,13 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "sc
           showBoth={screenshots.some((shot) => pendingShotDelete.includes(shot.id) && shot.cloudId && shot.uploadStatus === "ready")}
           onClose={() => setPendingShotDelete(null)}
           onChoose={(scope) => void applyShotDelete(scope)}
+        />
+      ) : null}
+      {openShot ? (
+        <ScreenshotViewer
+          shot={openShot}
+          onClose={() => setOpenShotId(null)}
+          onDownload={() => void downloadScreenshot(openShot.id)}
         />
       ) : null}
     </>

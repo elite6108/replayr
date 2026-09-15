@@ -16,7 +16,7 @@
         "applinks:www.replayr.tv"
       ],
       "infoPlist": {
-        "NSPhotoLibraryAddUsageDescription": "Replayr saves clips you download to your photo library.",
+        "NSPhotoLibraryAddUsageDescription": "Replayr saves clips and screenshots you download to your photo library.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -64,6 +64,16 @@
               "scheme": "https",
               "host": "www.replayr.tv",
               "pathPrefix": "/clip"
+            },
+            {
+              "scheme": "https",
+              "host": "replayr.tv",
+              "pathPrefix": "/s"
+            },
+            {
+              "scheme": "https",
+              "host": "www.replayr.tv",
+              "pathPrefix": "/s"
             }
           ],
           "category": [

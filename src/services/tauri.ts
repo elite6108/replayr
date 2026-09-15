@@ -312,6 +312,10 @@ export async function provideScreenshotSession(
   return invoke("screenshot_provide_session", { requestId, accessToken, apiBase });
 }
 
+export async function exportScreenshot(id: string, dest: string): Promise<void> {
+  return invoke("screenshot_export", { id, dest });
+}
+
 export async function retryScreenshotUpload(id: string): Promise<Screenshot> {
   return invoke("screenshot_retry_upload", { id });
 }

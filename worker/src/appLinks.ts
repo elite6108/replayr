@@ -21,6 +21,7 @@ export function appleAppSiteAssociation(env: Env): Response {
           components: [
             { "/": "/c/*", comment: "Canonical clip share links" },
             { "/": "/clip/*", comment: "Clip path alias" },
+            { "/": "/s/*", comment: "Screenshot share links" },
           ],
         },
       ],

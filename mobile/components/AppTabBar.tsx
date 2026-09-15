@@ -8,7 +8,7 @@ import { colors, glow, glowSm } from "@/lib/theme";
 const HIDDEN = [/^\/signin/, /^\/auth\//, /\/folders\/.+\/play/];
 
 export function shouldShowAppTabBar(pathname: string) {
-  return !HIDDEN.some((pattern) => pattern.test(pathname));
+  return !HIDDEN.some((pattern) => pattern.test(pathname)) && !pathname.startsWith("/s/");
 }
 
 export function AppTabBar() {
@@ -21,7 +21,10 @@ export function AppTabBar() {
 
   const homeOn = pathname === "/" || pathname === "/index";
   const clipsOn =
-    pathname.startsWith("/library") || pathname.startsWith("/folders") || pathname.startsWith("/c/");
+    pathname.startsWith("/library") ||
+    pathname.startsWith("/folders") ||
+    pathname.startsWith("/c/") ||
+    pathname.startsWith("/s/");
   const createOn = pathname.startsWith("/create");
   const messagesOn = pathname.startsWith("/messages");
   const profileOn = pathname.startsWith("/account") || pathname.startsWith("/settings");

@@ -36,6 +36,13 @@ function RootShell() {
               gestureResponseDistance: 20,
             }}
           />
+          <Stack.Screen
+            name="s/[slug]"
+            options={{
+              headerShown: false,
+              animation: "fade",
+            }}
+          />
           <Stack.Screen name="game/[slug]" options={{ title: "Game" }} />
           <Stack.Screen name="friends" options={{ title: "Following" }} />
           <Stack.Screen name="search" options={{ title: "Search" }} />
@@ -66,6 +73,10 @@ export default function RootLayout() {
         return;
       }
       if (link.kind === "clip") {
+        router.push(link.href);
+        return;
+      }
+      if (link.kind === "screenshot") {
         router.push(link.href);
       }
     }

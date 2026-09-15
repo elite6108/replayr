@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { save } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
 import { publicApiUrl } from "../branding";
 import { fetchScreenshotUsage, type ScreenshotUsage } from "../services/screenshots";
@@ -6,6 +7,7 @@ import { getSupabase, supabaseConfigured } from "../services/supabase";
 import {
   copyScreenshot,
   deleteScreenshot,
+  exportScreenshot,
   listScreenshots,
   provideScreenshotSession,
   revealScreenshot,
@@ -14,6 +16,7 @@ import {
   syncScreenshotCloud,
 } from "../services/tauri";
 import type { Screenshot } from "../types/screenshot";
+import { suggestedFileName } from "../utils/files";
 import { invokeErrorMessage } from "../utils/format";
 import { useAuthStore } from "./authStore";
 import { useToastStore } from "./toastStore";
@@ -33,6 +36,7 @@ interface ScreenshotState {
   remove: (id: string, deleteFile: boolean, deleteCloud?: boolean) => Promise<void>;
   reveal: (id: string) => Promise<void>;
   retry: (id: string) => Promise<void>;
+  download: (id: string) => Promise<void>;
   syncCloud: () => Promise<void>;
 }
 
@@ -43,7 +47,7 @@ function upsert(items: Screenshot[], next: Screenshot): Screenshot[] {
   return [next, ...rest].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export const useScreenshotStore = create<ScreenshotState>((set) => ({
+export const useScreenshotStore = create<ScreenshotState>((set, get) => ({
   items: [],
   loaded: false,
   usage: null,
@@ -123,6 +127,23 @@ export const useScreenshotStore = create<ScreenshotState>((set) => ({
       useToastStore.getState().show(next.shareUrl ? "Link copied" : "Uploaded");
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not upload that screenshot"));
+    }
+  },
+
+  download: async (id) => {
+    const shot = get().items.find((item) => item.id === id);
+    if (!shot) return;
+    try {
+      const dest = await save({
+        defaultPath: suggestedFileName(`${shot.width}x${shot.height}`, "screenshot", "png"),
+        title: "Save screenshot",
+        filters: [{ name: "PNG", extensions: ["png"] }],
+      });
+      if (!dest) return;
+      await exportScreenshot(id, dest.endsWith(".png") || dest.endsWith(".PNG") ? dest : `${dest}.png`);
+      useToastStore.getState().show("Saved to disk");
+    } catch (caught) {
+      useToastStore.getState().show(invokeErrorMessage(caught, "Could not download that screenshot"));
     }
   },
 

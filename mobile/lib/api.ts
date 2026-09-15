@@ -358,3 +358,50 @@ export function suggestedDownloadName(title: string | null, slug: string) {
     .slice(0, 80);
   return `${base || "clip"}.mp4`;
 }
+
+export interface CloudScreenshot {
+  id: string;
+  slug: string;
+  shareUrl: string | null;
+  width: number;
+  height: number;
+  bytes: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface PublicScreenshot {
+  slug: string;
+  width: number;
+  height: number;
+  bytes: number;
+  createdAt: string;
+}
+
+export async function fetchScreenshots(
+  accessToken: string,
+  options?: { page?: number; limit?: number },
+): Promise<{ screenshots: CloudScreenshot[]; total: number; page: number; limit: number }> {
+  const page = options?.page ?? 1;
+  const limit = options?.limit ?? 24;
+  const response = await fetch(apiUrl(`/v1/screenshots?page=${page}&limit=${limit}`), {
+    headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
+  });
+  const body = await readApiJson<{ screenshots?: CloudScreenshot[]; total?: number; page?: number; limit?: number }>(
+    response,
+    "Could not load screenshots.",
+  );
+  return {
+    screenshots: (body.screenshots ?? []).filter((shot) => shot.status === "ready" && shot.slug),
+    total: Number(body.total) || 0,
+    page: Number(body.page) || page,
+    limit: Number(body.limit) || limit,
+  };
+}
+
+export async function fetchPublicScreenshot(slug: string): Promise<PublicScreenshot> {
+  const response = await fetch(apiUrl(`/v1/screenshots/public/${encodeURIComponent(slug)}`), {
+    headers: { accept: "application/json" },
+  });
+  return readApiJson<PublicScreenshot>(response, "That screenshot was not found.");
+}

@@ -102,6 +102,24 @@ pub fn warm(api_base: &str) {
     let _ = client().get(url).send();
 }
 
+const PNG_MAGIC: &[u8] = &[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/// Fetch a public screenshot PNG from a Replayr share URL.
+pub fn fetch_png(url: &str) -> Result<Vec<u8>, CloudError> {
+    if !api_base_allowed(url) {
+        return Err(CloudError::Invalid);
+    }
+    let response = client().get(url).send().map_err(|_| CloudError::Network)?;
+    if !response.status().is_success() {
+        return Err(CloudError::Server);
+    }
+    let bytes = response.bytes().map_err(|_| CloudError::Network)?;
+    if bytes.len() < PNG_MAGIC.len() || &bytes[..PNG_MAGIC.len()] != PNG_MAGIC {
+        return Err(CloudError::Invalid);
+    }
+    Ok(bytes.to_vec())
+}
+
 pub fn upload(api_base: &str, token: &str, png: &[u8]) -> Result<CloudOk, CloudError> {
     if !api_base_allowed(api_base) {
         return Err(CloudError::Invalid);

@@ -87,3 +87,19 @@ export async function saveClipToPhotos(slug: string, title: string | null, acces
   }
   await MediaLibrary.saveToLibraryAsync(result.uri);
 }
+
+export async function saveScreenshotToPhotos(slug: string) {
+  const permission = await MediaLibrary.requestPermissionsAsync(true);
+  if (permission.status !== "granted") {
+    throw new Error("Photo library permission is required to save screenshots.");
+  }
+  if (!FileSystem.cacheDirectory) {
+    throw new Error("This device has no cache directory.");
+  }
+  const dest = `${FileSystem.cacheDirectory}${slug}.png`;
+  const result = await FileSystem.downloadAsync(apiUrl(`/s/${slug}.png`), dest);
+  if (result.status < 200 || result.status >= 300) {
+    throw new Error("Could not download that screenshot.");
+  }
+  await MediaLibrary.saveToLibraryAsync(result.uri);
+}

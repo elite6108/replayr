@@ -96,6 +96,8 @@ export const CLIP_LIBRARY_VERSION = 1;
 export interface ScreenshotSettings {
   /** Upload each screenshot and copy its share link. Signed-out users always get the image. */
   autoUpload: boolean;
+  /** Keep a PNG in the Screenshots folder. Off means cloud-only after a successful upload. */
+  saveLocal: boolean;
   /** What lands on the clipboard after an upload succeeds. */
   copyMode: "link" | "image";
   /** Show the on-screen confirmation. */
@@ -104,14 +106,18 @@ export interface ScreenshotSettings {
 
 export const DEFAULT_SCREENSHOT_SETTINGS: ScreenshotSettings = {
   autoUpload: true,
+  saveLocal: true,
   copyMode: "link",
   showOverlay: true,
 };
 
 export function sanitizeScreenshotSettings(raw: unknown): ScreenshotSettings {
   const value = raw && typeof raw === "object" ? (raw as Partial<ScreenshotSettings>) : {};
+  const autoUpload = typeof value.autoUpload === "boolean" ? value.autoUpload : DEFAULT_SCREENSHOT_SETTINGS.autoUpload;
+  const saveLocalRaw = typeof value.saveLocal === "boolean" ? value.saveLocal : DEFAULT_SCREENSHOT_SETTINGS.saveLocal;
   return {
-    autoUpload: typeof value.autoUpload === "boolean" ? value.autoUpload : DEFAULT_SCREENSHOT_SETTINGS.autoUpload,
+    autoUpload,
+    saveLocal: autoUpload ? saveLocalRaw : true,
     copyMode: value.copyMode === "image" ? "image" : "link",
     showOverlay: typeof value.showOverlay === "boolean" ? value.showOverlay : DEFAULT_SCREENSHOT_SETTINGS.showOverlay,
   };

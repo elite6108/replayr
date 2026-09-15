@@ -31,6 +31,7 @@ describe("app link manifests", () => {
     expect(body.applinks.details[0].appIDs[0]).toBe("TEAM123.tv.elite.replay");
     expect(body.applinks.details[0].components.some((c) => c["/"] === "/c/*")).toBe(true);
     expect(body.applinks.details[0].components.some((c) => c["/"] === "/clip/*")).toBe(true);
+    expect(body.applinks.details[0].components.some((c) => c["/"] === "/s/*")).toBe(true);
   });
 
   it("serves assetlinks when fingerprints are set", async () => {

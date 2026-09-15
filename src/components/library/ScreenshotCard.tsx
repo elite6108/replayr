@@ -25,6 +25,7 @@ export function ScreenshotCard({
   shot,
   selected,
   onSelect,
+  onOpen,
   onCopy,
   onReveal,
   onRetry,
@@ -33,6 +34,7 @@ export function ScreenshotCard({
   shot: Screenshot;
   selected?: boolean;
   onSelect?: (shot: Screenshot) => void;
+  onOpen: (shot: Screenshot) => void;
   onCopy: (shot: Screenshot, what: "image" | "link") => void;
   onReveal: (shot: Screenshot) => void;
   onRetry?: (shot: Screenshot) => void;
@@ -64,7 +66,7 @@ export function ScreenshotCard({
           />
         </label>
       ) : null}
-      <button type="button" className="clip-open" onClick={() => onCopy(shot, canLink ? "link" : "image")}>
+      <button type="button" className="clip-open" onClick={() => onOpen(shot)}>
         <div className="clip-thumb">
           {thumb ? <img src={convertFileSrc(thumb)} alt="" loading="lazy" /> : null}
           <span className={`clip-cloud-badge ${badge.state === "local" ? "busy" : badge.state}`} title={badge.title}>
@@ -96,9 +98,9 @@ export function ScreenshotCard({
           onClose={() => setMenu(null)}
           items={[
             { label: selected ? "Deselect" : "Select", onClick: () => onSelect?.(shot) },
-            { label: "Copy image", onClick: () => onCopy(shot, "image") },
+            { label: "Copy image", disabled: !shot.filePath, onClick: () => onCopy(shot, "image") },
             { label: "Copy link", disabled: !canLink, onClick: () => onCopy(shot, "link") },
-            { label: "Show in folder", onClick: () => onReveal(shot) },
+            { label: "Show in folder", disabled: !shot.filePath, onClick: () => onReveal(shot) },
             ...(canRetry && onRetry ? [{ label: "Upload again", onClick: () => onRetry(shot) }] : []),
             { label: "Delete", danger: true, onClick: () => onDelete?.(shot) },
           ]}

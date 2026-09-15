@@ -145,12 +145,7 @@ fn save(
     let started = Instant::now();
     let png = encode::png(image)?;
     let encode_ms = started.elapsed().as_millis() as u64;
-
-    let dir = screenshots_dir(app, settings)?;
-    crate::disk::ensure_free_space(&dir, settings.min_free_disk_bytes).map_err(|err| err.to_string())?;
     let id = store::new_id();
-    let path = store::write_new(&dir, &store::file_stem(store::LocalStamp::now()), "png", &png)?;
-    crate::paths::allow_asset_file(app, &path);
 
     // A missing thumbnail only costs the Library a fallback; never fail the screenshot over it.
     let thumb_path = encode::thumbnail(image)
@@ -159,9 +154,15 @@ fn save(
         .and_then(|(dir, bytes)| store::write_new(&dir, &id, "jpg", &bytes).ok())
         .inspect(|thumb| crate::paths::allow_asset_file(app, thumb));
 
+    let file_path = if wants_user_png(settings) {
+        write_user_png(app, settings, &png)?.display().to_string()
+    } else {
+        String::new()
+    };
+
     let record = store::ScreenshotRecord {
         id,
-        file_path: path.display().to_string(),
+        file_path,
         thumb_path: thumb_path.map(|thumb| thumb.display().to_string()),
         width: image.width,
         height: image.height,
@@ -201,6 +202,37 @@ fn save(
 }
 
 #[cfg(windows)]
+fn wants_user_png(settings: &AppSettings) -> bool {
+    settings.screenshots.save_local || !settings.screenshots.auto_upload
+}
+
+#[cfg(windows)]
+fn write_user_png(app: &AppHandle, settings: &AppSettings, png: &[u8]) -> Result<PathBuf, String> {
+    let dir = screenshots_dir(app, settings)?;
+    crate::disk::ensure_free_space(&dir, settings.min_free_disk_bytes).map_err(|err| err.to_string())?;
+    let path = store::write_new(&dir, &store::file_stem(store::LocalStamp::now()), "png", png)?;
+    crate::paths::allow_asset_file(app, &path);
+    Ok(path)
+}
+
+#[cfg(windows)]
+fn persist_user_png(
+    app: &AppHandle,
+    settings: &AppSettings,
+    record: &store::ScreenshotRecord,
+    png: &[u8],
+) -> Result<(), String> {
+    if !record.file_path.is_empty() && std::path::Path::new(&record.file_path).exists() {
+        return Ok(());
+    }
+    let path = write_user_png(app, settings, png)?;
+    with_db(app, |conn| {
+        store::set_file_path(conn, &record.id, &path.display().to_string()).map_err(|err| err.to_string())
+    })?;
+    Ok(())
+}
+
+#[cfg(windows)]
 fn finish_copy_and_upload(
     app: &AppHandle,
     settings: &AppSettings,
@@ -210,8 +242,8 @@ fn finish_copy_and_upload(
 ) -> Result<Option<crate::overlay_notification::ScreenshotNotice>, String> {
     use crate::overlay_notification::ScreenshotNotice;
 
-    let signed_in = settings.screenshots.auto_upload;
-    if !signed_in {
+    if !settings.screenshots.auto_upload {
+        persist_user_png(app, settings, record, png)?;
         copy_image_best_effort(image, png);
         return Ok(Some(ScreenshotNotice::ImageCopied));
     }
@@ -224,6 +256,7 @@ fn finish_copy_and_upload(
 
     let mut session = session::broker().request(app, false, session::SESSION_TIMEOUT);
     if session.as_ref().is_none_or(|item| item.access_token.is_empty()) {
+        persist_user_png(app, settings, record, png)?;
         copy_image_best_effort(image, png);
         with_db(app, |conn| {
             store::set_upload(conn, &record.id, "local", None, None, None, None).map_err(|err| err.to_string())
@@ -283,6 +316,7 @@ fn finish_copy_and_upload(
         }
         Err(err) => {
             tracing::warn!(error = err.message(), "screenshot upload failed");
+            persist_user_png(app, settings, record, png)?;
             with_db(app, |conn| {
                 store::set_upload(conn, &record.id, "failed", None, None, None, Some(err.message()))
                     .map_err(|e| e.to_string())

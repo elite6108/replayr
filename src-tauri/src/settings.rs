@@ -66,6 +66,9 @@ pub struct ScreenshotSettings {
     /// Upload each screenshot and copy its share link. Signed-out users always get the image.
     #[serde(default = "default_true")]
     pub auto_upload: bool,
+    /// Keep a PNG in the user Screenshots folder. Off means cloud-only after a successful upload.
+    #[serde(default = "default_true")]
+    pub save_local: bool,
     /// What lands on the clipboard after an upload succeeds: `"link"` or `"image"`.
     #[serde(default = "default_screenshot_copy_mode")]
     pub copy_mode: String,
@@ -78,6 +81,7 @@ impl Default for ScreenshotSettings {
     fn default() -> Self {
         Self {
             auto_upload: true,
+            save_local: true,
             copy_mode: default_screenshot_copy_mode(),
             show_overlay: true,
         }
@@ -86,6 +90,9 @@ impl Default for ScreenshotSettings {
 
 impl ScreenshotSettings {
     pub fn sanitize(&mut self) {
+        if !self.auto_upload {
+            self.save_local = true;
+        }
         self.copy_mode = match self.copy_mode.as_str() {
             "image" => "image".into(),
             _ => default_screenshot_copy_mode(),
@@ -1010,10 +1017,22 @@ mod tests {
         let strict: AppSettings = serde_json::from_value(value.clone()).expect("old files parse strictly");
         assert_eq!(strict.hotkeys.region_screenshot, "CommandOrControl+PrintScreen");
         assert!(strict.screenshots.auto_upload, "auto-upload is on by default");
+        assert!(strict.screenshots.save_local, "local PNG is kept by default");
         assert_eq!(strict.screenshots.copy_mode, "link");
         assert!(strict.screenshots.show_overlay);
         // The existing Instant Replay screenshot binding is untouched.
         assert_eq!(strict.hotkeys.screenshot, "CommandOrControl+F11");
+    }
+
+    #[test]
+    fn screenshot_save_local_requires_auto_upload() {
+        let mut settings = ScreenshotSettings {
+            auto_upload: false,
+            save_local: false,
+            ..Default::default()
+        };
+        settings.sanitize();
+        assert!(settings.save_local);
     }
 
     #[test]

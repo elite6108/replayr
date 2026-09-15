@@ -27,7 +27,9 @@ pub fn screenshot_list(app: AppHandle, limit: Option<u32>) -> AppResult<Vec<Scre
     })
     .map_err(to_app_error)?;
     for record in &records {
-        crate::paths::allow_asset_file(&app, std::path::Path::new(&record.file_path));
+        if !record.file_path.is_empty() {
+            crate::paths::allow_asset_file(&app, std::path::Path::new(&record.file_path));
+        }
         if let Some(thumb) = &record.thumb_path {
             crate::paths::allow_asset_file(&app, std::path::Path::new(thumb));
         }
@@ -53,7 +55,9 @@ pub fn screenshot_delete(app: AppHandle, id: String, delete_file: bool, delete_c
         }
     }
     if delete_file {
-        remove_owned_file(&app, &record.file_path, "png")?;
+        if !record.file_path.is_empty() {
+            remove_owned_file(&app, &record.file_path, "png")?;
+        }
         if let Some(thumb) = &record.thumb_path {
             // Thumbnails are regenerable; a failure here is not worth blocking the delete.
             if let Err(err) = remove_owned_file(&app, thumb, "jpg") {
@@ -85,6 +89,9 @@ pub fn screenshot_copy(app: AppHandle, id: String, what: String) -> AppResult<()
             copy_text(&url)
         }
         "image" => {
+            if record.file_path.is_empty() {
+                return Err(AppError::Message("That screenshot is only in the cloud.".into()));
+            }
             crate::paths::assert_reveal_allowed(&app, &record.file_path)?;
             let bytes = std::fs::read(&record.file_path)
                 .map_err(|_| AppError::Message("That screenshot is no longer on disk.".into()))?;
@@ -99,6 +106,9 @@ pub fn screenshot_copy(app: AppHandle, id: String, what: String) -> AppResult<()
 #[tauri::command]
 pub fn screenshot_reveal(app: AppHandle, id: String) -> AppResult<()> {
     let record = find(&app, &id)?;
+    if record.file_path.is_empty() {
+        return Err(AppError::Message("That screenshot is only in the cloud.".into()));
+    }
     crate::paths::assert_reveal_allowed(&app, &record.file_path)?;
     crate::library::reveal(&record.file_path)
 }
@@ -118,6 +128,9 @@ pub fn screenshot_provide_session(request_id: u64, access_token: Option<String>,
 #[tauri::command]
 pub fn screenshot_retry_upload(app: AppHandle, id: String) -> AppResult<ScreenshotRecord> {
     let record = find(&app, &id)?;
+    if record.file_path.is_empty() {
+        return Err(AppError::Message("That screenshot is only in the cloud.".into()));
+    }
     crate::paths::assert_reveal_allowed(&app, &record.file_path)?;
     let png = std::fs::read(&record.file_path).map_err(|_| AppError::Message("That screenshot is no longer on disk.".into()))?;
     let session = super::session::broker()
@@ -154,6 +167,39 @@ pub fn screenshot_retry_upload(app: AppHandle, id: String) -> AppResult<Screensh
         }
     }
     find(&app, &id)
+}
+
+/// Save a screenshot PNG to a user-chosen path. Uses the local file when present, otherwise the
+/// public cloud PNG.
+#[tauri::command]
+pub fn screenshot_export(app: AppHandle, id: String, dest: String) -> AppResult<()> {
+    let record = find(&app, &id)?;
+    let dest_path = std::path::Path::new(&dest);
+    let ext_ok = dest_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("png"));
+    if !ext_ok {
+        return Err(AppError::Message("Save the screenshot as a PNG.".into()));
+    }
+    crate::paths::assert_export_dest_allowed(&app, &dest)?;
+    if let Some(parent) = dest_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| AppError::Message(format!("Could not save the screenshot: {err}")))?;
+    }
+    if !record.file_path.is_empty() {
+        crate::paths::assert_reveal_allowed(&app, &record.file_path)?;
+        std::fs::copy(&record.file_path, dest_path)
+            .map_err(|err| AppError::Message(format!("Could not save the screenshot: {err}")))?;
+        return Ok(());
+    }
+    let share = record
+        .share_url
+        .filter(|_| record.upload_status == "ready")
+        .ok_or_else(|| AppError::Message("That screenshot has no cloud copy to download.".into()))?;
+    let url = format!("{}.png", share.trim_end_matches('/'));
+    let png = super::cloud::fetch_png(&url).map_err(|_| AppError::Message("Could not download that screenshot.".into()))?;
+    std::fs::write(dest_path, png).map_err(|err| AppError::Message(format!("Could not save the screenshot: {err}")))?;
+    Ok(())
 }
 
 #[tauri::command]

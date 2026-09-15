@@ -153,3 +153,29 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.screenshot-viewer {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+  width: min(1100px, 100%);
+  max-height: calc(100vh - 48px);
+}
+
+.screenshot-viewer img {
+  width: 100%;
+  height: auto;
+  max-height: calc(100vh - 120px);
+  object-fit: contain;
+  border-radius: 12px;
+  background: var(--media-bg);
+}
+
+.screenshot-viewer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}

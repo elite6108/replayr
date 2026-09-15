@@ -693,7 +693,34 @@ function ScreenshotsPane({
           className="switch"
           type="checkbox"
           checked={settings.screenshots.autoUpload}
-          onChange={(event) => void patchScreenshots("autoUpload", event.target.checked)}
+          onChange={(event) => {
+            const autoUpload = event.target.checked;
+            void onChange("screenshots", {
+              ...settings.screenshots,
+              autoUpload,
+              saveLocal: autoUpload ? settings.screenshots.saveLocal : true,
+            });
+          }}
+        />
+      </label>
+      <label className="setting-row">
+        <span className="setting-copy">
+          Keep a copy on this PC
+          <small>Off keeps the PNG in the cloud only after a successful upload.</small>
+        </span>
+        <input
+          className="switch"
+          type="checkbox"
+          checked={settings.screenshots.saveLocal}
+          disabled={!settings.screenshots.autoUpload}
+          onChange={(event) => {
+            const saveLocal = event.target.checked;
+            void onChange("screenshots", {
+              ...settings.screenshots,
+              saveLocal,
+              autoUpload: saveLocal ? settings.screenshots.autoUpload : true,
+            });
+          }}
         />
       </label>
       <div className="settings-fields">
@@ -723,7 +750,11 @@ function ScreenshotsPane({
       </label>
       <div className="settings-group">
         <div className="settings-group-label">Folder</div>
-        <p className="muted">PNGs go in a Screenshots folder next to your clips.</p>
+        <p className="muted">
+          {settings.screenshots.saveLocal
+            ? "PNGs go in a Screenshots folder next to your clips."
+            : "Successful uploads skip the Screenshots folder. Failed or signed-out captures still save here."}
+        </p>
         <div className="field">
           <label htmlFor="screenshot-folder">Saved to</label>
           <div className="row">

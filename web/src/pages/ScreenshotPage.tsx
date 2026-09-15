@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Seo } from "../components/Seo";
+import { OpenInReplayrBanner } from "../components/OpenInReplayrBanner";
 import { fetchPublicScreenshot, type PublicScreenshot } from "../lib/api";
 
 export function ScreenshotPage() {
@@ -43,6 +44,7 @@ export function ScreenshotPage() {
         <p className="muted">Loading…</p>
       ) : (
         <>
+          <OpenInReplayrBanner slug={shot.slug} kind="screenshot" />
           <img
             src={`/s/${shot.slug}.png`}
             alt="Replayr screenshot"

@@ -15,12 +15,19 @@ function isAndroid(ua: string) {
 }
 
 /**
- * Compact smart banner for mobile browsers viewing a clip share page.
+ * Compact smart banner for mobile browsers viewing a clip or screenshot share page.
  * Prefer the HTTPS Universal/App Link; fall back to custom scheme + store URLs.
  */
-export function OpenInReplayrBanner({ slug }: { slug: string }) {
+export function OpenInReplayrBanner({
+  slug,
+  kind = "clip",
+}: {
+  slug: string;
+  kind?: "clip" | "screenshot";
+}) {
   const [visible, setVisible] = useState(false);
   const [platform, setPlatform] = useState<"ios" | "android" | null>(null);
+  const path = kind === "screenshot" ? "s" : "c";
 
   useEffect(() => {
     const ua = navigator.userAgent || "";
@@ -29,8 +36,8 @@ export function OpenInReplayrBanner({ slug }: { slug: string }) {
     setVisible(true);
   }, []);
 
-  const httpsUrl = useMemo(() => `https://replayr.tv/c/${slug}`, [slug]);
-  const customUrl = useMemo(() => `${CUSTOM_SCHEME}://c/${slug}`, [slug]);
+  const httpsUrl = useMemo(() => `https://replayr.tv/${path}/${slug}`, [path, slug]);
+  const customUrl = useMemo(() => `${CUSTOM_SCHEME}://${path}/${slug}`, [path, slug]);
   const iosStore = (import.meta.env.VITE_IOS_APP_STORE_URL as string | undefined)?.trim() || "";
   const playStore = (import.meta.env.VITE_ANDROID_PLAY_STORE_URL as string | undefined)?.trim() || "";
 
@@ -39,10 +46,8 @@ export function OpenInReplayrBanner({ slug }: { slug: string }) {
   function openApp() {
     const store = platform === "ios" ? iosStore : platform === "android" ? playStore : "";
     const started = Date.now();
-    // Prefer verified HTTPS link first (Universal / App Links).
     window.location.href = httpsUrl;
     window.setTimeout(() => {
-      // If still visible after a short delay, try the custom scheme.
       if (document.visibilityState === "visible" && Date.now() - started < 2500) {
         window.location.href = customUrl;
       }
@@ -59,8 +64,12 @@ export function OpenInReplayrBanner({ slug }: { slug: string }) {
   return (
     <aside className="open-in-app-banner" aria-label="Open in Replayr">
       <div className="open-in-app-copy">
-        <strong>Watch this clip in Replayr</strong>
-        <span>Faster playback and the full Replayr experience.</span>
+        <strong>{kind === "screenshot" ? "View this screenshot in Replayr" : "Watch this clip in Replayr"}</strong>
+        <span>
+          {kind === "screenshot"
+            ? "Open the image in the Replayr app."
+            : "Faster playback and the full Replayr experience."}
+        </span>
       </div>
       <button type="button" className="btn primary open-in-app-btn" onClick={openApp}>
         Open in Replayr

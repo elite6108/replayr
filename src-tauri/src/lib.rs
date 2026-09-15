@@ -284,6 +284,7 @@ pub fn run() {
             snip::commands::screenshot_reveal,
             snip::commands::screenshot_provide_session,
             snip::commands::screenshot_retry_upload,
+            snip::commands::screenshot_export,
             snip::commands::screenshot_sync_cloud,
             commands::upload_local_clip,
             commands::delete_cloud_clip,

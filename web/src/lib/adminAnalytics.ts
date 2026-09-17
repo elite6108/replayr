@@ -420,6 +420,8 @@ export type AuditLogResponse = {
     targetId: string | null;
     targetHref: string | null;
     metadata: Record<string, unknown>;
+    before?: Record<string, unknown> | null;
+    after?: Record<string, unknown> | null;
     requestId: string | null;
   }>;
   nextCursor: string | null;

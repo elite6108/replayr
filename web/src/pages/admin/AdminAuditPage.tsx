@@ -95,7 +95,19 @@ export function AdminAuditPage() {
                     <button type="button" onClick={() => setOpenId(openId === row.id ? null : row.id)}>
                       {openId === row.id ? "Hide" : "Show"}
                     </button>
-                    {openId === row.id ? <pre>{JSON.stringify(row.metadata, null, 2)}</pre> : null}
+                    {openId === row.id ? (
+                      <pre>
+                        {JSON.stringify(
+                          {
+                            metadata: row.metadata,
+                            before: row.before ?? undefined,
+                            after: row.after ?? undefined,
+                          },
+                          null,
+                          2,
+                        )}
+                      </pre>
+                    ) : null}
                   </td>
                 </tr>
               ))}

@@ -17,6 +17,13 @@ export const AUDIT_ACTIONS = {
   analyticsReportGenerated: "analytics.report_generated",
   analyticsReportRegenerated: "analytics.report_regenerated",
   analyticsReportDeleted: "analytics.report_deleted",
+  staffInvited: "staff.invited",
+  staffRoleChanged: "staff.role_changed",
+  staffSuspended: "staff.suspended",
+  staffRoleCreated: "staff.role_created",
+  staffPermissionsChanged: "staff.permissions_changed",
+  staffRoleDeleted: "staff.role_deleted",
+  boardPermissionsChanged: "board.permissions_changed",
 } as const;
 
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
@@ -35,6 +42,13 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "analytics.report_generated": "Analytics report generated",
   "analytics.report_regenerated": "Analytics report regenerated",
   "analytics.report_deleted": "Analytics report deleted",
+  "staff.invited": "Staff invited",
+  "staff.role_changed": "Staff roles changed",
+  "staff.suspended": "Staff membership status changed",
+  "staff.role_created": "Staff role created",
+  "staff.permissions_changed": "Staff role permissions changed",
+  "staff.role_deleted": "Staff role deleted",
+  "board.permissions_changed": "Board permissions changed",
 };
 
 const BLOCKED_META = /secret|token|cookie|jwt|password|authorization|storage_key|object_key|thumbnail_key|public_token|webhook|sk_live/i;
@@ -48,6 +62,8 @@ export type AuditWrite = {
   targetType?: string | null;
   targetId?: string | null;
   metadata?: Record<string, unknown> | null;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
   requestId?: string | null;
   environment?: string | null;
 };
@@ -74,6 +90,14 @@ export function requestCorrelationId(request?: Request | null): string | null {
   return ray?.slice(0, 80) || null;
 }
 
+export function auditRequestMeta(request?: Request | null): Record<string, unknown> {
+  if (!request) return {};
+  return {
+    ip: request.headers.get("cf-connecting-ip")?.slice(0, 64) ?? null,
+    userAgent: request.headers.get("user-agent")?.slice(0, 180) ?? null,
+  };
+}
+
 export async function writeAuditLog(env: Env, input: AuditWrite): Promise<void> {
   try {
     const key = requireServiceRole(env);
@@ -92,6 +116,8 @@ export async function writeAuditLog(env: Env, input: AuditWrite): Promise<void> 
         target_type: input.targetType ?? null,
         target_id: input.targetId ?? null,
         metadata: sanitizeAuditMetadata(input.metadata),
+        before: input.before ? sanitizeAuditMetadata(input.before) : null,
+        after: input.after ? sanitizeAuditMetadata(input.after) : null,
         request_id: input.requestId ?? null,
         environment: input.environment ?? "production",
       }),

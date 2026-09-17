@@ -40,6 +40,16 @@ function consoleUrl() {
   return `${publicSiteUrl()}/admin`;
 }
 
+function staffConsoleUrl() {
+  try {
+    const host = new URL(publicAppUrl()).hostname;
+    if (host === "127.0.0.1" || host === "localhost") return "http://localhost:5174/staff/board";
+  } catch {
+    /* keep site console */
+  }
+  return `${publicSiteUrl()}/staff/board`;
+}
+
 export function AdminPage() {
   const session = useAuthStore((state) => state.session);
   const token = session?.access_token ?? "";
@@ -50,6 +60,15 @@ export function AdminPage() {
   return (
     <>
       <PageHeader title="Admin" subtitle="Operator tools. Announcement banners and the full console live on the website.">
+        <button
+          className="btn"
+          type="button"
+          onClick={() => {
+            void import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(staffConsoleUrl()));
+          }}
+        >
+          Open staff console
+        </button>
         <button
           className="btn primary"
           type="button"

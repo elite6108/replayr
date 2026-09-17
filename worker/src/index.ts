@@ -1,4 +1,5 @@
 import { handleAdmin } from "./admin";
+import { handleStaff, notifyStaffTaskDueSoon } from "./staff";
 import { handleAnalytics, observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
 import { installerArtifact, recordClipDownloadEvent, serveInstallerDownload } from "./analyticsDownloads";
 import { runRecentAnalyticsRollup } from "./analyticsRollup";
@@ -155,6 +156,11 @@ export default {
           await sweepScreenshots(env, ctx);
         } catch (caught) {
           console.error("screenshot_sweep_failed", caught instanceof Error ? caught.message : "unknown");
+        }
+        try {
+          await notifyStaffTaskDueSoon(env);
+        } catch (caught) {
+          console.error("staff_due_soon_failed", caught instanceof Error ? caught.message : "unknown");
         }
         try {
           const result = await runRecentAnalyticsRollup(env);
@@ -321,6 +327,9 @@ async function route(
   if (url.pathname.startsWith("/v1/admin")) {
     return handleAdmin(request, env, url);
   }
+  if (url.pathname.startsWith("/v1/staff")) {
+    return handleStaff(request, env, url);
+  }
   const share = url.pathname.match(/^\/c\/([^/]+)\/?$/);
   if (request.method === "GET" && share?.[1]) {
     return clipPlayerPage(request, env, share[1]);
@@ -377,7 +386,9 @@ async function route(
       url.pathname === "/auth/callback" ||
       url.pathname === "/auth/desktop" ||
       url.pathname === "/admin" ||
-      url.pathname.startsWith("/admin/"))
+      url.pathname.startsWith("/admin/") ||
+      url.pathname === "/staff" ||
+      url.pathname.startsWith("/staff/"))
   ) {
     if (env.ASSETS) return serveMarketingSpa(request, env);
   }

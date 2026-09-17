@@ -3,7 +3,9 @@ import { SiteFooter } from "./components/SiteFooter";
 import { SiteHeader } from "./components/SiteHeader";
 import { RequireAuth } from "./components/RequireAuth";
 import { RequireAdmin } from "./components/RequireAdmin";
+import { RequireStaff } from "./components/RequireStaff";
 import { AuthProvider } from "./lib/auth";
+import { StaffPermissionsProvider } from "./lib/staff";
 import { SocialUnreadProvider } from "./lib/socialUnread";
 import { AccountPage } from "./pages/AccountPage";
 import { ClipPage } from "./pages/ClipPage";
@@ -55,21 +57,28 @@ import { AnalyticsReportDetailPage } from "./pages/admin/analytics/AnalyticsRepo
 import { AnalyticsRedirect, AnalyticsSectionShell } from "./pages/admin/analytics/AnalyticsSectionShell";
 import { analyticsLegacyRedirects } from "./pages/admin/analytics/analyticsNav";
 import { AdminAuditPage } from "./pages/admin/AdminAuditPage";
+import { AdminStaffPage } from "./pages/admin/AdminStaffPage";
+import { AdminRolesPage } from "./pages/admin/AdminRolesPage";
+import { StaffLayout } from "./pages/staff/StaffLayout";
+import { StaffBoardPage } from "./pages/staff/StaffBoardPage";
+import { StaffTasksPage } from "./pages/staff/StaffTasksPage";
 import { AnnouncementHost } from "./components/AnnouncementHost";
 
 export function App() {
   return (
     <AuthProvider>
-      <SocialUnreadProvider>
-        <AppShell />
-      </SocialUnreadProvider>
+      <StaffPermissionsProvider>
+        <SocialUnreadProvider>
+          <AppShell />
+        </SocialUnreadProvider>
+      </StaffPermissionsProvider>
     </AuthProvider>
   );
 }
 
 function AppShell() {
   const location = useLocation();
-  const admin = location.pathname.startsWith("/admin");
+  const admin = location.pathname.startsWith("/admin") || location.pathname.startsWith("/staff");
   const messages = location.pathname.startsWith("/messages");
   const oauthCode =
     new URLSearchParams(location.search).get("code") ||
@@ -209,7 +218,22 @@ function AppShell() {
             {analyticsLegacyRedirects.map((item) => (
               <Route key={item.from} path={item.from} element={<AnalyticsRedirect to={item.to} />} />
             ))}
+            <Route path="staff" element={<AdminStaffPage />} />
+            <Route path="roles" element={<AdminRolesPage />} />
             <Route path="audit" element={<AdminAuditPage />} />
+          </Route>
+          <Route
+            path="/staff"
+            element={
+              <RequireStaff>
+                <StaffLayout />
+              </RequireStaff>
+            }
+          >
+            <Route index element={<Navigate to="/staff/board" replace />} />
+            <Route path="board" element={<StaffBoardPage />} />
+            <Route path="board/:boardId" element={<StaffBoardPage />} />
+            <Route path="tasks" element={<StaffTasksPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

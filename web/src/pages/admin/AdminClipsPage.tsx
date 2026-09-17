@@ -4,6 +4,9 @@ import { clipShareUrl } from "../../lib/supabase";
 import { deleteAdminClip, fetchAdminClips, type AdminClipRow } from "../../lib/admin";
 import { useAuth } from "../../lib/auth";
 import { formatBytes, formatClipDate, formatDurationMs } from "../../lib/format";
+import { CreateInternalTaskButton } from "../../components/CreateInternalTaskButton";
+import { readApiJson } from "../../lib/http";
+import { apiUrl } from "../../lib/supabase";
 
 export function AdminClipsPage() {
   const { session } = useAuth();
@@ -16,6 +19,7 @@ export function AdminClipsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [screenshotId, setScreenshotId] = useState("");
 
   async function load() {
     if (!token) return;
@@ -154,6 +158,7 @@ export function AdminClipsPage() {
                       Soft-delete
                     </button>
                   ) : null}
+                  <CreateInternalTaskButton kind="clip" targetId={clip.id} label={clip.title || clip.slug} />
                 </td>
               </tr>
             ))}
@@ -161,6 +166,31 @@ export function AdminClipsPage() {
         </table>
         {clips.length === 0 ? <p className="muted admin-empty">No clips match.</p> : null}
       </div>
+      <form
+        className="admin-filters"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!token || !screenshotId.trim()) return;
+          if (!window.confirm("Delete this screenshot from cloud storage?")) return;
+          void fetch(apiUrl(`/v1/admin/screenshots/${screenshotId.trim()}`), {
+            method: "DELETE",
+            headers: { authorization: `Bearer ${token}` },
+          })
+            .then((response) => readApiJson(response, "Could not delete screenshot."))
+            .then(() => setScreenshotId(""))
+            .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not delete screenshot."));
+        }}
+      >
+        <input
+          value={screenshotId}
+          onChange={(event) => setScreenshotId(event.target.value)}
+          placeholder="Screenshot id"
+          aria-label="Screenshot id"
+        />
+        <button className="btn danger" type="submit">
+          Delete screenshot
+        </button>
+      </form>
     </section>
   );
 }

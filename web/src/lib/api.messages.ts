@@ -20,7 +20,11 @@ export type NotificationKind =
   | "folder_invite"
   | "folder_invite_accepted"
   | "folder_role_changed"
-  | "folder_ownership_transferred";
+  | "folder_ownership_transferred"
+  | "staff_task_assigned"
+  | "staff_task_mentioned"
+  | "staff_task_comment"
+  | "staff_task_due_soon";
 
 export type MessageClip = {
   id: string;
@@ -102,6 +106,7 @@ export type NotificationItem = {
   conversationId: string | null;
   messageId: string | null;
   folderId?: string | null;
+  staffTaskId?: string | null;
 };
 
 export type NotificationsResponse = {

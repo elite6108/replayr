@@ -36,6 +36,10 @@ function copyFor(item: NotificationItem) {
   if (item.kind === "folder_invite_accepted") return `${name} accepted your folder invite`;
   if (item.kind === "folder_role_changed") return `${name} changed your folder role`;
   if (item.kind === "folder_ownership_transferred") return `${name} transferred a folder to you`;
+  if (item.kind === "staff_task_assigned") return `${name} assigned you a staff task`;
+  if (item.kind === "staff_task_mentioned") return `${name} mentioned you on a staff task`;
+  if (item.kind === "staff_task_comment") return `${name} commented on a staff task`;
+  if (item.kind === "staff_task_due_soon") return `A staff task is due soon`;
   return `${name} sent you a message`;
 }
 
@@ -139,6 +143,10 @@ export function NotificationsSheet({
     }
     if (item.kind === "folder_invite") {
       router.push(foldersHref());
+      return;
+    }
+    if (item.kind.startsWith("staff_task")) {
+      router.push("/staff/tasks");
       return;
     }
     if (

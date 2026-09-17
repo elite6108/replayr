@@ -12,7 +12,7 @@ import { buildAnalyticsInfrastructure, buildAnalyticsRevenue, patchCostAssumptio
 import { buildAnalyticsHealth, buildAnalyticsHealthReleases } from "./analyticsHealthAdmin";
 import { handleAnalyticsReports } from "./analyticsReportAdmin";
 import { listAdminAudit } from "./auditAdmin";
-import { AUDIT_ACTIONS, requestCorrelationId, writeAuditLog } from "./audit";
+import { AUDIT_ACTIONS, writeAuditLog } from "./audit";
 import { rebuildAnalyticsDaily } from "./analyticsRollup";
 import { handleAdminAnnouncements } from "./announcements";
 import { applyPlan, stripeForm } from "./billing";
@@ -21,6 +21,8 @@ import { ownedObjectKey, type Env } from "./shared";
 import { ownedScreenshotKey } from "./screenshotsCore";
 import { HttpError, json } from "./http";
 import { deleteBunnyAssetForClip } from "./watermark";
+import { assertPermission, requireStaffActor, type StaffActor } from "./staffAuth";
+import { permissionForAdminRoute } from "./staffPermissions";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PLAN_SLUGS = new Set(["free", "pro", "pro_plus"]);
@@ -104,7 +106,9 @@ interface ApplicationRow {
 }
 
 export async function handleAdmin(request: Request, env: Env, url: URL): Promise<Response> {
-  const actor = await requireAdmin(request, env);
+  const staff = await requireStaffActor(request, env);
+  await authorizeAdminRoute(staff, request, url);
+  const actor: AdminActor = { id: staff.userId, serviceKey: staff.serviceKey, requestId: staff.requestId };
   const announcements = await handleAdminAnnouncements(request, env, url, actor);
   if (announcements) return announcements;
   const reports = await handleAnalyticsReports(request, env, url, actor);
@@ -236,34 +240,20 @@ export async function handleAdmin(request: Request, env: Env, url: URL): Promise
   throw new HttpError(404, "Not found.");
 }
 
-async function requireAdmin(request: Request, env: Env): Promise<AdminActor> {
-  const header = request.headers.get("authorization") || "";
-  const token = header.toLowerCase().startsWith("bearer ") ? header.slice(7) : "";
-  if (!token) throw new HttpError(401, "Sign in required.");
-
-  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
-    headers: {
-      authorization: `Bearer ${token}`,
-      apikey: env.SUPABASE_ANON_KEY,
-    },
-  });
-  if (!response.ok) throw new HttpError(401, "Session expired. Sign in again.");
-
-  const user = (await response.json()) as {
-    id?: string;
-    app_metadata?: { role?: unknown };
-  };
-  if (!user.id) throw new HttpError(401, "Session expired. Sign in again.");
-  if (user.app_metadata?.role !== "admin") {
-    throw new HttpError(403, "Admin access required.");
+async function authorizeAdminRoute(staff: StaffActor, request: Request, url: URL): Promise<void> {
+  const key = permissionForAdminRoute(request.method, url.pathname);
+  if (key) {
+    assertPermission(staff, key);
+    return;
   }
-  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new HttpError(
-      503,
-      "Admin API is not configured. Add SUPABASE_SERVICE_ROLE_KEY to .env (not VITE_), then restart the Worker.",
-    );
+  if (request.method === "PATCH" && /^\/v1\/admin\/users\/[^/]+$/.test(url.pathname)) {
+    const body = (await request.clone().json().catch(() => ({}))) as { planSlug?: unknown; storageLimitBytes?: unknown };
+    if (body.planSlug) assertPermission(staff, "users.billing.edit");
+    if (body.storageLimitBytes != null) assertPermission(staff, "users.quota.edit");
+    if (!body.planSlug && body.storageLimitBytes == null) assertPermission(staff, "users.billing.edit");
+    return;
   }
-  return { id: user.id, serviceKey: env.SUPABASE_SERVICE_ROLE_KEY, requestId: requestCorrelationId(request) };
+  assertPermission(staff, "admin.access");
 }
 
 async function overview(env: Env, actor: AdminActor): Promise<Response> {

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { isAdminSession } from "../lib/admin";
+import { useStaffPermissions } from "../lib/staff";
 import { useAuth } from "../lib/auth";
 import { useSocialUnread } from "../lib/socialUnread";
 import { AppDownloadLink } from "./analytics/AppDownloadLink";
@@ -13,6 +14,8 @@ export function SiteHeader() {
   const signedIn = Boolean(session);
   const { friendsUnread, messagesUnread } = useSocialUnread();
   const admin = isAdminSession(session);
+  const { can } = useStaffPermissions();
+  const staff = can("staff.access");
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
@@ -84,7 +87,12 @@ export function SiteHeader() {
                   {messagesUnread ? <span className="unread-pip" aria-label="Unread" /> : null}
                 </NavLink>
                 <NavLink to="/account">Account</NavLink>
-                {admin ? <NavLink to="/admin">Admin</NavLink> : null}
+                {staff ? (
+                  <NavLink to="/staff/board" className={() => (location.pathname.startsWith("/staff") ? "nav-staff active" : "nav-staff")}>
+                    Staff
+                  </NavLink>
+                ) : null}
+                {admin || can("admin.access") ? <NavLink to="/admin">Admin</NavLink> : null}
               </>
             ) : (
               <NavLink to="/signin">Sign in</NavLink>

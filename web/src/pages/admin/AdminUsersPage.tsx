@@ -8,6 +8,7 @@ import {
   type AdminUserRow,
 } from "../../lib/admin";
 import { useAuth } from "../../lib/auth";
+import { CreateInternalTaskButton } from "../../components/CreateInternalTaskButton";
 import { formatBytes, formatClipDate, planLabel } from "../../lib/format";
 
 const PLAN_OPTIONS = ["free", "pro", "pro_plus"] as const;
@@ -264,6 +265,7 @@ export function AdminUsersPage() {
                           {user.stripeStatus ? <option value="extend">Extend trial</option> : null}
                         </select>
                       ) : null}
+                      <CreateInternalTaskButton kind="user" targetId={user.id} label={user.displayName || user.username || user.email || user.id} />
                     </div>
                   </td>
                 </tr>

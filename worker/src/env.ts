@@ -40,4 +40,6 @@ export interface Env {
 export interface AuthUser {
   id: string;
   token: string;
+  email?: string | null;
+  jwtAdmin?: boolean;
 }

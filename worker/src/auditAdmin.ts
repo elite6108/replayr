@@ -15,6 +15,8 @@ type AuditRow = {
   target_type: string | null;
   target_id: string | null;
   metadata: Record<string, unknown> | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
   request_id: string | null;
   created_at: string;
 };
@@ -33,7 +35,7 @@ export async function listAdminAudit(env: Env, url: URL): Promise<Response> {
   if (actorType && !ACTOR_TYPES.has(actorType)) throw new HttpError(400, "actorType must be user, admin, or system.");
 
   const filters = [
-    "select=id,actor_user_id,actor_type,action,target_type,target_id,metadata,request_id,created_at",
+    "select=id,actor_user_id,actor_type,action,target_type,target_id,metadata,before,after,request_id,created_at",
     `created_at=gte.${from}T00:00:00.000Z`,
     `created_at=lt.${to}T00:00:00.000Z`,
     "order=created_at.desc,id.desc",
@@ -66,6 +68,8 @@ export async function listAdminAudit(env: Env, url: URL): Promise<Response> {
       targetId: row.target_id,
       targetHref: targetHref(row.target_type, row.target_id),
       metadata: row.metadata ?? {},
+      before: row.before,
+      after: row.after,
       requestId: row.request_id,
     })),
     nextCursor: next,

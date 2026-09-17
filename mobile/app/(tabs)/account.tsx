@@ -6,7 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/ui";
 import { UserProfileView } from "@/components/UserProfileView";
 import { useAuth } from "@/lib/auth";
-import { getSupabase } from "@/lib/supabase";
+import { getSupabase, apiUrl } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 
 export default function AccountScreen() {
@@ -15,6 +15,7 @@ export default function AccountScreen() {
   const userId = session?.user.id ?? "";
   const [username, setUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(Boolean(session));
+  const [staff, setStaff] = useState(false);
 
   useEffect(() => {
     if (!userId) {
@@ -38,6 +39,11 @@ export default function AccountScreen() {
         }
         setLoading(false);
       });
+    void fetch(apiUrl("/v1/staff/me"), {
+      headers: { authorization: `Bearer ${session?.access_token ?? ""}` },
+    }).then((response) => {
+      if (!cancelled) setStaff(response.ok);
+    });
     return () => {
       cancelled = true;
     };
@@ -91,6 +97,11 @@ export default function AccountScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       {header}
+      {staff ? (
+        <Pressable style={styles.staffLink} onPress={() => router.push("/staff/tasks")}>
+          <Text style={styles.staffLinkText}>My tasks</Text>
+        </Pressable>
+      ) : null}
       <UserProfileView username={username} hideOwnActions />
     </SafeAreaView>
   );
@@ -109,4 +120,6 @@ const styles = StyleSheet.create({
   topSpacer: { width: 24, height: 24 },
   center: { flex: 1, paddingHorizontal: 16, gap: 12, justifyContent: "center" },
   lede: { color: colors.muted, fontSize: 15, lineHeight: 22 },
+  staffLink: { marginHorizontal: 16, marginBottom: 8, paddingVertical: 10 },
+  staffLinkText: { color: colors.accent, fontWeight: "700" },
 });

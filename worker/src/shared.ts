@@ -86,11 +86,20 @@ export async function requireUser(request: Request, env: Env): Promise<AuthUser>
     authUserCache.delete(token);
     throw new HttpError(401, "Session expired. Sign in again.");
   }
-  const user = (await response.json()) as { id?: string };
+  const user = (await response.json()) as {
+    id?: string;
+    email?: string | null;
+    app_metadata?: { role?: unknown };
+  };
   if (!user.id) {
     throw new HttpError(401, "Session expired. Sign in again.");
   }
-  const authUser = { id: user.id, token };
+  const authUser: AuthUser = {
+    id: user.id,
+    token,
+    email: user.email ?? null,
+    jwtAdmin: user.app_metadata?.role === "admin",
+  };
   authUserCache.set(token, { user: authUser, expiresAt: Date.now() + AUTH_CACHE_TTL_MS });
   if (authUserCache.size > 2_000) {
     const now = Date.now();
@@ -158,6 +167,16 @@ function signObject(env: Env, key: string, method: "GET" | "PUT", headers?: Reco
     headers,
     aws: { signQuery: true },
   });
+}
+
+export async function signedObjectUrl(
+  env: Env,
+  key: string,
+  method: "GET" | "PUT",
+  headers?: Record<string, string>,
+  expires = 3600,
+): Promise<string> {
+  return (await signObject(env, key, method, headers, expires)).url;
 }
 
 export async function signedOwnedUrl(

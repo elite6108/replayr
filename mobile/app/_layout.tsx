@@ -49,6 +49,7 @@ function RootShell() {
           <Stack.Screen name="u/[username]" options={{ title: "Profile" }} />
           <Stack.Screen name="messages/[id]" options={{ title: "Chat" }} />
           <Stack.Screen name="settings" options={{ title: "Settings" }} />
+          <Stack.Screen name="staff/tasks" options={{ title: "My tasks" }} />
           <Stack.Screen name="folders" options={{ headerShown: false }} />
           <Stack.Screen name="auth/callback" options={{ title: "Signing in" }} />
         </Stack>

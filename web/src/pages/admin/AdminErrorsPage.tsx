@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchAdminErrors, resolveAdminError, type AdminErrorRow } from "../../lib/admin";
 import { useAuth } from "../../lib/auth";
 import { formatClipDate } from "../../lib/format";
+import { CreateInternalTaskButton } from "../../components/CreateInternalTaskButton";
 
 export function AdminErrorsPage() {
   const { session } = useAuth();
@@ -143,6 +144,7 @@ export function AdminErrorsPage() {
                       Resolve
                     </button>
                   ) : null}
+                  <CreateInternalTaskButton kind="error_fingerprint" targetId={row.fingerprint} label={row.message} />
                 </td>
               </tr>
             ))}

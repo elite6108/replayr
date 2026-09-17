@@ -33,11 +33,38 @@ export function isOAuthHandoff(url: URL): boolean {
 export const COMING_SOON_PUBLIC_PATHS = new Set([
   "/coming-soon.html",
   "/coming-soon.js",
+  "/instant-replay.png",
   "/replayr-logo.png",
   "/replayr-mark.png",
   "/favicon.png",
   "/apple-touch-icon.png",
 ]);
+
+export function normalizePublicPath(pathname: string): string {
+  if (pathname.length > 1 && pathname.endsWith("/")) return pathname.slice(0, -1);
+  return pathname;
+}
+
+export function isWaitlistAliasPath(pathname: string): boolean {
+  return normalizePublicPath(pathname) === "/waitlist";
+}
+
+export function isComingSoonPath(pathname: string): boolean {
+  const path = normalizePublicPath(pathname);
+  return path === "/coming-soon" || path === "/coming-soon.html";
+}
+
+export function waitlistAliasRedirect(url: URL): Response {
+  const target = new URL("/coming-soon", url.origin);
+  target.search = url.search;
+  return new Response(null, {
+    status: 301,
+    headers: {
+      location: `${target.pathname}${target.search}`,
+      "cache-control": "no-store",
+    },
+  });
+}
 
 /** Paths that may be served without the site-access cookie (static coming-soon). */
 export function isSiteGatedPath(pathname: string): boolean {
@@ -237,7 +264,16 @@ export async function serveComingSoon(request: Request, env: Env): Promise<Respo
       }
     }
   }
-  return comingSoonResponse(comingSoonHtml());
+  return comingSoonResponse(comingSoonFallbackHtml());
+}
+
+/** Paid-traffic waitlist URLs. `/waitlist` used to SPA-fallback to the download homepage. */
+export async function handleWaitlistPages(request: Request, env: Env): Promise<Response | null> {
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const url = new URL(request.url);
+  if (isWaitlistAliasPath(url.pathname)) return waitlistAliasRedirect(url);
+  if (isComingSoonPath(url.pathname)) return serveComingSoon(request, env);
+  return null;
 }
 
 export function comingSoonSecurityHeaders(headers: Headers = new Headers()): Headers {
@@ -326,81 +362,79 @@ function isValidEmail(email: string): boolean {
 }
 
 /** Embedded copy of web/public/coming-soon.html — keeps the gate working if assets miss. */
-function comingSoonHtml(): string {
+export function comingSoonFallbackHtml(): string {
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Replayr — Coming soon</title>
-    <meta name="description" content="Replayr is almost here. Capture every clutch play with Instant Replay, keep clips on your PC, and share when you're ready." />
+    <title>Replayr — Beta waitlist</title>
+    <meta name="description" content="Join the Replayr beta waitlist. Instant Replay clips stay on your PC. Early emails get access when beta opens." />
     <meta name="robots" content="index,follow" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Sora:wght@500;600&display=swap" rel="stylesheet" />
+    <link rel="canonical" href="https://replayr.tv/coming-soon" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <style>
-      :root{color-scheme:dark;--bg:#07080d;--text:#f3f5f8;--muted:#9aa3b2;--accent:#7fd0ef;--accent-strong:#4bb8e0;--ok:#8ed9a4;--border:rgba(255,255,255,.08);--font:"Outfit","Segoe UI",system-ui,sans-serif;--display:"Sora","Outfit",system-ui,sans-serif}
-      *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:var(--font);color:var(--text);background:radial-gradient(1100px 640px at 12% -18%,rgba(79,184,224,.28),transparent 55%),radial-gradient(820px 520px at 100% 0%,rgba(111,208,138,.1),transparent 50%),var(--bg)}
-      a{color:var(--accent);text-decoration:none}.wrap{width:min(1080px,calc(100% - 32px));margin:0 auto}
-      .brand{display:inline-flex;align-items:center;line-height:0}
-      .brand img{height:28px;width:auto;object-fit:contain}
-      header{padding:28px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:16px}
-      .access-link{border:0;background:transparent;color:var(--muted);font:inherit;cursor:pointer;padding:0}
-      .access-link:hover{color:var(--text)}
-      .hero{padding:56px 0 48px;max-width:760px}
-      .hero-logo{width:min(220px,56vw);height:auto;display:block;margin:0 0 22px;filter:drop-shadow(0 18px 40px rgba(0,0,0,.35))}
-      .hero h1{margin:0 0 16px;font-family:var(--display);font-size:clamp(2.6rem,7vw,4.4rem);line-height:1.02;letter-spacing:-.04em;font-weight:600}
-      .hero .lede{margin:0 0 28px;color:var(--muted);font-size:1.14rem;line-height:1.55;max-width:36rem}
+      :root{color-scheme:dark;--bg:#07080d;--text:#f3f5f8;--muted:#9aa3b2;--accent:#7fd0ef;--accent-strong:#4bb8e0;--ok:#8ed9a4;--border:rgba(255,255,255,.08);--font:"Outfit","Segoe UI",system-ui,sans-serif}
+      *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:var(--font);color:var(--text);background:var(--bg)}
+      a{color:var(--accent);text-decoration:none}.wrap{width:min(1120px,calc(100% - 32px));margin:0 auto}
+      header{padding:18px 0 4px}.hero{padding:28px 0 36px}
+      .eyebrow{margin:0 0 10px;color:var(--accent);font-size:.82rem;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+      h1{margin:0 0 12px;font-size:clamp(1.85rem,7.4vw,4.1rem);line-height:1.04}
+      .lede,.offer,.trust,.price-teaser{margin:0 0 14px;color:var(--muted);line-height:1.5}
+      .offer,.price-teaser{color:var(--text)}.trust{font-size:.88rem}
       .waitlist,.gate{display:flex;flex-wrap:wrap;gap:10px;max-width:480px}
-      .gate{display:none;margin-top:18px;max-width:420px}
-      .gate.is-open{display:flex}
-      .waitlist input,.gate input{flex:1 1 220px;min-width:0;border-radius:999px;border:1px solid var(--border);background:rgba(10,12,18,.78);color:var(--text);font:inherit;padding:14px 18px;outline:none}
-      .waitlist button,.gate button{border:0;border-radius:999px;background:linear-gradient(180deg,#9adcf3,var(--accent-strong));color:#061018;font:inherit;font-weight:650;padding:14px 22px;cursor:pointer}
-      .msg{min-height:1.4em;margin:12px 0 0;color:var(--muted);font-size:.95rem}.msg.ok{color:var(--ok)}.msg.err{color:#ff9b9b}
-      .features{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;padding:28px 0 64px;border-top:1px solid var(--border)}
-      .features article h2{margin:0 0 8px;font-size:1.05rem;font-weight:600}.features article p{margin:0;color:var(--muted);line-height:1.5;font-size:.95rem}
-      .pricing{padding:8px 0 80px;border-top:1px solid var(--border)}.pricing h2{margin:28px 0 8px;font-family:var(--display);font-size:1.6rem}.pricing>p{margin:0 0 22px;color:var(--muted)}
-      .plans{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.plan{padding:22px;border:1px solid var(--border);border-radius:22px;background:rgba(16,19,27,.55)}.plan strong{display:block;font-size:1.15rem;margin-bottom:4px}.plan .price{color:var(--accent);font-weight:650;margin-bottom:14px}.plan ul{margin:0;padding-left:1.1rem;color:var(--muted);line-height:1.55}
-      footer{padding:24px 0 40px;color:var(--muted);font-size:.9rem;border-top:1px solid var(--border)}
-      @media (max-width:820px){.features,.plans{grid-template-columns:1fr}}
+      .gate{display:none;margin-top:12px}.gate.is-open{display:flex}
+      .waitlist input,.gate input{flex:1 1 220px;min-width:0;border-radius:999px;border:1px solid var(--border);background:#0a0c12;color:var(--text);font:inherit;padding:13px 18px}
+      .waitlist button,.gate button{border:0;border-radius:999px;background:var(--accent-strong);color:#061018;font:inherit;font-weight:650;padding:13px 20px;cursor:pointer}
+      .waitlist.is-done{display:none}
+      .confirm{display:none;max-width:480px;padding:16px 18px;border-radius:18px;border:1px solid rgba(142,217,164,.28)}
+      .confirm.is-open{display:block}.confirm strong{color:var(--ok)}
+      .hero-proof{margin:28px 0 0;border-radius:20px;overflow:hidden;border:1px solid var(--border)}
+      .hero-proof img{display:block;width:100%;height:auto}
+      .plan .price{color:var(--accent);font-weight:650}
+      .access-link{border:0;background:transparent;color:var(--muted);font:inherit;cursor:pointer;padding:0}
+      footer{padding:24px 0 40px;color:var(--muted);border-top:1px solid var(--border)}
     </style>
   </head>
   <body>
     <div class="wrap">
       <header>
-        <a class="brand" href="/" aria-label="Replayr"><img src="/replayr-logo.png" alt="Replayr" width="140" height="32" /></a>
-        <button type="button" class="access-link" id="unlockToggle">Already have access?</button>
+        <a href="/coming-soon" aria-label="Replayr"><img src="/replayr-logo.png" alt="Replayr" width="140" height="32" /></a>
       </header>
       <section class="hero">
-        <img class="hero-logo" src="/replayr-logo.png" alt="Replayr" width="220" height="64" />
+        <p class="eyebrow">Beta waitlist</p>
         <h1>Your best plays, already captured.</h1>
-        <p class="lede">The clutch happened. Replayr already had it. Instant Replay on Windows, clips that stay on your PC, and share links that stay quiet until you hit send. Drop your email — be first when we go live.</p>
+        <p class="lede">The clutch happened. Replayr already had it. Instant Replay clips stay on your PC, and share links stay quiet until you hit send.</p>
+        <p class="offer">Early emails get beta access when it opens.</p>
         <form class="waitlist" id="waitlist" autocomplete="on">
-          <input type="email" name="email" required placeholder="you@email.com" aria-label="Email" />
-          <button type="submit">Notify me</button>
+          <input type="email" name="email" required placeholder="you@email.com" aria-label="Email" autocomplete="email" />
+          <button type="submit">Join the beta waitlist</button>
         </form>
+        <div class="confirm" id="waitConfirm" role="status">
+          <strong>You're on the list.</strong>
+          <p>Thanks — we'll email you when beta opens.</p>
+        </div>
         <p class="msg" id="waitMsg" role="status"></p>
+        <p class="trust">No spam. We'll only email you when beta opens.</p>
+        <p class="price-teaser">Free to start · Premium $6.99/mo</p>
+        <figure class="hero-proof">
+          <img src="/instant-replay.png" alt="Replayr Instant Replay and Record layout with clip buffer and sources" width="1600" height="1000" />
+        </figure>
+      </section>
+      <section class="pricing" aria-label="Pricing">
+        <h2>Pricing</h2>
+        <div class="plan"><strong>Free</strong><div class="price">$0</div></div>
+        <div class="plan"><strong>Premium</strong><div class="price">$6.99/mo</div></div>
+      </section>
+      <footer>
+        <span>© Replayr</span>
+        <button type="button" class="access-link" id="unlockToggle">Already have access?</button>
         <form class="gate" id="gate" hidden autocomplete="current-password">
           <input type="password" name="password" required placeholder="Access password" aria-label="Access password" />
           <button type="submit">Enter site</button>
         </form>
         <p class="msg" id="gateMsg" role="status"></p>
-      </section>
-      <section class="features" aria-label="Features">
-        <article><h2>Instant Replay</h2><p>The last seconds are already in the buffer. One hotkey saves the moment without stopping the game.</p></article>
-        <article><h2>Local first</h2><p>Clips live on this PC. Upload and share only when you choose — private, unlisted, or public.</p></article>
-        <article><h2>Webcam overlay</h2><p>Optional face cam over gameplay, editable placement, and branded free-tier downloads when you share.</p></article>
-      </section>
-      <section class="pricing" aria-label="Pricing">
-        <h2>Pricing</h2>
-        <p>Simple plans. Waitlist only for now — no download or signup on this page.</p>
-        <div class="plans">
-          <div class="plan"><strong>Free</strong><div class="price">$0</div><ul><li>5 GB cloud storage</li><li>Up to 20‑minute 1080p uploads</li><li>Watermarked downloads</li><li>House ads on free viewing</li></ul></div>
-          <div class="plan"><strong>Premium</strong><div class="price">$4.99/mo · $47.88/yr</div><ul><li>100 GB cloud storage</li><li>Original / 4K uploads</li><li>No watermark on downloads</li><li>7‑day trial when we open</li></ul></div>
-        </div>
-      </section>
-      <footer>© Replayr · Windows gameplay clipper</footer>
+      </footer>
     </div>
     <script src="/coming-soon.js" defer></script>
   </body>

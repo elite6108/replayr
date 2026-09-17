@@ -1,5 +1,6 @@
 (() => {
   const waitMsg = document.getElementById("waitMsg");
+  const waitConfirm = document.getElementById("waitConfirm");
   const gateMsg = document.getElementById("gateMsg");
   const gate = document.getElementById("gate");
   const unlockToggle = document.getElementById("unlockToggle");
@@ -13,6 +14,7 @@
       if (open) {
         const input = gate.querySelector('input[name="password"]');
         if (input) input.focus();
+        gate.scrollIntoView({ block: "nearest" });
       }
     });
   }
@@ -24,6 +26,7 @@
       if (!waitMsg) return;
       waitMsg.className = "msg";
       waitMsg.textContent = "Saving…";
+      if (waitConfirm) waitConfirm.classList.remove("is-open");
       const form = event.currentTarget instanceof HTMLFormElement ? event.currentTarget : waitlist;
       const email = new FormData(form).get("email");
       try {
@@ -36,9 +39,14 @@
           const body = await response.json().catch(() => ({}));
           throw new Error(body.error || "Could not save that email.");
         }
-        waitMsg.className = "msg ok";
-        waitMsg.textContent = "You're in. We'll ping you the second Replayr drops.";
+        form.classList.add("is-done");
         form.reset();
+        waitMsg.className = "msg";
+        waitMsg.textContent = "";
+        if (waitConfirm) {
+          waitConfirm.classList.add("is-open");
+          waitConfirm.focus?.();
+        }
       } catch (err) {
         waitMsg.className = "msg err";
         waitMsg.textContent = err instanceof Error ? err.message : "Could not save that email.";

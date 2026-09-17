@@ -3,12 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Replayr — Coming soon</title>
+    <title>Replayr — Beta waitlist</title>
     <meta
       name="description"
-      content="Replayr is almost here. Capture every clutch play with Instant Replay, keep clips on your PC, and share when you're ready."
+      content="Join the Replayr beta waitlist. Instant Replay clips stay on your PC. Early emails get access when beta opens."
     />
     <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="https://replayr.tv/coming-soon" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -42,7 +43,7 @@
           var(--bg);
       }
       a { color: var(--accent); text-decoration: none; }
-      .wrap { width: min(1080px, calc(100% - 32px)); margin: 0 auto; }
+      .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
       .brand {
         display: inline-flex;
         align-items: center;
@@ -54,46 +55,56 @@
         object-fit: contain;
       }
       header {
-        padding: 28px 0 8px;
+        padding: 18px 0 4px;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 16px;
       }
-      .access-link {
-        border: 0;
-        background: transparent;
-        color: var(--muted);
-        font: inherit;
-        cursor: pointer;
-        padding: 0;
-      }
-      .access-link:hover { color: var(--text); }
       .hero {
-        padding: 56px 0 48px;
-        max-width: 760px;
+        padding: 28px 0 36px;
+      }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 28px;
+        align-items: center;
       }
       .hero-logo {
         width: min(220px, 56vw);
         height: auto;
-        display: block;
-        margin: 0 0 22px;
+        display: none;
+        margin: 0 0 18px;
         filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.35));
       }
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--accent);
+        font-size: 0.82rem;
+        font-weight: 650;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
       .hero h1 {
-        margin: 0 0 16px;
+        margin: 0 0 12px;
         font-family: var(--display);
-        font-size: clamp(2.6rem, 7vw, 4.4rem);
-        line-height: 1.02;
+        font-size: clamp(1.85rem, 7.4vw, 4.1rem);
+        line-height: 1.04;
         letter-spacing: -0.04em;
         font-weight: 600;
       }
       .hero .lede {
-        margin: 0 0 28px;
+        margin: 0 0 14px;
         color: var(--muted);
-        font-size: 1.14rem;
-        line-height: 1.55;
+        font-size: 1.02rem;
+        line-height: 1.5;
         max-width: 36rem;
+      }
+      .offer {
+        margin: 0 0 16px;
+        color: var(--text);
+        font-size: 0.98rem;
+        line-height: 1.45;
       }
       .waitlist {
         display: flex;
@@ -110,7 +121,7 @@
         background: rgba(10, 12, 18, 0.78);
         color: var(--text);
         font: inherit;
-        padding: 14px 18px;
+        padding: 13px 18px;
         outline: none;
       }
       .waitlist input:focus,
@@ -125,17 +136,64 @@
         color: #061018;
         font: inherit;
         font-weight: 650;
-        padding: 14px 22px;
+        padding: 13px 20px;
         cursor: pointer;
       }
+      .waitlist.is-done { display: none; }
+      .confirm {
+        display: none;
+        max-width: 480px;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(142, 217, 164, 0.28);
+        background: rgba(142, 217, 164, 0.08);
+      }
+      .confirm.is-open { display: block; }
+      .confirm strong {
+        display: block;
+        color: var(--ok);
+        font-size: 1.05rem;
+        margin-bottom: 4px;
+      }
+      .confirm p {
+        margin: 0;
+        color: var(--text);
+        line-height: 1.45;
+      }
+      .trust {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.4;
+      }
+      .price-teaser {
+        margin: 6px 0 0;
+        color: var(--text);
+        font-size: 0.92rem;
+        font-weight: 550;
+      }
       .msg {
-        min-height: 1.4em;
-        margin: 12px 0 0;
+        min-height: 0;
+        margin: 10px 0 0;
         color: var(--muted);
         font-size: 0.95rem;
       }
+      .msg:empty { display: none; }
       .msg.ok { color: var(--ok); }
       .msg.err { color: #ff9b9b; }
+      .hero-proof {
+        margin: 0;
+        border-radius: 20px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        background: #0b0d12;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.38);
+      }
+      .hero-proof img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
       .features {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -200,48 +258,95 @@
         display: none;
         gap: 10px;
         flex-wrap: wrap;
-        margin-top: 18px;
+        margin-top: 12px;
         max-width: 420px;
       }
       .gate.is-open { display: flex; }
+      .access-link {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        cursor: pointer;
+        padding: 0;
+      }
+      .access-link:hover { color: var(--text); }
       footer {
         padding: 24px 0 40px;
         color: var(--muted);
         font-size: 0.9rem;
         border-top: 1px solid var(--border);
       }
+      .footer-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      @media (min-width: 900px) {
+        header { padding: 28px 0 8px; }
+        .hero { padding: 48px 0 56px; }
+        .hero-logo { display: block; }
+        .hero-grid {
+          grid-template-columns: minmax(0, 1fr) minmax(280px, 1.05fr);
+          gap: 40px;
+        }
+        .hero .lede { font-size: 1.14rem; margin-bottom: 18px; }
+      }
       @media (max-width: 820px) {
         .features, .plans { grid-template-columns: 1fr; }
-        .hero { padding-top: 40px; }
       }
     </style>
   </head>
   <body>
     <div class="wrap">
       <header>
-        <a class="brand" href="/" aria-label="Replayr">
+        <a class="brand" href="/coming-soon" aria-label="Replayr">
           <img src="/replayr-logo.png" alt="Replayr" width="140" height="32" />
         </a>
-        <button type="button" class="access-link" id="unlockToggle">Already have access?</button>
       </header>
 
       <section class="hero">
-        <img class="hero-logo" src="/replayr-logo.png" alt="Replayr" width="220" height="64" />
-        <h1>Your best plays, already captured.</h1>
-        <p class="lede">
-          The clutch happened. Replayr already had it. Instant Replay on Windows, clips that stay on your PC,
-          and share links that stay quiet until you hit send. Drop your email — be first when we go live.
-        </p>
-        <form class="waitlist" id="waitlist" autocomplete="on">
-          <input type="email" name="email" required placeholder="you@email.com" aria-label="Email" />
-          <button type="submit">Notify me</button>
-        </form>
-        <p class="msg" id="waitMsg" role="status"></p>
-        <form class="gate" id="gate" hidden autocomplete="current-password">
-          <input type="password" name="password" required placeholder="Access password" aria-label="Access password" />
-          <button type="submit">Enter site</button>
-        </form>
-        <p class="msg" id="gateMsg" role="status"></p>
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <img class="hero-logo" src="/replayr-logo.png" alt="" width="220" height="64" />
+            <p class="eyebrow">Beta waitlist</p>
+            <h1>Your best plays, already captured.</h1>
+            <p class="lede">
+              The clutch happened. Replayr already had it. Instant Replay clips stay on your PC,
+              and share links stay quiet until you hit send.
+            </p>
+            <p class="offer">Early emails get beta access when it opens.</p>
+            <form class="waitlist" id="waitlist" autocomplete="on">
+              <input
+                type="email"
+                name="email"
+                required
+                placeholder="you@email.com"
+                aria-label="Email"
+                autocomplete="email"
+                inputmode="email"
+              />
+              <button type="submit">Join the beta waitlist</button>
+            </form>
+            <div class="confirm" id="waitConfirm" role="status" aria-live="polite">
+              <strong>You're on the list.</strong>
+              <p>Thanks — we'll email you when beta opens.</p>
+            </div>
+            <p class="msg" id="waitMsg" role="status"></p>
+            <p class="trust">No spam. We'll only email you when beta opens.</p>
+            <p class="price-teaser">Free to start · Premium $6.99/mo</p>
+          </div>
+          <figure class="hero-proof">
+            <img
+              src="/instant-replay.png"
+              alt="Replayr Instant Replay and Record layout with clip buffer and sources"
+              width="1600"
+              height="1000"
+            />
+          </figure>
+        </div>
       </section>
 
       <section class="features" aria-label="Features">
@@ -261,7 +366,7 @@
 
       <section class="pricing" aria-label="Pricing">
         <h2>Pricing</h2>
-        <p>Simple plans. Waitlist only for now — no download or signup on this page.</p>
+        <p>Free to start. Premium is there when the library grows — waitlist only for now.</p>
         <div class="plans">
           <div class="plan">
             <strong>Free</strong>
@@ -275,7 +380,7 @@
           </div>
           <div class="plan">
             <strong>Premium</strong>
-            <div class="price">$4.99/mo · $47.88/yr</div>
+            <div class="price">$6.99/mo</div>
             <ul>
               <li>100 GB cloud storage</li>
               <li>Original / 4K uploads</li>
@@ -286,7 +391,17 @@
         </div>
       </section>
 
-      <footer>© Replayr · Windows gameplay clipper</footer>
+      <footer>
+        <div class="footer-row">
+          <span>© Replayr</span>
+          <button type="button" class="access-link" id="unlockToggle">Already have access?</button>
+        </div>
+        <form class="gate" id="gate" hidden autocomplete="current-password">
+          <input type="password" name="password" required placeholder="Access password" aria-label="Access password" />
+          <button type="submit">Enter site</button>
+        </form>
+        <p class="msg" id="gateMsg" role="status"></p>
+      </footer>
     </div>
     <script src="/coming-soon.js" defer></script>
   </body>

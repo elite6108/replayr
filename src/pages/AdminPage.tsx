@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { clipShareUrl, publicApiUrl, publicAppUrl, publicSiteUrl } from "../branding";
+import { AdminOverviewDashboard } from "../components/admin/AdminOverviewDashboard";
 import { PageHeader } from "../components/common/PageHeader";
 import {
   adminBillingAction,
@@ -8,7 +9,6 @@ import {
   fetchAdminClips,
   fetchAdminCreators,
   fetchAdminErrors,
-  fetchAdminOverview,
   fetchAdminPlans,
   fetchAdminStorage,
   fetchAdminUsers,
@@ -18,7 +18,6 @@ import {
   type AdminClipRow,
   type AdminCreatorRow,
   type AdminErrorRow,
-  type AdminOverview,
   type AdminPlan,
   type AdminStorageRow,
   type AdminUserRow,
@@ -103,7 +102,7 @@ export function AdminPage() {
           </button>
         ))}
       </div>
-      {tab === "overview" ? <OverviewPane token={token} /> : null}
+      {tab === "overview" ? <AdminOverviewDashboard token={token} /> : null}
       {tab === "users" ? <UsersPane token={token} /> : null}
       {tab === "clips" ? <ClipsPane token={token} /> : null}
       {tab === "storage" ? <StoragePane token={token} /> : null}
@@ -127,41 +126,6 @@ export function AdminPage() {
   );
 }
 
-function OverviewPane({ token }: { token: string }) {
-  const [data, setData] = useState<AdminOverview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  function load() {
-    if (!token) return;
-    setError(null);
-    void fetchAdminOverview(token)
-      .then(setData)
-      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not load overview."));
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
-  return (
-    <section className="stack">
-      {error ? <AdminError message={error} onRetry={load} /> : null}
-      <div className="grid cols-3 admin-stats">
-        <Stat label="Accounts" value={data?.users} />
-        <Stat label="Active 7d" value={data?.active7d} />
-        <Stat label="Ready clips" value={data?.readyClips} />
-        <Stat label="Clips today" value={data?.clipsToday} />
-        <Stat label="Cloud used" value={data ? formatBytes(data.storageUsedBytes) : undefined} />
-        <Stat label="Pending creators" value={data?.pendingCreatorApps} />
-        <Stat label="Premium" value={data?.premiumCount} />
-        <Stat label="Past due" value={data?.pastDueCount} />
-        <Stat label="Open errors" value={data?.openErrors} />
-        <Stat label="Errors / 24h" value={data?.errors24h} />
-      </div>
-    </section>
-  );
-}
-
 function AdminError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="stack">
@@ -171,15 +135,6 @@ function AdminError({ message, onRetry }: { message: string; onRetry: () => void
         Retry
       </button>
     </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value?: number | string }) {
-  return (
-    <article className="panel">
-      <p className="muted">{label}</p>
-      <strong>{value ?? "—"}</strong>
-    </article>
   );
 }
 

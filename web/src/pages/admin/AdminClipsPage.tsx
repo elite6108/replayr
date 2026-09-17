@@ -7,6 +7,7 @@ import { formatBytes, formatClipDate, formatDurationMs } from "../../lib/format"
 import { CreateInternalTaskButton } from "../../components/CreateInternalTaskButton";
 import { readApiJson } from "../../lib/http";
 import { apiUrl } from "../../lib/supabase";
+import { AdminPageHeader } from "./components/AdminPageHeader";
 
 export function AdminClipsPage() {
   const { session } = useAuth();
@@ -69,13 +70,12 @@ export function AdminClipsPage() {
   }
 
   return (
-    <section className="admin-section">
-      <header className="admin-header">
-        <div>
-          <p className="eyebrow">Library</p>
-          <h2>Clips</h2>
-          <p className="muted">{total ? `${total} matching` : "Includes unlisted clips for support. Links stay /c/{slug}."}</p>
-        </div>
+    <section className="admin-dash">
+      <AdminPageHeader
+        eyebrow="Library"
+        title="Clips"
+        description={total ? `${total} matching` : "Includes unlisted clips for support. Links stay /c/{slug}."}
+        actions={
         <form
           className="admin-filters"
           onSubmit={(event) => {
@@ -103,12 +103,14 @@ export function AdminClipsPage() {
             <option value="public">Public</option>
             <option value="private">Private</option>
           </select>
-          <button className="btn primary" type="submit">
+          <button className="admin-btn primary" type="submit">
             Filter
           </button>
         </form>
-      </header>
+        }
+      />
       {error ? <p className="error">{error}</p> : null}
+      <div className="admin-panel admin-table-card">
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
@@ -165,6 +167,7 @@ export function AdminClipsPage() {
           </tbody>
         </table>
         {clips.length === 0 ? <p className="muted admin-empty">No clips match.</p> : null}
+      </div>
       </div>
       <form
         className="admin-filters"

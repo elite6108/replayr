@@ -8,6 +8,7 @@ import {
 } from "../../lib/admin";
 import { useAuth } from "../../lib/auth";
 import { formatBytes, formatClipCap, formatClipDate, planLabel } from "../../lib/format";
+import { AdminPageHeader } from "./components/AdminPageHeader";
 
 export function AdminBillingPage() {
   const { session } = useAuth();
@@ -54,14 +55,12 @@ export function AdminBillingPage() {
   }, [token]);
 
   return (
-    <section className="admin-section">
-      <header className="admin-header">
-        <div>
-          <p className="eyebrow">Stripe</p>
-          <h2>Billing</h2>
-          <p className="muted">Premium is the public paid SKU. Pro+ stays for comps.</p>
-        </div>
-      </header>
+    <section className="admin-dash">
+      <AdminPageHeader
+        eyebrow="Stripe"
+        title="Billing"
+        description="Premium is the public paid SKU. Pro+ stays for comps."
+      />
       {error ? <p className="error">{error}</p> : null}
       <div className="admin-stats">
         <div className="admin-stat">
@@ -93,7 +92,9 @@ export function AdminBillingPage() {
           <strong>${risk.toFixed(2)}</strong>
         </div>
       </div>
-      <div className="row" style={{ margin: "16px 0" }}>
+      <section className="admin-panel">
+      <header className="admin-panel-head"><h3>Product flags</h3></header>
+      <div className="row">
         <label className="setting-row">
           <span>Watermarks</span>
           <input
@@ -125,7 +126,9 @@ export function AdminBillingPage() {
           />
         </label>
       </div>
-      <h3>Plans</h3>
+      </section>
+      <section className="admin-panel admin-table-card">
+      <header className="admin-panel-head"><h3>Plans</h3></header>
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
@@ -223,7 +226,9 @@ export function AdminBillingPage() {
           </tbody>
         </table>
       </div>
-      <h3>Recent Stripe events</h3>
+      </section>
+      <section className="admin-panel admin-table-card">
+      <header className="admin-panel-head"><h3>Recent Stripe events</h3></header>
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
@@ -247,6 +252,7 @@ export function AdminBillingPage() {
         </table>
         {events.length === 0 ? <p className="muted admin-empty">No webhook events yet.</p> : null}
       </div>
+      </section>
     </section>
   );
 }

@@ -6,7 +6,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/ui";
 import { UserProfileView } from "@/components/UserProfileView";
 import { useAuth } from "@/lib/auth";
-import { getSupabase, apiUrl } from "@/lib/supabase";
+import { staffHref } from "@/lib/api.staff";
+import { useStaffPermissions } from "@/lib/staffPermissions";
+import { getSupabase } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 
 export default function AccountScreen() {
@@ -15,7 +17,8 @@ export default function AccountScreen() {
   const userId = session?.user.id ?? "";
   const [username, setUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(Boolean(session));
-  const [staff, setStaff] = useState(false);
+  const { can } = useStaffPermissions();
+  const staff = can("staff.access");
 
   useEffect(() => {
     if (!userId) {
@@ -39,11 +42,6 @@ export default function AccountScreen() {
         }
         setLoading(false);
       });
-    void fetch(apiUrl("/v1/staff/me"), {
-      headers: { authorization: `Bearer ${session?.access_token ?? ""}` },
-    }).then((response) => {
-      if (!cancelled) setStaff(response.ok);
-    });
     return () => {
       cancelled = true;
     };
@@ -98,8 +96,8 @@ export default function AccountScreen() {
     <SafeAreaView style={styles.safe} edges={["top"]}>
       {header}
       {staff ? (
-        <Pressable style={styles.staffLink} onPress={() => router.push("/staff/tasks")}>
-          <Text style={styles.staffLinkText}>My tasks</Text>
+        <Pressable style={styles.staffLink} onPress={() => router.push(staffHref())}>
+          <Text style={styles.staffLinkText}>Staff Tools</Text>
         </Pressable>
       ) : null}
       <UserProfileView username={username} hideOwnActions />

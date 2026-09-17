@@ -35,7 +35,11 @@ function isBellKind(kind?: string) {
     kind === "folder_invite" ||
     kind === "folder_invite_accepted" ||
     kind === "folder_role_changed" ||
-    kind === "folder_ownership_transferred"
+    kind === "folder_ownership_transferred" ||
+    kind === "staff_task_assigned" ||
+    kind === "staff_task_mentioned" ||
+    kind === "staff_task_comment" ||
+    kind === "staff_task_due_soon"
   );
 }
 

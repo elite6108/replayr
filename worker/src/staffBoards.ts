@@ -1,3 +1,4 @@
+import { AwsClient } from "aws4fetch";
 import { AUDIT_ACTIONS, auditRequestMeta, writeAuditLog } from "./audit";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
@@ -7,7 +8,6 @@ import { assertPermission, requirePermission, requireStaffActor, type StaffActor
 import type { StaffPermission } from "./staffPermissions";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const VIS = new Set(["staff", "role", "private"]);
 const BOARD_ROLES = new Set(["admin", "editor", "viewer"]);
 
 export type BoardRow = {
@@ -27,6 +27,7 @@ export type BoardAccess = {
   board: BoardRow;
   boardRole: "admin" | "editor" | "viewer";
   canMutate: boolean;
+  isOwner: boolean;
 };
 
 type ColumnRow = {
@@ -90,14 +91,20 @@ export async function handleStaffBoards(request: Request, env: Env, url: URL): P
     }
     if (method === "DELETE") {
       const actor = await requirePermission(request, env, "board.delete");
-      return archiveBoard(env, actor, boardItem[1]);
+      return deleteBoard(request, env, actor, boardItem[1]);
     }
   }
 
   const boardMembers = path.match(/^\/v1\/staff\/boards\/([^/]+)\/members$/);
-  if (boardMembers?.[1] && method === "PUT") {
+  if (boardMembers?.[1] && UUID.test(boardMembers[1]) && method === "GET") {
     const actor = await requireStaffActor(request, env);
-    return replaceBoardMembers(request, env, actor, boardMembers[1]);
+    return listBoardMembers(env, actor, boardMembers[1]);
+  }
+  const boardMemberItem = path.match(/^\/v1\/staff\/boards\/([^/]+)\/members\/([^/]+)$/);
+  if (boardMemberItem?.[1] && boardMemberItem[2] && UUID.test(boardMemberItem[1]) && UUID.test(boardMemberItem[2])) {
+    const actor = await requireStaffActor(request, env);
+    if (method === "PUT") return upsertBoardMember(request, env, actor, boardMemberItem[1], boardMemberItem[2]);
+    if (method === "DELETE") return removeBoardMember(request, env, actor, boardMemberItem[1], boardMemberItem[2]);
   }
 
   const boardColumns = path.match(/^\/v1\/staff\/boards\/([^/]+)\/columns$/);
@@ -130,7 +137,7 @@ export async function handleStaffBoards(request: Request, env: Env, url: URL): P
     }
     if (method === "DELETE") {
       const actor = await requirePermission(request, env, "board.labels.manage");
-      return deleteLabel(env, labelItem[1]);
+      return deleteLabel(env, actor, labelItem[1]);
     }
   }
 
@@ -163,9 +170,8 @@ export async function requireBoardAccess(
     assertPermission(actor, "board.edit");
   }
 
-  if (actor.isSuperAdmin) {
-    return { board, boardRole: "admin", canMutate: true };
-  }
+  const isOwner = board.created_by === actor.staffId;
+  if (actor.isSuperAdmin) return { board, boardRole: "admin", canMutate: true, isOwner };
 
   const members = await serviceRest<Array<{ staff_id: string; board_role: "admin" | "editor" | "viewer" }>>(
     env,
@@ -174,22 +180,7 @@ export async function requireBoardAccess(
   );
   const member = members[0];
   if (member) {
-    return { board, boardRole: member.board_role, canMutate: member.board_role !== "viewer" };
-  }
-
-  if (board.visibility === "staff") {
-    return { board, boardRole: "editor", canMutate: true };
-  }
-  if (board.visibility === "role") {
-    const grants = await serviceRest<Array<{ role_id: string }>>(
-      env,
-      "GET",
-      `/staff_board_role_grants?board_id=eq.${boardId}&select=role_id`,
-    );
-    const roleIds = new Set(actor.roles.map((role) => role.id));
-    if (grants.some((row) => roleIds.has(row.role_id))) {
-      return { board, boardRole: "editor", canMutate: true };
-    }
+    return { board, boardRole: member.board_role, canMutate: member.board_role !== "viewer", isOwner };
   }
   throw new HttpError(403, "You cannot access this board.");
 }
@@ -198,35 +189,46 @@ export function assertCanMutate(access: BoardAccess) {
   if (!access.canMutate) throw new HttpError(403, "Viewers cannot edit this board.");
 }
 
+export function boardCapabilities(actor: StaffActor, access: BoardAccess) {
+  return {
+    isOwner: access.isOwner,
+    canManageMembers: actor.isSuperAdmin || access.boardRole === "admin",
+    canDelete: actor.isSuperAdmin || (access.isOwner && actor.permissions.has("board.delete")),
+  };
+}
+
 async function listBoards(env: Env, actor: StaffActor): Promise<Response> {
+  const memberships = actor.isSuperAdmin
+    ? []
+    : await serviceRest<Array<{ board_id: string; board_role: "admin" | "editor" | "viewer" }>>(
+        env,
+        "GET",
+        `/staff_board_members?staff_id=eq.${actor.staffId}&select=board_id,board_role`,
+      );
+  if (!actor.isSuperAdmin && !memberships.length) return json({ boards: [] });
+  const roleByBoard = new Map(memberships.map((row) => [row.board_id, row.board_role]));
+  const boardFilter = actor.isSuperAdmin ? "" : `&id=in.(${memberships.map((row) => row.board_id).join(",")})`;
   const boards = await serviceRest<BoardRow[]>(
     env,
     "GET",
-    "/staff_boards?archived_at=is.null&select=id,workspace_id,name,slug,description,visibility,archived_at,created_by,created_at,updated_at&order=name.asc",
+    `/staff_boards?archived_at=is.null${boardFilter}&select=id,workspace_id,name,slug,description,visibility,archived_at,created_by,created_at,updated_at&order=name.asc`,
   );
-  const visible: Array<BoardRow & { boardRole: string; mine: boolean }> = [];
-  for (const board of boards) {
-    try {
-      const access = await requireBoardAccess(env, actor, board.id);
-      visible.push({ ...board, boardRole: access.boardRole, mine: access.boardRole === "admin" || board.created_by === actor.staffId });
-    } catch (caught) {
-      if (caught instanceof HttpError && caught.status === 403) continue;
-      throw caught;
-    }
-  }
   return json({
-    boards: visible.map((board) => ({
+    boards: boards.map((board) => {
+      const boardRole = actor.isSuperAdmin ? "admin" : roleByBoard.get(board.id)!;
+      return {
       id: board.id,
       workspaceId: board.workspace_id,
       name: board.name,
       slug: board.slug,
       description: board.description,
       visibility: board.visibility,
-      boardRole: board.boardRole,
-      mine: board.mine,
+      boardRole,
+      mine: boardRole === "admin" || board.created_by === actor.staffId,
       createdAt: board.created_at,
       updatedAt: board.updated_at,
-    })),
+      };
+    }),
   });
 }
 
@@ -235,11 +237,9 @@ async function createBoard(request: Request, env: Env, actor: StaffActor): Promi
     workspaceId?: string;
     name?: string;
     description?: string;
-    visibility?: string;
   };
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
   if (!name) throw new HttpError(400, "Name is required.");
-  const visibility = VIS.has(body.visibility || "") ? (body.visibility as BoardRow["visibility"]) : "staff";
   const workspaces = await serviceRest<Array<{ id: string }>>(env, "GET", "/staff_workspaces?select=id&limit=1");
   const workspaceId =
     typeof body.workspaceId === "string" && UUID.test(body.workspaceId) ? body.workspaceId : workspaces[0]?.id;
@@ -254,27 +254,32 @@ async function createBoard(request: Request, env: Env, actor: StaffActor): Promi
       name,
       slug: `${slug}-${crypto.randomUUID().slice(0, 6)}`,
       description: typeof body.description === "string" ? body.description.trim().slice(0, 280) || null : null,
-      visibility,
+      visibility: "private",
       created_by: actor.staffId,
     },
     "return=representation",
   );
   const board = created[0];
   if (!board) throw new HttpError(502, "Could not create board.");
-  await serviceRest(env, "POST", "/staff_board_members", {
-    board_id: board.id,
-    staff_id: actor.staffId,
-    board_role: "admin",
-  });
-  const names = ["Backlog", "In progress", "Review", "Done"];
-  let rank: string | null = null;
-  for (const columnName of names) {
-    rank = rankAfter(rank);
-    await serviceRest(env, "POST", "/staff_board_columns", {
+  try {
+    await serviceRest(env, "POST", "/staff_board_members", {
       board_id: board.id,
-      name: columnName,
-      rank,
+      staff_id: actor.staffId,
+      board_role: "admin",
     });
+    const names = ["Backlog", "In progress", "Review", "Done"];
+    let rank: string | null = null;
+    for (const columnName of names) {
+      rank = rankAfter(rank);
+      await serviceRest(env, "POST", "/staff_board_columns", {
+        board_id: board.id,
+        name: columnName,
+        rank,
+      });
+    }
+  } catch (caught) {
+    await serviceRest(env, "DELETE", `/staff_boards?id=eq.${board.id}`).catch(() => undefined);
+    throw caught;
   }
   return getBoard(env, actor, board.id, new URL(request.url));
 }
@@ -285,59 +290,145 @@ async function patchBoard(request: Request, env: Env, actor: StaffActor, boardId
   const body = (await request.json().catch(() => ({}))) as {
     name?: string;
     description?: string | null;
-    visibility?: string;
-    roleIds?: string[];
   };
   const patch: Record<string, unknown> = {};
   if (typeof body.name === "string" && body.name.trim()) patch.name = body.name.trim().slice(0, 80);
   if ("description" in body) patch.description = typeof body.description === "string" ? body.description.trim().slice(0, 280) || null : null;
-  if (typeof body.visibility === "string" && VIS.has(body.visibility)) patch.visibility = body.visibility;
   if (Object.keys(patch).length) {
     await serviceRest(env, "PATCH", `/staff_boards?id=eq.${boardId}`, patch);
-  }
-  if (Array.isArray(body.roleIds)) {
-    await serviceRest(env, "DELETE", `/staff_board_role_grants?board_id=eq.${boardId}`);
-    const roleIds = body.roleIds.filter((id): id is string => typeof id === "string" && UUID.test(id));
-    if (roleIds.length) {
-      await serviceRest(
-        env,
-        "POST",
-        "/staff_board_role_grants",
-        roleIds.map((role_id) => ({ board_id: boardId, role_id })),
-      );
-    }
-    await writeAuditLog(env, {
-      actorUserId: actor.userId,
-      actorType: "admin",
-      action: AUDIT_ACTIONS.boardPermissionsChanged,
-      targetType: "staff_board",
-      targetId: boardId,
-      requestId: actor.requestId,
-      metadata: auditRequestMeta(request),
-      after: { visibility: body.visibility ?? access.board.visibility, roleIds },
-    });
   }
   return getBoard(env, actor, boardId, new URL(request.url));
 }
 
-async function archiveBoard(env: Env, actor: StaffActor, boardId: string): Promise<Response> {
+async function deleteBoard(request: Request, env: Env, actor: StaffActor, boardId: string): Promise<Response> {
   const access = await requireBoardAccess(env, actor, boardId, "board.delete");
-  if (access.boardRole !== "admin" && !actor.isSuperAdmin) throw new HttpError(403, "Only board admins can archive this board.");
-  await serviceRest(env, "PATCH", `/staff_boards?id=eq.${boardId}`, { archived_at: new Date().toISOString() });
+  if (!boardCapabilities(actor, access).canDelete) {
+    throw new HttpError(403, "Only the board owner or a Super Admin can permanently delete this board.");
+  }
+  const body = (await request.json().catch(() => ({}))) as { confirmName?: string };
+  if (body.confirmName !== access.board.name) throw new HttpError(400, "Enter the exact board name to confirm deletion.");
+  await deleteBoardAttachmentObjects(env, boardId);
+  await serviceRest(env, "DELETE", `/staff_boards?id=eq.${boardId}`);
+  await writeAuditLog(env, {
+    actorUserId: actor.userId,
+    actorType: "admin",
+    action: AUDIT_ACTIONS.boardDeleted,
+    targetType: "staff_board",
+    targetId: boardId,
+    requestId: actor.requestId,
+    metadata: auditRequestMeta(request),
+    before: { name: access.board.name, ownerStaffId: access.board.created_by },
+  });
   return json({ ok: true });
 }
 
-async function replaceBoardMembers(request: Request, env: Env, actor: StaffActor, boardId: string): Promise<Response> {
+async function deleteBoardAttachmentObjects(env: Env, boardId: string): Promise<void> {
+  const tasks = await serviceRest<Array<{ id: string }>>(
+    env,
+    "GET",
+    `/staff_tasks?board_id=eq.${boardId}&select=id`,
+  );
+  if (!tasks.length) return;
+  const attachments = await serviceRest<Array<{ storage_key: string }>>(
+    env,
+    "GET",
+    `/staff_task_attachments?task_id=in.(${tasks.map((row) => row.id).join(",")})&select=storage_key`,
+  );
+  if (!attachments.length) return;
+  if (env.CLIPS) {
+    await env.CLIPS.delete(attachments.map((row) => row.storage_key));
+    return;
+  }
+  if (!env.R2_ACCOUNT_ID) return;
+  const client = new AwsClient({
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    service: "s3",
+    region: "auto",
+  });
+  for (const attachment of attachments) {
+    const response = await client.fetch(
+      `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET_NAME}/${attachment.storage_key}`,
+      { method: "DELETE" },
+    );
+    if (!response.ok) throw new HttpError(502, "Could not delete a board attachment.");
+  }
+}
+
+async function requireBoardMemberManager(env: Env, actor: StaffActor, boardId: string): Promise<BoardAccess> {
   const access = await requireBoardAccess(env, actor, boardId, "board.view");
-  const canManage = actor.isSuperAdmin || actor.permissions.has("board.members.manage") || access.boardRole === "admin";
-  if (!canManage) throw new HttpError(403, "Missing permission: board.members.manage");
-  const body = (await request.json().catch(() => ({}))) as { members?: Array<{ staffId: string; boardRole: string }> };
-  const members = Array.isArray(body.members) ? body.members : [];
-  await serviceRest(env, "DELETE", `/staff_board_members?board_id=eq.${boardId}`);
-  const rows = members
-    .filter((row) => row && UUID.test(row.staffId) && BOARD_ROLES.has(row.boardRole))
-    .map((row) => ({ board_id: boardId, staff_id: row.staffId, board_role: row.boardRole }));
-  if (rows.length) await serviceRest(env, "POST", "/staff_board_members", rows);
+  if (!boardCapabilities(actor, access).canManageMembers) {
+    throw new HttpError(403, "Only board admins can manage members.");
+  }
+  return access;
+}
+
+async function listBoardMembers(env: Env, actor: StaffActor, boardId: string): Promise<Response> {
+  const access = await requireBoardMemberManager(env, actor, boardId);
+  const [members, candidates] = await Promise.all([
+    serviceRest<Array<{
+      staff_id: string;
+      board_role: "admin" | "editor" | "viewer";
+      staff_members: { display_name: string } | Array<{ display_name: string }>;
+    }>>(
+      env,
+      "GET",
+      `/staff_board_members?board_id=eq.${boardId}&select=staff_id,board_role,staff_members(display_name)&order=created_at.asc`,
+    ),
+    serviceRest<Array<{ id: string; display_name: string }>>(
+      env,
+      "GET",
+      "/staff_members?status=eq.active&select=id,display_name&order=display_name.asc",
+    ),
+  ]);
+  const memberIds = new Set(members.map((row) => row.staff_id));
+  return json({
+    members: members.map((row) => {
+      const staff = Array.isArray(row.staff_members) ? row.staff_members[0] : row.staff_members;
+      return {
+        staffId: row.staff_id,
+        displayName: staff?.display_name ?? "Staff",
+        boardRole: row.board_role,
+        isOwner: row.staff_id === access.board.created_by,
+      };
+    }),
+    candidates: candidates
+      .filter((row) => !memberIds.has(row.id))
+      .map((row) => ({ id: row.id, displayName: row.display_name })),
+  });
+}
+
+async function upsertBoardMember(
+  request: Request,
+  env: Env,
+  actor: StaffActor,
+  boardId: string,
+  staffId: string,
+): Promise<Response> {
+  const access = await requireBoardMemberManager(env, actor, boardId);
+  const body = (await request.json().catch(() => ({}))) as { boardRole?: string };
+  if (!body.boardRole || !BOARD_ROLES.has(body.boardRole)) throw new HttpError(400, "Board role is invalid.");
+  if (staffId === access.board.created_by && body.boardRole !== "admin") {
+    throw new HttpError(409, "The board owner must remain an admin.");
+  }
+  const staff = await serviceRest<Array<{ id: string }>>(
+    env,
+    "GET",
+    `/staff_members?id=eq.${staffId}&status=eq.active&select=id`,
+  );
+  if (!staff[0]) throw new HttpError(404, "Active staff member not found.");
+  const before = await serviceRest<Array<{ board_role: string }>>(
+    env,
+    "GET",
+    `/staff_board_members?board_id=eq.${boardId}&staff_id=eq.${staffId}&select=board_role`,
+  );
+  await serviceRest(
+    env,
+    "POST",
+    "/staff_board_members?on_conflict=board_id,staff_id",
+    { board_id: boardId, staff_id: staffId, board_role: body.boardRole },
+    "resolution=merge-duplicates,return=minimal",
+  );
   await writeAuditLog(env, {
     actorUserId: actor.userId,
     actorType: "admin",
@@ -346,15 +437,46 @@ async function replaceBoardMembers(request: Request, env: Env, actor: StaffActor
     targetId: boardId,
     requestId: actor.requestId,
     metadata: auditRequestMeta(request),
-    after: { members: rows },
+    before: before[0] ? { staffId, boardRole: before[0].board_role } : null,
+    after: { staffId, boardRole: body.boardRole },
   });
-  return getBoard(env, actor, boardId, new URL(request.url));
+  return json({ ok: true });
+}
+
+async function removeBoardMember(
+  request: Request,
+  env: Env,
+  actor: StaffActor,
+  boardId: string,
+  staffId: string,
+): Promise<Response> {
+  const access = await requireBoardMemberManager(env, actor, boardId);
+  if (staffId === access.board.created_by) throw new HttpError(409, "The board owner cannot be removed.");
+  const before = await serviceRest<Array<{ board_role: string }>>(
+    env,
+    "GET",
+    `/staff_board_members?board_id=eq.${boardId}&staff_id=eq.${staffId}&select=board_role`,
+  );
+  if (!before[0]) throw new HttpError(404, "Board member not found.");
+  await serviceRest(env, "DELETE", `/staff_board_members?board_id=eq.${boardId}&staff_id=eq.${staffId}`);
+  await writeAuditLog(env, {
+    actorUserId: actor.userId,
+    actorType: "admin",
+    action: AUDIT_ACTIONS.boardPermissionsChanged,
+    targetType: "staff_board",
+    targetId: boardId,
+    requestId: actor.requestId,
+    metadata: auditRequestMeta(request),
+    before: { staffId, boardRole: before[0].board_role },
+    after: { staffId, removed: true },
+  });
+  return json({ ok: true });
 }
 
 async function getBoard(env: Env, actor: StaffActor, boardId: string, url: URL): Promise<Response> {
   const access = await requireBoardAccess(env, actor, boardId);
   const includeArchived = url.searchParams.get("archived") === "1";
-  const [columns, labels, members, grants, people] = await Promise.all([
+  const [columns, labels, members] = await Promise.all([
     serviceRest<ColumnRow[]>(
       env,
       "GET",
@@ -369,12 +491,6 @@ async function getBoard(env: Env, actor: StaffActor, boardId: string, url: URL):
       env,
       "GET",
       `/staff_board_members?board_id=eq.${boardId}&select=staff_id,board_role,staff_members(id,display_name,user_id)`,
-    ),
-    serviceRest<Array<{ role_id: string }>>(env, "GET", `/staff_board_role_grants?board_id=eq.${boardId}&select=role_id`),
-    serviceRest<Array<{ id: string; display_name: string }>>(
-      env,
-      "GET",
-      "/staff_members?status=eq.active&select=id,display_name&order=display_name.asc",
     ),
   ]);
 
@@ -416,6 +532,16 @@ async function getBoard(env: Env, actor: StaffActor, boardId: string, url: URL):
     list.push(row.label_id);
     labelsByTask.set(row.task_id, list);
   }
+  const boardMembers = members.map((row) => {
+    const staff = Array.isArray(row.staff_members) ? row.staff_members[0] : row.staff_members;
+    return {
+      staffId: row.staff_id,
+      boardRole: row.board_role,
+      displayName: staff?.display_name ?? "Staff",
+      isOwner: row.staff_id === access.board.created_by,
+    };
+  });
+  const capabilities = boardCapabilities(actor, access);
 
   return json({
     board: {
@@ -427,18 +553,12 @@ async function getBoard(env: Env, actor: StaffActor, boardId: string, url: URL):
       visibility: access.board.visibility,
       boardRole: access.boardRole,
       canMutate: access.canMutate,
+      ...capabilities,
       createdAt: access.board.created_at,
       updatedAt: access.board.updated_at,
-      roleIds: grants.map((row) => row.role_id),
-      members: members.map((row) => {
-        const staff = Array.isArray(row.staff_members) ? row.staff_members[0] : row.staff_members;
-        return {
-          staffId: row.staff_id,
-          boardRole: row.board_role,
-          displayName: staff?.display_name ?? "Staff",
-        };
-      }),
-      people: people.map((row) => ({ id: row.id, displayName: row.display_name })),
+      roleIds: [],
+      members: boardMembers,
+      people: boardMembers.map((row) => ({ id: row.staffId, displayName: row.displayName })),
       labels: labels.map((label) => ({ id: label.id, name: label.name, color: label.color })),
       columns: columns.map((column) => ({
         id: column.id,
@@ -547,8 +667,10 @@ async function patchLabel(request: Request, env: Env, actor: StaffActor, labelId
   return json({ ok: true });
 }
 
-async function deleteLabel(env: Env, labelId: string): Promise<Response> {
-  if (!UUID.test(labelId)) throw new HttpError(400, "Label id is invalid.");
+async function deleteLabel(env: Env, actor: StaffActor, labelId: string): Promise<Response> {
+  const label = await mustLabel(env, labelId);
+  const access = await requireBoardAccess(env, actor, label.board_id, "board.labels.manage");
+  assertCanMutate(access);
   await serviceRest(env, "DELETE", `/staff_labels?id=eq.${labelId}`);
   return json({ ok: true });
 }
@@ -598,7 +720,14 @@ async function createTask(request: Request, env: Env, actor: StaffActor, boardId
     action: "created",
     metadata: { title },
   });
-  await serviceRest(env, "POST", "/staff_task_watchers", { task_id: task.id, staff_id: actor.staffId }).catch(() => undefined);
+  const creatorMembership = await serviceRest<Array<{ staff_id: string }>>(
+    env,
+    "GET",
+    `/staff_board_members?board_id=eq.${boardId}&staff_id=eq.${actor.staffId}&select=staff_id&limit=1`,
+  );
+  if (creatorMembership[0]) {
+    await serviceRest(env, "POST", "/staff_task_watchers", { task_id: task.id, staff_id: actor.staffId }).catch(() => undefined);
+  }
   if (body.relation && typeof body.relation.kind === "string" && typeof body.relation.targetId === "string") {
     await serviceRest(env, "POST", "/staff_task_relations", {
       task_id: task.id,

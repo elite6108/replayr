@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { SocialAuthIcons } from "../components/SocialAuthIcons";
 import { useAuth } from "../lib/auth";
@@ -8,6 +8,7 @@ import { getSupabase, supabaseConfigured } from "../lib/supabase";
 type SocialProvider = "google" | "apple" | "discord" | "twitter";
 
 export function SignInPage() {
+  const [searchParams] = useSearchParams();
   const { session } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -15,6 +16,7 @@ export function SignInPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const next = safeNext(searchParams.get("next"));
 
   async function startSocial(provider: SocialProvider) {
     setBusy(true);
@@ -22,13 +24,13 @@ export function SignInPage() {
     setNotice(null);
     try {
       if (!supabaseConfigured()) throw new Error("Supabase is not configured.");
-      const { error: next } = await getSupabase().auth.signInWithOAuth({
+      const { error: oauthErrorResult } = await getSupabase().auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
         },
       });
-      if (next) throw next;
+      if (oauthErrorResult) throw oauthErrorResult;
     } catch (caught) {
       setError(oauthError(caught));
       setBusy(false);
@@ -47,8 +49,14 @@ export function SignInPage() {
         const { error: next } = await auth.signInWithPassword({ email: email.trim(), password });
         if (next) throw next;
       } else {
-        const { data, error: next } = await auth.signUp({ email: email.trim(), password });
-        if (next) throw next;
+        const { data, error: signUpError } = await auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+          },
+        });
+        if (signUpError) throw signUpError;
         if (!data.session) {
           setNotice("Account created. Confirm the email, then sign in.");
           return;
@@ -68,7 +76,7 @@ export function SignInPage() {
       </main>
     );
   }
-  if (session) return <Navigate to="/library" replace />;
+  if (session) return <Navigate to={next} replace />;
 
   return (
     <main className="page narrow">
@@ -119,6 +127,11 @@ export function SignInPage() {
       </form>
     </main>
   );
+}
+
+function safeNext(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/library";
+  return value;
 }
 
 function oauthError(caught: unknown): string {

@@ -1,4 +1,10 @@
 import { AUDIT_ACTIONS, auditRequestMeta, writeAuditLog } from "./audit";
+import {
+  roleChangedEmail,
+  sendReplayrEmail,
+  staffInviteEmail,
+  type EmailDelivery,
+} from "./email";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { serviceRest } from "./shared";
@@ -151,6 +157,11 @@ export async function handleStaff(request: Request, env: Env, url: URL): Promise
   if (inviteRevoke?.[1] && method === "POST") {
     const actor = await requirePermission(request, env, "staff.members.invite");
     return revokeInvite(env, actor, inviteRevoke[1]);
+  }
+  const inviteResend = path.match(/^\/v1\/staff\/invites\/([^/]+)\/resend$/);
+  if (inviteResend?.[1] && method === "POST") {
+    const actor = await requirePermission(request, env, "staff.members.invite");
+    return resendInvite(env, actor, inviteResend[1]);
   }
 
   throw new HttpError(404, "Not found.");
@@ -358,6 +369,9 @@ async function assignRoles(request: Request, env: Env, actor: StaffActor, id: st
 
   const current = await serviceRest<Array<{ role_id: string }>>(env, "GET", `/staff_role_assignments?staff_id=eq.${id}&select=role_id`);
   const currentIds = current.map((row) => row.role_id);
+  const assignmentsChanged =
+    currentIds.length !== roleIds.length ||
+    currentIds.some((roleId) => !roleIds.includes(roleId));
   const removingSuper = currentIds.includes(SUPER_ADMIN_ROLE_ID) && !roleIds.includes(SUPER_ADMIN_ROLE_ID);
   if (removingSuper) {
     if (member.id === actor.staffId && !manageAll) {
@@ -377,6 +391,27 @@ async function assignRoles(request: Request, env: Env, actor: StaffActor, id: st
   );
   invalidateStaffCache(member.user_id);
   await syncJwtAdmin(env, member.user_id, roleIds.includes(SUPER_ADMIN_ROLE_ID));
+  let delivery: EmailDelivery | undefined;
+  if (assignmentsChanged && member.status === "active") {
+    const email = await verifiedAuthEmail(env, member.user_id);
+    if (email) {
+      const content = roleChangedEmail({
+        recipientName: member.display_name,
+        roles: roles.map((role) => role.name),
+        staffUrl: `${publicAppOrigin(env)}/staff`,
+      });
+      delivery = await sendReplayrEmail(env, {
+        to: email,
+        ...content,
+        idempotencyKey: `staff-role-change/${id}/${actor.requestId || crypto.randomUUID()}`,
+      });
+    } else {
+      delivery = {
+        sent: false,
+        warning: "Roles changed, but the member does not have a verified email address.",
+      };
+    }
+  }
   await writeAuditLog(env, {
     actorUserId: actor.userId,
     actorType: "admin",
@@ -384,11 +419,16 @@ async function assignRoles(request: Request, env: Env, actor: StaffActor, id: st
     targetType: "staff_member",
     targetId: id,
     requestId: actor.requestId,
-    metadata: auditRequestMeta(request),
+    metadata: {
+      ...auditRequestMeta(request),
+      ...(delivery ? { emailDelivery: delivery.sent ? "sent" : "failed" } : {}),
+    },
     before: { roleIds: currentIds },
     after: { roleIds },
   });
-  return getMember(env, id);
+  const memberResponse = await getMember(env, id);
+  const memberBody = (await memberResponse.json()) as { member: unknown };
+  return json({ ...memberBody, ...(delivery ? { delivery } : {}) });
 }
 
 async function listRoles(env: Env): Promise<Response> {
@@ -663,6 +703,7 @@ async function createInvite(request: Request, env: Env, actor: StaffActor): Prom
     : [ADMIN_ROLE_ID];
   const roles = await loadRolesByIds(env, roleIds);
   if (!roles.length) throw new HttpError(400, "Assign at least one role.");
+  if (roles.length !== roleIds.length) throw new HttpError(400, "One or more roles were not found.");
   const manageAll = actor.isSuperAdmin || actor.permissions.has("staff.roles.manage_all");
   if (roles.some((role) => role.is_super_admin) && !manageAll) {
     throw new HttpError(403, "Only Super Admin can invite Super Admins.");
@@ -699,6 +740,18 @@ async function createInvite(request: Request, env: Env, actor: StaffActor): Prom
     "/staff_invite_roles",
     roleIds.map((roleId) => ({ invite_id: invite.id, role_id: roleId })),
   );
+  const content = staffInviteEmail({
+    recipientName: invite.display_name,
+    inviterName: actor.displayName,
+    roles: roles.map((role) => role.name),
+    expiresAt: invite.expires_at,
+    inviteUrl: `${publicAppOrigin(env)}/signin?next=%2Fstaff`,
+  });
+  const delivery = await sendReplayrEmail(env, {
+    to: email,
+    ...content,
+    idempotencyKey: `staff-invite/${invite.id}`,
+  });
   await writeAuditLog(env, {
     actorUserId: actor.userId,
     actorType: "admin",
@@ -706,10 +759,14 @@ async function createInvite(request: Request, env: Env, actor: StaffActor): Prom
     targetType: "staff_invite",
     targetId: invite.id,
     requestId: actor.requestId,
-    metadata: { ...auditRequestMeta(request), email },
+    metadata: {
+      ...auditRequestMeta(request),
+      email,
+      emailDelivery: delivery.sent ? "sent" : "failed",
+    },
     after: { email, roleIds },
   });
-  return json({ invite: { id: invite.id, email, status: "pending" } });
+  return json({ invite: { id: invite.id, email, status: "pending" }, delivery });
 }
 
 async function revokeInvite(env: Env, actor: StaffActor, id: string): Promise<Response> {
@@ -725,6 +782,57 @@ async function revokeInvite(env: Env, actor: StaffActor, id: string): Promise<Re
     after: { status: "revoked" },
   });
   return json({ ok: true });
+}
+
+async function resendInvite(env: Env, actor: StaffActor, id: string): Promise<Response> {
+  if (!UUID.test(id)) throw new HttpError(400, "Invite id is invalid.");
+  const invites = await serviceRest<InviteRow[]>(
+    env,
+    "GET",
+    `/staff_invites?id=eq.${id}&status=eq.pending&select=id,email_normalized,display_name,job_title,department,invited_by,expires_at,accepted_at,accepted_user_id,status,created_at`,
+  );
+  const invite = invites[0];
+  if (!invite) throw new HttpError(404, "Pending invite not found.");
+  if (new Date(invite.expires_at).getTime() < Date.now()) {
+    await serviceRest(env, "PATCH", `/staff_invites?id=eq.${id}`, { status: "expired" });
+    throw new HttpError(410, "That invitation has expired.");
+  }
+  const roleRows = await serviceRest<Array<{
+    staff_roles: { name: string } | Array<{ name: string }>;
+  }>>(
+    env,
+    "GET",
+    `/staff_invite_roles?invite_id=eq.${id}&select=staff_roles(name)`,
+  );
+  const roleNames = roleRows
+    .map((row) => Array.isArray(row.staff_roles) ? row.staff_roles[0]?.name : row.staff_roles?.name)
+    .filter((name): name is string => Boolean(name));
+  const content = staffInviteEmail({
+    recipientName: invite.display_name,
+    inviterName: actor.displayName,
+    roles: roleNames,
+    expiresAt: invite.expires_at,
+    inviteUrl: `${publicAppOrigin(env)}/signin?next=%2Fstaff`,
+  });
+  const delivery = await sendReplayrEmail(env, {
+    to: invite.email_normalized,
+    ...content,
+    idempotencyKey: `staff-invite-resend/${id}/${actor.requestId || crypto.randomUUID()}`,
+  });
+  await writeAuditLog(env, {
+    actorUserId: actor.userId,
+    actorType: "admin",
+    action: AUDIT_ACTIONS.staffInvited,
+    targetType: "staff_invite",
+    targetId: id,
+    requestId: actor.requestId,
+    metadata: {
+      email: invite.email_normalized,
+      resend: true,
+      emailDelivery: delivery.sent ? "sent" : "failed",
+    },
+  });
+  return json({ ok: delivery.sent, delivery });
 }
 
 async function mustMember(env: Env, id: string): Promise<MemberRow> {
@@ -813,5 +921,39 @@ async function syncJwtAdmin(env: Env, userId: string, isSuper: boolean) {
     });
   } catch {
     /* observational */
+  }
+}
+
+async function verifiedAuthEmail(env: Env, userId: string): Promise<string | null> {
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return null;
+  try {
+    const response = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
+      headers: { apikey: key, authorization: `Bearer ${key}` },
+    });
+    if (!response.ok) return null;
+    const user = (await response.json()) as {
+      email?: string | null;
+      email_confirmed_at?: string | null;
+      confirmed_at?: string | null;
+    };
+    if (!user.email || !(user.email_confirmed_at || user.confirmed_at)) return null;
+    return user.email.trim().toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function publicAppOrigin(env: Env): string {
+  const raw = env.PUBLIC_APP_URL || "https://www.replayr.tv";
+  try {
+    const url = new URL(raw);
+    if (url.hostname === "127.0.0.1" || url.hostname === "localhost") {
+      return "https://www.replayr.tv";
+    }
+    if (url.hostname === "replayr.tv") url.hostname = "www.replayr.tv";
+    return url.origin;
+  } catch {
+    return "https://www.replayr.tv";
   }
 }

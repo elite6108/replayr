@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchAdminCreators, reviewCreatorApplication, type AdminCreatorRow } from "../../lib/admin";
 import { useAuth } from "../../lib/auth";
 import { formatClipDate } from "../../lib/format";
+import { AdminPageHeader } from "./components/AdminPageHeader";
 
 export function AdminCreatorsPage() {
   const { session } = useAuth();
@@ -44,13 +45,12 @@ export function AdminCreatorsPage() {
   }
 
   return (
-    <section className="admin-section">
-      <header className="admin-header">
-        <div>
-          <p className="eyebrow">Program</p>
-          <h2>Creator applications</h2>
-          <p className="muted">Approving marks the profile verified. Applicants can still only see their own row.</p>
-        </div>
+    <section className="admin-dash">
+      <AdminPageHeader
+        eyebrow="Program"
+        title="Creator applications"
+        description="Approving marks the profile verified. Applicants can still only see their own row."
+        actions={
         <div className="admin-filters">
           <select
             value={status}
@@ -66,7 +66,8 @@ export function AdminCreatorsPage() {
             <option value="all">All</option>
           </select>
         </div>
-      </header>
+        }
+      />
       {error ? <p className="error">{error}</p> : null}
       <div className="admin-cards">
         {applications.map((row) => (

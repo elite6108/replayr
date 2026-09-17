@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchAdminStorage, updateAdminUser, type AdminStorageRow } from "../../lib/admin";
 import { useAuth } from "../../lib/auth";
 import { formatBytes, planLabel } from "../../lib/format";
+import { AdminPageHeader } from "./components/AdminPageHeader";
 
 export function AdminStoragePage() {
   const { session } = useAuth();
@@ -52,14 +53,12 @@ export function AdminStoragePage() {
   }
 
   return (
-    <section className="admin-section">
-      <header className="admin-header">
-        <div>
-          <p className="eyebrow">Quota</p>
-          <h2>Storage</h2>
-          <p className="muted">Largest accounts first. Approaching means 80% of the current limit.</p>
-        </div>
-      </header>
+    <section className="admin-dash">
+      <AdminPageHeader
+        eyebrow="Quota"
+        title="Storage"
+        description="Largest accounts first. Approaching means 80% of the current limit."
+      />
       {error ? <p className="error">{error}</p> : null}
       {approaching.length ? (
         <div className="admin-callout">
@@ -69,6 +68,7 @@ export function AdminStoragePage() {
       ) : (
         <p className="muted">No accounts are at 80% of quota.</p>
       )}
+      <div className="admin-panel admin-table-card">
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
@@ -106,6 +106,7 @@ export function AdminStoragePage() {
             ))}
           </tbody>
         </table>
+      </div>
       </div>
     </section>
   );

@@ -10,6 +10,7 @@ import {
 import { useAuth } from "../../lib/auth";
 import { CreateInternalTaskButton } from "../../components/CreateInternalTaskButton";
 import { formatBytes, formatClipDate, planLabel } from "../../lib/format";
+import { AdminPageHeader } from "./components/AdminPageHeader";
 
 const PLAN_OPTIONS = ["free", "pro", "pro_plus"] as const;
 
@@ -131,15 +132,12 @@ export function AdminUsersPage() {
   const slugs = plans.length ? plans.map((item) => item.slug) : [...PLAN_OPTIONS];
 
   return (
-    <section className="admin-section">
-      <header className="admin-header">
-        <div>
-          <p className="eyebrow">Accounts</p>
-          <h2>Users</h2>
-          <p className="muted">
-            {total ? `${total} matching` : "Search yourself by email, then Give Premium or Set to Free."}
-          </p>
-        </div>
+    <section className="admin-dash">
+      <AdminPageHeader
+        eyebrow="Accounts"
+        title="Users"
+        description={total ? `${total} matching` : "Search yourself by email, then Give Premium or Set to Free."}
+        actions={
         <form
           className="admin-filters"
           onSubmit={(event) => {
@@ -161,12 +159,14 @@ export function AdminUsersPage() {
               </option>
             ))}
           </select>
-          <button className="btn primary" type="submit">
+          <button className="admin-btn primary" type="submit">
             Search
           </button>
         </form>
-      </header>
+        }
+      />
       {error ? <p className="error">{error}</p> : null}
+      <div className="admin-panel admin-table-card">
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
@@ -274,6 +274,7 @@ export function AdminUsersPage() {
           </tbody>
         </table>
         {users.length === 0 ? <p className="muted admin-empty">No accounts match.</p> : null}
+      </div>
       </div>
     </section>
   );

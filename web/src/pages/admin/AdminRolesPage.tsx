@@ -10,6 +10,8 @@ import {
   type StaffRole,
   useStaffPermissions,
 } from "../../lib/staff";
+import { AdminPageHeader } from "./components/AdminPageHeader";
+import { AdminSheet } from "./components/AdminSheet";
 
 export function AdminRolesPage() {
   const { session } = useAuth();
@@ -49,69 +51,65 @@ export function AdminRolesPage() {
   }, [catalog]);
 
   return (
-    <section className="admin-section">
-      <header className="admin-header">
-        <div>
-          <p className="eyebrow">Access</p>
-          <h2>Roles</h2>
-          <p className="muted">Custom roles can only include permissions you already have, unless you are Super Admin.</p>
-        </div>
-        {can("staff.roles.create") ? (
-          <button className="button" type="button" onClick={() => setCreating(true)}>
-            New role
-          </button>
-        ) : null}
-      </header>
+    <section className="admin-dash">
+      <AdminPageHeader
+        eyebrow="Access"
+        title="Roles & Permissions"
+        description="Custom roles can only include permissions you already have, unless you are Super Admin."
+        actions={
+          can("staff.roles.create") ? (
+            <button className="admin-btn primary" type="button" onClick={() => setCreating(true)}>
+              New role
+            </button>
+          ) : null
+        }
+      />
       {error ? <p className="error">{error}</p> : null}
-      <div className="analytics-table-wrap">
-        <table className="analytics-table">
-          <thead>
-            <tr>
-              <th>Role</th>
-              <th>Members</th>
-              <th>Permissions</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {roles.map((role) => (
-              <tr key={role.id}>
-                <td>
-                  <strong>{role.name}</strong>
-                  <div className="muted">{role.slug}{role.isSystem ? " · system" : ""}</div>
-                </td>
-                <td>{role.memberCount ?? 0}</td>
-                <td>{role.isSuperAdmin ? "All keys" : `${role.permissions.length} keys`}</td>
-                <td>
-                  {can("staff.roles.edit") && !role.isSuperAdmin ? (
-                    <button type="button" onClick={() => setEditing(role)}>
-                      Edit
-                    </button>
-                  ) : null}
-                  {can("staff.roles.create") && !role.isSuperAdmin ? (
-                    <button type="button" onClick={() => void duplicateStaffRole(token, role.id).then(load)}>
-                      Duplicate
-                    </button>
-                  ) : null}
-                  {can("staff.roles.delete") && !role.isSystem ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const ok = window.confirm("Delete this role? Assigned members must be reassigned or cleared.");
-                        if (!ok) return;
-                        void deleteStaffRole(token, role.id, { clearAssignments: true })
-                          .then(load)
-                          .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Delete failed."));
-                      }}
-                    >
-                      Delete
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="admin-role-grid">
+        {roles.map((role) => (
+          <article key={role.id} className="admin-panel admin-role-card">
+            <header>
+              <div>
+                <h3>{role.name}</h3>
+                <p className="muted">
+                  {role.slug}
+                  {role.isSystem ? " · system" : ""}
+                  {role.isSuperAdmin ? " · super admin" : ""}
+                </p>
+              </div>
+              {role.isSuperAdmin ? <span className="admin-status is-active">All keys</span> : <span className="admin-status">{role.permissions.length} keys</span>}
+            </header>
+            {role.description ? <p className="muted">{role.description}</p> : null}
+            <p className="admin-role-count">{role.memberCount ?? 0} members</p>
+            <div className="admin-row-actions">
+              {can("staff.roles.edit") && !role.isSuperAdmin ? (
+                <button type="button" className="admin-btn ghost" onClick={() => setEditing(role)}>
+                  Edit
+                </button>
+              ) : null}
+              {can("staff.roles.create") && !role.isSuperAdmin ? (
+                <button type="button" className="admin-btn ghost" onClick={() => void duplicateStaffRole(token, role.id).then(load)}>
+                  Duplicate
+                </button>
+              ) : null}
+              {can("staff.roles.delete") && !role.isSystem ? (
+                <button
+                  type="button"
+                  className="admin-btn danger"
+                  onClick={() => {
+                    const ok = window.confirm("Delete this role? Assigned members must be reassigned or cleared.");
+                    if (!ok) return;
+                    void deleteStaffRole(token, role.id, { clearAssignments: true })
+                      .then(load)
+                      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Delete failed."));
+                  }}
+                >
+                  Delete
+                </button>
+              ) : null}
+            </div>
+          </article>
+        ))}
       </div>
       {editing || creating ? (
         <RoleEditor
@@ -151,53 +149,61 @@ function RoleEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <aside className="staff-drawer">
-      <h3>{role ? `Edit ${role.name}` : "New role"}</h3>
+    <AdminSheet title={role ? `Edit ${role.name}` : "New role"} subtitle="Toggle only the keys this role should grant." onClose={onClose}>
       {error ? <p className="error">{error}</p> : null}
-      <label>
-        Name
-        <input value={name} onChange={(event) => setName(event.target.value)} />
-      </label>
-      <label>
-        Description
-        <input value={description} onChange={(event) => setDescription(event.target.value)} />
-      </label>
+      <form className="admin-form">
+        <label>
+          Name
+          <input value={name} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <label>
+          Description
+          <input value={description} onChange={(event) => setDescription(event.target.value)} />
+        </label>
+      </form>
       {catalog.map(([category, items]) => (
-        <fieldset key={category}>
+        <fieldset key={category} className="admin-perm-group">
           <legend>{category}</legend>
-          {items.map((item) => (
-            <label key={item.key}>
-              <input
-                type="checkbox"
-                checked={keys.includes(item.key)}
-                disabled={item.key === "staff.roles.manage_all"}
-                onChange={(event) => {
-                  setKeys((current) =>
-                    event.target.checked ? [...current, item.key] : current.filter((key) => key !== item.key),
-                  );
-                }}
-              />
-              {item.label}
-            </label>
-          ))}
+          <div className="admin-check-list">
+            {items.map((item) => (
+              <label key={item.key} className="admin-check">
+                <input
+                  type="checkbox"
+                  checked={keys.includes(item.key)}
+                  disabled={item.key === "staff.roles.manage_all"}
+                  onChange={(event) => {
+                    setKeys((current) =>
+                      event.target.checked ? [...current, item.key] : current.filter((key) => key !== item.key),
+                    );
+                  }}
+                />
+                <span>
+                  <strong>{item.label}</strong>
+                  {item.description ? <small>{item.description}</small> : <small>{item.key}</small>}
+                </span>
+              </label>
+            ))}
+          </div>
         </fieldset>
       ))}
-      <button
-        className="button"
-        type="button"
-        disabled={busy}
-        onClick={() => {
-          setBusy(true);
-          void onSave({ name, description, permissions: keys })
-            .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not save role."))
-            .finally(() => setBusy(false));
-        }}
-      >
-        Save
-      </button>
-      <button className="button ghost" type="button" onClick={onClose}>
-        Cancel
-      </button>
-    </aside>
+      <div className="admin-row-actions">
+        <button
+          className="admin-btn primary"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void onSave({ name, description, permissions: keys })
+              .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not save role."))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {busy ? "Saving…" : "Save role"}
+        </button>
+        <button className="admin-btn ghost" type="button" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </AdminSheet>
   );
 }

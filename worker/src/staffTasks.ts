@@ -457,6 +457,10 @@ async function setAssignees(request: Request, env: Env, actor: StaffActor, taskI
   const staffIds = Array.isArray(body.staffIds)
     ? [...new Set(body.staffIds.filter((id): id is string => typeof id === "string" && UUID.test(id)))]
     : [];
+  if (Array.isArray(body.staffIds) && staffIds.length !== body.staffIds.length) {
+    throw new HttpError(400, "One or more assignee ids are invalid.");
+  }
+  await assertBoardMembers(env, task.board_id, staffIds);
   const previous = await serviceRest<Array<{ staff_id: string }>>(env, "GET", `/staff_task_assignees?task_id=eq.${taskId}&select=staff_id`);
   await serviceRest(env, "DELETE", `/staff_task_assignees?task_id=eq.${taskId}`);
   if (staffIds.length) {
@@ -484,6 +488,18 @@ async function setTaskLabels(request: Request, env: Env, actor: StaffActor, task
   const labelIds = Array.isArray(body.labelIds)
     ? body.labelIds.filter((id): id is string => typeof id === "string" && UUID.test(id))
     : [];
+  if (Array.isArray(body.labelIds) && labelIds.length !== body.labelIds.length) {
+    throw new HttpError(400, "One or more label ids are invalid.");
+  }
+  if (labelIds.length) {
+    const boardLabels = await serviceRest<Array<{ id: string }>>(
+      env,
+      "GET",
+      `/staff_labels?board_id=eq.${task.board_id}&id=in.(${labelIds.join(",")})&select=id`,
+    );
+    const found = new Set(boardLabels.map((row) => row.id));
+    if (labelIds.some((id) => !found.has(id))) throw new HttpError(400, "Labels must belong to this board.");
+  }
   await serviceRest(env, "DELETE", `/staff_task_labels?task_id=eq.${taskId}`);
   if (labelIds.length) {
     await serviceRest(
@@ -500,6 +516,7 @@ async function setWatch(env: Env, actor: StaffActor, taskId: string, watch: bool
   const task = await mustTask(env, taskId);
   await requireBoardAccess(env, actor, task.board_id);
   if (watch) {
+    await assertBoardMembers(env, task.board_id, [actor.staffId]);
     await serviceRest(env, "POST", "/staff_task_watchers", { task_id: taskId, staff_id: actor.staffId }).catch(() => undefined);
   } else {
     await serviceRest(env, "DELETE", `/staff_task_watchers?task_id=eq.${taskId}&staff_id=eq.${actor.staffId}`);
@@ -526,13 +543,15 @@ async function addComment(request: Request, env: Env, actor: StaffActor, taskId:
     },
     "return=representation",
   );
-  await serviceRest(env, "POST", "/staff_task_watchers", { task_id: taskId, staff_id: actor.staffId }).catch(() => undefined);
-  const mentioned = await resolveMentions(env, text);
+  if (await isBoardMember(env, task.board_id, actor.staffId)) {
+    await serviceRest(env, "POST", "/staff_task_watchers", { task_id: taskId, staff_id: actor.staffId }).catch(() => undefined);
+  }
+  const mentioned = await resolveMentions(env, task.board_id, text);
   for (const staffId of mentioned) {
     await serviceRest(env, "POST", "/staff_task_watchers", { task_id: taskId, staff_id: staffId }).catch(() => undefined);
   }
   await notifyStaff(env, actor, task, mentioned, "staff_task_mentioned");
-  const watchers = await watcherUserIds(env, taskId, [...mentioned, actor.staffId]);
+  const watchers = await watcherUserIds(env, taskId, task.board_id, [...mentioned, actor.staffId]);
   await notifyUsers(env, actor.userId, watchers, "staff_task_comment", task.id);
   await addActivity(env, taskId, actor.staffId, "commented", { commentId: created[0]?.id });
   return getTask(env, actor, taskId);
@@ -637,6 +656,16 @@ async function patchChecklistItem(request: Request, env: Env, actor: StaffActor,
 
 async function deleteChecklistItem(env: Env, actor: StaffActor, itemId: string): Promise<Response> {
   if (!UUID.test(itemId)) throw new HttpError(400, "Item id is invalid.");
+  const items = await serviceRest<Array<{ checklist_id: string }>>(
+    env,
+    "GET",
+    `/staff_task_checklist_items?id=eq.${itemId}&select=checklist_id`,
+  );
+  if (!items[0]) throw new HttpError(404, "Item not found.");
+  const checklist = await mustChecklist(env, items[0].checklist_id);
+  const task = await mustTask(env, checklist.task_id);
+  const access = await requireBoardAccess(env, actor, task.board_id, "board.checklists.manage");
+  assertCanMutate(access);
   await serviceRest(env, "DELETE", `/staff_task_checklist_items?id=eq.${itemId}`);
   return json({ ok: true });
 }
@@ -648,6 +677,9 @@ async function addSubtask(request: Request, env: Env, actor: StaffActor, taskId:
   const body = (await request.json().catch(() => ({}))) as { title?: string; assigneeStaffId?: string | null };
   const title = typeof body.title === "string" ? body.title.trim().slice(0, 200) : "";
   if (!title) throw new HttpError(400, "Title is required.");
+  const assigneeStaffId =
+    typeof body.assigneeStaffId === "string" && UUID.test(body.assigneeStaffId) ? body.assigneeStaffId : null;
+  if (assigneeStaffId) await assertBoardMembers(env, task.board_id, [assigneeStaffId]);
   const last = await serviceRest<Array<{ rank: string }>>(
     env,
     "GET",
@@ -656,7 +688,7 @@ async function addSubtask(request: Request, env: Env, actor: StaffActor, taskId:
   await serviceRest(env, "POST", "/staff_task_subtasks", {
     task_id: taskId,
     title,
-    assignee_staff_id: typeof body.assigneeStaffId === "string" && UUID.test(body.assigneeStaffId) ? body.assigneeStaffId : null,
+    assignee_staff_id: assigneeStaffId,
     rank: rankAfter(last[0]?.rank),
   });
   return getTask(env, actor, taskId);
@@ -679,7 +711,10 @@ async function patchSubtask(request: Request, env: Env, actor: StaffActor, subta
   if (typeof body.title === "string" && body.title.trim()) patch.title = body.title.trim().slice(0, 200);
   if (typeof body.done === "boolean") patch.done = body.done;
   if ("assigneeStaffId" in body) {
-    patch.assignee_staff_id = typeof body.assigneeStaffId === "string" && UUID.test(body.assigneeStaffId) ? body.assigneeStaffId : null;
+    const assigneeStaffId =
+      typeof body.assigneeStaffId === "string" && UUID.test(body.assigneeStaffId) ? body.assigneeStaffId : null;
+    if (assigneeStaffId) await assertBoardMembers(env, task.board_id, [assigneeStaffId]);
+    patch.assignee_staff_id = assigneeStaffId;
   }
   await serviceRest(env, "PATCH", `/staff_task_subtasks?id=eq.${subtaskId}`, patch);
   return getTask(env, actor, task.id);
@@ -687,6 +722,15 @@ async function patchSubtask(request: Request, env: Env, actor: StaffActor, subta
 
 async function deleteSubtask(env: Env, actor: StaffActor, subtaskId: string): Promise<Response> {
   if (!UUID.test(subtaskId)) throw new HttpError(400, "Subtask id is invalid.");
+  const rows = await serviceRest<Array<{ task_id: string }>>(
+    env,
+    "GET",
+    `/staff_task_subtasks?id=eq.${subtaskId}&select=task_id`,
+  );
+  if (!rows[0]) throw new HttpError(404, "Subtask not found.");
+  const task = await mustTask(env, rows[0].task_id);
+  const access = await requireBoardAccess(env, actor, task.board_id, "board.checklists.manage");
+  assertCanMutate(access);
   await serviceRest(env, "DELETE", `/staff_task_subtasks?id=eq.${subtaskId}`);
   return json({ ok: true });
 }
@@ -797,7 +841,7 @@ export async function notifyStaffTaskDueSoon(env: Env): Promise<void> {
       `/notifications?staff_task_id=eq.${task.id}&kind=eq.staff_task_due_soon&created_at=gte.${new Date(start.getTime() - 20 * 60 * 60 * 1000).toISOString()}&select=id&limit=1`,
     );
     if (existing.length) continue;
-    const watchers = await watcherUserIds(env, task.id, []);
+    const watchers = await watcherUserIds(env, task.id, task.board_id, []);
     if (!watchers.length) continue;
     await insertNotifications(
       env,
@@ -852,9 +896,16 @@ async function addActivity(env: Env, taskId: string, actorStaffId: string, actio
   });
 }
 
-async function resolveMentions(env: Env, body: string): Promise<string[]> {
+async function resolveMentions(env: Env, boardId: string, body: string): Promise<string[]> {
   const names = [...body.matchAll(MENTION)].map((match) => match[1]!.toLowerCase());
   if (!names.length) return [];
+  const boardMembers = await serviceRest<Array<{ staff_id: string }>>(
+    env,
+    "GET",
+    `/staff_board_members?board_id=eq.${boardId}&select=staff_id`,
+  );
+  const boardMemberIds = new Set(boardMembers.map((row) => row.staff_id));
+  if (!boardMemberIds.size) return [];
   const members = await serviceRest<Array<{ id: string; display_name: string; user_id: string; status: string }>>(
     env,
     "GET",
@@ -867,6 +918,7 @@ async function resolveMentions(env: Env, body: string): Promise<string[]> {
   );
   const usernameByUser = new Map(profiles.map((row) => [row.id, row.username?.toLowerCase() ?? ""]));
   return members
+    .filter((member) => boardMemberIds.has(member.id))
     .filter((member) => {
       const username = usernameByUser.get(member.user_id) ?? "";
       const display = member.display_name.toLowerCase().replace(/\s+/g, "");
@@ -897,16 +949,44 @@ async function notifyStaff(
   );
 }
 
-async function watcherUserIds(env: Env, taskId: string, excludeStaffIds: string[]): Promise<string[]> {
+async function watcherUserIds(env: Env, taskId: string, boardId: string, excludeStaffIds: string[]): Promise<string[]> {
   const watchers = await serviceRest<Array<{ staff_id: string }>>(env, "GET", `/staff_task_watchers?task_id=eq.${taskId}&select=staff_id`);
   const ids = watchers.map((row) => row.staff_id).filter((id) => !excludeStaffIds.includes(id));
   if (!ids.length) return [];
+  const boardMembers = await serviceRest<Array<{ staff_id: string }>>(
+    env,
+    "GET",
+    `/staff_board_members?board_id=eq.${boardId}&staff_id=in.(${ids.join(",")})&select=staff_id`,
+  );
+  const allowedIds = new Set(boardMembers.map((row) => row.staff_id));
   const members = await serviceRest<Array<{ id: string; user_id: string }>>(
     env,
     "GET",
     `/staff_members?id=in.(${ids.join(",")})&select=id,user_id`,
   );
-  return members.map((row) => row.user_id);
+  return members.filter((row) => allowedIds.has(row.id)).map((row) => row.user_id);
+}
+
+async function assertBoardMembers(env: Env, boardId: string, staffIds: string[]): Promise<void> {
+  if (!staffIds.length) return;
+  const rows = await serviceRest<Array<{ staff_id: string }>>(
+    env,
+    "GET",
+    `/staff_board_members?board_id=eq.${boardId}&staff_id=in.(${staffIds.join(",")})&select=staff_id`,
+  );
+  const found = new Set(rows.map((row) => row.staff_id));
+  if (staffIds.some((id) => !found.has(id))) {
+    throw new HttpError(400, "Assignees and watchers must be members of this board.");
+  }
+}
+
+async function isBoardMember(env: Env, boardId: string, staffId: string): Promise<boolean> {
+  const rows = await serviceRest<Array<{ staff_id: string }>>(
+    env,
+    "GET",
+    `/staff_board_members?board_id=eq.${boardId}&staff_id=eq.${staffId}&select=staff_id&limit=1`,
+  );
+  return Boolean(rows[0]);
 }
 
 async function notifyUsers(

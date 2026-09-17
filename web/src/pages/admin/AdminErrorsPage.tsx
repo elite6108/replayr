@@ -3,6 +3,7 @@ import { fetchAdminErrors, resolveAdminError, type AdminErrorRow } from "../../l
 import { useAuth } from "../../lib/auth";
 import { formatClipDate } from "../../lib/format";
 import { CreateInternalTaskButton } from "../../components/CreateInternalTaskButton";
+import { AdminPageHeader } from "./components/AdminPageHeader";
 
 export function AdminErrorsPage() {
   const { session } = useAuth();
@@ -51,15 +52,12 @@ export function AdminErrorsPage() {
   }
 
   return (
-    <section className="admin-section">
-      <header className="admin-header">
-        <div>
-          <p className="eyebrow">Telemetry</p>
-          <h2>Error logs</h2>
-          <p className="muted">
-            {total ? `${total} groups` : "Grouped client and Worker errors. Tokens are stripped before store."}
-          </p>
-        </div>
+    <section className="admin-dash">
+      <AdminPageHeader
+        eyebrow="Telemetry"
+        title="Error logs"
+        description={total ? `${total} groups` : "Grouped client and Worker errors. Tokens are stripped before store."}
+        actions={
         <form
           className="admin-filters"
           onSubmit={(event) => {
@@ -88,12 +86,14 @@ export function AdminErrorsPage() {
             <option value="open">Open</option>
             <option value="all">Including resolved</option>
           </select>
-          <button className="btn primary" type="submit">
+          <button className="admin-btn primary" type="submit">
             Filter
           </button>
         </form>
-      </header>
+        }
+      />
       {error ? <p className="error">{error}</p> : null}
+      <div className="admin-panel admin-table-card">
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
@@ -151,6 +151,7 @@ export function AdminErrorsPage() {
           </tbody>
         </table>
         {errors.length === 0 ? <p className="muted admin-empty">No matching error groups.</p> : null}
+      </div>
       </div>
     </section>
   );

@@ -15,6 +15,8 @@ const ALWAYS_OPEN_PREFIXES = [
   "/s/",
   "/assets/",
   "/auth/",
+  "/signin/",
+  "/staff/",
   "/.well-known/",
 ];
 

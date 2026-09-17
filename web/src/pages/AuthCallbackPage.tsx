@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { useAuth } from "../lib/auth";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
 
 export function AuthCallbackPage() {
+  const [searchParams] = useSearchParams();
   const { session } = useAuth();
   const [error, setError] = useState<string | null>(null);
 
@@ -28,7 +29,7 @@ export function AuthCallbackPage() {
     return () => window.clearTimeout(timer);
   }, [session]);
 
-  if (session) return <Navigate to="/library" replace />;
+  if (session) return <Navigate to={safeNext(searchParams.get("next"))} replace />;
 
   return (
     <main className="page narrow">
@@ -37,4 +38,9 @@ export function AuthCallbackPage() {
       {error ? <p className="error">{error}</p> : <p className="muted">Finishing sign-in…</p>}
     </main>
   );
+}
+
+function safeNext(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/library";
+  return value;
 }

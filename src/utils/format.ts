@@ -74,6 +74,30 @@ export function formatDuration(ms: number | null | undefined): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+export function formatRelativeTime(value: string | number | null | undefined): string {
+  if (value == null || value === "") return "Unknown";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  const delta = Date.now() - date.getTime();
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (delta < minute) return "Just now";
+  if (delta < hour) {
+    const minutes = Math.floor(delta / minute);
+    return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  }
+  if (delta < day) {
+    const hours = Math.floor(delta / hour);
+    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  }
+  if (delta < 7 * day) {
+    const days = Math.floor(delta / day);
+    return `${days} day${days === 1 ? "" : "s"} ago`;
+  }
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export function formatClock(ms: number, precise = false): string {
   const total = Math.max(0, Math.round(ms));
   const minutes = Math.floor(total / 60_000);

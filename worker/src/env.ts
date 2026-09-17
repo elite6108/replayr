@@ -27,6 +27,12 @@ export interface Env {
   BUNNY_INGEST_PUBLIC_ORIGIN?: string;
   /** Password that unlocks the full marketing site (coming-soon gate). Worker secret only. */
   SITE_ACCESS_PASSWORD?: string;
+  /** Resend API key for transactional product emails. Worker secret only. */
+  RESEND_API_KEY?: string;
+  /** Branded sender, defaults to Replayr <support@replayr.tv>. */
+  RESEND_FROM_EMAIL?: string;
+  /** Reply-to mailbox, defaults to support@replayr.tv. */
+  RESEND_REPLY_TO?: string;
   /** Apple Developer Team ID for Universal Links (AASA). Optional until configured. */
   APPLE_TEAM_ID?: string;
   /** iOS bundle id override; defaults to tv.elite.replay. */

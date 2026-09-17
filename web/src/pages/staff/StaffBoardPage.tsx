@@ -54,6 +54,7 @@ import {
 } from "./opsIcons";
 import { StaffTaskDrawer } from "./StaffTaskDrawer";
 import { useStaffCardDrag } from "./useStaffCardDrag";
+import { BoardMembersDialog, DeleteBoardDialog } from "./BoardManagementDialogs";
 
 export function StaffBoardPage() {
   const { boardId } = useParams();
@@ -73,6 +74,8 @@ export function StaffBoardPage() {
   const [sort, setSort] = useState("board");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [favorites, setFavorites] = useState<string[]>(() => readFavoriteIds());
   const kanbanRef = useRef<HTMLDivElement>(null);
   const openTimer = useRef<number | null>(null);
@@ -350,13 +353,18 @@ export function StaffBoardPage() {
                 navigate(`/staff/board/${id}`);
               }}
               canCreate={can("board.create")}
-              onCreate={(name) => {
-                if (!token) return;
-                void createStaffBoard(token, { name }).then((created) => {
+              onCreate={async (name) => {
+                if (!token) throw new Error("You must be signed in to create a board.");
+                try {
+                  const created = await createStaffBoard(token, { name });
                   setOpenMenu(null);
                   navigate(`/staff/board/${created.board.id}`);
-                  return loadBoards();
-                });
+                  await loadBoards();
+                } catch (caught) {
+                  const message = caught instanceof Error ? caught.message : "Could not create board.";
+                  setError(message);
+                  throw caught;
+                }
               }}
             />
             {board ? (
@@ -462,6 +470,21 @@ export function StaffBoardPage() {
               </span>
             }
           >
+            {board?.canManageMembers ? (
+              <>
+                <button
+                  type="button"
+                  className="ops-menu-item"
+                  onClick={() => {
+                    setOpenMenu(null);
+                    setMembersOpen(true);
+                  }}
+                >
+                  Manage board access
+                </button>
+                <p className="ops-menu-label">Filter by assignee</p>
+              </>
+            ) : null}
             {memberPeople.length ? (
               memberPeople.map((person) => (
                 <button
@@ -512,10 +535,15 @@ export function StaffBoardPage() {
                 onClick={() => {
                   const name = window.prompt("Label name?");
                   if (!name || !token) return;
-                  void createStaffLabel(token, board.id, name, "#7fd0ef").then(() => {
-                    setOpenMenu(null);
-                    return loadBoard();
-                  });
+                  void (async () => {
+                    try {
+                      await createStaffLabel(token, board.id, name, "#7fd0ef");
+                      setOpenMenu(null);
+                      await loadBoard();
+                    } catch (caught) {
+                      setError(caught instanceof Error ? caught.message : "Could not create label.");
+                    }
+                  })();
                 }}
               >
                 Add label
@@ -531,6 +559,18 @@ export function StaffBoardPage() {
                 }}
               >
                 Add column
+              </button>
+            ) : null}
+            {board?.canDelete ? (
+              <button
+                type="button"
+                className="ops-menu-item is-danger"
+                onClick={() => {
+                  setOpenMenu(null);
+                  setDeleteOpen(true);
+                }}
+              >
+                Delete board
               </button>
             ) : null}
             {filtersActive(filters) ? (
@@ -784,11 +824,16 @@ export function StaffBoardPage() {
                 onSubmit={(event) => {
                   event.preventDefault();
                   if (!columnDraft.trim() || !token) return;
-                  void createStaffColumn(token, board.id, columnDraft.trim()).then(() => {
-                    setColumnDraft("");
-                    setAddingColumn(false);
-                    return loadBoard();
-                  });
+                  void (async () => {
+                    try {
+                      await createStaffColumn(token, board.id, columnDraft.trim());
+                      setColumnDraft("");
+                      setAddingColumn(false);
+                      await loadBoard();
+                    } catch (caught) {
+                      setError(caught instanceof Error ? caught.message : "Could not create column.");
+                    }
+                  })();
                 }}
               >
                 <input
@@ -847,6 +892,38 @@ export function StaffBoardPage() {
           onClose={() => {
             setTaskId(null);
             setOpenSnapshot(null);
+          }}
+        />
+      ) : null}
+      {membersOpen && board ? (
+        <BoardMembersDialog
+          token={token}
+          board={board}
+          onClose={() => setMembersOpen(false)}
+          onChanged={async () => {
+            await Promise.all([loadBoard(), loadBoards()]);
+          }}
+        />
+      ) : null}
+      {deleteOpen && board ? (
+        <DeleteBoardDialog
+          token={token}
+          board={board}
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={async () => {
+            const deletedIndex = boards.findIndex((item) => item.id === board.id);
+            let nextBoards = boards.filter((item) => item.id !== board.id);
+            try {
+              nextBoards = (await fetchStaffBoards(token)).boards;
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : "Board deleted, but the board list could not be refreshed.");
+            }
+            setBoards(nextBoards);
+            setBoard(null);
+            setDeleteOpen(false);
+            const nextIndex = Math.min(Math.max(deletedIndex, 0), nextBoards.length - 1);
+            const nextBoard = nextBoards[nextIndex];
+            navigate(nextBoard ? `/staff/board/${nextBoard.id}` : "/staff/board", { replace: true });
           }}
         />
       ) : null}
@@ -915,10 +992,12 @@ function BoardPicker({
   onClose: () => void;
   onSelect: (id: string) => void;
   canCreate: boolean;
-  onCreate: (name: string) => void;
+  onCreate: (name: string) => Promise<void>;
 }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const mine = boards.filter((item) => item.mine || favorites.includes(item.id));
   const rest = boards.filter((item) => !mine.some((owned) => owned.id === item.id));
   const groups = [
@@ -933,6 +1012,7 @@ function BoardPicker({
       ariaLabel="Switch board"
       onToggle={() => {
         setCreating(false);
+        setCreateError(null);
         onToggle();
       }}
       onClose={onClose}
@@ -967,16 +1047,25 @@ function BoardPicker({
             className="ops-picker-create"
             onSubmit={(event) => {
               event.preventDefault();
-              if (!name.trim()) return;
-              onCreate(name.trim());
-              setName("");
-              setCreating(false);
+              if (!name.trim() || submitting) return;
+              setSubmitting(true);
+              setCreateError(null);
+              void onCreate(name.trim())
+                .then(() => {
+                  setName("");
+                  setCreating(false);
+                })
+                .catch((caught: unknown) => {
+                  setCreateError(caught instanceof Error ? caught.message : "Could not create board.");
+                })
+                .finally(() => setSubmitting(false));
             }}
           >
-            <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Board name" aria-label="Board name" />
-            <button className="ops-create sm" type="submit">
-              Create
+            <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Board name" aria-label="Board name" disabled={submitting} />
+            <button className="ops-create sm" type="submit" disabled={submitting}>
+              {submitting ? "Creating…" : "Create"}
             </button>
+            {createError ? <p className="ops-error" role="alert">{createError}</p> : null}
           </form>
         ) : (
           <button type="button" className="ops-menu-item" onClick={() => setCreating(true)}>

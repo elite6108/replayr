@@ -183,6 +183,27 @@ export function resolveAdminError(token: string, fingerprint: string) {
   });
 }
 
+export async function fetchWorkerHealth(): Promise<{ ok: boolean; storage: boolean }> {
+  const response = await fetch(`${publicApiUrl()}/v1/health`, { headers: { accept: "application/json" } });
+  return readApiJson<{ ok: boolean; storage: boolean }>(response, "Health check failed.");
+}
+
+export type AdminAnalyticsSeries = { labels: string[]; values: Array<number | null> };
+
+export function fetchAdminAnalyticsGrowth(token: string, range: string) {
+  return adminFetch<{ series: { labels: string[]; dau: Array<number | null> } }>(
+    `/v1/admin/analytics/growth?range=${encodeURIComponent(range)}&compare=0`,
+    token,
+  );
+}
+
+export function fetchAdminAnalyticsOverview(token: string, range: string) {
+  return adminFetch<{ series: Record<string, AdminAnalyticsSeries> }>(
+    `/v1/admin/analytics/overview?range=${encodeURIComponent(range)}&compare=0`,
+    token,
+  );
+}
+
 export function reviewCreatorApplication(token: string, id: string, status: "approved" | "rejected") {
   return adminFetch<{ status: string }>(`/v1/admin/creators/${id}/review`, token, {
     method: "POST",

@@ -147,6 +147,11 @@ export function fetchAdminOverview(token: string) {
   return adminFetch<AdminOverview>("/v1/admin/overview", token);
 }
 
+export async function fetchWorkerHealth(): Promise<{ ok: boolean; storage: boolean }> {
+  const response = await fetch(apiUrl("/v1/health"), { headers: { accept: "application/json" } });
+  return readApiJson<{ ok: boolean; storage: boolean }>(response, "Health check failed.");
+}
+
 export function fetchAdminPlans(token: string) {
   return adminFetch<{ plans: AdminPlan[] }>("/v1/admin/plans", token);
 }

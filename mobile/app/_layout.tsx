@@ -1,12 +1,14 @@
-import { Stack, usePathname, useRouter } from "expo-router";
+import { Stack, usePathname, useRouter, type Href } from "expo-router";
 import * as Linking from "expo-linking";
 import { useEffect } from "react";
 import { View } from "react-native";
 import { AuthProvider } from "@/lib/auth";
 import { SocialUnreadProvider } from "@/lib/socialUnread";
+import { StaffPermissionsProvider } from "@/lib/staffPermissions";
 import { AnnouncementHost } from "@/components/AnnouncementHost";
 import { AppTabBar, shouldShowAppTabBar } from "@/components/AppTabBar";
 import { folderHref } from "@/lib/api.folders";
+import { staffBoardHref, staffTaskHref } from "@/lib/api.staff";
 import { openReplayrLink } from "@/lib/openReplayrLink";
 import { installMobileTelemetry } from "@/lib/telemetry";
 import { colors } from "@/lib/theme";
@@ -33,7 +35,7 @@ function RootShell() {
               headerShown: false,
               animation: "fade",
               fullScreenGestureEnabled: false,
-              gestureResponseDistance: 20,
+              gestureResponseDistance: { start: 20 },
             }}
           />
           <Stack.Screen
@@ -49,7 +51,7 @@ function RootShell() {
           <Stack.Screen name="u/[username]" options={{ title: "Profile" }} />
           <Stack.Screen name="messages/[id]" options={{ title: "Chat" }} />
           <Stack.Screen name="settings" options={{ title: "Settings" }} />
-          <Stack.Screen name="staff/tasks" options={{ title: "My tasks" }} />
+          <Stack.Screen name="staff" options={{ headerShown: false }} />
           <Stack.Screen name="folders" options={{ headerShown: false }} />
           <Stack.Screen name="auth/callback" options={{ title: "Signing in" }} />
         </Stack>
@@ -78,7 +80,15 @@ export default function RootLayout() {
         return;
       }
       if (link.kind === "screenshot") {
-        router.push(link.href);
+        router.push(link.href as Href);
+        return;
+      }
+      if (link.kind === "staff-task") {
+        router.push(staffTaskHref(link.taskId));
+        return;
+      }
+      if (link.kind === "staff-board") {
+        router.push(staffBoardHref(link.boardId));
       }
     }
     const sub = Linking.addEventListener("url", (event) => open(event.url));
@@ -88,10 +98,12 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <SocialUnreadProvider>
-        <AnnouncementHost />
-        <RootShell />
-      </SocialUnreadProvider>
+      <StaffPermissionsProvider>
+        <SocialUnreadProvider>
+          <AnnouncementHost />
+          <RootShell />
+        </SocialUnreadProvider>
+      </StaffPermissionsProvider>
     </AuthProvider>
   );
 }

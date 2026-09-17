@@ -14,6 +14,8 @@ export type ReplayrDeepLink =
   | { kind: "clip"; slug: string; href: `/c/${string}` }
   | { kind: "screenshot"; slug: string; href: `/s/${string}` }
   | { kind: "folder"; folderId: string; href: string }
+  | { kind: "staff-task"; taskId: string; href: string }
+  | { kind: "staff-board"; boardId: string; href: string }
   | { kind: "ignored" };
 
 export function isValidClipSlug(value: string | null | undefined): boolean {
@@ -83,6 +85,14 @@ export function openReplayrLink(url: string | null | undefined): ReplayrDeepLink
     if (folderMatch?.[1] && FOLDER_ID.test(folderMatch[1])) {
       return { kind: "folder", folderId: folderMatch[1], href: `/folders/${folderMatch[1]}` };
     }
+    const staffTaskMatch = url.match(/(?:\/staff\/tasks\/|:?\/\/staff\/tasks\/)([0-9a-f-]{36})/i);
+    if (staffTaskMatch?.[1] && FOLDER_ID.test(staffTaskMatch[1])) {
+      return { kind: "staff-task", taskId: staffTaskMatch[1], href: `/staff/tasks/${staffTaskMatch[1]}` };
+    }
+    const staffBoardMatch = url.match(/(?:\/staff\/boards?\/|:?\/\/staff\/boards?\/)([0-9a-f-]{36})/i);
+    if (staffBoardMatch?.[1] && FOLDER_ID.test(staffBoardMatch[1])) {
+      return { kind: "staff-board", boardId: staffBoardMatch[1], href: `/staff/boards/${staffBoardMatch[1]}` };
+    }
   }
 
   return { kind: "ignored" };
@@ -103,6 +113,14 @@ function pathToLink(pathname: string): ReplayrDeepLink {
   const folder = pathname.match(/^\/folders\/([0-9a-f-]{36})$/i);
   if (folder?.[1] && FOLDER_ID.test(folder[1])) {
     return { kind: "folder", folderId: folder[1], href: `/folders/${folder[1]}` };
+  }
+  const staffTask = pathname.match(/^\/staff\/tasks\/([0-9a-f-]{36})$/i);
+  if (staffTask?.[1] && FOLDER_ID.test(staffTask[1])) {
+    return { kind: "staff-task", taskId: staffTask[1], href: `/staff/tasks/${staffTask[1]}` };
+  }
+  const staffBoard = pathname.match(/^\/staff\/boards?\/([0-9a-f-]{36})$/i);
+  if (staffBoard?.[1] && FOLDER_ID.test(staffBoard[1])) {
+    return { kind: "staff-board", boardId: staffBoard[1], href: `/staff/boards/${staffBoard[1]}` };
   }
   return { kind: "ignored" };
 }

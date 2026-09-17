@@ -12,6 +12,7 @@ import {
 } from "../../lib/announcements";
 import { useAuth } from "../../lib/auth";
 import { formatClipDate } from "../../lib/format";
+import { AdminPageHeader } from "./components/AdminPageHeader";
 
 interface Draft {
   title: string;
@@ -200,23 +201,21 @@ export function AdminAnnouncementsPage() {
     : null;
 
   return (
-    <section className="admin-section">
-      <header className="admin-header">
-        <div>
-          <p className="eyebrow">Reach</p>
-          <h2>Announcements</h2>
-          <p className="muted">
-            Banners and popups on the Windows app, website, and mobile. Schedule a window, repeat through the day,
-            and attach a message, image, and link.
-          </p>
-        </div>
-        <button className="btn primary" type="button" onClick={beginNew}>
-          New announcement
-        </button>
-      </header>
+    <section className="admin-dash">
+      <AdminPageHeader
+        eyebrow="Reach"
+        title="Announcements"
+        description="Banners and popups on the Windows app, website, and mobile. Schedule a window, repeat through the day, and attach a message, image, and link."
+        actions={
+          <button className="admin-btn primary" type="button" onClick={beginNew}>
+            New announcement
+          </button>
+        }
+      />
       {error ? <p className="error">{error}</p> : null}
       {notice ? <p className="ok">{notice}</p> : null}
 
+      <div className="admin-panel admin-table-card">
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
@@ -273,9 +272,10 @@ export function AdminAnnouncementsPage() {
           </tbody>
         </table>
       </div>
+      </div>
 
       {editingId ? (
-        <form className="announce-admin-form" onSubmit={(event) => void save(event)}>
+        <form className="admin-panel announce-admin-form" onSubmit={(event) => void save(event)}>
           <h3>{editingId === "new" ? "New announcement" : "Edit announcement"}</h3>
           <label>
             Title

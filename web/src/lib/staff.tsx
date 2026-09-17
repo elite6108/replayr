@@ -5,6 +5,12 @@ import { useAuth } from "./auth";
 
 export type StaffPermissionKey = string;
 
+export type EmailDelivery = {
+  sent: boolean;
+  providerId?: string;
+  warning?: string;
+};
+
 export type StaffMe = {
   staff: {
     id: string;
@@ -90,13 +96,35 @@ export type StaffBoardDetail = {
   visibility: string;
   boardRole: string;
   canMutate: boolean;
+  isOwner: boolean;
+  canManageMembers: boolean;
+  canDelete: boolean;
   createdAt: string;
   updatedAt: string;
   roleIds: string[];
-  members: Array<{ staffId: string; boardRole: string; displayName: string }>;
+  members: StaffBoardMember[];
   people: Array<{ id: string; displayName: string }>;
   labels: Array<{ id: string; name: string; color: string }>;
   columns: Array<{ id: string; name: string; rank: string; archived: boolean; tasks: StaffBoardCard[] }>;
+};
+
+export type StaffBoardRole = "admin" | "editor" | "viewer";
+
+export type StaffBoardMember = {
+  staffId: string;
+  displayName: string;
+  boardRole: StaffBoardRole;
+  isOwner: boolean;
+};
+
+export type StaffBoardMemberCandidate = {
+  id: string;
+  displayName: string;
+};
+
+export type StaffBoardMembers = {
+  members: StaffBoardMember[];
+  candidates: StaffBoardMemberCandidate[];
 };
 
 export type StaffTaskDetail = {
@@ -168,7 +196,7 @@ export function setStaffMemberStatus(token: string, id: string, action: "suspend
 }
 
 export function assignStaffRoles(token: string, id: string, roleIds: string[]) {
-  return staffFetch<{ member: StaffMember }>(`/v1/staff/members/${id}/roles`, token, {
+  return staffFetch<{ member: StaffMember; delivery?: EmailDelivery }>(`/v1/staff/members/${id}/roles`, token, {
     method: "PUT",
     body: JSON.stringify({ roleIds }),
   });
@@ -208,11 +236,21 @@ export function fetchStaffInvites(token: string) {
 }
 
 export function createStaffInvite(token: string, body: { email: string; displayName?: string; jobTitle?: string; department?: string; roleIds: string[] }) {
-  return staffFetch<{ invite: { id: string } }>("/v1/staff/invites", token, { method: "POST", body: JSON.stringify(body) });
+  return staffFetch<{ invite: { id: string }; delivery: EmailDelivery }>("/v1/staff/invites", token, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export function revokeStaffInvite(token: string, id: string) {
   return staffFetch<{ ok: boolean }>(`/v1/staff/invites/${id}/revoke`, token, { method: "POST", body: "{}" });
+}
+
+export function resendStaffInvite(token: string, id: string) {
+  return staffFetch<{ ok: boolean; delivery: EmailDelivery }>(`/v1/staff/invites/${id}/resend`, token, {
+    method: "POST",
+    body: "{}",
+  });
 }
 
 export function fetchStaffBoards(token: string) {
@@ -223,12 +261,34 @@ export function fetchStaffBoard(token: string, id: string) {
   return staffFetch<{ board: StaffBoardDetail }>(`/v1/staff/boards/${id}`, token);
 }
 
-export function createStaffBoard(token: string, body: { name: string; description?: string; visibility?: string }) {
+export function createStaffBoard(token: string, body: { name: string; description?: string }) {
   return staffFetch<{ board: StaffBoardDetail }>("/v1/staff/boards", token, { method: "POST", body: JSON.stringify(body) });
 }
 
 export function patchStaffBoard(token: string, id: string, body: Record<string, unknown>) {
   return staffFetch<{ board: StaffBoardDetail }>(`/v1/staff/boards/${id}`, token, { method: "PATCH", body: JSON.stringify(body) });
+}
+
+export function fetchStaffBoardMembers(token: string, boardId: string) {
+  return staffFetch<StaffBoardMembers>(`/v1/staff/boards/${boardId}/members`, token);
+}
+
+export function setStaffBoardMemberRole(token: string, boardId: string, staffId: string, boardRole: StaffBoardRole) {
+  return staffFetch<{ ok: boolean }>(`/v1/staff/boards/${boardId}/members/${staffId}`, token, {
+    method: "PUT",
+    body: JSON.stringify({ boardRole }),
+  });
+}
+
+export function removeStaffBoardMember(token: string, boardId: string, staffId: string) {
+  return staffFetch<{ ok: boolean }>(`/v1/staff/boards/${boardId}/members/${staffId}`, token, { method: "DELETE" });
+}
+
+export function deleteStaffBoard(token: string, boardId: string, confirmName: string) {
+  return staffFetch<{ ok: boolean }>(`/v1/staff/boards/${boardId}`, token, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmName }),
+  });
 }
 
 export function createStaffColumn(token: string, boardId: string, name: string) {

@@ -54,6 +54,11 @@ crons = ["15 * * * *"]
 # Coming-soon site gate (never VITE_):
 # SITE_ACCESS_PASSWORD
 #
+# Transactional email (Resend; API key is a Worker secret):
+# RESEND_API_KEY
+# RESEND_FROM_EMAIL             (optional; default Replayr <support@replayr.tv>)
+# RESEND_REPLY_TO               (optional; default support@replayr.tv)
+#
 # Mobile Universal / App Links (optional until store builds ship):
 # APPLE_TEAM_ID
 # IOS_BUNDLE_ID                 (default tv.elite.replay)

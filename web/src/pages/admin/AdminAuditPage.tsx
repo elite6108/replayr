@@ -5,6 +5,7 @@ import { AnalyticsEmptyState } from "../../components/analytics/AnalyticsEmptySt
 import { fetchAdminAudit, type AuditLogResponse } from "../../lib/adminAnalytics";
 import { useAuth } from "../../lib/auth";
 import { useAnalyticsQuery } from "./analytics/useAnalyticsQuery";
+import { AdminPageHeader } from "./components/AdminPageHeader";
 
 export function AdminAuditPage() {
   const { session } = useAuth();
@@ -40,17 +41,13 @@ export function AdminAuditPage() {
   }, [session?.access_token, query.search, actorType, action, search]);
 
   return (
-    <section className="admin-section analytics-page">
-      <header className="admin-header">
-        <div>
-          <p className="eyebrow">Operations</p>
-          <h2>Audit Log</h2>
-          <p className="muted">Append-only security and admin history. Separate from analytics and folder activity.</p>
-        </div>
-        <div className="analytics-toolbar">
-          <AnalyticsDateRangePicker />
-        </div>
-      </header>
+    <section className="admin-dash analytics-page">
+      <AdminPageHeader
+        eyebrow="Operations"
+        title="Audit Log"
+        description="Append-only security and admin history. Separate from analytics and folder activity."
+        actions={<AnalyticsDateRangePicker />}
+      />
       <div className="analytics-toolbar">
         <select value={actorType} onChange={(event) => setActorType(event.target.value)} aria-label="Actor type">
           <option value="">All actors</option>
@@ -64,6 +61,7 @@ export function AdminAuditPage() {
       {error ? (
         <AnalyticsEmptyState title="Could not load audit log" body={error} />
       ) : (
+        <div className="admin-panel admin-table-card">
         <div className="analytics-table-wrap">
           <table className="analytics-table">
             <thead>
@@ -114,6 +112,7 @@ export function AdminAuditPage() {
             </tbody>
           </table>
           {data?.nextCursor ? <p className="muted">More rows exist. Narrow the date range or filters.</p> : null}
+        </div>
         </div>
       )}
     </section>

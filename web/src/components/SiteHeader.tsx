@@ -92,7 +92,11 @@ export function SiteHeader() {
                     Staff
                   </NavLink>
                 ) : null}
-                {admin || can("admin.access") ? <NavLink to="/admin">Admin</NavLink> : null}
+                {admin || can("admin.access") ? (
+                  <NavLink to="/admin" className={() => (location.pathname.startsWith("/admin") ? "active" : "")}>
+                    Admin
+                  </NavLink>
+                ) : null}
               </>
             ) : (
               <NavLink to="/signin">Sign in</NavLink>

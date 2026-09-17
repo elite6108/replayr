@@ -33,6 +33,9 @@ for (const key of [
   "BUNNY_STREAM_READONLY_API_KEY",
   "BUNNY_STREAM_TOKEN_AUTH_KEY",
   "SITE_ACCESS_PASSWORD",
+  "RESEND_API_KEY",
+  "RESEND_FROM_EMAIL",
+  "RESEND_REPLY_TO",
 ]) {
   const value = env[key] || existing[key];
   if (value) vars[key] = value;

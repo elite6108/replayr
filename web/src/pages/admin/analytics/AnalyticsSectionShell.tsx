@@ -5,23 +5,21 @@ export function AnalyticsSectionShell({ sectionId }: { sectionId: AnalyticsSecti
   const section = analyticsSectionById(sectionId);
   const location = useLocation();
   return (
-    <div className="analytics-section">
-      <header className="analytics-section-header">
-        <p className="eyebrow">Analytics</p>
-        <h2>{section.label}</h2>
-        <p className="muted">{section.description}</p>
-        <nav className="analytics-section-tabs" aria-label={`${section.label} sections`}>
-          {section.tabs.map((tab) => (
-            <NavLink
-              key={tab.id}
-              to={`${tab.path}${location.search}`}
-              end={tab.end}
-            >
-              {tab.label}
-            </NavLink>
-          ))}
-        </nav>
+    <div className="admin-dash analytics-section">
+      <header className="admin-page-header">
+        <div>
+          <p className="admin-kicker">Analytics</p>
+          <h2>{section.label}</h2>
+          <p className="muted">{section.description}</p>
+        </div>
       </header>
+      <nav className="analytics-section-tabs" aria-label={`${section.label} sections`}>
+        {section.tabs.map((tab) => (
+          <NavLink key={tab.id} to={`${tab.path}${location.search}`} end={tab.end}>
+            {tab.label}
+          </NavLink>
+        ))}
+      </nav>
       <Outlet />
     </div>
   );

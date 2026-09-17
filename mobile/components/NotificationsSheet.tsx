@@ -22,6 +22,7 @@ import {
 } from "@/lib/api.friends";
 import { acceptFollowRequest, declineFollowRequest } from "@/lib/api.follows";
 import { folderHref, foldersHref } from "@/lib/api.folders";
+import { staffHref, staffTaskHref } from "@/lib/api.staff";
 import { threadHref } from "@/lib/api.messages";
 import { formatTimeAgo } from "@/lib/format";
 import { useSocialUnread } from "@/lib/socialUnread";
@@ -146,7 +147,7 @@ export function NotificationsSheet({
       return;
     }
     if (item.kind.startsWith("staff_task")) {
-      router.push("/staff/tasks");
+      router.push(item.staffTaskId ? staffTaskHref(item.staffTaskId) : staffHref());
       return;
     }
     if (

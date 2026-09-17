@@ -7,9 +7,12 @@ describe("isSiteGatedPath", () => {
     expect(isSiteGatedPath("/auth/callback")).toBe(false);
   });
 
-  it("still gates the marketing homepage", () => {
+  it("keeps staff invitation entry routes open while gating marketing", () => {
     expect(isSiteGatedPath("/")).toBe(true);
-    expect(isSiteGatedPath("/signin")).toBe(true);
+    expect(isSiteGatedPath("/pricing")).toBe(true);
+    expect(isSiteGatedPath("/signin")).toBe(false);
+    expect(isSiteGatedPath("/staff")).toBe(false);
+    expect(isSiteGatedPath("/staff/boards")).toBe(false);
   });
 
   it("keeps screenshot share links open", () => {

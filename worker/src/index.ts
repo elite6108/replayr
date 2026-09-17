@@ -53,6 +53,7 @@ import {
   comingSoonSecurityHeaders,
   handleSiteAccess,
   handleWaitlist,
+  handleWaitlistPages,
   hasValidSiteAccess,
   isOAuthHandoff,
   isSiteGatedPath,
@@ -210,6 +211,8 @@ async function route(
   if (siteAccess) return siteAccess;
   const waitlist = await handleWaitlist(request, env);
   if (waitlist) return waitlist;
+  const waitlistPage = await handleWaitlistPages(request, env);
+  if (waitlistPage) return waitlistPage;
 
   // Locked landing assets must bypass the gate (and avoid ASSETS↔worker recursion).
   if (

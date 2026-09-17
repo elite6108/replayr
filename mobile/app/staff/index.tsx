@@ -1,11 +1,12 @@
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Switch, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppHeader } from "@/components/AppHeader";
 import { StaffGate } from "@/components/staff/StaffGate";
 import { staffStyles } from "@/components/staff/staffStyles";
-import { staffBoardsHref, staffMembersHref, staffRolesHref, staffTasksHref } from "@/lib/api.staff";
+import { staffBoardsHref, staffMembersHref, staffRolesHref, staffTasksHref, patchStaffMe } from "@/lib/api.staff";
+import { useAuth } from "@/lib/auth";
 import { useStaffPermissions } from "@/lib/staffPermissions";
 import { colors } from "@/lib/theme";
 
@@ -31,8 +32,12 @@ function HubRow({
 
 export default function StaffHubScreen() {
   const router = useRouter();
-  const { can, me } = useStaffPermissions();
+  const { can, me, reload } = useStaffPermissions();
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
   const role = me?.isSuperAdmin ? "Super Admin" : me?.roles[0]?.name || "Staff";
+  const emailOn = me?.notifyBoardEmail !== false;
+  const ownEmailOn = Boolean(me?.notifyOwnBoardEmail);
 
   return (
     <StaffGate permission="staff.access">
@@ -56,6 +61,45 @@ export default function StaffHubScreen() {
           {can("staff.roles.view") ? (
             <HubRow label="Roles & Permissions" hint="Role names and counts" onPress={() => router.push(staffRolesHref())} />
           ) : null}
+          <View style={staffStyles.card}>
+            <View style={staffStyles.memberHeading}>
+              <View style={{ flex: 1 }}>
+                <Text style={staffStyles.cardTitle}>Email me about board activity</Text>
+                <Text style={staffStyles.muted}>
+                  When others add, move, assign, comment, or change due dates on boards you can access.
+                </Text>
+              </View>
+              <Switch
+                value={emailOn}
+                onValueChange={(next) => {
+                  if (!token) return;
+                  void patchStaffMe(token, { notifyBoardEmail: next }).then(reload);
+                }}
+                trackColor={{ false: colors.border, true: colors.accent }}
+                thumbColor={colors.text}
+              />
+            </View>
+          </View>
+          <View style={staffStyles.card}>
+            <View style={staffStyles.memberHeading}>
+              <View style={{ flex: 1 }}>
+                <Text style={staffStyles.cardTitle}>Email me about my own edits on boards I own</Text>
+                <Text style={staffStyles.muted}>
+                  Off by default. Turn this on if you want a copy when you add, move, assign, comment, or change due dates.
+                </Text>
+              </View>
+              <Switch
+                value={ownEmailOn}
+                disabled={!emailOn}
+                onValueChange={(next) => {
+                  if (!token) return;
+                  void patchStaffMe(token, { notifyOwnBoardEmail: next }).then(reload);
+                }}
+                trackColor={{ false: colors.border, true: colors.accent }}
+                thumbColor={colors.text}
+              />
+            </View>
+          </View>
         </ScrollView>
       </SafeAreaView>
     </StaffGate>

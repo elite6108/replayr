@@ -3,6 +3,7 @@ import {
   deleteStaffBoard,
   fetchStaffBoardMembers,
   removeStaffBoardMember,
+  setStaffBoardEmailNotifications,
   setStaffBoardMemberRole,
   type StaffBoardDetail,
   type StaffBoardMembers,
@@ -33,6 +34,8 @@ export function BoardMembersDialog({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [emailEnabled, setEmailEnabled] = useState(board.emailEnabled !== false);
+  const [emailBusy, setEmailBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -43,6 +46,10 @@ export function BoardMembersDialog({
   useEffect(() => {
     void load().catch((caught: unknown) => setError(messageFrom(caught, "Could not load board members.")));
   }, [load]);
+
+  useEffect(() => {
+    setEmailEnabled(board.emailEnabled !== false);
+  }, [board.emailEnabled]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -87,6 +94,29 @@ export function BoardMembersDialog({
         </header>
 
         {error ? <p className="ops-error" role="alert">{error}</p> : null}
+        <label className="ops-email-pref ops-email-pref-inline">
+          <input
+            type="checkbox"
+            checked={emailEnabled}
+            disabled={emailBusy}
+            onChange={() => {
+              const next = !emailEnabled;
+              setEmailBusy(true);
+              setError(null);
+              void setStaffBoardEmailNotifications(token, board.id, next)
+                .then((body) => {
+                  setEmailEnabled(body.emailEnabled);
+                  return onChanged();
+                })
+                .catch((caught: unknown) => setError(messageFrom(caught, "Could not update board emails.")))
+                .finally(() => setEmailBusy(false));
+            }}
+          />
+          <span>
+            <strong>Email me when this board changes</strong>
+            <small>Mute this board even if all-boards email is on. You still will not get mail for your own edits.</small>
+          </span>
+        </label>
         {!data && !error ? <p className="ops-modal-status">Loading members…</p> : null}
         {!data && error ? (
           <button className="ops-ghost" type="button" onClick={() => void load().catch((caught: unknown) => setError(messageFrom(caught, "Could not load board members.")))}>

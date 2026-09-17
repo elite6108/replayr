@@ -1,5 +1,6 @@
 import { handleAdmin } from "./admin";
 import { handleStaff, notifyStaffTaskDueSoon } from "./staff";
+import { drainWaitlistCampaigns } from "./waitlistAdmin";
 import { handleAnalytics, observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
 import { installerArtifact, recordClipDownloadEvent, serveInstallerDownload } from "./analyticsDownloads";
 import { runRecentAnalyticsRollup } from "./analyticsRollup";
@@ -161,6 +162,11 @@ export default {
           await notifyStaffTaskDueSoon(env);
         } catch (caught) {
           console.error("staff_due_soon_failed", caught instanceof Error ? caught.message : "unknown");
+        }
+        try {
+          await drainWaitlistCampaigns(env);
+        } catch (caught) {
+          console.error("waitlist_campaign_drain_failed", caught instanceof Error ? caught.message : "unknown");
         }
         try {
           const result = await runRecentAnalyticsRollup(env);
@@ -325,10 +331,10 @@ async function route(
     return ingestClientError(request, env);
   }
   if (url.pathname.startsWith("/v1/admin")) {
-    return handleAdmin(request, env, url);
+    return handleAdmin(request, env, url, ctx);
   }
   if (url.pathname.startsWith("/v1/staff")) {
-    return handleStaff(request, env, url);
+    return handleStaff(request, env, url, ctx);
   }
   const share = url.pathname.match(/^\/c\/([^/]+)\/?$/);
   if (request.method === "GET" && share?.[1]) {

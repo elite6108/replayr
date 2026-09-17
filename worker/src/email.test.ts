@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "./env";
 import {
+  boardActivityEmail,
   escapeHtml,
+  publicSiteUrl,
   roleChangedEmail,
   sendReplayrEmail,
   staffInviteEmail,
+  WAITLIST_X_URL,
+  waitlistCampaignEmail,
+  waitlistConfirmEmail,
 } from "./email";
 
 function env(overrides: Partial<Env> = {}): Env {
@@ -48,8 +53,45 @@ describe("Replayr email templates", () => {
     expect(message.html).toContain("A &lt; B");
   });
 
+  it("renders board activity chrome with a board CTA", () => {
+    const message = boardActivityEmail({
+      actorName: "Ada <script>",
+      boardName: "Ops & QA",
+      taskTitle: "Ship <it>",
+      summary: "Ada added “Ship <it>”.",
+      boardUrl: "https://www.replayr.tv/staff/board/abc",
+    });
+    expect(message.subject).toContain("Ops & QA");
+    expect(message.html).not.toContain("<script>");
+    expect(message.html).toContain("Ada &lt;script&gt;");
+    expect(message.html).toContain("https://www.replayr.tv/staff/board/abc");
+    expect(message.text).toContain("Your own edits never email you");
+  });
+
   it("escapes all HTML-significant characters", () => {
     expect(escapeHtml(`<a href="'">&`)).toBe("&lt;a href=&quot;&#039;&quot;&gt;&amp;");
+  });
+
+  it("puts replayr.tv and the X profile on every waitlist email", () => {
+    const links = {
+      siteUrl: "https://replayr.tv",
+      unsubscribeUrl: "https://replayr.tv/v1/waitlist/unsubscribe?token=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    };
+    const confirm = waitlistConfirmEmail(links);
+    const campaign = waitlistCampaignEmail({
+      ...links,
+      subject: "It's almost time",
+      body: "We're locking Instant Replay.",
+    });
+    for (const message of [confirm, campaign]) {
+      expect(message.html).toContain("https://replayr.tv");
+      expect(message.html).toContain(WAITLIST_X_URL);
+      expect(message.html).toContain("@Replayr_TV");
+      expect(message.html).toContain(links.unsubscribeUrl);
+      expect(message.text).toContain("https://replayr.tv");
+      expect(message.text).toContain(WAITLIST_X_URL);
+    }
+    expect(publicSiteUrl("https://www.replayr.tv/")).toBe("https://www.replayr.tv");
   });
 });
 

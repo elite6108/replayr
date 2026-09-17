@@ -28,6 +28,8 @@ export type StaffActor = {
   permissions: Set<string>;
   roles: StaffRoleSummary[];
   isSuperAdmin: boolean;
+  notifyBoardEmail: boolean;
+  notifyOwnBoardEmail: boolean;
   serviceKey: string;
   requestId: string | null;
 };
@@ -41,6 +43,8 @@ type MemberRow = {
   status: string;
   created_at: string;
   last_active_at: string | null;
+  notify_board_email?: boolean | null;
+  notify_own_board_email?: boolean | null;
 };
 
 type AssignmentJoin = {
@@ -108,6 +112,8 @@ export function presentMe(actor: StaffActor) {
     roles: actor.roles,
     permissions: actor.isSuperAdmin ? ["*"] : [...actor.permissions].sort(),
     isSuperAdmin: actor.isSuperAdmin,
+    notifyBoardEmail: actor.notifyBoardEmail,
+    notifyOwnBoardEmail: actor.notifyOwnBoardEmail,
   };
 }
 
@@ -178,6 +184,8 @@ async function loadActor(
     permissions: permissionKeys,
     roles,
     isSuperAdmin,
+    notifyBoardEmail: member.notify_board_email !== false,
+    notifyOwnBoardEmail: Boolean(member.notify_own_board_email),
     serviceKey: env.SUPABASE_SERVICE_ROLE_KEY!,
     requestId: requestCorrelationId(request),
   };
@@ -189,7 +197,7 @@ async function fetchMember(env: Env, userId: string): Promise<MemberRow | null> 
   const rows = await serviceRest<MemberRow[]>(
     env,
     "GET",
-    `/staff_members?user_id=eq.${userId}&select=id,user_id,display_name,job_title,department,status,created_at,last_active_at`,
+    `/staff_members?user_id=eq.${userId}&select=id,user_id,display_name,job_title,department,status,created_at,last_active_at,notify_board_email,notify_own_board_email`,
   );
   return rows[0] ?? null;
 }

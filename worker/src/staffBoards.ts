@@ -1,5 +1,6 @@
 import { AwsClient } from "aws4fetch";
 import { AUDIT_ACTIONS, auditRequestMeta, writeAuditLog } from "./audit";
+import { queueBoardActivityEmail, type WaitUntilCtx } from "./boardActivity";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { serviceRest } from "./shared";
@@ -56,7 +57,12 @@ type TaskListRow = {
   updated_at: string;
 };
 
-export async function handleStaffBoards(request: Request, env: Env, url: URL): Promise<Response | null> {
+export async function handleStaffBoards(
+  request: Request,
+  env: Env,
+  url: URL,
+  ctx?: WaitUntilCtx,
+): Promise<Response | null> {
   const path = url.pathname;
   const method = request.method;
 
@@ -107,6 +113,12 @@ export async function handleStaffBoards(request: Request, env: Env, url: URL): P
     if (method === "DELETE") return removeBoardMember(request, env, actor, boardMemberItem[1], boardMemberItem[2]);
   }
 
+  const boardEmail = path.match(/^\/v1\/staff\/boards\/([^/]+)\/email-notifications$/);
+  if (boardEmail?.[1] && UUID.test(boardEmail[1]) && method === "PUT") {
+    const actor = await requirePermission(request, env, "board.view");
+    return setBoardEmailNotifications(request, env, actor, boardEmail[1]);
+  }
+
   const boardColumns = path.match(/^\/v1\/staff\/boards\/([^/]+)\/columns$/);
   if (boardColumns?.[1] && method === "POST") {
     const actor = await requirePermission(request, env, "board.columns.create");
@@ -144,7 +156,7 @@ export async function handleStaffBoards(request: Request, env: Env, url: URL): P
   const boardTasks = path.match(/^\/v1\/staff\/boards\/([^/]+)\/tasks$/);
   if (boardTasks?.[1] && method === "POST") {
     const actor = await requirePermission(request, env, "board.cards.create");
-    return createTask(request, env, actor, boardTasks[1]);
+    return createTask(request, env, actor, boardTasks[1], ctx);
   }
 
   return null;
@@ -476,7 +488,7 @@ async function removeBoardMember(
 async function getBoard(env: Env, actor: StaffActor, boardId: string, url: URL): Promise<Response> {
   const access = await requireBoardAccess(env, actor, boardId);
   const includeArchived = url.searchParams.get("archived") === "1";
-  const [columns, labels, members] = await Promise.all([
+  const [columns, labels, members, emailPref] = await Promise.all([
     serviceRest<ColumnRow[]>(
       env,
       "GET",
@@ -491,6 +503,11 @@ async function getBoard(env: Env, actor: StaffActor, boardId: string, url: URL):
       env,
       "GET",
       `/staff_board_members?board_id=eq.${boardId}&select=staff_id,board_role,staff_members(id,display_name,user_id)`,
+    ),
+    serviceRest<Array<{ email: boolean }>>(
+      env,
+      "GET",
+      `/staff_board_email_prefs?staff_id=eq.${actor.staffId}&board_id=eq.${boardId}&select=email`,
     ),
   ]);
 
@@ -553,6 +570,7 @@ async function getBoard(env: Env, actor: StaffActor, boardId: string, url: URL):
       visibility: access.board.visibility,
       boardRole: access.boardRole,
       canMutate: access.canMutate,
+      emailEnabled: emailPref[0]?.email !== false,
       ...capabilities,
       createdAt: access.board.created_at,
       updatedAt: access.board.updated_at,
@@ -581,6 +599,30 @@ async function getBoard(env: Env, actor: StaffActor, boardId: string, url: URL):
       })),
     },
   });
+}
+
+async function setBoardEmailNotifications(
+  request: Request,
+  env: Env,
+  actor: StaffActor,
+  boardId: string,
+): Promise<Response> {
+  await requireBoardAccess(env, actor, boardId);
+  const body = (await request.json().catch(() => ({}))) as { enabled?: boolean };
+  if (typeof body.enabled !== "boolean") throw new HttpError(400, "enabled is required.");
+  await serviceRest(
+    env,
+    "POST",
+    "/staff_board_email_prefs?on_conflict=staff_id,board_id",
+    {
+      staff_id: actor.staffId,
+      board_id: boardId,
+      email: body.enabled,
+      updated_at: new Date().toISOString(),
+    },
+    "resolution=merge-duplicates,return=representation",
+  );
+  return json({ emailEnabled: body.enabled });
 }
 
 async function createColumn(request: Request, env: Env, actor: StaffActor, boardId: string): Promise<Response> {
@@ -675,7 +717,13 @@ async function deleteLabel(env: Env, actor: StaffActor, labelId: string): Promis
   return json({ ok: true });
 }
 
-async function createTask(request: Request, env: Env, actor: StaffActor, boardId: string): Promise<Response> {
+async function createTask(
+  request: Request,
+  env: Env,
+  actor: StaffActor,
+  boardId: string,
+  ctx?: WaitUntilCtx,
+): Promise<Response> {
   const access = await requireBoardAccess(env, actor, boardId, "board.cards.create");
   assertCanMutate(access);
   const body = (await request.json().catch(() => ({}))) as {
@@ -736,6 +784,16 @@ async function createTask(request: Request, env: Env, actor: StaffActor, boardId
       label: body.relation.label?.slice(0, 120) ?? null,
     });
   }
+  queueBoardActivityEmail(ctx, env, {
+    boardId,
+    taskId: task.id,
+    actorStaffId: actor.staffId,
+    actorName: actor.displayName,
+    kind: "added",
+    summary: `${actor.displayName} added “${task.title}”.`,
+    taskTitle: task.title,
+    boardName: access.board.name,
+  });
   return json({ task: { id: task.id, title: task.title, columnId: task.column_id, rank: task.rank } });
 }
 

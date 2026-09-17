@@ -32,6 +32,8 @@ function actor(overrides: Partial<StaffActor> = {}): StaffActor {
     permissions: new Set(["board.view", "board.edit", "board.delete", "board.members.manage"]),
     roles: [],
     isSuperAdmin: false,
+    notifyBoardEmail: true,
+    notifyOwnBoardEmail: false,
     serviceKey: "service",
     requestId: null,
     ...overrides,

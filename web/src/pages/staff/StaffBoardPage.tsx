@@ -13,6 +13,7 @@ import {
   patchStaffColumn,
   patchStaffTask,
   setStaffAssignees,
+  setStaffBoardEmailNotifications,
   type StaffBoardCard,
   type StaffBoardDetail,
   type StaffBoardSummary,
@@ -470,6 +471,22 @@ export function StaffBoardPage() {
               </span>
             }
           >
+            {board ? (
+              <button
+                type="button"
+                className={`ops-menu-item${board.emailEnabled !== false ? " is-active" : ""}`}
+                onClick={() => {
+                  const next = board.emailEnabled === false;
+                  void setStaffBoardEmailNotifications(token, board.id, next)
+                    .then((body) => {
+                      setBoard((current) => (current ? { ...current, emailEnabled: body.emailEnabled } : current));
+                    })
+                    .catch(() => undefined);
+                }}
+              >
+                {board.emailEnabled === false ? "Email me when this board changes" : "Mute emails for this board"}
+              </button>
+            ) : null}
             {board?.canManageMembers ? (
               <>
                 <button

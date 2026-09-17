@@ -1,4 +1,5 @@
 import { AwsClient } from "aws4fetch";
+import { assigneeSetChanged, dueAtChanged, queueBoardActivityEmail, shouldNotifyBoardMove, type WaitUntilCtx } from "./boardActivity";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { rankAfter, rankBetween } from "./lexorank";
@@ -30,7 +31,12 @@ type TaskRow = {
   updated_at: string;
 };
 
-export async function handleStaffTasks(request: Request, env: Env, url: URL): Promise<Response | null> {
+export async function handleStaffTasks(
+  request: Request,
+  env: Env,
+  url: URL,
+  ctx?: WaitUntilCtx,
+): Promise<Response | null> {
   const path = url.pathname;
   const method = request.method;
 
@@ -40,7 +46,7 @@ export async function handleStaffTasks(request: Request, env: Env, url: URL): Pr
   }
   if (method === "POST" && path === "/v1/staff/tasks") {
     const actor = await requirePermission(request, env, "board.cards.create");
-    return createStandaloneTask(request, env, actor);
+    return createStandaloneTask(request, env, actor, ctx);
   }
 
   const taskItem = path.match(/^\/v1\/staff\/tasks\/([^/]+)$/);
@@ -51,7 +57,7 @@ export async function handleStaffTasks(request: Request, env: Env, url: URL): Pr
     }
     if (method === "PATCH") {
       const actor = await requirePermission(request, env, "board.cards.edit");
-      return patchTask(request, env, actor, taskItem[1]);
+      return patchTask(request, env, actor, taskItem[1], ctx);
     }
     if (method === "DELETE") {
       const actor = await requirePermission(request, env, "board.cards.delete");
@@ -62,12 +68,12 @@ export async function handleStaffTasks(request: Request, env: Env, url: URL): Pr
   const move = path.match(/^\/v1\/staff\/tasks\/([^/]+)\/move$/);
   if (move?.[1] && method === "POST") {
     const actor = await requirePermission(request, env, "board.cards.move");
-    return moveTask(request, env, actor, move[1]);
+    return moveTask(request, env, actor, move[1], ctx);
   }
   const assignees = path.match(/^\/v1\/staff\/tasks\/([^/]+)\/assignees$/);
   if (assignees?.[1] && method === "PUT") {
     const actor = await requirePermission(request, env, "board.cards.assign");
-    return setAssignees(request, env, actor, assignees[1]);
+    return setAssignees(request, env, actor, assignees[1], ctx);
   }
   const labels = path.match(/^\/v1\/staff\/tasks\/([^/]+)\/labels$/);
   if (labels?.[1] && method === "PUT") {
@@ -83,7 +89,7 @@ export async function handleStaffTasks(request: Request, env: Env, url: URL): Pr
   const comments = path.match(/^\/v1\/staff\/tasks\/([^/]+)\/comments$/);
   if (comments?.[1] && method === "POST") {
     const actor = await requirePermission(request, env, "board.comments.create");
-    return addComment(request, env, actor, comments[1]);
+    return addComment(request, env, actor, comments[1], ctx);
   }
   const commentItem = path.match(/^\/v1\/staff\/comments\/([^/]+)$/);
   if (commentItem?.[1] && method === "DELETE") {
@@ -167,7 +173,12 @@ export async function handleStaffTasks(request: Request, env: Env, url: URL): Pr
   return null;
 }
 
-async function createStandaloneTask(request: Request, env: Env, actor: StaffActor): Promise<Response> {
+async function createStandaloneTask(
+  request: Request,
+  env: Env,
+  actor: StaffActor,
+  ctx?: WaitUntilCtx,
+): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as { boardId?: string; columnId?: string; title?: string; relation?: unknown };
   if (typeof body.boardId !== "string") throw new HttpError(400, "boardId is required.");
   const inner = new Request(request.url, {
@@ -180,6 +191,7 @@ async function createStandaloneTask(request: Request, env: Env, actor: StaffActo
     new Request(`${new URL(request.url).origin}/v1/staff/boards/${body.boardId}/tasks`, inner),
     env,
     new URL(`/v1/staff/boards/${body.boardId}/tasks`, request.url),
+    ctx,
   );
   if (!response) throw new HttpError(400, "Could not create task.");
   return response;
@@ -378,7 +390,13 @@ async function getTask(env: Env, actor: StaffActor, taskId: string): Promise<Res
   });
 }
 
-async function patchTask(request: Request, env: Env, actor: StaffActor, taskId: string): Promise<Response> {
+async function patchTask(
+  request: Request,
+  env: Env,
+  actor: StaffActor,
+  taskId: string,
+  ctx?: WaitUntilCtx,
+): Promise<Response> {
   const task = await mustTask(env, taskId);
   const access = await requireBoardAccess(env, actor, task.board_id, "board.cards.edit");
   assertCanMutate(access);
@@ -415,6 +433,21 @@ async function patchTask(request: Request, env: Env, actor: StaffActor, taskId: 
   if (!Object.keys(patch).length) throw new HttpError(400, "Nothing to update.");
   await serviceRest(env, "PATCH", `/staff_tasks?id=eq.${taskId}`, patch);
   await addActivity(env, taskId, actor.staffId, "updated", patch);
+  if ("dueAt" in body && dueAtChanged(task.due_at, typeof body.dueAt === "string" ? body.dueAt : null)) {
+    const nextDue = typeof body.dueAt === "string" ? body.dueAt : null;
+    queueBoardActivityEmail(ctx, env, {
+      boardId: task.board_id,
+      taskId,
+      actorStaffId: actor.staffId,
+      actorName: actor.displayName,
+      kind: "due",
+      summary: nextDue
+        ? `${actor.displayName} set the due date to ${nextDue}.`
+        : `${actor.displayName} cleared the due date.`,
+      taskTitle: typeof patch.title === "string" ? patch.title : task.title,
+      boardName: access.board.name,
+    });
+  }
   return getTask(env, actor, taskId);
 }
 
@@ -427,7 +460,13 @@ async function archiveTask(env: Env, actor: StaffActor, taskId: string): Promise
   return json({ ok: true });
 }
 
-async function moveTask(request: Request, env: Env, actor: StaffActor, taskId: string): Promise<Response> {
+async function moveTask(
+  request: Request,
+  env: Env,
+  actor: StaffActor,
+  taskId: string,
+  ctx?: WaitUntilCtx,
+): Promise<Response> {
   const task = await mustTask(env, taskId);
   const access = await requireBoardAccess(env, actor, task.board_id, "board.cards.move");
   assertCanMutate(access);
@@ -446,10 +485,28 @@ async function moveTask(request: Request, env: Env, actor: StaffActor, taskId: s
   const rank = rankBetween(body.beforeRank, body.afterRank);
   await serviceRest(env, "PATCH", `/staff_tasks?id=eq.${taskId}`, { column_id: columnId, rank });
   await addActivity(env, taskId, actor.staffId, "moved", { columnId, rank });
+  if (shouldNotifyBoardMove(task.column_id, columnId)) {
+    queueBoardActivityEmail(ctx, env, {
+      boardId: task.board_id,
+      taskId,
+      actorStaffId: actor.staffId,
+      actorName: actor.displayName,
+      kind: "moved",
+      summary: `${actor.displayName} moved “${task.title}” to another column.`,
+      taskTitle: task.title,
+      boardName: access.board.name,
+    });
+  }
   return json({ ok: true, rank, columnId });
 }
 
-async function setAssignees(request: Request, env: Env, actor: StaffActor, taskId: string): Promise<Response> {
+async function setAssignees(
+  request: Request,
+  env: Env,
+  actor: StaffActor,
+  taskId: string,
+  ctx?: WaitUntilCtx,
+): Promise<Response> {
   const task = await mustTask(env, taskId);
   const access = await requireBoardAccess(env, actor, task.board_id, "board.cards.assign");
   assertCanMutate(access);
@@ -477,6 +534,20 @@ async function setAssignees(request: Request, env: Env, actor: StaffActor, taskI
   const added = staffIds.filter((id) => !previous.some((row) => row.staff_id === id));
   await notifyStaff(env, actor, task, added, "staff_task_assigned");
   await addActivity(env, taskId, actor.staffId, "assigned", { staffIds });
+  if (assigneeSetChanged(previous.map((row) => row.staff_id), staffIds)) {
+    queueBoardActivityEmail(ctx, env, {
+      boardId: task.board_id,
+      taskId,
+      actorStaffId: actor.staffId,
+      actorName: actor.displayName,
+      kind: "assigned",
+      summary: staffIds.length
+        ? `${actor.displayName} updated assignees on “${task.title}”.`
+        : `${actor.displayName} cleared assignees on “${task.title}”.`,
+      taskTitle: task.title,
+      boardName: access.board.name,
+    });
+  }
   return getTask(env, actor, taskId);
 }
 
@@ -524,7 +595,13 @@ async function setWatch(env: Env, actor: StaffActor, taskId: string, watch: bool
   return json({ watching: watch });
 }
 
-async function addComment(request: Request, env: Env, actor: StaffActor, taskId: string): Promise<Response> {
+async function addComment(
+  request: Request,
+  env: Env,
+  actor: StaffActor,
+  taskId: string,
+  ctx?: WaitUntilCtx,
+): Promise<Response> {
   const task = await mustTask(env, taskId);
   const access = await requireBoardAccess(env, actor, task.board_id, "board.comments.create");
   assertCanMutate(access);
@@ -554,6 +631,16 @@ async function addComment(request: Request, env: Env, actor: StaffActor, taskId:
   const watchers = await watcherUserIds(env, taskId, task.board_id, [...mentioned, actor.staffId]);
   await notifyUsers(env, actor.userId, watchers, "staff_task_comment", task.id);
   await addActivity(env, taskId, actor.staffId, "commented", { commentId: created[0]?.id });
+  queueBoardActivityEmail(ctx, env, {
+    boardId: task.board_id,
+    taskId,
+    actorStaffId: actor.staffId,
+    actorName: actor.displayName,
+    kind: "comment",
+    summary: `${actor.displayName} commented: ${text.slice(0, 140)}${text.length > 140 ? "…" : ""}`,
+    taskTitle: task.title,
+    boardName: access.board.name,
+  });
   return getTask(env, actor, taskId);
 }
 

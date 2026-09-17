@@ -24,6 +24,8 @@ export type StaffMe = {
   roles: Array<{ id: string; slug: string; name: string; color: string | null; isSystem: boolean; isSuperAdmin: boolean }>;
   permissions: string[];
   isSuperAdmin: boolean;
+  notifyBoardEmail: boolean;
+  notifyOwnBoardEmail: boolean;
 };
 
 export type StaffMember = {
@@ -96,6 +98,7 @@ export type StaffBoardDetail = {
   visibility: string;
   boardRole: string;
   canMutate: boolean;
+  emailEnabled: boolean;
   isOwner: boolean;
   canManageMembers: boolean;
   canDelete: boolean;
@@ -177,6 +180,10 @@ async function staffFetch<T>(path: string, token: string, init?: RequestInit): P
 
 export function fetchStaffMe(token: string) {
   return staffFetch<StaffMe>("/v1/staff/me", token);
+}
+
+export function patchStaffMe(token: string, body: { notifyBoardEmail?: boolean; notifyOwnBoardEmail?: boolean }) {
+  return staffFetch<StaffMe>("/v1/staff/me", token, { method: "PATCH", body: JSON.stringify(body) });
 }
 
 export function fetchStaffMembers(token: string) {
@@ -271,6 +278,13 @@ export function patchStaffBoard(token: string, id: string, body: Record<string, 
 
 export function fetchStaffBoardMembers(token: string, boardId: string) {
   return staffFetch<StaffBoardMembers>(`/v1/staff/boards/${boardId}/members`, token);
+}
+
+export function setStaffBoardEmailNotifications(token: string, boardId: string, enabled: boolean) {
+  return staffFetch<{ emailEnabled: boolean }>(`/v1/staff/boards/${boardId}/email-notifications`, token, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
 }
 
 export function setStaffBoardMemberRole(token: string, boardId: string, staffId: string, boardRole: StaffBoardRole) {

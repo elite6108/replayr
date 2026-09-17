@@ -139,7 +139,15 @@ export default function StaffBoardScreen() {
                   >
                     <Ionicons name="people-outline" size={19} color={colors.text} />
                   </Pressable>
-                ) : null}
+                ) : (
+                  <Pressable
+                    style={staffStyles.iconBtn}
+                    onPress={() => setMembersOpen(true)}
+                    accessibilityLabel="Board email notifications"
+                  >
+                    <Ionicons name="mail-outline" size={18} color={colors.text} />
+                  </Pressable>
+                )}
                 {board?.canDelete ? (
                   <Pressable
                     style={staffStyles.iconBtn}
@@ -206,13 +214,16 @@ export default function StaffBoardScreen() {
               router.push(staffTaskHref(taskId));
             }}
           />
-          {board?.canManageMembers ? (
+          {board ? (
             <StaffBoardMembersSheet
               visible={membersOpen}
               token={token}
               boardId={board.id}
+              canManageMembers={Boolean(board.canManageMembers)}
+              emailEnabled={board.emailEnabled !== false}
               onClose={() => setMembersOpen(false)}
               onChanged={() => void load()}
+              onEmailChanged={(enabled) => setBoard((current) => (current ? { ...current, emailEnabled: enabled } : current))}
             />
           ) : null}
           {board?.canDelete ? (

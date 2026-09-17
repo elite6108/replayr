@@ -32,6 +32,27 @@ export type RoleChangedEmailInput = {
   staffUrl: string;
 };
 
+export type BoardActivityEmailInput = {
+  actorName: string;
+  boardName: string;
+  taskTitle: string;
+  summary: string;
+  boardUrl: string;
+};
+
+export const WAITLIST_X_URL = "https://x.com/Replayr_TV";
+export const WAITLIST_X_HANDLE = "@Replayr_TV";
+
+export type WaitlistEmailLinks = {
+  siteUrl: string;
+  unsubscribeUrl: string;
+};
+
+export type WaitlistCampaignEmailInput = WaitlistEmailLinks & {
+  subject: string;
+  body: string;
+};
+
 export async function sendReplayrEmail(
   env: Env,
   email: ReplayrEmail,
@@ -144,6 +165,89 @@ export function roleChangedEmail(input: RoleChangedEmailInput): Omit<ReplayrEmai
   };
 }
 
+export function boardActivityEmail(input: BoardActivityEmailInput): Omit<ReplayrEmail, "to" | "idempotencyKey"> {
+  const actor = input.actorName.trim() || "A teammate";
+  const board = input.boardName.trim() || "a board";
+  const card = input.taskTitle.trim() || "a card";
+  const summary = input.summary.trim() || `${actor} updated a card.`;
+  return {
+    subject: `${board}: ${card}`,
+    text: [
+      summary,
+      "",
+      `Board: ${board}`,
+      `Card: ${card}`,
+      `Changed by: ${actor}`,
+      "",
+      `Your own edits never email you. Open the board: ${input.boardUrl}`,
+    ].join("\n"),
+    html: emailFrame(
+      escapeHtml(board),
+      `<p>${escapeHtml(summary)}</p>
+       <p><strong>${escapeHtml(card)}</strong> on ${escapeHtml(board)}</p>
+       <p style="color:#8b93a3;font-size:14px">Changed by ${escapeHtml(actor)}. Your own edits never email you.</p>
+       ${emailButton("Open board", escapeHtml(input.boardUrl))}`,
+    ),
+  };
+}
+
+export function waitlistConfirmEmail(links: WaitlistEmailLinks): Omit<ReplayrEmail, "to" | "idempotencyKey"> {
+  const site = publicSiteUrl(links.siteUrl);
+  return {
+    subject: "You're on the Replayr waitlist",
+    text: [
+      "You're in.",
+      "",
+      "We'll ping you the second Replayr drops — Instant Replay on Windows, clips that stay on your PC, and share links that stay quiet until you hit send.",
+      "",
+      `Open Replayr: ${site}`,
+      `Follow us on X: ${WAITLIST_X_URL}`,
+      "",
+      `Don't want these emails? Unsubscribe: ${links.unsubscribeUrl}`,
+    ].join("\n"),
+    html: waitlistFrame(
+      "You're on the list",
+      `<p>You're in.</p>
+       <p>We'll ping you the second Replayr drops — Instant Replay on Windows, clips that stay on your PC, and share links that stay quiet until you hit send.</p>
+       ${emailButton("Open Replayr", escapeHtml(site))}`,
+      links,
+    ),
+  };
+}
+
+export function waitlistCampaignEmail(input: WaitlistCampaignEmailInput): Omit<ReplayrEmail, "to" | "idempotencyKey"> {
+  const site = publicSiteUrl(input.siteUrl);
+  const subject = input.subject.trim() || "Replayr update";
+  return {
+    subject,
+    text: [
+      input.body.trim(),
+      "",
+      `Open Replayr: ${site}`,
+      `Follow us on X: ${WAITLIST_X_URL}`,
+      "",
+      `Unsubscribe: ${input.unsubscribeUrl}`,
+    ].join("\n"),
+    html: waitlistFrame(subject, waitlistBodyToHtml(input.body), input),
+  };
+}
+
+export function waitlistBodyToHtml(body: string): string {
+  const blocks = body.trim() ? body.trim().split(/\n{2,}/) : [""];
+  return blocks
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+export function publicSiteUrl(value?: string | null): string {
+  const raw = (value || "https://replayr.tv").trim() || "https://replayr.tv";
+  return raw.replace(/\/$/, "");
+}
+
+export function waitlistUnsubscribeUrl(origin: string, token: string): string {
+  return `${publicSiteUrl(origin)}/v1/waitlist/unsubscribe?token=${encodeURIComponent(token)}`;
+}
+
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -173,6 +277,34 @@ function formatDate(value: string): string {
 
 function emailButton(label: string, href: string): string {
   return `<p style="margin:28px 0"><a href="${href}" style="display:inline-block;background:#00d8f0;color:#041418;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:999px">${escapeHtml(label)}</a></p>`;
+}
+
+function waitlistFooterHtml(links: WaitlistEmailLinks): string {
+  const site = publicSiteUrl(links.siteUrl);
+  return `<div style="margin-top:24px;padding-top:18px;border-top:1px solid #1e2530;font-size:13px;line-height:1.6">
+    <p style="margin:0 0 8px"><a href="${escapeHtml(site)}" style="color:#00d8f0;text-decoration:none;font-weight:700">replayr.tv</a></p>
+    <p style="margin:0 0 8px">
+      <a href="${WAITLIST_X_URL}" style="color:#00d8f0;text-decoration:none;font-weight:700">
+        <span style="display:inline-block;width:16px;height:16px;margin-right:6px;vertical-align:middle;border-radius:4px;background:#000;color:#fff;text-align:center;line-height:16px;font-size:11px;font-weight:800">X</span>${WAITLIST_X_HANDLE}
+      </a>
+    </p>
+    <p style="margin:0;color:#8b93a3;font-size:12px"><a href="${escapeHtml(links.unsubscribeUrl)}" style="color:#8b93a3">Unsubscribe</a></p>
+  </div>`;
+}
+
+function waitlistFrame(title: string, content: string, links: WaitlistEmailLinks): string {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;background:#090b10;color:#f4f7fb;font-family:Inter,Arial,sans-serif">
+    <div style="max-width:560px;margin:0 auto;padding:40px 20px">
+      <p style="color:#00d8f0;font-size:13px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase">Replayr</p>
+      <div style="background:#141820;border:1px solid #1e2530;border-radius:16px;padding:28px">
+        <h1 style="font-size:24px;margin:0 0 18px">${escapeHtml(title)}</h1>
+        <div style="font-size:16px;line-height:1.6">${content}${waitlistFooterHtml(links)}</div>
+      </div>
+    </div>
+  </body>
+</html>`;
 }
 
 function emailFrame(title: string, content: string): string {

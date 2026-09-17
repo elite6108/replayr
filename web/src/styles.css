@@ -4216,6 +4216,46 @@ code {
   margin-top: auto;
   padding-top: 12px;
   border-top: 1px solid var(--ops-border, rgba(255, 255, 255, 0.08));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ops-email-pref {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 8px;
+  color: var(--ops-muted, #9aa3b2);
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.ops-email-pref input {
+  margin-top: 3px;
+  accent-color: var(--ops-accent, #45d8f5);
+}
+
+.ops-email-pref strong {
+  display: block;
+  color: var(--ops-text, #f2f4f7);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ops-email-pref small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ops-muted, #9aa3b2);
+}
+
+.ops-email-pref-inline {
+  margin: 0 20px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--ops-border, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .ops-main {

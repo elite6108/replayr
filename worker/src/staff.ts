@@ -69,7 +69,12 @@ type InviteRow = {
 
 type PermRow = { key: string; category: string; label: string; description: string | null; sort: number };
 
-export async function handleStaff(request: Request, env: Env, url: URL): Promise<Response> {
+export async function handleStaff(
+  request: Request,
+  env: Env,
+  url: URL,
+  ctx?: { waitUntil(task: Promise<unknown>): void },
+): Promise<Response> {
   const path = url.pathname;
   const method = request.method;
 
@@ -77,10 +82,14 @@ export async function handleStaff(request: Request, env: Env, url: URL): Promise
     const actor = await requirePermission(request, env, "staff.access");
     return json(presentMe(actor));
   }
+  if (method === "PATCH" && path === "/v1/staff/me") {
+    const actor = await requirePermission(request, env, "staff.access");
+    return patchMe(request, env, actor);
+  }
 
-  const boards = await handleStaffBoards(request, env, url);
+  const boards = await handleStaffBoards(request, env, url, ctx);
   if (boards) return boards;
-  const tasks = await handleStaffTasks(request, env, url);
+  const tasks = await handleStaffTasks(request, env, url, ctx);
   if (tasks) return tasks;
 
   if (method === "GET" && path === "/v1/staff/permissions") {
@@ -280,6 +289,28 @@ async function loadRolePermissionMap(env: Env, roleIds: string[]) {
     map.set(row.role_id, list);
   }
   return map;
+}
+
+async function patchMe(request: Request, env: Env, actor: StaffActor): Promise<Response> {
+  const body = (await request.json().catch(() => ({}))) as {
+    notifyBoardEmail?: boolean;
+    notifyOwnBoardEmail?: boolean;
+  };
+  const patch: Record<string, unknown> = {};
+  let notifyBoardEmail = actor.notifyBoardEmail;
+  let notifyOwnBoardEmail = actor.notifyOwnBoardEmail;
+  if (typeof body.notifyBoardEmail === "boolean") {
+    notifyBoardEmail = body.notifyBoardEmail;
+    patch.notify_board_email = body.notifyBoardEmail;
+  }
+  if (typeof body.notifyOwnBoardEmail === "boolean") {
+    notifyOwnBoardEmail = body.notifyOwnBoardEmail;
+    patch.notify_own_board_email = body.notifyOwnBoardEmail;
+  }
+  if (!Object.keys(patch).length) throw new HttpError(400, "Nothing to update.");
+  await serviceRest(env, "PATCH", `/staff_members?id=eq.${actor.staffId}`, patch);
+  invalidateStaffCache(actor.userId);
+  return json(presentMe({ ...actor, notifyBoardEmail, notifyOwnBoardEmail }));
 }
 
 async function patchMember(request: Request, env: Env, actor: StaffActor, id: string): Promise<Response> {

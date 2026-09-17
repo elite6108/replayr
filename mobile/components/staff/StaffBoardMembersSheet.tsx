@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, Switch, Text, TextInput, View } from "react-native";
 import { FolderSheetFrame } from "@/components/folders/FolderSheetFrame";
 import { staffStyles } from "@/components/staff/staffStyles";
 import { Button, Notice } from "@/components/ui";
 import {
   fetchStaffBoardMembers,
   removeStaffBoardMember,
+  setStaffBoardEmailNotifications,
   setStaffBoardMemberRole,
   type StaffBoardMember,
   type StaffBoardMembers,
@@ -18,14 +19,20 @@ export function StaffBoardMembersSheet({
   visible,
   token,
   boardId,
+  canManageMembers,
+  emailEnabled,
   onClose,
   onChanged,
+  onEmailChanged,
 }: {
   visible: boolean;
   token: string;
   boardId: string;
+  canManageMembers: boolean;
+  emailEnabled: boolean;
   onClose: () => void;
   onChanged: () => void;
+  onEmailChanged: (enabled: boolean) => void;
 }) {
   const [data, setData] = useState<StaffBoardMembers | null>(null);
   const [query, setQuery] = useState("");
@@ -35,7 +42,7 @@ export function StaffBoardMembersSheet({
 
   const load = useCallback(
     async (showLoading = true) => {
-      if (!token || !boardId) return;
+      if (!token || !boardId || !canManageMembers) return;
       if (showLoading) setLoading(true);
       setError(null);
       try {
@@ -46,7 +53,7 @@ export function StaffBoardMembersSheet({
         if (showLoading) setLoading(false);
       }
     },
-    [boardId, token],
+    [boardId, canManageMembers, token],
   );
 
   useEffect(() => {
@@ -113,7 +120,8 @@ export function StaffBoardMembersSheet({
   }
 
   return (
-    <FolderSheetFrame visible={visible} title="Board members" onClose={onClose}>
+    <FolderSheetFrame visible={visible} title={canManageMembers ? "Board members" : "Board emails"} onClose={onClose}>
+      {canManageMembers ? (
       <TextInput
         style={staffStyles.input}
         placeholder="Search staff"
@@ -123,7 +131,34 @@ export function StaffBoardMembersSheet({
         autoCapitalize="none"
         autoCorrect={false}
       />
+      ) : null}
       {error ? <Notice tone="danger">{error}</Notice> : null}
+      <View style={staffStyles.card}>
+        <View style={staffStyles.memberHeading}>
+          <View style={{ flex: 1 }}>
+            <Text style={staffStyles.cardTitle}>Email me when this board changes</Text>
+            <Text style={staffStyles.muted}>
+              Mute this board even if all-boards email is on. Your own edits never email you.
+            </Text>
+          </View>
+          <Switch
+            value={emailEnabled}
+            onValueChange={(next) => {
+              setError(null);
+              void setStaffBoardEmailNotifications(token, boardId, next)
+                .then((body) => {
+                  onEmailChanged(body.emailEnabled);
+                  onChanged();
+                })
+                .catch((caught: unknown) => {
+                  setError(caught instanceof Error ? caught.message : "Could not update board emails.");
+                });
+            }}
+            trackColor={{ false: colors.border, true: colors.accent }}
+            thumbColor={colors.text}
+          />
+        </View>
+      </View>
       {loading ? (
         <View style={staffStyles.loadingRow}>
           <ActivityIndicator color={colors.accent} />
@@ -131,7 +166,7 @@ export function StaffBoardMembersSheet({
         </View>
       ) : null}
       {!loading && !data && error ? <Button label="Try again" onPress={() => void load()} /> : null}
-      {data ? (
+      {data && canManageMembers ? (
         <>
           <Text style={staffStyles.section}>Members</Text>
           {members.map((member) => {

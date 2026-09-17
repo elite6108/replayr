@@ -152,13 +152,14 @@ export type StaffTaskCardPatch = {
   dueAt?: string | null;
   assignees?: StaffBoardCard["assignees"];
   labelIds?: string[];
+  columnId?: string;
 };
 
 export function taskFromSnapshot(card: StaffBoardCard, board: StaffBoardDetail | null): StaffTaskDetail {
   return {
     id: card.id,
     boardId: board?.id ?? "",
-    columnId: "",
+    columnId: board?.columns.find((column) => column.tasks.some((item) => item.id === card.id))?.id ?? "",
     title: card.title,
     description: null,
     rank: card.rank,
@@ -184,11 +185,41 @@ export function taskFromSnapshot(card: StaffBoardCard, board: StaffBoardDetail |
 }
 
 export function applyCardPatch(board: StaffBoardDetail, patch: StaffTaskCardPatch): StaffBoardDetail {
+  const { columnId, ...fields } = patch;
+  if (!columnId) {
+    return {
+      ...board,
+      columns: board.columns.map((column) => ({
+        ...column,
+        tasks: column.tasks.map((task) => (task.id === patch.id ? { ...task, ...fields } : task)),
+      })),
+    };
+  }
+  let moving: StaffBoardCard | undefined;
+  const columns = board.columns.map((column) => ({
+    ...column,
+    tasks: column.tasks.filter((task) => {
+      if (task.id !== patch.id) return true;
+      moving = { ...task, ...fields };
+      return column.id === columnId;
+    }).map((task) => (task.id === patch.id ? { ...task, ...fields } : task)),
+  }));
+  if (!moving) return board;
+  const card = moving;
+  const inTarget = columns.some((column) => column.id === columnId && column.tasks.some((task) => task.id === patch.id));
+  if (inTarget) return { ...board, columns };
+  return {
+    ...board,
+    columns: columns.map((column) => (column.id === columnId ? { ...column, tasks: [...column.tasks, card] } : column)),
+  };
+}
+
+export function applyCardRemove(board: StaffBoardDetail, taskId: string): StaffBoardDetail {
   return {
     ...board,
     columns: board.columns.map((column) => ({
       ...column,
-      tasks: column.tasks.map((task) => (task.id === patch.id ? { ...task, ...patch } : task)),
+      tasks: column.tasks.filter((task) => task.id !== taskId),
     })),
   };
 }

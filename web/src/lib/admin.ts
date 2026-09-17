@@ -294,3 +294,100 @@ export function reviewCreatorApplication(token: string, id: string, status: "app
     body: JSON.stringify({ status, note }),
   });
 }
+
+export interface WaitlistRow {
+  id: string;
+  email: string;
+  source: string;
+  createdAt: string;
+  confirmationSentAt: string | null;
+  unsubscribedAt: string | null;
+}
+
+export interface WaitlistTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WaitlistCampaign {
+  id: string;
+  subject: string;
+  audience: "all" | "selected";
+  status: string;
+  recipientCount: number;
+  sentCount: number;
+  failedCount: number;
+  skippedCount: number;
+  createdAt?: string;
+}
+
+export function fetchWaitlist(token: string, params: { q?: string; page?: number } = {}) {
+  const query = new URLSearchParams();
+  if (params.q) query.set("q", params.q);
+  if (params.page) query.set("page", String(params.page));
+  const suffix = query.toString() ? `?${query}` : "";
+  return adminFetch<{
+    items: WaitlistRow[];
+    total: number;
+    page: number;
+    limit: number;
+    aiEnabled: boolean;
+    updates?: { announcements: Array<{ title: string; body: string | null }>; releases: Array<{ version: string; items: string[] }> };
+  }>(
+    `/v1/admin/waitlist${suffix}`,
+    token,
+  );
+}
+
+export function fetchWaitlistTemplates(token: string) {
+  return adminFetch<{ templates: WaitlistTemplate[] }>("/v1/admin/waitlist/templates", token);
+}
+
+export function createWaitlistTemplate(token: string, body: { name: string; subject: string; body: string }) {
+  return adminFetch<{ template: WaitlistTemplate }>("/v1/admin/waitlist/templates", token, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteWaitlistTemplate(token: string, id: string) {
+  return adminFetch<{ ok: boolean }>(`/v1/admin/waitlist/templates/${id}`, token, { method: "DELETE" });
+}
+
+export function rewriteWaitlistEmail(
+  token: string,
+  body: { subject?: string; body?: string; goal?: string; talkingPoints?: string; includeUpdates?: boolean },
+) {
+  return adminFetch<{ subject: string; body: string }>("/v1/admin/waitlist/rewrite", token, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function fetchWaitlistCampaigns(token: string) {
+  return adminFetch<{ campaigns: WaitlistCampaign[] }>("/v1/admin/waitlist/campaigns", token);
+}
+
+export function sendWaitlistCampaign(
+  token: string,
+  body: {
+    subject: string;
+    body: string;
+    goal?: string;
+    talkingPoints?: string;
+    includeUpdates?: boolean;
+    audience: "all" | "selected";
+    ids?: string[];
+    saveAsTemplate?: boolean;
+    templateName?: string;
+  },
+) {
+  return adminFetch<{ campaign: WaitlistCampaign }>("/v1/admin/waitlist/campaigns", token, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}

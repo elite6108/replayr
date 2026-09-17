@@ -24,7 +24,8 @@
       if (!waitMsg) return;
       waitMsg.className = "msg";
       waitMsg.textContent = "Saving…";
-      const email = new FormData(event.currentTarget).get("email");
+      const form = event.currentTarget instanceof HTMLFormElement ? event.currentTarget : waitlist;
+      const email = new FormData(form).get("email");
       try {
         const response = await fetch("/v1/waitlist", {
           method: "POST",
@@ -37,7 +38,7 @@
         }
         waitMsg.className = "msg ok";
         waitMsg.textContent = "You're in. We'll ping you the second Replayr drops.";
-        event.currentTarget.reset();
+        form.reset();
       } catch (err) {
         waitMsg.className = "msg err";
         waitMsg.textContent = err instanceof Error ? err.message : "Could not save that email.";
@@ -52,7 +53,8 @@
         gateMsg.className = "msg";
         gateMsg.textContent = "Checking…";
       }
-      const password = new FormData(event.currentTarget).get("password");
+      const form = event.currentTarget instanceof HTMLFormElement ? event.currentTarget : gate;
+      const password = new FormData(form).get("password");
       try {
         const response = await fetch("/v1/site-access", {
           method: "POST",

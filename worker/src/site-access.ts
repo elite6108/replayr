@@ -1,6 +1,7 @@
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { requireServiceRole, serviceRest } from "./shared";
+import { publicSiteUrl, sendReplayrEmail, waitlistConfirmEmail, waitlistUnsubscribeUrl } from "./email";
 
 const COOKIE_NAME = "replayr_site_access";
 const COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 30; // 30 days
@@ -104,6 +105,9 @@ export async function handleSiteAccess(request: Request, env: Env): Promise<Resp
 
 export async function handleWaitlist(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
+  if (request.method === "GET" && url.pathname === "/v1/waitlist/unsubscribe") {
+    return unsubscribeWaitlist(url, env);
+  }
   if (!(request.method === "POST" && url.pathname === "/v1/waitlist")) return null;
 
   const body = (await request.json().catch(() => ({}))) as { email?: string; source?: string };
@@ -114,8 +118,9 @@ export async function handleWaitlist(request: Request, env: Env): Promise<Respon
     return json({ error: "Enter a valid email address." }, 400);
   }
   requireServiceRole(env);
+  let created: WaitlistEmailRow | null = null;
   try {
-    await serviceRest(
+    const rows = await serviceRest<WaitlistEmailRow[]>(
       env,
       "POST",
       "/waitlist_emails",
@@ -123,8 +128,9 @@ export async function handleWaitlist(request: Request, env: Env): Promise<Respon
         email,
         source: String(body.source ?? "coming-soon").slice(0, 64),
       },
-      "return=minimal,resolution=ignore-duplicates",
+      "return=representation,resolution=ignore-duplicates",
     );
+    created = Array.isArray(rows) ? rows[0] ?? null : null;
   } catch (caught) {
     if (caught instanceof HttpError && caught.status === 409) {
       return json({ ok: true });
@@ -135,8 +141,86 @@ export async function handleWaitlist(request: Request, env: Env): Promise<Respon
     }
     throw new HttpError(502, "Could not save that email. Try again.");
   }
-  return json({ ok: true });
+  if (!created) {
+    return json({ ok: true });
+  }
+
+  const origin = publicSiteUrl(env.PUBLIC_APP_URL);
+  const unsubscribeUrl = waitlistUnsubscribeUrl(origin, created.unsubscribe_token);
+  const message = waitlistConfirmEmail({ siteUrl: origin, unsubscribeUrl });
+  const delivery = await sendReplayrEmail(env, {
+    to: created.email,
+    ...message,
+    idempotencyKey: `waitlist-confirm/${created.id}`,
+  });
+  if (delivery.sent) {
+    await serviceRest(
+      env,
+      "PATCH",
+      `/waitlist_emails?id=eq.${created.id}`,
+      { confirmation_sent_at: new Date().toISOString() },
+      "return=minimal",
+    ).catch(() => undefined);
+  }
+  return json({ ok: true, delivery });
 }
+
+async function unsubscribeWaitlist(url: URL, env: Env): Promise<Response> {
+  const token = url.searchParams.get("token")?.trim() || "";
+  if (!/^[0-9a-f-]{36}$/i.test(token)) {
+    return unsubscribePage("That unsubscribe link is invalid.", 400);
+  }
+  requireServiceRole(env);
+  const rows = await serviceRest<WaitlistEmailRow[]>(
+    env,
+    "GET",
+    `/waitlist_emails?unsubscribe_token=eq.${token}&select=id,unsubscribed_at`,
+  );
+  const row = rows[0];
+  if (!row) {
+    return unsubscribePage("That unsubscribe link is invalid.", 404);
+  }
+  if (!row.unsubscribed_at) {
+    await serviceRest(
+      env,
+      "PATCH",
+      `/waitlist_emails?id=eq.${row.id}`,
+      { unsubscribed_at: new Date().toISOString() },
+      "return=minimal",
+    );
+  }
+  return unsubscribePage("You're off the Replayr waitlist. We won't email you again.");
+}
+
+function unsubscribePage(message: string, status = 200): Response {
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><title>Replayr waitlist</title></head>
+     <body style="margin:0;background:#090b10;color:#f4f7fb;font-family:Inter,Arial,sans-serif">
+       <div style="max-width:480px;margin:80px auto;padding:24px">
+         <p style="color:#00d8f0;font-weight:800;letter-spacing:1.2px;text-transform:uppercase">Replayr</p>
+         <h1 style="font-size:28px">Waitlist</h1>
+         <p>${escapePage(message)}</p>
+         <p><a href="https://replayr.tv" style="color:#00d8f0">replayr.tv</a></p>
+       </div>
+     </body></html>`,
+    {
+      status,
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+    },
+  );
+}
+
+function escapePage(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+type WaitlistEmailRow = {
+  id: string;
+  email: string;
+  unsubscribe_token: string;
+  unsubscribed_at?: string | null;
+  confirmation_sent_at?: string | null;
+};
 
 /** Prefer the built asset; fall back to embedded HTML so the gate never goes blank. */
 export async function serveComingSoon(request: Request, env: Env): Promise<Response> {

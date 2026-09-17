@@ -2806,6 +2806,21 @@ code {
   font-size: 12px;
 }
 
+.waitlist-updates {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--admin-border);
+  background: #0b1016;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.waitlist-updates p {
+  margin: 0;
+}
+
 .admin-perm-group {
   margin: 0;
   padding: 0;
@@ -4771,9 +4786,48 @@ code {
   transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
 }
 
-.ops-card-body {
-  flex: 1;
-  min-width: 0;
+.ops-card:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.ops-card-actions {
+  display: none;
+  flex-shrink: 0;
+}
+
+.ops-card:hover .ops-card-actions,
+.ops-card:focus-within .ops-card-actions {
+  display: flex;
+}
+
+.ops-card-quick {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  cursor: pointer;
+}
+
+.ops-card-quick:hover {
+  background: rgba(255, 90, 90, 0.18);
+  color: #ff8b8b;
+}
+
+.ops-card-context {
+  position: fixed;
+  z-index: 80;
+  min-width: 148px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--ops-border, rgba(255, 255, 255, 0.12));
+  background: var(--ops-elevated, #111823);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
 }
 
 .ops-card-ghost {
@@ -5304,6 +5358,118 @@ code {
   box-shadow: -18px 0 50px rgba(0, 0, 0, 0.35);
   z-index: 40;
   animation: ops-drawer-in 160ms ease;
+}
+
+.staff-task-drawer.trello-card {
+  top: 40px;
+  left: 50%;
+  right: auto;
+  width: min(820px, calc(100vw - 32px));
+  height: auto;
+  max-height: calc(100vh - 80px);
+  transform: translateX(-50%);
+  border: 1px solid var(--ops-border, rgba(255, 255, 255, 0.1));
+  border-radius: 14px;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
+  animation: ops-fade-in 160ms ease;
+}
+
+.trello-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.trello-card-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trello-card-title {
+  font-size: 1.35rem;
+}
+
+.trello-card-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 20px;
+  margin-top: 12px;
+}
+
+.trello-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.trello-add-row {
+  position: relative;
+  margin: 8px 0 16px;
+}
+
+.trello-add-btn {
+  appearance: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 14px;
+  background: #1f845a;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.trello-pop {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  z-index: 5;
+  min-width: 200px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--ops-border, rgba(255, 255, 255, 0.12));
+  background: var(--ops-elevated, #111823);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.trello-file {
+  display: block;
+  cursor: pointer;
+}
+
+.trello-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.trello-desc {
+  min-height: 92px;
+}
+
+.trello-section {
+  margin: 16px 0;
+}
+
+.trello-activity {
+  padding-left: 16px;
+}
+
+.trello-card-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .trello-card-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @keyframes ops-fade-in {

@@ -36,6 +36,7 @@ for (const key of [
   "RESEND_API_KEY",
   "RESEND_FROM_EMAIL",
   "RESEND_REPLY_TO",
+  "OPENAI_API_KEY",
 ]) {
   const value = env[key] || existing[key];
   if (value) vars[key] = value;

@@ -21,17 +21,22 @@ import {
   IconShield,
   IconTasks,
   IconUsers,
+  IconWaitlist,
 } from "./adminIcons";
 
 const mainLinks = [
   { to: "/admin", label: "Overview", end: true, permission: "admin.access", icon: IconOverview },
-  { to: "/admin/users", label: "Users", permission: "users.view", icon: IconUsers },
   { to: "/admin/billing", label: "Billing", permission: "users.billing.edit", icon: IconBilling },
   { to: "/admin/clips", label: "Clips", permission: "clips.view", icon: IconClips },
   { to: "/admin/storage", label: "Storage", permission: "users.quota.edit", icon: IconCloud },
   { to: "/admin/creators", label: "Creators", permission: "creators.view", icon: IconCreators },
   { to: "/admin/announcements", label: "Announcements", permission: "announcements.view", icon: IconAnnouncements },
   { to: "/admin/errors", label: "Errors", permission: "errors.view", icon: IconErrors },
+];
+
+const peopleLinks = [
+  { to: "/admin/users", label: "Users", permission: "users.view", icon: IconUsers },
+  { to: "/admin/waitlist", label: "Waitlist", permission: "waitlist.view", icon: IconWaitlist },
 ];
 
 const staffLinks = [
@@ -54,6 +59,7 @@ const analyticsIcons = {
 export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { can } = useStaffPermissions();
   const main = mainLinks.filter((link) => can(link.permission));
+  const people = peopleLinks.filter((link) => can(link.permission));
   const staff = staffLinks.filter((link) => can(link.permission));
   const analytics = can("analytics.view") ? analyticsSidebarItems : [];
 
@@ -69,6 +75,14 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
           <div className="admin-nav-section">
             <p className="admin-nav-group">Main</p>
             {main.map((link) => (
+              <AdminNavItem key={link.to} {...link} onNavigate={onNavigate} />
+            ))}
+          </div>
+        ) : null}
+        {people.length ? (
+          <div className="admin-nav-section">
+            <p className="admin-nav-group">People</p>
+            {people.map((link) => (
               <AdminNavItem key={link.to} {...link} onNavigate={onNavigate} />
             ))}
           </div>

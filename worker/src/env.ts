@@ -33,6 +33,8 @@ export interface Env {
   RESEND_FROM_EMAIL?: string;
   /** Reply-to mailbox, defaults to support@replayr.tv. */
   RESEND_REPLY_TO?: string;
+  /** OpenAI key for waitlist campaign rewrite. Worker secret only. */
+  OPENAI_API_KEY?: string;
   /** Apple Developer Team ID for Universal Links (AASA). Optional until configured. */
   APPLE_TEAM_ID?: string;
   /** iOS bundle id override; defaults to tv.elite.replay. */

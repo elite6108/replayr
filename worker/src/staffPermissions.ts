@@ -17,6 +17,9 @@ export const STAFF_PERMISSIONS = [
   "users.view",
   "users.billing.edit",
   "users.quota.edit",
+  "waitlist.view",
+  "waitlist.send",
+  "waitlist.templates.manage",
   "clips.view",
   "clips.delete",
   "screenshots.delete",
@@ -95,6 +98,15 @@ export function lastSuperAdminLockout(activeSuperCount: number, actionRemovesSup
 export function permissionForAdminRoute(method: string, path: string): StaffPermission | null {
   if (path === "/v1/admin/overview") return "admin.access";
   if (path === "/v1/admin/users" && method === "GET") return "users.view";
+  if (path === "/v1/admin/waitlist" && method === "GET") return "waitlist.view";
+  if (path === "/v1/admin/waitlist/templates" && method === "GET") return "waitlist.view";
+  if (path === "/v1/admin/waitlist/templates" && method === "POST") return "waitlist.templates.manage";
+  if (/^\/v1\/admin\/waitlist\/templates\/[^/]+$/.test(path) && (method === "PATCH" || method === "DELETE")) {
+    return "waitlist.templates.manage";
+  }
+  if (path === "/v1/admin/waitlist/rewrite" && method === "POST") return "waitlist.send";
+  if (path === "/v1/admin/waitlist/campaigns" && method === "POST") return "waitlist.send";
+  if (path === "/v1/admin/waitlist/campaigns" && method === "GET") return "waitlist.view";
   if (path.startsWith("/v1/admin/users/") && path.endsWith("/billing") && method === "POST") return "users.billing.edit";
   if (/^\/v1\/admin\/users\/[^/]+$/.test(path) && method === "PATCH") return null;
   if (path === "/v1/admin/billing" && method === "GET") return "users.billing.edit";

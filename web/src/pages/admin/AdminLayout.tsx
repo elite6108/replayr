@@ -7,6 +7,7 @@ import { AdminShell } from "./components/AdminShell";
 const pagePermission = (pathname: string): string => {
   if (pathname === "/admin") return "admin.access";
   if (pathname.startsWith("/admin/users")) return "users.view";
+  if (pathname.startsWith("/admin/waitlist")) return "waitlist.view";
   if (pathname.startsWith("/admin/billing")) return "users.billing.edit";
   if (pathname.startsWith("/admin/clips")) return "clips.view";
   if (pathname.startsWith("/admin/storage")) return "users.quota.edit";

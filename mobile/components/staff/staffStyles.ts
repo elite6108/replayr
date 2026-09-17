@@ -162,4 +162,12 @@ export const staffStyles = StyleSheet.create({
   disabled: { opacity: 0.5 },
   confirmName: { color: colors.text, fontSize: 16, fontWeight: "800" },
   section: { color: colors.text, fontSize: 13, fontWeight: "800", letterSpacing: 0.4, textTransform: "uppercase", marginTop: 8 },
+  addBtn: {
+    alignSelf: "flex-start",
+    backgroundColor: "#1f845a",
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  addBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
 });

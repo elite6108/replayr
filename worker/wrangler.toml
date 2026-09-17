@@ -58,6 +58,7 @@ crons = ["15 * * * *"]
 # RESEND_API_KEY
 # RESEND_FROM_EMAIL             (optional; default Replayr <support@replayr.tv>)
 # RESEND_REPLY_TO               (optional; default support@replayr.tv)
+# OPENAI_API_KEY                (waitlist campaign AI rewrite)
 #
 # Mobile Universal / App Links (optional until store builds ship):
 # APPLE_TEAM_ID

@@ -25,6 +25,7 @@ export const AUDIT_ACTIONS = {
   staffRoleDeleted: "staff.role_deleted",
   boardPermissionsChanged: "board.permissions_changed",
   boardDeleted: "board.deleted",
+  waitlistCampaignQueued: "waitlist.campaign_queued",
 } as const;
 
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
@@ -51,6 +52,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "staff.role_deleted": "Staff role deleted",
   "board.permissions_changed": "Board permissions changed",
   "board.deleted": "Board permanently deleted",
+  "waitlist.campaign_queued": "Waitlist campaign queued",
 };
 
 const BLOCKED_META = /secret|token|cookie|jwt|password|authorization|storage_key|object_key|thumbnail_key|public_token|webhook|sk_live/i;

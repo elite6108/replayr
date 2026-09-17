@@ -275,6 +275,11 @@ function formatDate(value: string): string {
   });
 }
 
+function emailBrand(origin?: string | null): string {
+  const site = publicSiteUrl(origin);
+  return `<p style="margin:0 0 20px"><a href="${escapeHtml(site)}" style="text-decoration:none"><img src="https://replayr.tv/replayr-logo.png" alt="Replayr" width="140" height="32" style="display:block;height:32px;width:auto;border:0;outline:none" /></a></p>`;
+}
+
 function emailButton(label: string, href: string): string {
   return `<p style="margin:28px 0"><a href="${href}" style="display:inline-block;background:#00d8f0;color:#041418;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:999px">${escapeHtml(label)}</a></p>`;
 }
@@ -297,7 +302,7 @@ function waitlistFrame(title: string, content: string, links: WaitlistEmailLinks
 <html>
   <body style="margin:0;background:#090b10;color:#f4f7fb;font-family:Inter,Arial,sans-serif">
     <div style="max-width:560px;margin:0 auto;padding:40px 20px">
-      <p style="color:#00d8f0;font-size:13px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase">Replayr</p>
+      ${emailBrand(links.siteUrl)}
       <div style="background:#141820;border:1px solid #1e2530;border-radius:16px;padding:28px">
         <h1 style="font-size:24px;margin:0 0 18px">${escapeHtml(title)}</h1>
         <div style="font-size:16px;line-height:1.6">${content}${waitlistFooterHtml(links)}</div>
@@ -312,7 +317,7 @@ function emailFrame(title: string, content: string): string {
 <html>
   <body style="margin:0;background:#090b10;color:#f4f7fb;font-family:Inter,Arial,sans-serif">
     <div style="max-width:560px;margin:0 auto;padding:40px 20px">
-      <p style="color:#00d8f0;font-size:13px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase">Replayr</p>
+      ${emailBrand()}
       <div style="background:#141820;border:1px solid #1e2530;border-radius:16px;padding:28px">
         <h1 style="font-size:24px;margin:0 0 18px">${escapeHtml(title)}</h1>
         <div style="font-size:16px;line-height:1.6">${content}</div>

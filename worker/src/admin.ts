@@ -15,6 +15,7 @@ import { listAdminAudit } from "./auditAdmin";
 import { AUDIT_ACTIONS, writeAuditLog } from "./audit";
 import { rebuildAnalyticsDaily } from "./analyticsRollup";
 import { handleAdminAnnouncements } from "./announcements";
+import { handleWaitlistAdmin } from "./waitlistAdmin";
 import { applyPlan, stripeForm } from "./billing";
 import { listAdminErrors, openErrorCount, resolveAdminError } from "./errors";
 import { ownedObjectKey, type Env } from "./shared";
@@ -105,10 +106,17 @@ interface ApplicationRow {
   review_note: string | null;
 }
 
-export async function handleAdmin(request: Request, env: Env, url: URL): Promise<Response> {
+export async function handleAdmin(
+  request: Request,
+  env: Env,
+  url: URL,
+  ctx?: { waitUntil(task: Promise<unknown>): void },
+): Promise<Response> {
   const staff = await requireStaffActor(request, env);
   await authorizeAdminRoute(staff, request, url);
   const actor: AdminActor = { id: staff.userId, serviceKey: staff.serviceKey, requestId: staff.requestId };
+  const waitlist = await handleWaitlistAdmin(request, env, url, staff, ctx);
+  if (waitlist) return waitlist;
   const announcements = await handleAdminAnnouncements(request, env, url, actor);
   if (announcements) return announcements;
   const reports = await handleAnalyticsReports(request, env, url, actor);

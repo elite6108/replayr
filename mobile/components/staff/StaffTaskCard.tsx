@@ -10,17 +10,19 @@ export function StaffTaskCard({
   task,
   labels,
   onPress,
+  onLongPress,
 }: {
   task: StaffBoardCard | StaffMyTask;
   labels?: StaffBoardDetail["labels"];
   onPress: () => void;
+  onLongPress?: () => void;
 }) {
   const due = formatDue(task.dueAt);
   const overdue = dueIsOverdue(task.dueAt, "completedAt" in task ? task.completedAt : null);
   const assignees = "assignees" in task ? task.assignees : [];
   const labelIds = "labelIds" in task ? task.labelIds : [];
   return (
-    <Pressable style={staffStyles.card} onPress={onPress}>
+    <Pressable style={staffStyles.card} onPress={onPress} onLongPress={onLongPress} delayLongPress={380}>
       <Text style={staffStyles.cardTitle}>{task.title}</Text>
       <View style={staffStyles.row}>
         <StaffPriorityChip priority={task.priority} />

@@ -3,8 +3,7 @@ import { Pressable, Text, TextInput, View } from "react-native";
 import { FolderSheetFrame } from "@/components/folders/FolderSheetFrame";
 import { staffStyles } from "@/components/staff/staffStyles";
 import { Button, Notice } from "@/components/ui";
-import { createStaffTask, fetchStaffBoard, setStaffAssignees, type StaffBoardDetail, type StaffBoardSummary } from "@/lib/api.staff";
-import { PRIORITIES } from "@/lib/staffUi";
+import { createStaffTask, fetchStaffBoard, type StaffBoardDetail, type StaffBoardSummary } from "@/lib/api.staff";
 import { colors } from "@/lib/theme";
 
 export function StaffCreateTaskSheet({
@@ -27,8 +26,6 @@ export function StaffCreateTaskSheet({
   const [title, setTitle] = useState("");
   const [boardId, setBoardId] = useState(board?.id ?? "");
   const [columnId, setColumnId] = useState(defaultColumnId ?? board?.columns[0]?.id ?? "");
-  const [priority, setPriority] = useState("none");
-  const [assigneeId, setAssigneeId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [laneBoard, setLaneBoard] = useState<StaffBoardDetail | null>(board);
@@ -36,8 +33,6 @@ export function StaffCreateTaskSheet({
   useEffect(() => {
     if (!visible) return;
     setTitle("");
-    setPriority("none");
-    setAssigneeId("");
     setError(null);
     setBoardId(board?.id ?? boards[0]?.id ?? "");
     setColumnId(defaultColumnId ?? board?.columns[0]?.id ?? "");
@@ -59,7 +54,6 @@ export function StaffCreateTaskSheet({
   }, [visible, token, boardId, board]);
 
   const columns = laneBoard?.columns ?? [];
-  const people = laneBoard?.people ?? [];
 
   async function submit() {
     const trimmed = title.trim();
@@ -73,11 +67,7 @@ export function StaffCreateTaskSheet({
       const created = await createStaffTask(token, boardId, {
         columnId,
         title: trimmed,
-        priority: priority !== "none" ? priority : undefined,
       });
-      if (assigneeId) {
-        await setStaffAssignees(token, created.task.id, [assigneeId]).catch(() => undefined);
-      }
       onCreated(created.task.id, boardId);
       onClose();
     } catch (caught) {
@@ -90,14 +80,14 @@ export function StaffCreateTaskSheet({
   return (
     <FolderSheetFrame
       visible={visible}
-      title="Create task"
+      title="Add card"
       onClose={onClose}
-      footer={<Button label={busy ? "Creating…" : "Create"} kind="primary" disabled={busy} onPress={() => void submit()} />}
+      footer={<Button label={busy ? "Adding…" : "Add card"} kind="primary" disabled={busy} onPress={() => void submit()} />}
     >
       {error ? <Notice tone="danger">{error}</Notice> : null}
       <TextInput
         style={staffStyles.input}
-        placeholder="Task title"
+        placeholder="Enter a title for this card"
         placeholderTextColor={colors.muted}
         value={title}
         onChangeText={setTitle}
@@ -127,42 +117,6 @@ export function StaffCreateTaskSheet({
         ))}
         {columns.length === 0 ? <Text style={staffStyles.muted}>Open a board to pick a lane.</Text> : null}
       </View>
-      <Text style={staffStyles.section}>Priority</Text>
-      <View style={staffStyles.row}>
-        {PRIORITIES.map((value) => (
-          <Pressable
-            key={value}
-            style={[staffStyles.pill, priority === value && staffStyles.pillOn]}
-            onPress={() => setPriority(value)}
-          >
-            <Text style={[staffStyles.pillText, priority === value && staffStyles.pillTextOn]}>{value}</Text>
-          </Pressable>
-        ))}
-      </View>
-      {people.length ? (
-        <>
-          <Text style={staffStyles.section}>Assignee</Text>
-          <View style={staffStyles.row}>
-            <Pressable
-              style={[staffStyles.pill, !assigneeId && staffStyles.pillOn]}
-              onPress={() => setAssigneeId("")}
-            >
-              <Text style={[staffStyles.pillText, !assigneeId && staffStyles.pillTextOn]}>None</Text>
-            </Pressable>
-            {people.map((person) => (
-              <Pressable
-                key={person.id}
-                style={[staffStyles.pill, assigneeId === person.id && staffStyles.pillOn]}
-                onPress={() => setAssigneeId(person.id)}
-              >
-                <Text style={[staffStyles.pillText, assigneeId === person.id && staffStyles.pillTextOn]}>
-                  {person.displayName}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </>
-      ) : null}
     </FolderSheetFrame>
   );
 }

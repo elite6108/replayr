@@ -66,6 +66,8 @@ export default function StaffTaskDetailScreen() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [priorityOpen, setPriorityOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !id) return;
@@ -231,6 +233,11 @@ export default function StaffTaskDetailScreen() {
                   <Text style={staffStyles.title}>{task.title}</Text>
                 )}
                 {error ? <Notice tone="danger">{error}</Notice> : null}
+                {canEdit ? (
+                  <Pressable style={staffStyles.addBtn} onPress={() => setAddOpen(true)}>
+                    <Text style={staffStyles.addBtnText}>Add</Text>
+                  </Pressable>
+                ) : null}
                 <View style={staffStyles.row}>
                   <Pressable
                     style={staffStyles.pill}
@@ -420,18 +427,18 @@ export default function StaffTaskDetailScreen() {
                 ))}
                 {can("board.cards.delete") && mutate ? (
                   <Button
-                    label="Archive"
+                    label="Delete card"
                     kind="danger"
                     onPress={() =>
-                      Alert.alert("Archive this task?", undefined, [
+                      Alert.alert("Delete this card?", undefined, [
                         { text: "Cancel", style: "cancel" },
                         {
-                          text: "Archive",
+                          text: "Delete",
                           style: "destructive",
                           onPress: () =>
                             void archiveStaffTask(token, task.id)
                               .then(() => router.back())
-                              .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not archive.")),
+                              .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not delete card.")),
                         },
                       ])
                     }
@@ -477,6 +484,59 @@ export default function StaffTaskDetailScreen() {
               <Text style={staffStyles.hubLabel}>{value}</Text>
             </Pressable>
           ))}
+        </FolderSheetFrame>
+        <FolderSheetFrame visible={addOpen} title="Add to card" onClose={() => setAddOpen(false)}>
+          {board?.labels.length ? (
+            <Pressable
+              style={staffStyles.hubRow}
+              onPress={() => {
+                setAddOpen(false);
+                setLabelsOpen(true);
+              }}
+            >
+              <Text style={staffStyles.hubLabel}>Labels</Text>
+            </Pressable>
+          ) : null}
+          {canAssign ? (
+            <Pressable
+              style={staffStyles.hubRow}
+              onPress={() => {
+                setAddOpen(false);
+                setAssignOpen(true);
+              }}
+            >
+              <Text style={staffStyles.hubLabel}>Members</Text>
+            </Pressable>
+          ) : null}
+          {canEdit ? (
+            <Pressable
+              style={staffStyles.hubRow}
+              onPress={() => {
+                setAddOpen(false);
+                setPriorityOpen(true);
+              }}
+            >
+              <Text style={staffStyles.hubLabel}>Priority</Text>
+            </Pressable>
+          ) : null}
+          {canLists && mutate ? (
+            <Pressable
+              style={staffStyles.hubRow}
+              onPress={() => {
+                setAddOpen(false);
+                void addStaffChecklist(token, task?.id ?? "", "Checklist").then((body) => setTask(body.task));
+              }}
+            >
+              <Text style={staffStyles.hubLabel}>Checklist</Text>
+            </Pressable>
+          ) : null}
+        </FolderSheetFrame>
+        <FolderSheetFrame visible={labelsOpen} title="Labels" onClose={() => setLabelsOpen(false)}>
+          {board?.labels.length ? (
+            <StaffLabelPills labels={board.labels} selectedIds={task?.labelIds ?? []} onToggle={canEdit ? toggleLabel : undefined} />
+          ) : (
+            <Text style={staffStyles.muted}>No labels on this board.</Text>
+          )}
         </FolderSheetFrame>
         <StaffAssigneePicker
           visible={assignOpen}

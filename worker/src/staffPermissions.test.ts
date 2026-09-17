@@ -54,6 +54,9 @@ describe("admin route permission map", () => {
     expect(permissionForAdminRoute("GET", "/v1/admin/users")).toBe("users.view");
     expect(permissionForAdminRoute("DELETE", "/v1/admin/clips/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")).toBe("clips.delete");
     expect(permissionForAdminRoute("GET", "/v1/admin/audit")).toBe("audit.view");
-    expect(permissionForAdminRoute("PATCH", "/v1/admin/users/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")).toBeNull();
+    expect(permissionForAdminRoute("GET", "/v1/admin/waitlist")).toBe("waitlist.view");
+    expect(permissionForAdminRoute("POST", "/v1/admin/waitlist/campaigns")).toBe("waitlist.send");
+    expect(permissionForAdminRoute("POST", "/v1/admin/waitlist/rewrite")).toBe("waitlist.send");
+    expect(permissionForAdminRoute("POST", "/v1/admin/waitlist/templates")).toBe("waitlist.templates.manage");
   });
 });

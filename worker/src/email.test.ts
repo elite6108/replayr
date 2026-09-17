@@ -38,7 +38,8 @@ describe("Replayr email templates", () => {
     expect(invite.html).not.toContain("<script>");
     expect(invite.html).toContain("&lt;script&gt;");
     expect(invite.html).toContain("Admin &amp; Owner");
-    expect(invite.html).toContain("Editor &lt;root&gt;");
+    expect(invite.html).toContain("https://replayr.tv/replayr-logo.png");
+    expect(invite.html).not.toContain("text-transform:uppercase\">Replayr");
     expect(invite.text).toContain("Editor <root>");
   });
 
@@ -84,7 +85,8 @@ describe("Replayr email templates", () => {
       body: "We're locking Instant Replay.",
     });
     for (const message of [confirm, campaign]) {
-      expect(message.html).toContain("https://replayr.tv");
+      expect(message.html).toContain("https://replayr.tv/replayr-logo.png");
+      expect(message.html).toContain('alt="Replayr"');
       expect(message.html).toContain(WAITLIST_X_URL);
       expect(message.html).toContain("@Replayr_TV");
       expect(message.html).toContain(links.unsubscribeUrl);

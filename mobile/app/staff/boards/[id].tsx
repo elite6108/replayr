@@ -1,9 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppHeader } from "@/components/AppHeader";
+import { FolderSheetFrame } from "@/components/folders/FolderSheetFrame";
 import { StaffBoardPicker } from "@/components/staff/StaffBoardPicker";
 import { StaffBoardMembersSheet } from "@/components/staff/StaffBoardMembersSheet";
 import { StaffCreateTaskSheet } from "@/components/staff/StaffCreateTaskSheet";
@@ -16,14 +17,17 @@ import { StaffSortSheet } from "@/components/staff/StaffSortSheet";
 import { StaffTaskCard } from "@/components/staff/StaffTaskCard";
 import { staffStyles } from "@/components/staff/staffStyles";
 import { useStaffPoll } from "@/components/staff/useStaffPoll";
-import { Notice } from "@/components/ui";
+import { Button, Notice } from "@/components/ui";
 import {
+  archiveStaffTask,
   fetchStaffBoard,
   fetchStaffBoards,
   isStaffForbidden,
+  patchStaffTask,
   staffBoardHref,
   staffBoardsHref,
   staffTaskHref,
+  type StaffBoardCard,
   type StaffBoardDetail,
   type StaffBoardSummary,
 } from "@/lib/api.staff";
@@ -58,6 +62,8 @@ export default function StaffBoardScreen() {
   const [createOpen, setCreateOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [renameCard, setRenameCard] = useState<StaffBoardCard | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
 
   const load = useCallback(async () => {
     if (!token || !id) return;
@@ -90,6 +96,60 @@ export default function StaffBoardScreen() {
   }, [board, lane, filters, sort]);
   const filterCount = activeFilterCount(filters);
   const canCreate = Boolean(board?.canMutate && can("board.cards.create"));
+  const canRenameCards = Boolean(board?.canMutate && can("board.cards.edit"));
+  const canDeleteCards = Boolean(board?.canMutate && can("board.cards.delete"));
+
+  function removeCard(taskId: string) {
+    setBoard((current) =>
+      current
+        ? {
+            ...current,
+            columns: current.columns.map((column) => ({
+              ...column,
+              tasks: column.tasks.filter((task) => task.id !== taskId),
+            })),
+          }
+        : current,
+    );
+  }
+
+  function openCardMenu(task: StaffBoardCard) {
+    if (!canRenameCards && !canDeleteCards) return;
+    Alert.alert(task.title, undefined, [
+      ...(canRenameCards
+        ? [
+            {
+              text: "Rename",
+              onPress: () => {
+                setRenameCard(task);
+                setRenameTitle(task.title);
+              },
+            },
+          ]
+        : []),
+      ...(canDeleteCards
+        ? [
+            {
+              text: "Delete",
+              style: "destructive" as const,
+              onPress: () =>
+                Alert.alert("Delete this card?", undefined, [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: () =>
+                      void archiveStaffTask(token, task.id)
+                        .then(() => removeCard(task.id))
+                        .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not delete card.")),
+                  },
+                ]),
+            },
+          ]
+        : []),
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }
 
   if (denied) {
     return (
@@ -176,6 +236,7 @@ export default function StaffBoardScreen() {
                 task={task}
                 labels={board?.labels}
                 onPress={() => router.push(staffTaskHref(task.id))}
+                onLongPress={() => openCardMenu(task)}
               />
             ))}
             {board && cards.length === 0 ? <Text style={staffStyles.muted}>No tasks in this lane.</Text> : null}
@@ -236,6 +297,46 @@ export default function StaffBoardScreen() {
               onDeleted={() => router.replace(staffBoardsHref())}
             />
           ) : null}
+          <FolderSheetFrame
+            visible={Boolean(renameCard)}
+            title="Rename card"
+            onClose={() => setRenameCard(null)}
+            footer={
+              <Button
+                label="Save"
+                kind="primary"
+                onPress={() => {
+                  if (!renameCard || !renameTitle.trim()) return;
+                  const nextTitle = renameTitle.trim();
+                  const id = renameCard.id;
+                  setBoard((current) =>
+                    current
+                      ? {
+                          ...current,
+                          columns: current.columns.map((column) => ({
+                            ...column,
+                            tasks: column.tasks.map((task) => (task.id === id ? { ...task, title: nextTitle } : task)),
+                          })),
+                        }
+                      : current,
+                  );
+                  setRenameCard(null);
+                  void patchStaffTask(token, id, { title: nextTitle }).catch((caught: unknown) => {
+                    setError(caught instanceof Error ? caught.message : "Could not rename card.");
+                    void load();
+                  });
+                }}
+              />
+            }
+          >
+            <TextInput
+              style={staffStyles.input}
+              value={renameTitle}
+              onChangeText={setRenameTitle}
+              placeholder="Card title"
+              placeholderTextColor={colors.muted}
+            />
+          </FolderSheetFrame>
         </SafeAreaView>
     </StaffGate>
   );

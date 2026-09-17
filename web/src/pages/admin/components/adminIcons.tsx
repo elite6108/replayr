@@ -205,6 +205,15 @@ export function IconActive(props: IconProps) {
   );
 }
 
+export function IconWaitlist(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="4" y="5" width="16" height="14" rx="2" />
+      <path d="M4 8l8 5 8-5" />
+    </Icon>
+  );
+}
+
 export function IconPremium(props: IconProps) {
   return (
     <Icon {...props}>

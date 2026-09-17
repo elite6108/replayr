@@ -142,7 +142,7 @@ export function useStaffCardDrag(enabled: boolean, kanbanRef: RefObject<HTMLElem
   function startFromPointer(event: ReactPointerEvent, task: { id: string; title: string }, columnId: string) {
     if (!enabled || event.button !== 0) return false;
     const target = event.target as HTMLElement;
-    if (target.closest("button, input, textarea, select, a, .ops-assignee-picker, .ops-rename-input")) return false;
+    if (target.closest("button, input, textarea, select, a, .ops-assignee-picker, .ops-rename-input, .ops-card-actions")) return false;
     const card = event.currentTarget as HTMLElement;
     const box = card.getBoundingClientRect();
     skipClick.current = false;

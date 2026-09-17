@@ -5,6 +5,7 @@ import {
   createStaffBoard,
   createStaffColumn,
   createStaffLabel,
+  archiveStaffTask,
   createStaffTask,
   fetchStaffBoard,
   fetchStaffBoards,
@@ -21,6 +22,7 @@ import {
 } from "../../lib/staff";
 import {
   applyCardPatch,
+  applyCardRemove,
   boardSubtitle,
   columnTone,
   EMPTY_FILTERS,
@@ -52,6 +54,7 @@ import {
   IconSort,
   IconStar,
   IconStaff,
+  IconTrash,
 } from "./opsIcons";
 import { StaffTaskDrawer } from "./StaffTaskDrawer";
 import { useStaffCardDrag } from "./useStaffCardDrag";
@@ -68,7 +71,8 @@ export function StaffBoardPage() {
   const [error, setError] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [openSnapshot, setOpenSnapshot] = useState<StaffBoardCard | null>(null);
-  const [composer, setComposer] = useState<{ columnId: string; title: string; priority: string; assigneeId: string } | null>(null);
+  const [composer, setComposer] = useState<{ columnId: string; title: string } | null>(null);
+  const [cardMenu, setCardMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
   const [columnDraft, setColumnDraft] = useState("");
   const [addingColumn, setAddingColumn] = useState(false);
   const [filters, setFilters] = useState<BoardFilters>(EMPTY_FILTERS);
@@ -160,6 +164,7 @@ export function StaffBoardPage() {
   const canRenameBoard = can("board.edit") && canMutate;
   const canRenameColumns = can("board.columns.edit") && canMutate;
   const canRenameCards = can("board.cards.edit") && canMutate;
+  const canDeleteCards = can("board.cards.delete") && canMutate;
   const canAssign = can("board.cards.assign") && canMutate;
   const drag = useStaffCardDrag(canMove, kanbanRef);
 
@@ -174,15 +179,24 @@ export function StaffBoardPage() {
     event?.preventDefault();
     if (!token || !board || !composer || !composer.title.trim()) return;
     try {
+      const title = composer.title.trim();
       const created = await createStaffTask(token, board.id, {
         columnId: composer.columnId,
-        title: composer.title.trim(),
-        priority: composer.priority !== "none" ? composer.priority : undefined,
+        title,
       });
-      if (composer.assigneeId && can("board.cards.assign")) {
-        await setStaffAssignees(token, created.task.id, [composer.assigneeId]);
-      }
       setComposer(null);
+      setTaskId(created.task.id);
+      setOpenSnapshot({
+        id: created.task.id,
+        title,
+        rank: "",
+        priority: "none",
+        dueAt: null,
+        completedAt: null,
+        archivedAt: null,
+        assignees: [],
+        labelIds: [],
+      });
       await loadBoard();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not create task.");
@@ -190,8 +204,29 @@ export function StaffBoardPage() {
   }
 
   function openComposer(columnId: string) {
-    setComposer({ columnId, title: "", priority: "none", assigneeId: "" });
+    setComposer({ columnId, title: "" });
     setOpenMenu(null);
+    setCardMenu(null);
+  }
+
+  function removeCard(taskIdValue: string) {
+    setBoard((current) => (current ? applyCardRemove(current, taskIdValue) : current));
+    if (taskId === taskIdValue) {
+      setTaskId(null);
+      setOpenSnapshot(null);
+    }
+  }
+
+  async function archiveCard(taskIdValue: string) {
+    if (!token) return;
+    setCardMenu(null);
+    removeCard(taskIdValue);
+    try {
+      await archiveStaffTask(token, taskIdValue);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not delete card.");
+      await loadBoard();
+    }
   }
 
   async function renameBoardName(name: string) {
@@ -682,10 +717,20 @@ export function StaffBoardPage() {
                       if (renaming || !canMove) return;
                       drag.startFromPointer(event, task, column.id);
                     }}
+                    onContextMenu={(event) => {
+                      if (!canRenameCards && !canDeleteCards) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (openTimer.current) {
+                        window.clearTimeout(openTimer.current);
+                        openTimer.current = null;
+                      }
+                      setCardMenu({ taskId: task.id, x: event.clientX, y: event.clientY });
+                    }}
                     onClick={(event) => {
                       if (renaming) return;
                       if (drag.consumeClick()) return;
-                      if ((event.target as HTMLElement).closest(".ops-assignee-picker, .ops-rename-input")) return;
+                      if ((event.target as HTMLElement).closest(".ops-assignee-picker, .ops-rename-input, .ops-card-actions")) return;
                       if ((event.target as HTMLElement).closest(".ops-card-title")) {
                         requestOpen(task);
                         return;
@@ -756,6 +801,22 @@ export function StaffBoardPage() {
                       )}
                     </div>
                     </div>
+                    {canDeleteCards ? (
+                      <div className="ops-card-actions">
+                        <button
+                          type="button"
+                          className="ops-card-quick"
+                          aria-label="Delete card"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (!window.confirm("Delete this card?")) return;
+                            void archiveCard(task.id);
+                          }}
+                        >
+                          <IconTrash />
+                        </button>
+                      </div>
+                    ) : null}
                   </article>
                   );
                 })}
@@ -775,8 +836,8 @@ export function StaffBoardPage() {
                       autoFocus
                       value={composer.title}
                       onChange={(event) => setComposer({ ...composer, title: event.target.value })}
-                      placeholder="Task title"
-                      aria-label="Task title"
+                      placeholder="Enter a title for this card…"
+                      aria-label="Card title"
                       onKeyDown={(event) => {
                         if (event.key === "Escape") {
                           event.preventDefault();
@@ -785,35 +846,8 @@ export function StaffBoardPage() {
                       }}
                     />
                     <div className="ops-composer-row">
-                      <select
-                        className="ops-select"
-                        aria-label="Priority"
-                        value={composer.priority}
-                        onChange={(event) => setComposer({ ...composer, priority: event.target.value })}
-                      >
-                        {["none", "low", "medium", "high", "urgent"].map((value) => (
-                          <option key={value} value={value}>
-                            {value === "none" ? "Priority" : value}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        className="ops-select"
-                        aria-label="Assignee"
-                        value={composer.assigneeId}
-                        onChange={(event) => setComposer({ ...composer, assigneeId: event.target.value })}
-                      >
-                        <option value="">Assignee</option>
-                        {memberPeople.map((person) => (
-                          <option key={person.id} value={person.id}>
-                            {person.displayName}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="ops-composer-row">
                       <button className="ops-create sm" type="submit">
-                        Create
+                        Add card
                       </button>
                       <button type="button" className="ops-ghost" onClick={() => setComposer(null)}>
                         Cancel
@@ -906,10 +940,31 @@ export function StaffBoardPage() {
           board={board}
           snapshot={openSnapshot?.id === taskId ? openSnapshot : board?.columns.flatMap((column) => column.tasks).find((task) => task.id === taskId) ?? null}
           onTaskChanged={applyTaskPatch}
+          onTaskArchived={removeCard}
           onClose={() => {
             setTaskId(null);
             setOpenSnapshot(null);
           }}
+        />
+      ) : null}
+      {cardMenu ? (
+        <CardContextMenu
+          x={cardMenu.x}
+          y={cardMenu.y}
+          canRename={canRenameCards}
+          canDelete={canDeleteCards}
+          onRename={() => {
+            requestRename(cardMenu.taskId);
+            setCardMenu(null);
+          }}
+          onDelete={() => {
+            if (!window.confirm("Delete this card?")) {
+              setCardMenu(null);
+              return;
+            }
+            void archiveCard(cardMenu.taskId);
+          }}
+          onClose={() => setCardMenu(null)}
         />
       ) : null}
       {membersOpen && board ? (
@@ -945,6 +1000,56 @@ export function StaffBoardPage() {
         />
       ) : null}
     </section>
+  );
+}
+
+function CardContextMenu({
+  x,
+  y,
+  canRename,
+  canDelete,
+  onRename,
+  onDelete,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  canRename: boolean;
+  canDelete: boolean;
+  onRename: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function onPointer(event: PointerEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) onClose();
+    }
+    function onKey(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("pointerdown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+  const left = Math.min(x, window.innerWidth - 168);
+  const top = Math.min(y, window.innerHeight - 96);
+  return (
+    <div ref={ref} className="ops-card-context" role="menu" style={{ left, top }}>
+      {canRename ? (
+        <button type="button" className="ops-menu-item" role="menuitem" onClick={onRename}>
+          Rename
+        </button>
+      ) : null}
+      {canDelete ? (
+        <button type="button" className="ops-menu-item is-danger" role="menuitem" onClick={onDelete}>
+          Delete
+        </button>
+      ) : null}
+    </div>
   );
 }
 

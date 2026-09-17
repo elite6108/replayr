@@ -137,6 +137,16 @@ export function IconClose(props: IconProps) {
   );
 }
 
+export function IconTrash(props: IconProps) {
+  return (
+    <Icon {...props} width="14" height="14">
+      <path d="M5 7h14" />
+      <path d="M9 7V5.5h6V7" />
+      <path d="M8 7l.7 11h6.6L16 7" />
+    </Icon>
+  );
+}
+
 export function IconInbox(props: IconProps) {
   return (
     <Icon {...props}>

@@ -33,6 +33,7 @@ import { SignInPage } from "./pages/SignInPage";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { AdminOverviewPage } from "./pages/admin/AdminOverviewPage";
 import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
+import { AdminWaitlistPage } from "./pages/admin/AdminWaitlistPage";
 import { AdminBillingPage } from "./pages/admin/AdminBillingPage";
 import { AdminClipsPage } from "./pages/admin/AdminClipsPage";
 import { AdminStoragePage } from "./pages/admin/AdminStoragePage";
@@ -183,6 +184,7 @@ function AppShell() {
           >
             <Route index element={<AdminOverviewPage />} />
             <Route path="users" element={<AdminUsersPage />} />
+            <Route path="waitlist" element={<AdminWaitlistPage />} />
             <Route path="billing" element={<AdminBillingPage />} />
             <Route path="clips" element={<AdminClipsPage />} />
             <Route path="storage" element={<AdminStoragePage />} />

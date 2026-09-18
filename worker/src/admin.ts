@@ -10,6 +10,8 @@ import {
 } from "./analyticsProductAdmin";
 import { buildAnalyticsInfrastructure, buildAnalyticsRevenue, patchCostAssumption } from "./analyticsEconomyAdmin";
 import { buildAnalyticsHealth, buildAnalyticsHealthReleases } from "./analyticsHealthAdmin";
+import { buildVisitorTraffic } from "./analyticsTrafficAdmin";
+import { listLiveVisitors } from "./presence";
 import { handleAnalyticsReports } from "./analyticsReportAdmin";
 import { listAdminAudit } from "./auditAdmin";
 import { AUDIT_ACTIONS, writeAuditLog } from "./audit";
@@ -223,6 +225,12 @@ export async function handleAdmin(
   }
   if (request.method === "GET" && path === "/v1/admin/analytics/health/releases") {
     return json(await buildAnalyticsHealthReleases(env, url));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/live") {
+    return json(await listLiveVisitors(env));
+  }
+  if (request.method === "GET" && path === "/v1/admin/analytics/traffic") {
+    return json(await buildVisitorTraffic(env, url));
   }
   if (request.method === "GET" && path === "/v1/admin/audit") {
     return listAdminAudit(env, url);

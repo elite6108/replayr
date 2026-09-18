@@ -182,6 +182,7 @@ export function trackClipShared(input: { channel: "dm" | "copy_link"; slug?: str
 export async function installDesktopAnalytics() {
   if (listenersStarted) return;
   listenersStarted = true;
+  installDesktopPresence();
   try {
     await listen<{ phase?: string; message?: string }>("clip-save", (event) => {
       if (event.payload.phase === "failed" && event.payload.message) {
@@ -190,6 +191,35 @@ export async function installDesktopAnalytics() {
     });
   } catch {
     /* overlay or non-tauri */
+  }
+}
+
+function installDesktopPresence() {
+  const beat = () => {
+    const token = useAuthStore.getState().session?.access_token;
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (token) headers.authorization = `Bearer ${token}`;
+    const path = typeof window !== "undefined" ? window.location.hash || window.location.pathname || "/app" : "/app";
+    void fetch(`${publicApiUrl()}/v1/presence/ping`, {
+      method: "POST",
+      headers,
+      keepalive: true,
+      body: JSON.stringify({
+        path: path.slice(0, 160),
+        sessionId,
+        surface: "desktop",
+      }),
+    }).catch(() => undefined);
+  };
+  beat();
+  if (typeof window !== "undefined") {
+    window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      beat();
+    }, 25_000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") beat();
+    });
   }
 }
 

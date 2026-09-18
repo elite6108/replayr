@@ -2,6 +2,7 @@ import { handleAdmin } from "./admin";
 import { handleStaff, notifyStaffTaskDueSoon } from "./staff";
 import { drainWaitlistCampaigns } from "./waitlistAdmin";
 import { handleAnalytics, observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
+import { cleanupLiveVisitors, handlePresence, observeLiveVisitor } from "./presence";
 import { installerArtifact, recordClipDownloadEvent, serveInstallerDownload } from "./analyticsDownloads";
 import { runRecentAnalyticsRollup } from "./analyticsRollup";
 import { handlePublicAnnouncements } from "./announcements";
@@ -136,6 +137,7 @@ export default {
       return cors(new Response(null, { status: 204 }), request);
     }
     try {
+      observeLiveVisitor(request, env, url, ctx);
       return cors(await route(request, env, url, ctx), request);
     } catch (caught) {
       if (caught instanceof HttpError) {
@@ -168,6 +170,11 @@ export default {
           await drainWaitlistCampaigns(env);
         } catch (caught) {
           console.error("waitlist_campaign_drain_failed", caught instanceof Error ? caught.message : "unknown");
+        }
+        try {
+          await cleanupLiveVisitors(env);
+        } catch (caught) {
+          console.error("live_visitors_cleanup_failed", caught instanceof Error ? caught.message : "unknown");
         }
         try {
           const result = await runRecentAnalyticsRollup(env);
@@ -275,6 +282,8 @@ async function route(
   if (publicFolders) return publicFolders;
   const announcements = await handlePublicAnnouncements(request, env, url);
   if (announcements) return announcements;
+  const presence = await handlePresence(request, env, url);
+  if (presence) return presence;
   const analytics = await handleAnalytics(request, env, url);
   if (analytics) return analytics;
   if (request.method === "GET" && url.pathname === "/v1/library") {

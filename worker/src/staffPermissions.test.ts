@@ -58,5 +58,7 @@ describe("admin route permission map", () => {
     expect(permissionForAdminRoute("POST", "/v1/admin/waitlist/campaigns")).toBe("waitlist.send");
     expect(permissionForAdminRoute("POST", "/v1/admin/waitlist/rewrite")).toBe("waitlist.send");
     expect(permissionForAdminRoute("POST", "/v1/admin/waitlist/templates")).toBe("waitlist.templates.manage");
+    expect(permissionForAdminRoute("GET", "/v1/admin/analytics/live")).toBe("analytics.view");
+    expect(permissionForAdminRoute("GET", "/v1/admin/analytics/traffic")).toBe("analytics.view");
   });
 });

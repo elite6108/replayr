@@ -63,6 +63,8 @@ export const analyticsSections: AnalyticsSection[] = [
     path: "/admin/analytics/health",
     tabs: [
       { id: "product-health", label: "Product Health", path: "/admin/analytics/health", end: true },
+      { id: "live", label: "Live", path: "/admin/analytics/health/live" },
+      { id: "traffic", label: "Traffic", path: "/admin/analytics/health/traffic" },
       { id: "errors", label: "Errors", path: "/admin/analytics/health/errors" },
     ],
   },

@@ -19,8 +19,8 @@
     });
   }
 
-  const waitlist = document.getElementById("waitlist");
-  if (waitlist) {
+  const waitlistForms = document.querySelectorAll("form.waitlist");
+  waitlistForms.forEach((waitlist) => {
     waitlist.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (!waitMsg) return;
@@ -39,20 +39,22 @@
           const body = await response.json().catch(() => ({}));
           throw new Error(body.error || "Could not save that email.");
         }
-        form.classList.add("is-done");
-        form.reset();
+        waitlistForms.forEach((node) => {
+          node.classList.add("is-done");
+          if (node instanceof HTMLFormElement) node.reset();
+        });
         waitMsg.className = "msg";
         waitMsg.textContent = "";
         if (waitConfirm) {
           waitConfirm.classList.add("is-open");
-          waitConfirm.focus?.();
+          waitConfirm.scrollIntoView({ block: "nearest" });
         }
       } catch (err) {
         waitMsg.className = "msg err";
         waitMsg.textContent = err instanceof Error ? err.message : "Could not save that email.";
       }
     });
-  }
+  });
 
   if (gate) {
     gate.addEventListener("submit", async (event) => {
@@ -82,4 +84,30 @@
       }
     });
   }
+
+  const presenceAidKey = "replayr_aid";
+  let presenceId = "";
+  try {
+    presenceId = localStorage.getItem(presenceAidKey) || "";
+    if (presenceId.length < 8) {
+      presenceId = crypto.randomUUID();
+      localStorage.setItem(presenceAidKey, presenceId);
+    }
+  } catch {
+    presenceId = "anonwait" + String(Date.now());
+  }
+  const pingPresence = () => {
+    if (document.visibilityState === "hidden") return;
+    void fetch("/v1/presence/ping", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({ path: "/coming-soon", anonymousId: presenceId, surface: "coming-soon" }),
+    }).catch(() => undefined);
+  };
+  pingPresence();
+  window.setInterval(pingPresence, 25000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") pingPresence();
+  });
 })();

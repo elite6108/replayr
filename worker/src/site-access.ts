@@ -33,7 +33,14 @@ export function isOAuthHandoff(url: URL): boolean {
 export const COMING_SOON_PUBLIC_PATHS = new Set([
   "/coming-soon.html",
   "/coming-soon.js",
+  "/coming-soon.css",
   "/instant-replay.png",
+  "/marketing/record-preview.png",
+  "/marketing/local-library.png",
+  "/marketing/share-privacy.png",
+  "/marketing/clip-editor.jpg",
+  "/marketing/social-explore-or-following.png",
+  "/marketing/overlay-pack-or-scene.png",
   "/replayr-logo.png",
   "/replayr-mark.png",
   "/favicon.png",
@@ -377,20 +384,22 @@ export function comingSoonFallbackHtml(): string {
       :root{color-scheme:dark;--bg:#07080d;--text:#f3f5f8;--muted:#9aa3b2;--accent:#7fd0ef;--accent-strong:#4bb8e0;--ok:#8ed9a4;--border:rgba(255,255,255,.08);--font:"Outfit","Segoe UI",system-ui,sans-serif}
       *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:var(--font);color:var(--text);background:var(--bg)}
       a{color:var(--accent);text-decoration:none}.wrap{width:min(1120px,calc(100% - 32px));margin:0 auto}
-      header{padding:18px 0 4px}.hero{padding:28px 0 36px}
+      header{padding:18px 0 4px;display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+      .hero{padding:28px 0 36px}
       .eyebrow{margin:0 0 10px;color:var(--accent);font-size:.82rem;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
-      h1{margin:0 0 12px;font-size:clamp(1.85rem,7.4vw,4.1rem);line-height:1.04}
+      h1{margin:0 0 12px;font-size:clamp(1.85rem,7.4vw,3.6rem);line-height:1.04}
       .lede,.offer,.trust,.price-teaser{margin:0 0 14px;color:var(--muted);line-height:1.5}
       .offer,.price-teaser{color:var(--text)}.trust{font-size:.88rem}
       .waitlist,.gate{display:flex;flex-wrap:wrap;gap:10px;max-width:480px}
       .gate{display:none;margin-top:12px}.gate.is-open{display:flex}
       .waitlist input,.gate input{flex:1 1 220px;min-width:0;border-radius:999px;border:1px solid var(--border);background:#0a0c12;color:var(--text);font:inherit;padding:13px 18px}
-      .waitlist button,.gate button{border:0;border-radius:999px;background:var(--accent-strong);color:#061018;font:inherit;font-weight:650;padding:13px 20px;cursor:pointer}
+      .waitlist button,.gate button,.header-cta{border:0;border-radius:999px;background:var(--accent-strong);color:#061018;font:inherit;font-weight:650;padding:13px 20px;cursor:pointer}
+      .header-cta{display:inline-flex;text-decoration:none;padding:9px 16px;font-size:.9rem}
       .waitlist.is-done{display:none}
       .confirm{display:none;max-width:480px;padding:16px 18px;border-radius:18px;border:1px solid rgba(142,217,164,.28)}
       .confirm.is-open{display:block}.confirm strong{color:var(--ok)}
-      .hero-proof{margin:28px 0 0;border-radius:20px;overflow:hidden;border:1px solid var(--border)}
-      .hero-proof img{display:block;width:100%;height:auto}
+      .shot{margin:28px 0 0;border-radius:22px;overflow:hidden;border:1px solid var(--border)}
+      .shot img{display:block;width:100%;height:auto}
       .plan .price{color:var(--accent);font-weight:650}
       .access-link{border:0;background:transparent;color:var(--muted);font:inherit;cursor:pointer;padding:0}
       footer{padding:24px 0 40px;color:var(--muted);border-top:1px solid var(--border)}
@@ -400,11 +409,13 @@ export function comingSoonFallbackHtml(): string {
     <div class="wrap">
       <header>
         <a href="/coming-soon" aria-label="Replayr"><img src="/replayr-logo.png" alt="Replayr" width="140" height="32" /></a>
+        <a class="header-follow" href="https://x.com/Replayr_TV">Follow us</a>
+        <a class="header-cta" href="#waitlist-cta">Join waitlist</a>
       </header>
       <section class="hero">
         <p class="eyebrow">Beta waitlist</p>
         <h1>Your best plays, already captured.</h1>
-        <p class="lede">The clutch happened. Replayr already had it. Instant Replay clips stay on your PC, and share links stay quiet until you hit send.</p>
+        <p class="lede">Replayr keeps a rolling buffer so the clutch is already on disk. Save locally, upload when you want, and share only when you hit send.</p>
         <p class="offer">Early emails get beta access when it opens.</p>
         <form class="waitlist" id="waitlist" autocomplete="on">
           <input type="email" name="email" required placeholder="you@email.com" aria-label="Email" autocomplete="email" />
@@ -417,12 +428,18 @@ export function comingSoonFallbackHtml(): string {
         <p class="msg" id="waitMsg" role="status"></p>
         <p class="trust">No spam. We'll only email you when beta opens.</p>
         <p class="price-teaser">Free to start · Premium $6.99/mo</p>
-        <figure class="hero-proof">
-          <img src="/instant-replay.png" alt="Replayr Instant Replay and Record layout with clip buffer and sources" width="1600" height="1000" />
+        <figure class="shot">
+          <img src="/instant-replay.png" alt="Replayr Instant Replay workspace with clip buffer and sources" width="1600" height="1000" />
         </figure>
       </section>
+      <section class="cta-band" id="waitlist-cta">
+        <h2>Get in before beta opens</h2>
+        <form class="waitlist" id="waitlist-cta-form" autocomplete="on">
+          <input type="email" name="email" required placeholder="you@email.com" aria-label="Email" autocomplete="email" />
+          <button type="submit">Join the beta waitlist</button>
+        </form>
+      </section>
       <section class="pricing" aria-label="Pricing">
-        <h2>Pricing</h2>
         <div class="plan"><strong>Free</strong><div class="price">$0</div></div>
         <div class="plan"><strong>Premium</strong><div class="price">$6.99/mo</div></div>
       </section>

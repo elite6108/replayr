@@ -6,6 +6,7 @@ import { RequireAuth } from "./components/RequireAuth";
 import { RequireAdmin } from "./components/RequireAdmin";
 import { RequireStaff } from "./components/RequireStaff";
 import { AuthProvider } from "./lib/auth";
+import { noteWebPresencePath } from "./lib/presence";
 import { StaffPermissionsProvider } from "./lib/staff";
 import { SocialUnreadProvider } from "./lib/socialUnread";
 import { AccountPage } from "./pages/AccountPage";
@@ -54,6 +55,8 @@ import { AnalyticsSharingPage } from "./pages/admin/analytics/AnalyticsSharingPa
 import { AnalyticsRevenuePage } from "./pages/admin/analytics/AnalyticsRevenuePage";
 import { AnalyticsInfrastructurePage } from "./pages/admin/analytics/AnalyticsInfrastructurePage";
 import { AnalyticsHealthPage } from "./pages/admin/analytics/AnalyticsHealthPage";
+import { AnalyticsLivePage } from "./pages/admin/analytics/AnalyticsLivePage";
+import { AnalyticsTrafficPage } from "./pages/admin/analytics/AnalyticsTrafficPage";
 import { AnalyticsReportsPage } from "./pages/admin/analytics/AnalyticsReportsPage";
 import { AnalyticsReportDetailPage } from "./pages/admin/analytics/AnalyticsReportDetailPage";
 import { AnalyticsRedirect, AnalyticsSectionShell } from "./pages/admin/analytics/AnalyticsSectionShell";
@@ -82,6 +85,9 @@ function AppShell() {
   const location = useLocation();
   const admin = location.pathname.startsWith("/admin") || location.pathname.startsWith("/staff");
   const messages = location.pathname.startsWith("/messages");
+  useEffect(() => {
+    noteWebPresencePath();
+  }, [location.pathname, location.search]);
   const oauthCode =
     new URLSearchParams(location.search).get("code") ||
     new URLSearchParams(location.hash.replace(/^#/, "")).get("code");
@@ -217,6 +223,8 @@ function AppShell() {
             </Route>
             <Route path="analytics/health" element={<AnalyticsSectionShell sectionId="health" />}>
               <Route index element={<AnalyticsHealthPage />} />
+              <Route path="live" element={<AnalyticsLivePage />} />
+              <Route path="traffic" element={<AnalyticsTrafficPage />} />
               <Route path="errors" element={<AdminErrorsPage />} />
             </Route>
             {analyticsLegacyRedirects.map((item) => (

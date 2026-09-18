@@ -3,11 +3,13 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 import { captureWebAttribution } from "./lib/attribution";
+import { installWebPresence } from "./lib/presence";
 import { installWebTelemetry } from "./lib/telemetry";
 import "./styles.css";
 
 installWebTelemetry();
 captureWebAttribution();
+installWebPresence();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -407,6 +407,58 @@ export function fetchAnalyticsHealth(token: string, search: string) {
   return adminFetch<AnalyticsHealthResponse>(`/v1/admin/analytics/health${search}`, token);
 }
 
+export type LiveVisitor = {
+  visitorKey: string;
+  ip: string | null;
+  country: string | null;
+  city: string | null;
+  colo: string | null;
+  path: string | null;
+  surface: "web" | "coming-soon" | "desktop" | "api" | "admin";
+  lastSeen: string;
+  userAgent: string | null;
+  user: { id: string; handle: string | null; displayName: string | null; email: string | null } | null;
+};
+
+export type AnalyticsLiveResponse = {
+  now: string;
+  count: number;
+  visitors: LiveVisitor[];
+};
+
+export function fetchAnalyticsLive(token: string) {
+  return adminFetch<AnalyticsLiveResponse>("/v1/admin/analytics/live", token);
+}
+
+export type AnalyticsTrafficSlice = { key: string; uniqueVisitors: number; pings: number };
+
+export type AnalyticsTrafficResponse = {
+  range: AnalyticsOverviewResponse["range"];
+  comparisonRange: AnalyticsComparisonRange;
+  lastUpdated: string | null;
+  freshness: "hourly";
+  note: string;
+  metrics: AnalyticsKpi[];
+  breakdown: {
+    surfaces: AnalyticsTrafficSlice[];
+    countries: AnalyticsTrafficSlice[];
+    paths: AnalyticsTrafficSlice[];
+  };
+  series: {
+    labels: string[];
+    uniqueVisitors: Array<number | null>;
+    signedIn: Array<number | null>;
+    pings: Array<number | null>;
+    hourLabels: string[];
+    hourUniques: Array<number | null>;
+    hourPings: Array<number | null>;
+  };
+};
+
+export function fetchAnalyticsTraffic(token: string, search: string) {
+  return adminFetch<AnalyticsTrafficResponse>(`/v1/admin/analytics/traffic${search}`, token);
+}
+
 export type AuditLogResponse = {
   range: { from: string; to: string };
   items: Array<{

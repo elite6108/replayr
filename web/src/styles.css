@@ -4071,6 +4071,73 @@ code {
   font-size: 0.85rem;
 }
 
+.live-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  align-items: center;
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.live-filters select {
+  margin-left: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(10, 12, 18, 0.78);
+  color: var(--text);
+  font: inherit;
+  padding: 6px 12px;
+}
+
+.live-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+}
+
+.live-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.live-table th,
+.live-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.live-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.live-mono {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.live-path,
+.live-ua {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .analytics-notice,
 .analytics-freshness {
   margin: 0 0 14px;

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { Env } from "./env";
 import {
   comingSoonFallbackHtml,
+  COMING_SOON_PUBLIC_PATHS,
   handleWaitlistPages,
   isComingSoonPath,
   isOAuthHandoff,
@@ -16,15 +17,25 @@ const comingSoonPage = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../../web/public/coming-soon.html"),
   "utf8",
 );
+const comingSoonJs = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "../../web/public/coming-soon.js"),
+  "utf8",
+);
 
 function expectWaitlistConversionCopy(html: string) {
+  expect(html).toContain("Your best plays, already captured.");
   expect(html).toContain("Join the beta waitlist");
+  expect(html).toContain("Join waitlist");
+  expect(html).toContain("https://x.com/Replayr_TV");
   expect(html).toContain("Early emails get beta access when it opens.");
   expect(html).toContain("No spam. We'll only email you when beta opens.");
   expect(html).toContain("Free to start · Premium $6.99/mo");
   expect(html).toContain("$6.99/mo");
   expect(html).toContain("Thanks — we'll email you when beta opens.");
   expect(html).toContain("/instant-replay.png");
+  expect(html).toContain('id="waitlist"');
+  expect(html).toContain('id="waitlist-cta"');
+  expect(html).toContain('id="waitConfirm"');
   expect(html).toContain("Already have access?");
   expect(html).not.toMatch(/\bWindows\b/);
   expect(html).not.toContain("4.99");
@@ -48,6 +59,14 @@ describe("isSiteGatedPath", () => {
   it("keeps screenshot share links open", () => {
     expect(isSiteGatedPath("/s/abcdefghijk2")).toBe(false);
     expect(isSiteGatedPath("/s/abcdefghijk2.png")).toBe(false);
+  });
+
+  it("keeps coming-soon marketing assets on the public allowlist", () => {
+    expect(isSiteGatedPath("/coming-soon.css")).toBe(false);
+    expect(isSiteGatedPath("/marketing/record-preview.png")).toBe(false);
+    expect(COMING_SOON_PUBLIC_PATHS.has("/coming-soon.css")).toBe(true);
+    expect(COMING_SOON_PUBLIC_PATHS.has("/marketing/social-explore-or-following.png")).toBe(true);
+    expect(COMING_SOON_PUBLIC_PATHS.has("/marketing/clip-editor.jpg")).toBe(true);
   });
 });
 
@@ -89,6 +108,25 @@ describe("coming-soon conversion copy", () => {
     expect(comingSoonPage).toContain('id="unlockToggle"');
     expect(comingSoonPage).toContain("<footer>");
     expect(comingSoonPage.indexOf('id="waitlist"')).toBeLessThan(comingSoonPage.indexOf('id="unlockToggle"'));
+  });
+
+  it("ships screenshot narratives and FAQ on the full page", () => {
+    expect(comingSoonPage).toContain("/coming-soon.css");
+    expect(comingSoonPage).toContain("/marketing/record-preview.png");
+    expect(comingSoonPage).toContain("/marketing/local-library.png");
+    expect(comingSoonPage).toContain("/marketing/clip-editor.jpg");
+    expect(comingSoonPage).toContain("/marketing/share-privacy.png");
+    expect(comingSoonPage).toContain("/marketing/social-explore-or-following.png");
+    expect(comingSoonPage).toContain("/marketing/overlay-pack-or-scene.png");
+    expect(comingSoonPage).toContain("Capture instantly");
+    expect(comingSoonPage).toContain('id="faq"');
+    expect(comingSoonPage).toContain("When beta opens.");
+    expect(comingSoonPage).toContain('class="waitlist"');
+    expect(comingSoonPage).toContain('id="waitlist-cta-form"');
+    expect(comingSoonPage).toContain("/coming-soon.js");
+    expect(comingSoonJs).toContain('querySelectorAll("form.waitlist")');
+    expect(comingSoonJs).toContain("/v1/waitlist");
+    expect(comingSoonJs).toContain("/v1/site-access");
   });
 });
 

@@ -23,13 +23,14 @@ const comingSoonJs = readFileSync(
 );
 
 function expectWaitlistConversionCopy(html: string) {
-  expect(html).toContain("Your best plays, already captured.");
-  expect(html).toContain("Join the beta waitlist");
+  expect(html).toContain("Your best plays,");
+  expect(html).toContain("already captured.");
+  expect(html).toContain("Join the waitlist");
   expect(html).toContain("Join waitlist");
   expect(html).toContain("https://x.com/Replayr_TV");
   expect(html).toContain("Early emails get beta access when it opens.");
-  expect(html).toContain("No spam. We'll only email you when beta opens.");
-  expect(html).toContain("Free to start · Premium $6.99/mo");
+  expect(html).toContain("No spam. Just launch updates and early access.");
+  expect(html).toContain("Windows first");
   expect(html).toContain("$6.99/mo");
   expect(html).toContain("Thanks — we'll email you when beta opens.");
   expect(html).toContain("/instant-replay.png");
@@ -37,7 +38,6 @@ function expectWaitlistConversionCopy(html: string) {
   expect(html).toContain('id="waitlist-cta"');
   expect(html).toContain('id="waitConfirm"');
   expect(html).toContain("Already have access?");
-  expect(html).not.toMatch(/\bWindows\b/);
   expect(html).not.toContain("4.99");
   expect(html).not.toContain("47.88");
 }
@@ -118,7 +118,7 @@ describe("coming-soon conversion copy", () => {
     expect(comingSoonPage).toContain("/marketing/share-privacy.png");
     expect(comingSoonPage).toContain("/marketing/social-explore-or-following.png");
     expect(comingSoonPage).toContain("/marketing/overlay-pack-or-scene.png");
-    expect(comingSoonPage).toContain("Capture instantly");
+    expect(comingSoonPage).toContain("Capture instantly.");
     expect(comingSoonPage).toContain('id="faq"');
     expect(comingSoonPage).toContain("When beta opens.");
     expect(comingSoonPage).toContain('class="waitlist"');

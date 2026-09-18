@@ -23,11 +23,14 @@
   waitlistForms.forEach((waitlist) => {
     waitlist.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!waitMsg) return;
-      waitMsg.className = "msg";
-      waitMsg.textContent = "Saving…";
-      if (waitConfirm) waitConfirm.classList.remove("is-open");
       const form = event.currentTarget instanceof HTMLFormElement ? event.currentTarget : waitlist;
+      const block = form.closest(".signup");
+      const msg = (block && block.querySelector(".msg")) || waitMsg;
+      const confirm = (block && block.querySelector(".confirm")) || waitConfirm;
+      if (!msg) return;
+      msg.className = "msg";
+      msg.textContent = "Saving…";
+      document.querySelectorAll(".confirm").forEach((node) => node.classList.remove("is-open"));
       const email = new FormData(form).get("email");
       try {
         const response = await fetch("/v1/waitlist", {
@@ -43,15 +46,13 @@
           node.classList.add("is-done");
           if (node instanceof HTMLFormElement) node.reset();
         });
-        waitMsg.className = "msg";
-        waitMsg.textContent = "";
-        if (waitConfirm) {
-          waitConfirm.classList.add("is-open");
-          waitConfirm.scrollIntoView({ block: "nearest" });
-        }
+        msg.className = "msg";
+        msg.textContent = "";
+        document.querySelectorAll(".confirm").forEach((node) => node.classList.add("is-open"));
+        if (confirm) confirm.scrollIntoView({ block: "nearest" });
       } catch (err) {
-        waitMsg.className = "msg err";
-        waitMsg.textContent = err instanceof Error ? err.message : "Could not save that email.";
+        msg.className = "msg err";
+        msg.textContent = err instanceof Error ? err.message : "Could not save that email.";
       }
     });
   });

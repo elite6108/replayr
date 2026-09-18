@@ -381,26 +381,27 @@ export function comingSoonFallbackHtml(): string {
     <link rel="canonical" href="https://replayr.tv/coming-soon" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <style>
-      :root{color-scheme:dark;--bg:#07080d;--text:#f3f5f8;--muted:#9aa3b2;--accent:#7fd0ef;--accent-strong:#4bb8e0;--ok:#8ed9a4;--border:rgba(255,255,255,.08);--font:"Outfit","Segoe UI",system-ui,sans-serif}
+      :root{color-scheme:dark;--bg:#07080b;--text:#f2f4f7;--muted:#8b93a1;--accent:#7fd0ef;--ok:#8ed9a4;--border:rgba(255,255,255,.08);--font:"Outfit","Segoe UI",system-ui,sans-serif}
       *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:var(--font);color:var(--text);background:var(--bg)}
-      a{color:var(--accent);text-decoration:none}.wrap{width:min(1120px,calc(100% - 32px));margin:0 auto}
+      a{color:var(--accent);text-decoration:none}.wrap{width:min(1320px,calc(100% - 32px));margin:0 auto}
       header{padding:18px 0 4px;display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
       .hero{padding:28px 0 36px}
-      .eyebrow{margin:0 0 10px;color:var(--accent);font-size:.82rem;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
-      h1{margin:0 0 12px;font-size:clamp(1.85rem,7.4vw,3.6rem);line-height:1.04}
-      .lede,.offer,.trust,.price-teaser{margin:0 0 14px;color:var(--muted);line-height:1.5}
-      .offer,.price-teaser{color:var(--text)}.trust{font-size:.88rem}
-      .waitlist,.gate{display:flex;flex-wrap:wrap;gap:10px;max-width:480px}
+      .eyebrow{margin:0 0 10px;color:var(--muted);font-size:.72rem;font-weight:650;letter-spacing:.16em;text-transform:uppercase}
+      h1{margin:0 0 12px;font-size:clamp(2.1rem,7vw,3.8rem);line-height:1.02}
+      .accent{color:var(--accent)}
+      .lede,.trust,.price-teaser{margin:0 0 14px;color:var(--muted);line-height:1.5}
+      .price-teaser{color:var(--text)}.trust{font-size:.88rem}
+      .waitlist,.gate{display:flex;flex-wrap:wrap;gap:10px;max-width:520px}
       .gate{display:none;margin-top:12px}.gate.is-open{display:flex}
-      .waitlist input,.gate input{flex:1 1 220px;min-width:0;border-radius:999px;border:1px solid var(--border);background:#0a0c12;color:var(--text);font:inherit;padding:13px 18px}
-      .waitlist button,.gate button,.header-cta{border:0;border-radius:999px;background:var(--accent-strong);color:#061018;font:inherit;font-weight:650;padding:13px 20px;cursor:pointer}
+      .waitlist input,.gate input{flex:1 1 220px;min-width:0;border-radius:999px;border:1px solid var(--border);background:#0c1118;color:var(--text);font:inherit;padding:13px 18px}
+      .waitlist button,.gate button,.header-cta{border:0;border-radius:999px;background:var(--accent);color:#061018;font:inherit;font-weight:650;padding:13px 20px;cursor:pointer}
       .header-cta{display:inline-flex;text-decoration:none;padding:9px 16px;font-size:.9rem}
       .waitlist.is-done{display:none}
-      .confirm{display:none;max-width:480px;padding:16px 18px;border-radius:18px;border:1px solid rgba(142,217,164,.28)}
+      .confirm{display:none;max-width:520px;padding:16px 18px;border-radius:16px;border:1px solid rgba(142,217,164,.28)}
       .confirm.is-open{display:block}.confirm strong{color:var(--ok)}
-      .shot{margin:28px 0 0;border-radius:22px;overflow:hidden;border:1px solid var(--border)}
+      .shot{margin:28px 0 0;border-radius:18px;overflow:hidden;border:1px solid var(--border)}
       .shot img{display:block;width:100%;height:auto}
-      .plan .price{color:var(--accent);font-weight:650}
+      .plan .price{font-weight:650}
       .access-link{border:0;background:transparent;color:var(--muted);font:inherit;cursor:pointer;padding:0}
       footer{padding:24px 0 40px;color:var(--muted);border-top:1px solid var(--border)}
     </style>
@@ -414,29 +415,31 @@ export function comingSoonFallbackHtml(): string {
       </header>
       <section class="hero">
         <p class="eyebrow">Beta waitlist</p>
-        <h1>Your best plays, already captured.</h1>
-        <p class="lede">Replayr keeps a rolling buffer so the clutch is already on disk. Save locally, upload when you want, and share only when you hit send.</p>
-        <p class="offer">Early emails get beta access when it opens.</p>
+        <h1>Your best plays, <span class="accent">already captured.</span></h1>
+        <p class="lede">Replayr keeps a rolling buffer while you play, so the moment is there before you realize it. Save it, edit it, and share only when you want.</p>
+        <div class="signup">
         <form class="waitlist" id="waitlist" autocomplete="on">
-          <input type="email" name="email" required placeholder="you@email.com" aria-label="Email" autocomplete="email" />
-          <button type="submit">Join the beta waitlist</button>
+          <input type="email" name="email" required placeholder="Email address" aria-label="Email" autocomplete="email" />
+          <button type="submit">Join the waitlist</button>
         </form>
         <div class="confirm" id="waitConfirm" role="status">
           <strong>You're on the list.</strong>
           <p>Thanks — we'll email you when beta opens.</p>
         </div>
         <p class="msg" id="waitMsg" role="status"></p>
-        <p class="trust">No spam. We'll only email you when beta opens.</p>
-        <p class="price-teaser">Free to start · Premium $6.99/mo</p>
+        <p class="trust">No spam. Just launch updates and early access.</p>
+        <p class="price-teaser">Free at launch · Windows first · Premium $6.99/mo</p>
+        </div>
         <figure class="shot">
           <img src="/instant-replay.png" alt="Replayr Instant Replay workspace with clip buffer and sources" width="1600" height="1000" />
         </figure>
       </section>
       <section class="cta-band" id="waitlist-cta">
-        <h2>Get in before beta opens</h2>
+        <h2>Be there when Replayr opens.</h2>
+        <p>Join the waitlist for early access, launch updates, and a first look at new creator features. Early emails get beta access when it opens.</p>
         <form class="waitlist" id="waitlist-cta-form" autocomplete="on">
-          <input type="email" name="email" required placeholder="you@email.com" aria-label="Email" autocomplete="email" />
-          <button type="submit">Join the beta waitlist</button>
+          <input type="email" name="email" required placeholder="Email address" aria-label="Email" autocomplete="email" />
+          <button type="submit">Join the waitlist</button>
         </form>
       </section>
       <section class="pricing" aria-label="Pricing">

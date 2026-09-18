@@ -72,10 +72,32 @@ function emptyReport(): VisitorTrafficReport {
   };
 }
 
+export function unwrapTrafficReport(raw: unknown): Record<string, unknown> | null {
+  let body: unknown = raw;
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (Array.isArray(body)) body = body[0] ?? null;
+  if (body && typeof body === "object" && "visitor_traffic_report" in body && !("totals" in body)) {
+    body = (body as { visitor_traffic_report: unknown }).visitor_traffic_report;
+    if (typeof body === "string") {
+      try {
+        body = JSON.parse(body) as unknown;
+      } catch {
+        return null;
+      }
+    }
+  }
+  return body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+}
+
 function parseReport(raw: unknown): VisitorTrafficReport {
-  const body = typeof raw === "string" ? (JSON.parse(raw) as unknown) : raw;
-  if (!body || typeof body !== "object") return emptyReport();
-  const row = body as Record<string, unknown>;
+  const row = unwrapTrafficReport(raw);
+  if (!row) return emptyReport();
   const totals = (row.totals && typeof row.totals === "object" ? row.totals : {}) as Record<string, unknown>;
   const series = Array.isArray(row.series) ? row.series : [];
   const surfaces = Array.isArray(row.surfaces) ? row.surfaces : [];
@@ -177,30 +199,75 @@ function formatBucketLabel(at: Date, granularity: TrafficGranularity, tz: string
   return at.toLocaleString("en-US", { timeZone: tz, month: "short", day: "numeric" });
 }
 
-function filledSeries(
+function hourKey(at: Date | number): number {
+  const time = typeof at === "number" ? at : at.getTime();
+  return Math.floor(time / 3_600_000);
+}
+
+export function alignTrafficSeries(
   fromDay: UtcDay,
   toDay: UtcDay,
   granularity: TrafficGranularity,
   tz: string,
   points: TrafficSeriesPoint[],
 ): { labels: string[]; unique: Array<number | null>; signedIn: Array<number | null>; pings: Array<number | null> } {
-  const byStart = new Map(points.map((point) => [new Date(point.bucketStart).getTime(), point]));
+  const byHour = new Map<number, TrafficSeriesPoint>();
+  for (const point of points) {
+    const time = Date.parse(point.bucketStart);
+    if (!Number.isFinite(time)) continue;
+    byHour.set(hourKey(time), point);
+  }
   const labels: string[] = [];
   const unique: Array<number | null> = [];
   const signedIn: Array<number | null> = [];
   const pings: Array<number | null> = [];
   for (const bucket of expectedBuckets(fromDay, toDay, granularity, tz)) {
     labels.push(formatBucketLabel(bucket, granularity, tz));
-    const point = byStart.get(bucket.getTime());
+    const point = byHour.get(hourKey(bucket));
     unique.push(point ? point.uniqueVisitors : 0);
     signedIn.push(point ? point.signedIn : 0);
     pings.push(point ? point.pings : 0);
   }
+  const plotted = unique.some((value) => (value ?? 0) > 0) || pings.some((value) => (value ?? 0) > 0);
+  if (!plotted && points.length) {
+    return {
+      labels: points.map((point) => {
+        const time = Date.parse(point.bucketStart);
+        return Number.isFinite(time) ? formatBucketLabel(new Date(time), granularity, tz) : point.bucketStart;
+      }),
+      unique: points.map((point) => point.uniqueVisitors),
+      signedIn: points.map((point) => point.signedIn),
+      pings: points.map((point) => point.pings),
+    };
+  }
   return { labels, unique, signedIn, pings };
 }
 
-function hourSeries(hours: TrafficHour[]): { labels: string[]; unique: Array<number | null>; pings: Array<number | null> } {
-  const byHour = new Map(hours.map((row) => [row.hour, row]));
+function hourSeries(
+  hours: TrafficHour[],
+  points: TrafficSeriesPoint[],
+  tz: string,
+): { labels: string[]; unique: Array<number | null>; pings: Array<number | null> } {
+  const byHour = new Map<number, { uniqueVisitors: number; pings: number }>();
+  for (const row of hours) {
+    byHour.set(row.hour, { uniqueVisitors: row.uniqueVisitors, pings: row.pings });
+  }
+  if (![...byHour.values()].some((row) => row.uniqueVisitors > 0 || row.pings > 0)) {
+    for (const point of points) {
+      const time = Date.parse(point.bucketStart);
+      if (!Number.isFinite(time)) continue;
+      const hour = Number(
+        new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hourCycle: "h23" }).formatToParts(new Date(time)).find(
+          (part) => part.type === "hour",
+        )?.value,
+      );
+      if (!Number.isFinite(hour)) continue;
+      const current = byHour.get(hour) ?? { uniqueVisitors: 0, pings: 0 };
+      current.uniqueVisitors += point.uniqueVisitors;
+      current.pings += point.pings;
+      byHour.set(hour, current);
+    }
+  }
   const labels: string[] = [];
   const unique: Array<number | null> = [];
   const pings: Array<number | null> = [];
@@ -235,8 +302,8 @@ export async function buildVisitorTraffic(env: Env, url: URL) {
         query.tz,
       )
     : null;
-  const series = filledSeries(query.from, query.to, granularity, query.tz, current.series);
-  const hours = hourSeries(current.hours);
+  const series = alignTrafficSeries(query.from, query.to, granularity, query.tz, current.series);
+  const hours = hourSeries(current.hours, current.series, query.tz);
 
   return {
     range: {

@@ -62,13 +62,23 @@ export function AnalyticsLineChart({
               const last = segs[segs.length - 1];
               segs[segs.length - 1] = last ? `${last} L ${point.x} ${point.y}` : `M ${point.x} ${point.y}`;
             });
-            return <path key={item.key} d={segs.filter(Boolean).join(" ")} fill="none" stroke={item.color} strokeWidth="2" />;
+            const showDots = labels.length <= 48;
+            return (
+              <g key={item.key}>
+                <path d={segs.filter(Boolean).join(" ")} fill="none" stroke={item.color} strokeWidth="2" />
+                {showDots
+                  ? item.path.map((point, index) =>
+                      point ? <circle key={`${item.key}-${index}`} cx={point.x} cy={point.y} r="3.5" fill={item.color} /> : null,
+                    )
+                  : null}
+              </g>
+            );
           })}
           {labels.map((label, index) => {
             const x = pad.l + (labels.length <= 1 ? 0 : (index / (labels.length - 1)) * (width - pad.l - pad.r));
             return (
               <rect
-                key={label}
+                key={`${label}-${index}`}
                 x={x - 8}
                 y={pad.t}
                 width="16"

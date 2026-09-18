@@ -4039,6 +4039,8 @@ code {
 .analytics-chart svg {
   width: 100%;
   height: auto;
+  aspect-ratio: 720 / 240;
+  display: block;
 }
 
 .analytics-grid,

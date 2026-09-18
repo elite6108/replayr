@@ -126,6 +126,18 @@ export function AnalyticsTrafficPage() {
             ]}
           />
           <AnalyticsLineChart
+            title="Presence pings"
+            subtitle="Heartbeats in each bucket. Useful when unique visitors are still a small count."
+            series={[
+              {
+                key: "pings",
+                label: "Pings",
+                color: "#c4b5fd",
+                data: { labels: data?.series.labels ?? [], values: data?.series.pings ?? [] },
+              },
+            ]}
+          />
+          <AnalyticsLineChart
             title="Hour of day"
             subtitle="Unique visitors in each local hour across the selected range."
             series={[

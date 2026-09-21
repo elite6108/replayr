@@ -12,26 +12,46 @@
   overflow: visible;
   z-index: 40;
   user-select: none;
+  -webkit-app-region: drag;
+  app-region: drag;
 }
 
 .topbar-drag {
   position: absolute;
   inset: 0;
-}
-
-.topbar-lead,
-.topbar-actions,
-.topbar-end {
-  position: relative;
-  z-index: 1;
+  z-index: 2;
+  -webkit-app-region: drag;
+  app-region: drag;
 }
 
 .topbar-lead {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
   flex: 1 1 0;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.topbar-lead * {
+  pointer-events: none;
+}
+
+.topbar-actions,
+.topbar-end {
+  position: relative;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.topbar-actions > *,
+.topbar-end > * {
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .topbar-brand {
@@ -102,6 +122,8 @@
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 999px;
   background: #0f1722;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .hotkey-chip-group:hover,
@@ -224,6 +246,8 @@
   background: #0f1722;
   color: #f5f7fa;
   text-decoration: none;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .topbar-user .avatar {

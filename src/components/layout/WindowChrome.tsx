@@ -79,7 +79,11 @@ export function WindowDragRegion({
   return (
     <div
       className={className}
-      data-tauri-drag-region
+      data-tauri-drag-region="true"
+      onMouseDown={(event) => {
+        if (event.button !== 0 || event.detail > 1) return;
+        void getCurrentWindow().startDragging();
+      }}
       onDoubleClick={() => void getCurrentWindow().toggleMaximize()}
       {...rest}
     >

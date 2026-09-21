@@ -4,6 +4,8 @@
   flex: 0 0 auto;
   height: 100%;
   margin-left: 4px;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .window-ctrl {

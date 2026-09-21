@@ -1,4 +1,7 @@
 {
+  "0.1.54": [
+    "The Windows title bar can be dragged from empty space across the bar, not only the top-left."
+  ],
   "0.1.53": [
     "Home is a denser command surface with a unified Live Session and Instant Replay hero.",
     "Last session and Game profiles are designed summary cards instead of loose rows.",

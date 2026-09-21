@@ -10,6 +10,8 @@
   background: #0f1722;
   color: rgba(220, 230, 245, 0.75);
   cursor: pointer;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .header-icon-btn:hover {

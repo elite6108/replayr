@@ -26,12 +26,12 @@ import { useUpdateStore } from "../../stores/updateStore";
 
 type Glyph = ComponentType<IconProps>;
 
-const items: { to: string; label: string; icon: Glyph; end?: boolean; live?: boolean }[] = [
+const items: { to: string; label: string; icon: Glyph; end?: boolean; live?: boolean; divideAfter?: boolean }[] = [
   { to: "/", label: "Home", icon: IconHome, end: true },
   { to: "/library", label: "Library", icon: IconLibrary },
+  { to: "/record", label: "Capture", icon: IconRecord, live: true },
   { to: "/explore", label: "Explore", icon: IconExplore },
-  { to: "/games", label: "Games", icon: IconGames },
-  { to: "/record", label: "Record", icon: IconRecord, live: true },
+  { to: "/games", label: "Games", icon: IconGames, divideAfter: true },
   { to: "/friends", label: "Following", icon: IconFriends },
   { to: "/messages", label: "Messages", icon: IconMessages },
 ];
@@ -61,40 +61,42 @@ export function NavRail() {
 
   return (
     <nav className="nav-rail" aria-label="Primary">
-      <div className="nav-logo" title={APP_NAME}>
-        <img src={logoMark} alt="" />
-      </div>
+      <NavLink to="/" end className="nav-logo" title="Home" onClick={(event) => go(event, "/")}>
+        <img src={logoMark} alt={APP_NAME} />
+      </NavLink>
       {items.map((item) => {
         const Glyph = item.icon;
         return (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            className={({ isActive }) =>
-              [
-                "nav-item",
-                isActive ? "active" : "",
-                item.to === "/record" ? "nav-item-record" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")
-            }
-            title={item.label}
-            onClick={(event) => go(event, item.to)}
-          >
-            {({ isActive }) => (
-              <>
-                <span className="nav-icon">
-                  <Glyph size={item.to === "/record" ? 26 : 22} weight={isActive ? "fill" : "regular"} />
-                  {item.live && (detected || recording) ? <span className="nav-live" /> : null}
-                  {item.to === "/friends" && friendsUnread ? <span className="nav-unread" title="Unread" /> : null}
-                  {item.to === "/messages" && messagesUnread ? <span className="nav-unread" title="Unread" /> : null}
-                </span>
-                <span>{item.label}</span>
-              </>
-            )}
-          </NavLink>
+          <div key={item.to} className="nav-slot">
+            <NavLink
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) =>
+                [
+                  "nav-item",
+                  isActive ? "active" : "",
+                  item.to === "/record" ? "nav-item-record" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")
+              }
+              title={item.label}
+              onClick={(event) => go(event, item.to)}
+            >
+              {({ isActive }) => (
+                <>
+                  <span className="nav-icon">
+                    <Glyph size={item.to === "/record" ? 24 : 22} weight={isActive ? "fill" : "regular"} />
+                    {item.live && (detected || recording) ? <span className="nav-live" /> : null}
+                    {item.to === "/friends" && friendsUnread ? <span className="nav-unread" title="Unread" /> : null}
+                    {item.to === "/messages" && messagesUnread ? <span className="nav-unread" title="Unread" /> : null}
+                  </span>
+                  <span>{item.label}</span>
+                </>
+              )}
+            </NavLink>
+            {item.divideAfter ? <div className="nav-divider" /> : null}
+          </div>
         );
       })}
       <div className="nav-spacer" />
@@ -135,6 +137,7 @@ export function NavRail() {
         <span className="avatar">{initials(profile?.username || profile?.display_name || user?.email || "R")}</span>
         <span className="nav-account-copy">
           <strong>{accountName}</strong>
+          <span className={premium ? "" : "offline"}>{premium ? "PRO" : APP_NAME}</span>
         </span>
         <span className="nav-storage">
           {storage ? (

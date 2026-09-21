@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
-import { AppWindowTitleBar } from "./AppWindowTitleBar";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
 import { DesktopShortcutPrompt } from "./DesktopShortcutPrompt";
@@ -46,7 +45,6 @@ export function AppShell() {
     <div className="app-shell">
       <TrayNavigation />
       <ScreenshotEvents />
-      <AppWindowTitleBar />
       <TopBar />
       <NavRail />
       <div className="workspace">

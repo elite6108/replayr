@@ -1,4 +1,9 @@
 {
+  "0.1.53": [
+    "Home is a denser command surface with a unified Live Session and Instant Replay hero.",
+    "Last session and Game profiles are designed summary cards instead of loose rows.",
+    "Windows chrome is one title bar: Clip and Record are compact action pills with settings carets."
+  ],
   "0.1.52": [
     "Home leads with Instant Replay status and a larger Capture Clip control.",
     "Library clip and screenshot cards scan as a catalog with quieter chrome and a date · duration · This PC or Cloud line.",

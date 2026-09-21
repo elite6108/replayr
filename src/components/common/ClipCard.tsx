@@ -2,9 +2,9 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { useState } from "react";
 import type { LocalClip } from "../../types/clip";
 import { useCloudStore } from "../../stores/cloudStore";
-import { IconCloud, IconPlay, IconStar } from "../icons";
+import { IconCloud, IconMore, IconPencil, IconPlay, IconShare, IconStar } from "../icons";
 import { findLinkedCloudClip, normalizeUploadStatus } from "../../utils/clips";
-import { formatClipDate, formatDuration, isVideoPath, joinMeta } from "../../utils/format";
+import { formatDuration, formatRelativeTime, isVideoPath } from "../../utils/format";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { ContextMenu } from "./ContextMenu";
 
@@ -61,10 +61,9 @@ export function ClipCard({
   const inCloud = status === "completed" || Boolean(clip.cloudClipId || linkedCloud);
   const canUpload = Boolean(onUpload) && isVideoPath(clip.filePath) && !inCloud && !uploading;
   const badge = cloudBadge(clip, Boolean(linkedCloud));
-  const date = formatClipDate(clip.createdAt);
+  const date = formatRelativeTime(clip.createdAt);
   const gameName = catalog.find((game) => game.slug === clip.gameId || game.cloudId === clip.gameId)?.name;
-  const location = inCloud ? "Cloud" : "This PC";
-  const meta = joinMeta([date, clip.durationMs ? formatDuration(clip.durationMs) : null, location, gameName]);
+  const onPc = Boolean(clip.filePath);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(clip.title || "");
@@ -143,7 +142,35 @@ export function ClipCard({
             {clip.title || "Untitled clip"}
           </button>
         )}
-        <div className="clip-date">{meta}</div>
+        <div className="clip-date">
+          {gameName ? `${gameName} · ${date}` : date}
+        </div>
+        <div className="clip-tags">
+          {onPc ? <span>This PC</span> : null}
+          {inCloud ? <span>Cloud</span> : null}
+        </div>
+        <div className="clip-footer-actions">
+          {onEdit && isVideoPath(clip.filePath) ? (
+            <button type="button" title="Edit" onClick={() => onEdit(clip)}>
+              <IconPencil size={14} />
+            </button>
+          ) : null}
+          {onCopyLink ? (
+            <button type="button" title="Share" onClick={() => onCopyLink(clip)}>
+              <IconShare size={14} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            title="More"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              setMenu({ x: rect.left, y: rect.bottom + 4 });
+            }}
+          >
+            <IconMore size={16} />
+          </button>
+        </div>
       </div>
       {canUpload ? (
         <button type="button" className="clip-upload" title="Upload to cloud" onClick={() => onUpload?.(clip)}>

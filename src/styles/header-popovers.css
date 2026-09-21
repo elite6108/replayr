@@ -2,13 +2,13 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg-chip);
-  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: #0f1722;
+  color: rgba(220, 230, 245, 0.75);
   cursor: pointer;
 }
 

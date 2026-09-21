@@ -7,8 +7,12 @@ import { useRecordingStore } from "../../stores/recordingStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useToastStore } from "../../stores/toastStore";
 import type { AppSettings, ReplayDurationSeconds } from "../../types/settings";
+import { APP_NAME } from "../../branding";
+import { useBillingStore } from "../../stores/billingStore";
 import { displayHotkey, formatBytes, initials } from "../../utils/format";
+import { IconChevron } from "../icons";
 import { NotificationBell } from "./NotificationBell";
+import { WindowControls, WindowDragRegion } from "./WindowChrome";
 
 type OpenChip = "clip" | "record" | null;
 
@@ -40,6 +44,7 @@ export function TopBar() {
   const showToast = useToastStore((state) => state.show);
   const user = useAuthStore((state) => state.user);
   const profile = useAuthStore((state) => state.profile);
+  const premium = useBillingStore((state) => state.status?.premium);
   const detected = Boolean(snapshot.name);
   const label = profile?.display_name || profile?.username || user?.email || "Sign in";
   const bufferReady = replay.active && replay.bufferedMs >= 400;
@@ -61,12 +66,24 @@ export function TopBar() {
 
   return (
     <header className="topbar">
-      <div className={`topbar-game ${detected ? "live" : ""}`}>
-        <div>
-          <div className="topbar-kicker">{detected ? (snapshot.focused ? "Playing" : "Running") : "Waiting"}</div>
-          <div className="topbar-title">{detected ? snapshot.name : "Waiting for game"}</div>
+      <WindowDragRegion className="topbar-drag" aria-label="Drag window" />
+      <WindowDragRegion className="topbar-lead">
+        <div className="topbar-brand">{APP_NAME}.</div>
+        <div className={`topbar-status ${detected ? "live" : ""}`}>
+          <span className={`topbar-status-dot ${detected ? "on" : ""}`} />
+          <span className="topbar-title">{detected ? snapshot.name : "Waiting for game"}</span>
+          {detected ? (
+            <>
+              <span className="topbar-sep" aria-hidden="true">
+                ·
+              </span>
+              <span className="topbar-kicker">
+                {recording ? "Recording" : replay.active ? "Capturing in background" : snapshot.focused ? "Playing" : "Running"}
+              </span>
+            </>
+          ) : null}
         </div>
-      </div>
+      </WindowDragRegion>
 
       <div className="topbar-actions">
         <TopBarChip
@@ -78,6 +95,9 @@ export function TopBar() {
           label={replay.saving ? "Saving…" : `Clip ${replayLabel(settings.replayDurationSeconds)}`}
           title="Instant Replay settings"
           dialogLabel="Instant Replay"
+          disabled={saving || !bufferReady}
+          actionTitle={bufferReady ? "Save Instant Replay" : "Instant Replay is still filling"}
+          onAction={() => void saveClip()}
         >
           <div className="field">
             <label htmlFor="topbar-replay-length">Replay length</label>
@@ -101,15 +121,6 @@ export function TopBar() {
               onChange={(next) => saveHotkey("saveReplay", next)}
             />
           </div>
-          <button
-            type="button"
-            className="btn primary"
-            disabled={saving || !bufferReady}
-            title={bufferReady ? "Save Instant Replay" : "Instant Replay is still filling"}
-            onClick={() => void saveClip()}
-          >
-            {replay.saving ? "Saving…" : "Clip"}
-          </button>
         </TopBarChip>
         <TopBarChip
           id="record"
@@ -120,6 +131,9 @@ export function TopBar() {
           label={recording ? "Stop" : "Record"}
           title="Recording settings"
           dialogLabel="Long recording"
+          disabled={busy}
+          actionTitle={recording ? "Stop recording" : "Start recording"}
+          onAction={() => void (recording ? stop() : start())}
         >
           <div className="field">
             <label htmlFor="topbar-record-hotkey">Hotkey</label>
@@ -129,20 +143,21 @@ export function TopBar() {
               onChange={(next) => saveHotkey("toggleRecording", next)}
             />
           </div>
-          <button type="button" className={`btn ${recording ? "danger" : "primary"}`} disabled={busy} onClick={() => void (recording ? stop() : start())}>
-            {recording ? "Stop" : "Record"}
-          </button>
         </TopBarChip>
         {replay.diskBlocked && replay.diskFreeBytes != null ? (
           <div className="topbar-pill">Free {formatBytes(replay.diskFreeBytes)}</div>
         ) : null}
       </div>
 
-      <NotificationBell />
-      <Link to="/profile" className={`topbar-user ${user ? "" : "sign-in"}`} title={label}>
-        <span className="avatar">{initials(profile?.username || profile?.display_name || user?.email || "R")}</span>
-        <span className="topbar-user-name">{user ? label : "Sign in"}</span>
-      </Link>
+      <div className="topbar-end">
+        <NotificationBell />
+        <Link to="/profile" className={`topbar-user ${user ? "" : "sign-in"}`} title={label}>
+          <span className="avatar">{initials(profile?.username || profile?.display_name || user?.email || "R")}</span>
+          <span className="topbar-user-name">{user ? label : "Sign in"}</span>
+          {premium ? <span className="badge pro">PRO</span> : null}
+        </Link>
+        <WindowControls />
+      </div>
     </header>
   );
 }
@@ -156,6 +171,9 @@ function TopBarChip({
   label,
   title,
   dialogLabel,
+  disabled,
+  actionTitle,
+  onAction,
   children,
 }: {
   id: Exclude<OpenChip, null>;
@@ -166,6 +184,9 @@ function TopBarChip({
   label: string;
   title: string;
   dialogLabel: string;
+  disabled?: boolean;
+  actionTitle: string;
+  onAction: () => void;
   children: ReactNode;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -189,17 +210,20 @@ function TopBarChip({
   }, [isOpen, setOpen]);
 
   return (
-    <div className="topbar-chip-wrap" ref={wrapRef}>
+    <div className={`hotkey-chip-group${className ? ` ${className}` : ""}${isOpen ? " open" : ""}`} ref={wrapRef}>
+      <button type="button" className="hotkey-chip" disabled={disabled} title={actionTitle} onClick={onAction}>
+        <kbd>{kbd}</kbd>
+        <span className="chip-copy">{label}</span>
+      </button>
       <button
         type="button"
-        className={`hotkey-chip${className ? ` ${className}` : ""}`}
+        className="hotkey-chip-menu"
         aria-expanded={isOpen}
         aria-controls={menuId}
         title={title}
         onClick={() => setOpen(isOpen ? null : id)}
       >
-        <kbd>{kbd}</kbd>
-        <span className="chip-copy">{label}</span>
+        <IconChevron size={10} />
       </button>
       {isOpen ? (
         <div className="topbar-chip-popover" id={menuId} role="dialog" aria-label={dialogLabel}>

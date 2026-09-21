@@ -25,3 +25,4 @@ web/public/releases/*.sig
 web/public/releases/latest.json
 web/public/releases/Replayr.dmg.txt
 .tauri/
+scripts/signing/tools/

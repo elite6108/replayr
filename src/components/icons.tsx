@@ -19,9 +19,11 @@ import {
   Lock,
   LockOpen,
   MagnifyingGlass,
+  PencilSimple,
   Play,
   Plus,
   Selection,
+  ShareNetwork,
   ShieldCheck,
   SpeakerHigh,
   SpeakerSlash,
@@ -167,6 +169,14 @@ export function IconCloud(props: IconProps) {
 
 export function IconPlay(props: IconProps) {
   return phosphor(Play, props);
+}
+
+export function IconPencil(props: IconProps) {
+  return phosphor(PencilSimple, props);
+}
+
+export function IconShare(props: IconProps) {
+  return phosphor(ShareNetwork, props);
 }
 
 export function IconStar(props: IconProps) {

@@ -1,24 +1,22 @@
 import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
 import { ClipCard } from "../components/common/ClipCard";
 import { ClipGrid } from "../components/common/ClipGrid";
 import { ClipRail } from "../components/common/ClipRail";
 import { DeleteClipDialog, type DeleteClipScope } from "../components/common/DeleteClipDialog";
+import { GameProfilesCard } from "../components/home/GameProfilesCard";
 import { HeroCapturePanel } from "../components/home/HeroCapturePanel";
 import { HomePeopleSearch } from "../components/home/HomePeopleSearch";
-import { StatCard } from "../components/ui/StatCard";
+import { LastSessionCard } from "../components/home/LastSessionCard";
 import { fetchPublicFeed } from "../services/social";
 import type { PublicFeedClip } from "../services/social";
 import { useAuthStore } from "../stores/authStore";
 import { useLibraryStore } from "../stores/libraryStore";
-import { useRecordingStore } from "../stores/recordingStore";
-import { formatBytes, formatCount, formatDuration, formatHandle } from "../utils/format";
-import { useEffect, useState } from "react";
+import { formatCount, formatHandle } from "../utils/format";
 
 export function HomePage() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
-  const profile = useAuthStore((state) => state.profile);
-  const storage = useAuthStore((state) => state.storage);
   const clips = useLibraryStore((state) => state.clips);
   const play = useLibraryStore((state) => state.play);
   const favorite = useLibraryStore((state) => state.favorite);
@@ -31,16 +29,15 @@ export function HomePage() {
   const removeFromCloud = useLibraryStore((state) => state.removeFromCloud);
   const toggleSelect = useLibraryStore((state) => state.toggleSelect);
   const selected = useLibraryStore((state) => state.selectedIds);
-  const replay = useRecordingStore((state) => state.replay);
-  const recording = useRecordingStore((state) => state.status);
-  const recentClips = clips.slice(0, 8);
-  const used = storage?.storage_used_bytes ?? 0;
-  const limit = storage?.storage_limit_bytes ?? 0;
-  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
-  const name = profile?.display_name || profile?.username || user?.email?.split("@")[0];
   const token = useAuthStore((state) => state.session?.access_token);
   const [feed, setFeed] = useState<PublicFeedClip[]>([]);
   const [pendingDelete, setPendingDelete] = useState<{ localId: string; hasCloud: boolean } | null>(null);
+  const [momentFilter, setMomentFilter] = useState<"all" | "favorites">("all");
+
+  const recentClips = useMemo(() => {
+    const pool = momentFilter === "favorites" ? clips.filter((clip) => clip.favorite) : clips;
+    return pool.slice(0, 8);
+  }, [clips, momentFilter]);
 
   useEffect(() => {
     void fetchPublicFeed(token)
@@ -50,114 +47,76 @@ export function HomePage() {
 
   return (
     <div className="home-command">
-      <header className="home-greeting">
+      <header className="home-page-head">
         <div>
-          <p className="eyebrow">Command center</p>
+          <h1>Home</h1>
+          <p className="muted">Your game. Your moments. All here.</p>
         </div>
         {user ? <HomePeopleSearch /> : null}
       </header>
 
-      <HeroCapturePanel name={name} />
+      <HeroCapturePanel />
 
-      <div className="home-stat-row">
-        <StatCard
-          title="Capture"
-          live={recording.active || replay.active}
-          value={
-            recording.active
-              ? formatDuration(recording.durationMs)
-              : replay.active
-                ? formatDuration(replay.bufferedMs)
-                : "Standby"
-          }
-          body={
-            recording.active
-              ? "Writing a full session to disk."
-              : replay.active
-                ? `${formatDuration(replay.durationMs)} Instant Replay buffer.`
-                : "Launch a game and the buffer starts filling."
-          }
-          action={
-            <Link className="btn" to="/record">
-              Open record
-            </Link>
-          }
-        />
-        <StatCard
-          title="Library"
-          value={clips.length}
-          body="Clips saved on this PC."
-          action={
-            <Link className="btn ghost" to="/library">
-              Open
-            </Link>
-          }
-        />
-        <StatCard
-          title="Account"
-          value={user ? profile?.display_name || profile?.username || "Signed in" : "Guest"}
-          body={
-            user
-              ? storage
-                ? `${formatBytes(used)} of ${formatBytes(limit)} cloud`
-                : user.email
-              : "Capture works offline. Sign in only when you want a cloud copy."
-          }
-          action={
-            <>
-              {user && storage ? (
-                <div className="meter" aria-label="Cloud storage used">
-                  <span style={{ width: `${pct}%` }} />
-                </div>
-              ) : null}
-              <Link className="btn ghost" to="/profile">
-                {user ? "Edit" : "Sign in"}
-              </Link>
-            </>
-          }
-        />
-      </div>
-
-      {recentClips.length === 0 ? (
+      {clips.length === 0 ? (
         <section className="panel">
-          <ClipGrid title="Your first clip lands here" body="Save an Instant Replay from the top bar or start a full recording. Finished files stay on this PC." />
+          <ClipGrid title="Your first clip lands here" body="Save an Instant Replay or start a full recording. Finished files stay on this PC." />
         </section>
       ) : (
-        <ClipRail
-          title="Recent highlights"
-          action={
-            <Link className="btn ghost" to="/library">
-              {selected.length > 0 ? `${selected.length} selected · View all` : "View all"}
-            </Link>
-          }
-        >
-          {recentClips.map((clip) => (
-            <ClipCard
-              key={clip.localId}
-              clip={clip}
-              selected={selected.includes(clip.localId)}
-              onPlay={(item) => play(item.localId)}
-              onFavorite={(item) => void favorite(item.localId, !item.favorite)}
-              onUpload={user ? (item) => void upload(item.localId) : undefined}
-              onSelect={(item) => toggleSelect(item.localId)}
-              onRename={(item, title) => void rename(item.localId, title)}
-              onDelete={(item) => setPendingDelete({ localId: item.localId, hasCloud: Boolean(item.cloudClipId) })}
-              onRemoveFromCloud={(item) => {
-                if (
-                  window.confirm(
-                    "Remove this cloud copy? The file on this PC stays. The share link will stop working.",
-                  )
-                ) {
-                  void removeFromCloud(item.localId);
-                }
-              }}
-              onDownload={(item) => void download(item.localId)}
-              onCopyLink={(item) => void copyLink(item.localId)}
-              onEdit={(item) => navigate(`/editor/${item.localId}`)}
-            />
-          ))}
-        </ClipRail>
+        <section className="panel flush home-moments">
+          <div className="panel-head home-moments-head">
+            <h2>Recent moments</h2>
+            <div className="home-moments-tools">
+              <div className="home-filter">
+                <button type="button" className={momentFilter === "all" ? "active" : ""} onClick={() => setMomentFilter("all")}>
+                  All moments
+                </button>
+                <button type="button" className={momentFilter === "favorites" ? "active" : ""} onClick={() => setMomentFilter("favorites")}>
+                  Favorites
+                </button>
+              </div>
+              <Link className="home-moments-link" to="/library">
+                {selected.length > 0 ? `${selected.length} selected · View Library` : "View Library →"}
+              </Link>
+            </div>
+          </div>
+          {recentClips.length === 0 ? (
+            <p className="muted home-moments-empty">No favorites yet.</p>
+          ) : (
+            <div className="clip-rail-track">
+              {recentClips.map((clip) => (
+                <ClipCard
+                  key={clip.localId}
+                  clip={clip}
+                  selected={selected.includes(clip.localId)}
+                  onPlay={(item) => play(item.localId)}
+                  onFavorite={(item) => void favorite(item.localId, !item.favorite)}
+                  onUpload={user ? (item) => void upload(item.localId) : undefined}
+                  onSelect={(item) => toggleSelect(item.localId)}
+                  onRename={(item, title) => void rename(item.localId, title)}
+                  onDelete={(item) => setPendingDelete({ localId: item.localId, hasCloud: Boolean(item.cloudClipId) })}
+                  onRemoveFromCloud={(item) => {
+                    if (
+                      window.confirm(
+                        "Remove this cloud copy? The file on this PC stays. The share link will stop working.",
+                      )
+                    ) {
+                      void removeFromCloud(item.localId);
+                    }
+                  }}
+                  onDownload={(item) => void download(item.localId)}
+                  onCopyLink={(item) => void copyLink(item.localId)}
+                  onEdit={(item) => navigate(`/editor/${item.localId}`)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
       )}
+
+      <div className="home-lower">
+        <LastSessionCard clip={clips[0] ?? null} />
+        <GameProfilesCard />
+      </div>
 
       {feed.length > 0 ? (
         <ClipRail

@@ -35,6 +35,7 @@
   color: inherit;
   text-align: left;
   padding: 0;
+  font-size: 14px;
   font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -53,7 +54,7 @@
 }
 
 .clip-meta {
-  padding: 10px 12px 12px;
+  padding: 10px 12px 10px;
 }
 
 .clip-date {
@@ -64,6 +65,87 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.clip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.clip-tags span {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.clip-tags span + span::before {
+  content: "·";
+  margin-right: 6px;
+  color: rgba(255, 255, 255, 0.22);
+}
+
+.clip-footer-actions {
+  display: flex;
+  margin-left: auto;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.home-moments .clip-meta {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto auto;
+}
+
+.home-moments .clip-title-btn,
+.home-moments .clip-rename {
+  grid-column: 1 / -1;
+  font-size: 14px;
+  font-weight: 650;
+  color: #f5f7fa;
+}
+
+.home-moments .clip-date {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(220, 230, 245, 0.65);
+}
+
+.home-moments .clip-tags {
+  grid-column: 1;
+  margin-top: 6px;
+}
+
+.home-moments .clip-footer-actions {
+  grid-column: 2;
+  grid-row: 3;
+  margin-top: 4px;
+}
+
+.clip-footer-actions button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.clip-footer-actions button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.clip-card:hover .clip-play {
+  opacity: 1;
 }
 
 .clip-visibility {

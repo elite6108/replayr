@@ -10,12 +10,12 @@
 }
 
 .clip-card {
-  border: 1px solid var(--card-border, var(--border));
-  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
   overflow: hidden;
-  background: var(--card-bg, var(--bg-raised));
-  box-shadow: var(--card-shadow, var(--shadow-card));
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  background: #0c1219;
+  box-shadow: none;
+  transition: transform 160ms ease, border-color 160ms ease;
 }
 
 .clip-card.live {
@@ -38,9 +38,9 @@
 
 .clip-card.live:hover,
 .clip-card.live:focus-visible {
-  border-color: var(--border-hover);
+  border-color: rgba(80, 220, 235, 0.2);
   transform: translateY(-2px);
-  box-shadow: var(--card-shadow, var(--shadow-card));
+  box-shadow: none;
 }
 
 .clip-card.selected {
@@ -132,7 +132,7 @@
   place-items: center;
   background: linear-gradient(180deg, transparent 40%, rgba(0, 0, 0, 0.45));
   color: #fff;
-  opacity: 0;
+  opacity: 0.55;
   transition: opacity 160ms ease;
 }
 

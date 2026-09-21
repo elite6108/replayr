@@ -65,10 +65,12 @@ html[data-theme="dark"] {
   --hero-panel-idle: linear-gradient(180deg, rgba(9, 11, 16, 0.16), rgba(9, 11, 16, 0.72) 74%),
     radial-gradient(circle at 80% 10%, rgba(0, 216, 240, 0.1), transparent 36%), #12161d;
   --timeline-inset: inset 0 0 0 1px rgba(0, 216, 240, 0.08);
-  --nav-hover: rgba(255, 255, 255, 0.04);
-  --nav-active-bg: rgba(0, 210, 240, 0.08);
-  --nav-active-glow: inset 8px 0 16px -12px rgba(0, 216, 240, 0.55);
-  --nav-indicator-glow: 0 0 10px rgba(0, 216, 240, 0.55);
+  --nav-hover: rgba(255, 255, 255, 0.045);
+  --nav-active-bg: rgba(0, 216, 240, 0.1);
+  --nav-active-glow: inset 8px 0 18px -10px rgba(0, 216, 240, 0.7);
+  --nav-indicator-glow: 0 0 12px rgba(0, 216, 240, 0.7);
+  --home-glass: rgba(12, 16, 24, 0.72);
+  --home-panel: rgba(16, 20, 28, 0.78);
   --switch-bg: #10141a;
   --switch-knob: #c5cbd3;
   --scrollbar-thumb: #2a313c;
@@ -81,8 +83,8 @@ html[data-theme="dark"] {
     radial-gradient(640px 280px at 92% 0%, rgba(0, 216, 240, 0.05), transparent 48%);
   --rail: 76px;
   --titlebar: 40px;
-  --topbar: 50px;
-  --shell-header: calc(var(--titlebar) + var(--topbar));
+  --topbar: 48px;
+  --shell-header: var(--topbar);
   --aside: 280px;
   --radius: 20px;
   --radius-sm: 14px;

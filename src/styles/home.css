@@ -252,27 +252,35 @@
 
 .hero-replay-clock {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.hero-replay-clock strong {
+.hero-replay-time {
   display: flex;
   align-items: baseline;
   gap: 10px;
+  min-width: 0;
+}
+
+.hero-replay-time strong {
+  flex: 0 0 auto;
   font-size: 36px;
   font-weight: 750;
-  letter-spacing: -0.05em;
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
-  line-height: 0.95;
+  line-height: 1;
+  white-space: nowrap;
   color: #f5f7fa;
 }
 
-.hero-replay-clock em {
+.hero-replay-time span {
+  flex: 0 0 auto;
   font-size: 13px;
-  font-style: normal;
   font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
   color: rgba(220, 230, 245, 0.65);
 }
 

@@ -115,10 +115,10 @@ export function HeroCapturePanel() {
           </span>
         </div>
         <div className="hero-replay-clock">
-          <strong>
-            {clock(durationMs)}
-            <em>{replay.active ? "always rolling" : "standby"}</em>
-          </strong>
+          <div className="hero-replay-time">
+            <strong>{clock(durationMs)}</strong>
+            <span>{replay.active ? "always rolling" : "standby"}</span>
+          </div>
           <select
             className="hero-replay-length"
             aria-label="Replay length"

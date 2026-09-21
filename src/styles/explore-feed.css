@@ -21,17 +21,12 @@
   gap: 8px;
   min-width: 0;
   padding: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--card-border, var(--border));
   border-radius: 20px;
-  background: var(--bg-raised);
+  background: var(--card-bg, var(--bg-raised));
   color: inherit;
   text-decoration: none;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
-}
-
-html[data-theme="light"] .feed-card,
-html[data-theme="light"] .feed-home-card {
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--card-shadow, var(--shadow-card));
 }
 
 .feed-home-card {
@@ -42,6 +37,11 @@ html[data-theme="light"] .feed-home-card {
 .feed-home-card strong {
   margin: 0;
   font-size: 14px;
+}
+
+.feed-home-card .muted {
+  color: var(--card-meta, var(--text-muted));
+  font-size: 12px;
 }
 
 .feed-card-head {
@@ -61,7 +61,7 @@ html[data-theme="light"] .feed-home-card {
   border: 0;
   border-radius: 14px;
   overflow: hidden;
-  background: #10141a;
+  background: var(--media-bg);
   padding: 0;
 }
 
@@ -93,7 +93,7 @@ html[data-theme="light"] .feed-home-card {
   aspect-ratio: 16 / 10;
   padding: 0;
   border: 0;
-  background: #10141a;
+  background: var(--media-bg);
   overflow: hidden;
 }
 

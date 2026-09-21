@@ -71,7 +71,7 @@ export function IrControlsCard({
       <div className="studio-ir-row">
         <button
           type="button"
-          className="btn sm"
+          className="btn primary sm"
           disabled={busy || replay.saving || !replay.active}
           onClick={() => {
             void (async () => {

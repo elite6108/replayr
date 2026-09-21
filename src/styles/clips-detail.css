@@ -35,7 +35,7 @@
   color: inherit;
   text-align: left;
   padding: 0;
-  font-weight: 600;
+  font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -58,8 +58,12 @@
 
 .clip-date {
   margin-top: 2px;
-  color: var(--text-muted);
+  color: var(--card-meta, var(--text-muted));
   font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .clip-visibility {

@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { CloudClip } from "../../types/clip";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { IconCloud, IconPlay } from "../icons";
-import { formatBytes, formatClipDate, formatDuration } from "../../utils/format";
+import { formatClipDate, formatDuration, joinMeta } from "../../utils/format";
 import { ContextMenu } from "./ContextMenu";
 
 function CloudThumb({ clip }: { clip: CloudClip }) {
@@ -56,6 +56,7 @@ export function CloudClipCard({
   const [draft, setDraft] = useState(clip.title || "");
   const date = formatClipDate(clip.createdAt);
   const ready = clip.status === "ready";
+  const meta = joinMeta([date, clip.durationMs ? formatDuration(clip.durationMs) : null, "Cloud"]);
 
   function commitRename() {
     const title = draft.trim();
@@ -140,10 +141,7 @@ export function CloudClipCard({
             {clip.title || "Untitled clip"}
           </button>
         )}
-        <div className="clip-date">
-          {date || "Cloud"}
-          {clip.fileSizeBytes ? ` · ${formatBytes(clip.fileSizeBytes)}` : ""}
-        </div>
+        <div className="clip-date">{meta}</div>
         {onVisibility && ready ? (
           <label className="clip-visibility">
             <select

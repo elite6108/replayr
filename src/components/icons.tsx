@@ -1,10 +1,9 @@
-import type { ComponentType, ReactNode, SVGProps } from "react";
+import type { ComponentType, CSSProperties, ReactNode, SVGProps } from "react";
 import {
   ArrowCounterClockwise,
   ArrowsOut,
   Bell,
   CaretDown,
-  ChatCircle,
   Check,
   Cloud,
   Compass,
@@ -15,27 +14,28 @@ import {
   EyeSlash,
   FilmStrip,
   Folder,
-  GameController,
   Gear,
   Headphones,
-  House,
   Lock,
   LockOpen,
   MagnifyingGlass,
   Play,
   Plus,
-  Record,
   Selection,
   ShieldCheck,
   SpeakerHigh,
   SpeakerSlash,
-  SquaresFour,
   Star,
   UploadSimple,
   User,
-  Users,
   type IconWeight,
 } from "@phosphor-icons/react";
+import navFriends from "../assets/nav/friends.png";
+import navGames from "../assets/nav/games.png";
+import navHome from "../assets/nav/home.png";
+import navLibrary from "../assets/nav/library.png";
+import navMessages from "../assets/nav/messages.png";
+import navRecord from "../assets/nav/record.png";
 
 export type { IconWeight };
 
@@ -67,16 +67,58 @@ function phosphor(Icon: PhosphorIcon, props: IconProps) {
   );
 }
 
+function BrandGlyph({
+  src,
+  size = 18,
+  className,
+  color,
+  painted = false,
+}: {
+  src: string;
+  size?: number;
+  className?: string;
+  color?: string;
+  painted?: boolean;
+}) {
+  if (painted) {
+    return (
+      <img
+        src={src}
+        width={size}
+        height={size}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        className={["brand-glyph", "brand-glyph-painted", className].filter(Boolean).join(" ")}
+      />
+    );
+  }
+  const style: CSSProperties = {
+    width: size,
+    height: size,
+    backgroundColor: color || "currentColor",
+    WebkitMaskImage: `url(${src})`,
+    maskImage: `url(${src})`,
+    WebkitMaskSize: "contain",
+    maskSize: "contain",
+    WebkitMaskRepeat: "no-repeat",
+    maskRepeat: "no-repeat",
+    WebkitMaskPosition: "center",
+    maskPosition: "center",
+  };
+  return <span aria-hidden="true" className={["brand-glyph", className].filter(Boolean).join(" ")} style={style} />;
+}
+
 export function IconHome(props: IconProps) {
-  return phosphor(House, props);
+  return <BrandGlyph src={navHome} size={props.size} className={props.className} color={props.color} />;
 }
 
 export function IconLibrary(props: IconProps) {
-  return phosphor(SquaresFour, props);
+  return <BrandGlyph src={navLibrary} size={props.size} className={props.className} color={props.color} />;
 }
 
 export function IconRecord(props: IconProps) {
-  return phosphor(Record, props);
+  return <BrandGlyph src={navRecord} size={props.size} className={props.className} painted />;
 }
 
 export function IconClips(props: IconProps) {
@@ -88,11 +130,11 @@ export function IconExplore(props: IconProps) {
 }
 
 export function IconFriends(props: IconProps) {
-  return phosphor(Users, props);
+  return <BrandGlyph src={navFriends} size={props.size} className={props.className} color={props.color} />;
 }
 
 export function IconMessages(props: IconProps) {
-  return phosphor(ChatCircle, props);
+  return <BrandGlyph src={navMessages} size={props.size} className={props.className} color={props.color} />;
 }
 
 export function IconUploads(props: IconProps) {
@@ -112,7 +154,7 @@ export function IconProfile(props: IconProps) {
 }
 
 export function IconGames(props: IconProps) {
-  return phosphor(GameController, props);
+  return <BrandGlyph src={navGames} size={props.size} className={props.className} color={props.color} />;
 }
 
 export function IconFolder(props: IconProps) {

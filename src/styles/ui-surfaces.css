@@ -40,21 +40,23 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 16px 18px;
+  padding: 14px 16px;
   border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: linear-gradient(180deg, var(--stat-sheen), transparent 40%), var(--bg-raised);
-  box-shadow: var(--shadow-card);
+  border: 1px solid var(--card-border, var(--border));
+  background: var(--card-bg, var(--bg-raised));
+  box-shadow: var(--card-shadow, var(--shadow-card));
 }
 
 .stat-card .stat-value {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.04em;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
 }
 
 .stat-card p {
   margin: 0;
+  color: var(--card-meta, var(--text-muted));
+  font-size: 12px;
 }
 
 .search-toolbar {

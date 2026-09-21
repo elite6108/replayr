@@ -4,7 +4,8 @@ import type { LocalClip } from "../../types/clip";
 import { useCloudStore } from "../../stores/cloudStore";
 import { IconCloud, IconPlay, IconStar } from "../icons";
 import { findLinkedCloudClip, normalizeUploadStatus } from "../../utils/clips";
-import { formatClipDate, formatDuration, isVideoPath } from "../../utils/format";
+import { formatClipDate, formatDuration, isVideoPath, joinMeta } from "../../utils/format";
+import { useDetectionStore } from "../../stores/detectionStore";
 import { ContextMenu } from "./ContextMenu";
 
 function cloudBadge(
@@ -51,6 +52,7 @@ export function ClipCard({
   onCopyLink?: (clip: LocalClip) => void;
   onEdit?: (clip: LocalClip) => void;
 }) {
+  const catalog = useDetectionStore((state) => state.catalog);
   const cloudClips = useCloudStore((state) => state.clips);
   const linkedCloud = findLinkedCloudClip(clip, cloudClips);
   const thumb = clip.thumbnailPath || (clip.filePath.match(/\.(bmp|png|jpe?g|webp)$/i) ? clip.filePath : null);
@@ -60,6 +62,9 @@ export function ClipCard({
   const canUpload = Boolean(onUpload) && isVideoPath(clip.filePath) && !inCloud && !uploading;
   const badge = cloudBadge(clip, Boolean(linkedCloud));
   const date = formatClipDate(clip.createdAt);
+  const gameName = catalog.find((game) => game.slug === clip.gameId || game.cloudId === clip.gameId)?.name;
+  const location = inCloud ? "Cloud" : "This PC";
+  const meta = joinMeta([date, clip.durationMs ? formatDuration(clip.durationMs) : null, location, gameName]);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(clip.title || "");
@@ -138,7 +143,7 @@ export function ClipCard({
             {clip.title || "Untitled clip"}
           </button>
         )}
-        <div className="clip-date">{date || "This PC"}</div>
+        <div className="clip-date">{meta}</div>
       </div>
       {canUpload ? (
         <button type="button" className="clip-upload" title="Upload to cloud" onClick={() => onUpload?.(clip)}>

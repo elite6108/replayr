@@ -1,3 +1,13 @@
+.brand-glyph {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.brand-glyph-painted {
+  object-fit: contain;
+  pointer-events: none;
+}
+
 .grid {
   display: grid;
   gap: 12px;
@@ -88,6 +98,35 @@
 .btn.primary:hover:not(:disabled) {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
+}
+
+.btn.primary:disabled {
+  opacity: 0.42;
+  box-shadow: none;
+  filter: saturate(0.35);
+  cursor: not-allowed;
+}
+
+.btn.lg {
+  padding: 12px 20px;
+  font-size: 15px;
+}
+
+.btn.quiet {
+  background: transparent;
+  box-shadow: none;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.btn.quiet:hover:not(:disabled) {
+  transform: none;
+}
+
+.btn:not(.primary):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn.ghost {

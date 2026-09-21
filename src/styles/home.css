@@ -22,10 +22,10 @@
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
+  grid-template-columns: minmax(0, 1fr) 200px;
   gap: 20px;
-  min-height: 280px;
-  padding: 28px;
+  min-height: 0;
+  padding: 24px 28px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--hero-bg);
@@ -52,16 +52,45 @@
 }
 
 .hero-capture-copy h1 {
-  margin: 0 0 8px;
-  max-width: 16ch;
-  font-size: 34px;
-  font-weight: 700;
-  letter-spacing: -0.045em;
-  line-height: 1.1;
+  margin: 0 0 6px;
+  max-width: 32ch;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
 }
 
-.hero-capture-copy .row {
+.hero-capture-anchor {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
   margin: 16px 0 12px;
+}
+
+.hero-capture-state {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hero-capture-state strong {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-capture-state .muted {
+  font-size: 13px;
+}
+
+.hero-capture-secondary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .hero-inline-link {
@@ -79,13 +108,13 @@
   align-self: center;
   display: grid;
   justify-items: center;
-  gap: 10px;
-  padding: 16px;
-  border-radius: 22px;
-  background: var(--bg-glass);
-  border: 1px solid var(--border);
-  backdrop-filter: blur(18px);
-  box-shadow: var(--shadow);
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: var(--card-bg, var(--bg-glass));
+  border: 1px solid var(--card-border, var(--border));
+  backdrop-filter: blur(12px);
+  box-shadow: none;
   text-align: center;
 }
 
@@ -95,17 +124,17 @@
 }
 
 .hero-replay-ring {
-  width: 132px;
-  height: 132px;
+  width: 108px;
+  height: 108px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  box-shadow: var(--glow);
+  box-shadow: none;
 }
 
 .hero-replay-ring-inner {
-  width: 108px;
-  height: 108px;
+  width: 88px;
+  height: 88px;
   border-radius: 50%;
   display: grid;
   place-content: center;
@@ -113,8 +142,8 @@
 }
 
 .hero-replay-ring-inner strong {
-  font-size: 22px;
-  letter-spacing: -0.04em;
+  font-size: 18px;
+  letter-spacing: -0.03em;
 }
 
 .hero-replay-ring-inner span {

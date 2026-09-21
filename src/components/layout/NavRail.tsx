@@ -86,7 +86,7 @@ export function NavRail() {
             {({ isActive }) => (
               <>
                 <span className="nav-icon">
-                  <Glyph size={18} weight={isActive ? "fill" : "regular"} />
+                  <Glyph size={item.to === "/record" ? 26 : 22} weight={isActive ? "fill" : "regular"} />
                   {item.live && (detected || recording) ? <span className="nav-live" /> : null}
                   {item.to === "/friends" && friendsUnread ? <span className="nav-unread" title="Unread" /> : null}
                   {item.to === "/messages" && messagesUnread ? <span className="nav-unread" title="Unread" /> : null}

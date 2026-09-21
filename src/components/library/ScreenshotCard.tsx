@@ -1,7 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useState } from "react";
 import type { Screenshot } from "../../types/screenshot";
-import { formatClipDate } from "../../utils/format";
+import { formatClipDate, joinMeta } from "../../utils/format";
 import { ContextMenu } from "../common/ContextMenu";
 import { IconCloud } from "../icons";
 
@@ -43,6 +43,8 @@ export function ScreenshotCard({
   const thumb = shot.thumbPath || shot.filePath;
   const badge = statusBadge(shot);
   const date = formatClipDate(shot.createdAt);
+  const location = badge.state === "ready" ? "Cloud" : "This PC";
+  const meta = joinMeta([date, location]);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const canLink = Boolean(shot.shareUrl && shot.uploadStatus === "ready");
   const canRetry = shot.uploadStatus === "failed" || shot.uploadStatus === "local" || shot.uploadStatus === "evicted";
@@ -86,10 +88,10 @@ export function ScreenshotCard({
         </div>
       </button>
       <div className="clip-meta">
-        <span className="clip-title-btn" style={{ cursor: "default" }}>
+        <span className="clip-title">
           {shot.width}×{shot.height}
         </span>
-        <div className="clip-date">{date || "This PC"}</div>
+        <div className="clip-date">{meta}</div>
       </div>
       {menu ? (
         <ContextMenu

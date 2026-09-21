@@ -57,6 +57,14 @@ export function HeroCapturePanel({ name }: { name?: string }) {
   const bufferReady = replay.active && replay.bufferedMs >= 400;
   const saving = busy || replay.saving;
   const bufferPct = replay.durationMs > 0 ? Math.min(100, (replay.bufferedMs / replay.durationMs) * 100) : 0;
+  const live = status.active || replay.active;
+  const statusLabel = status.active ? "REC" : replay.active ? "ON" : "Idle";
+  const statusClock = status.active ? clock(status.durationMs) : replay.active ? clock(replay.bufferedMs) : "00:00";
+  const statusDetail = status.active
+    ? `Recording ${formatDuration(status.durationMs)}`
+    : replay.active
+      ? `${clock(replay.durationMs)} buffer`
+      : "Launch a game and the buffer starts filling.";
 
   return (
     <section className={`hero-capture ${detected ? "live" : "idle"}`}>
@@ -65,28 +73,39 @@ export function HeroCapturePanel({ name }: { name?: string }) {
         <p className="eyebrow">{detected ? snapshot.name : "Ready when you are"}</p>
         <h1>{headline}</h1>
         <p className="muted">Instant capture. Cloud safe. Always yours.</p>
-        <div className="row">
+        <div className="hero-capture-anchor">
+          <div className="hero-capture-state">
+            <span className={`badge ${live ? "live" : ""}`}>{statusLabel}</span>
+            <strong>{statusClock}</strong>
+            <span className="muted">{statusDetail}</span>
+          </div>
           <button
             type="button"
-            className="btn primary"
+            className="btn primary lg"
             disabled={saving || !bufferReady}
             title={bufferReady ? "Save Instant Replay" : "Instant Replay is still filling"}
             onClick={() => void saveClip()}
           >
             {replay.saving ? "Saving…" : `Capture Clip  ${displayHotkey(hotkeys.saveReplay)}`}
           </button>
-          <button type="button" className="btn" disabled={saving} onClick={() => void (status.active ? stop() : start())}>
-            {status.active ? "Stop Recording" : "Record"}
-          </button>
-          {/* Independent of Instant Replay: works whether or not the buffer is running. */}
-          <button
-            type="button"
-            className="btn"
-            title="Drag to capture any part of your screen"
-            onClick={() => void takeScreenshot()}
-          >
-            {`Screenshot  ${displayHotkey(hotkeys.regionScreenshot)}`}
-          </button>
+          <div className="hero-capture-secondary">
+            <button
+              type="button"
+              className="btn quiet"
+              disabled={saving}
+              onClick={() => void (status.active ? stop() : start())}
+            >
+              {status.active ? "Stop Recording" : "Record"}
+            </button>
+            <button
+              type="button"
+              className="btn quiet"
+              title="Drag to capture any part of your screen"
+              onClick={() => void takeScreenshot()}
+            >
+              {`Screenshot  ${displayHotkey(hotkeys.regionScreenshot)}`}
+            </button>
+          </div>
         </div>
         <Link className="hero-inline-link" to="/library">
           Open Library →
@@ -99,7 +118,7 @@ export function HeroCapturePanel({ name }: { name?: string }) {
         </div>
         <div
           className="hero-replay-ring"
-          style={{ background: `conic-gradient(var(--accent) ${bufferPct}%, rgba(255,255,255,0.08) 0)` }}
+          style={{ background: `conic-gradient(var(--accent) ${bufferPct}%, var(--meter-track) 0)` }}
           aria-hidden="true"
         >
           <div className="hero-replay-ring-inner">
@@ -112,7 +131,7 @@ export function HeroCapturePanel({ name }: { name?: string }) {
             ? `Recording ${formatDuration(status.durationMs)}`
             : replay.active
               ? `${clock(replay.durationMs)} buffer`
-              : "Launch a game and the buffer starts filling."}
+              : "Buffer starts when a game launches."}
         </p>
       </aside>
     </section>

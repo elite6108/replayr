@@ -52,7 +52,11 @@ html[data-theme="dark"] {
   --warn-border: #3d3426;
   --warn-text: #d8c6a4;
   --ok-border: #2f4a38;
-  --shadow-card: 0 12px 28px rgba(0, 0, 0, 0.22);
+  --card-bg: #141820;
+  --card-border: rgba(255, 255, 255, 0.07);
+  --card-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  --card-meta: #8b93a3;
+  --shadow-card: 0 4px 14px rgba(0, 0, 0, 0.16);
   --shadow-lift: 0 18px 36px rgba(0, 0, 0, 0.36);
   --shadow-popover: 0 16px 40px rgba(0, 0, 0, 0.45);
   --hero-panel-bg: linear-gradient(180deg, rgba(9, 11, 16, 0.12), rgba(9, 11, 16, 0.78) 72%),
@@ -139,7 +143,7 @@ html[data-theme="light"] {
   --ctx-bg: #ffffff;
   --banner-bg: #f4f6f8;
   --badge-bg: #eef2f6;
-  --hero-ring: #ffffff;
+  --hero-ring: #eef2f6;
   --kbd-bg: #e8edf3;
   --pip-bg: #d5dde6;
   --skel: #d5dde6;
@@ -149,7 +153,11 @@ html[data-theme="light"] {
   --warn-border: #d4b87a;
   --warn-text: #6b5420;
   --ok-border: #2f9a55;
-  --shadow-card: 0 10px 24px rgba(15, 23, 42, 0.08);
+  --card-bg: #ffffff;
+  --card-border: rgba(15, 23, 42, 0.1);
+  --card-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+  --card-meta: #5c6778;
+  --shadow-card: 0 2px 10px rgba(15, 23, 42, 0.05);
   --shadow-lift: 0 16px 32px rgba(15, 23, 42, 0.1);
   --shadow-popover: 0 16px 40px rgba(15, 23, 42, 0.12);
   --hero-panel-bg: var(--hero-bg);

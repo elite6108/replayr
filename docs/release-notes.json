@@ -1,4 +1,9 @@
 {
+  "0.1.52": [
+    "Home leads with Instant Replay status and a larger Capture Clip control.",
+    "Library clip and screenshot cards scan as a catalog with quieter chrome and a date · duration · This PC or Cloud line.",
+    "Sidebar uses the new Home, Library, Games, Record, Following, and Messages glyphs."
+  ],
   "0.1.51": [
     "Optional cloud-only screenshots: turn off Keep a copy on this PC after a successful upload.",
     "Click a screenshot in the Library to view it fullscreen and download the PNG.",

@@ -67,6 +67,10 @@ export function formatHandle(author?: { username?: string | null; displayName?: 
   return author?.displayName || "Player";
 }
 
+export function joinMeta(parts: Array<string | null | undefined | false>): string {
+  return parts.filter((part): part is string => Boolean(part && String(part).trim())).join(" · ");
+}
+
 export function formatDuration(ms: number | null | undefined): string {
   const total = Math.max(0, Math.floor((ms ?? 0) / 1000));
   const minutes = Math.floor(total / 60);

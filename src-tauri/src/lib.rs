@@ -198,6 +198,20 @@ pub fn run() {
             if let Err(err) = app.deep_link().register("replayr") {
                 tracing::warn!("could not register replayr:// handler: {err}");
             }
+            {
+                let handle = app.handle().clone();
+                let desktop_shortcut = {
+                    let state = handle.state::<AppState>();
+                    state
+                        .db
+                        .lock()
+                        .ok()
+                        .and_then(|conn| crate::settings::load(&conn).ok())
+                        .map(|settings| settings.desktop_shortcut)
+                        .unwrap_or(false)
+                };
+                crate::shortcut::repair_launchers(&handle, desktop_shortcut);
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

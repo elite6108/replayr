@@ -1,4 +1,10 @@
 {
+  "0.1.57": [
+    "Sign-in uses the official Google, Apple, Discord, and X icons, with Forgot password under the password field."
+  ],
+  "0.1.56": [
+    "Windows no longer reinstalls an older Replayr when you launch a leftover Replayr.exe setup from the Desktop."
+  ],
   "0.1.55": [
     "Instant Replay’s 03:00 timer no longer overlaps the always rolling / standby label."
   ],

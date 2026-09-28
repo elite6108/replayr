@@ -29,7 +29,7 @@ export function AuthCallbackPage() {
     return () => window.clearTimeout(timer);
   }, [session]);
 
-  if (session) return <Navigate to={safeNext(searchParams.get("next"))} replace />;
+  if (session) return <Navigate to={callbackNext(searchParams)} replace />;
 
   return (
     <main className="page narrow">
@@ -40,7 +40,12 @@ export function AuthCallbackPage() {
   );
 }
 
-function safeNext(value: string | null): string {
+function callbackNext(searchParams: URLSearchParams): string {
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  if (searchParams.get("type") === "recovery" || hash.get("type") === "recovery") {
+    return "/auth/reset";
+  }
+  const value = searchParams.get("next");
   if (!value || !value.startsWith("/") || value.startsWith("//")) return "/library";
   return value;
 }

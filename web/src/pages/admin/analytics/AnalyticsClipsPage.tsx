@@ -44,8 +44,8 @@ export function AnalyticsClipsPage() {
       <header className="admin-header">
         <div>
           <p className="eyebrow">Analytics</p>
-          <h2>Clips</h2>
-          <p className="muted">{data ? data.range.label : "Selected range"}</p>
+          <h2>Clipping usage</h2>
+          <p className="muted">{data ? data.range.label : "Selected range"} · local saves never upload clip files</p>
         </div>
         <div className="analytics-toolbar">
           <AnalyticsDateRangePicker />
@@ -63,11 +63,12 @@ export function AnalyticsClipsPage() {
             ))}
           </div>
           <AnalyticsLineChart
-            title="Clips created"
-            subtitle="Local saves are clip.saved. Ready cloud clips come from the clips table."
+            title="Clipping activity"
+            subtitle="Local clips saved, cloud clips uploaded, and unique signed-in local clippers."
             series={[
-              { key: "saved", label: "Saved", color: "#7fd0ef", data: { labels: data?.series.labels ?? [], values: data?.series.clips_saved ?? [] } },
-              { key: "ready", label: "Ready cloud", color: "#8ed9a4", data: { labels: data?.series.labels ?? [], values: data?.series.ready_cloud_clips ?? [] } },
+              { key: "saved", label: "Local clips saved", color: "#7fd0ef", data: { labels: data?.series.labels ?? [], values: data?.series.clips_saved ?? [] } },
+              { key: "uploads", label: "Cloud clips uploaded", color: "#8ed9a4", data: { labels: data?.series.labels ?? [], values: data?.series.cloud_uploads ?? data?.series.ready_cloud_clips ?? [] } },
+              { key: "clippers", label: "Unique local clippers", color: "#f0c36a", data: { labels: data?.series.labels ?? [], values: data?.series.unique_local_clippers ?? [] } },
             ]}
           />
           <div className="analytics-breakdown">

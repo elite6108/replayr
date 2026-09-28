@@ -130,6 +130,14 @@ export type StaffBoardMembers = {
   candidates: StaffBoardMemberCandidate[];
 };
 
+export type StaffActorCard = {
+  id: string;
+  displayName: string;
+  username: string | null;
+  avatarUrl: string | null;
+  userId: string | null;
+};
+
 export type StaffTaskDetail = {
   id: string;
   boardId: string;
@@ -161,12 +169,30 @@ export type StaffTaskDetail = {
     parentId: string | null;
     authorStaffId: string | null;
     authorName: string;
+    author: StaffActorCard | null;
     body: string;
     createdAt: string;
+    updatedAt?: string;
+    edited?: boolean;
   }>;
-  attachments: Array<{ id: string; filename: string; mime: string | null; bytes: number | null; createdAt: string }>;
+  attachments: Array<{
+    id: string;
+    filename: string;
+    mime: string | null;
+    bytes: number | null;
+    width?: number | null;
+    height?: number | null;
+    createdAt: string;
+  }>;
   relations: Array<{ id: string; kind: string; targetId: string; label: string | null }>;
-  activity: Array<{ id: string; action: string; metadata: Record<string, unknown>; createdAt: string; actorStaffId: string | null }>;
+  activity: Array<{
+    id: string;
+    action: string;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+    actorStaffId: string | null;
+    actor?: StaffActorCard | null;
+  }>;
 };
 
 async function staffFetch<T>(path: string, token: string, init?: RequestInit): Promise<T> {
@@ -376,6 +402,17 @@ export function commentStaffTask(token: string, id: string, body: string, parent
   });
 }
 
+export function editStaffComment(token: string, commentId: string, body: string) {
+  return staffFetch<{ task: StaffTaskDetail }>(`/v1/staff/comments/${commentId}`, token, {
+    method: "PATCH",
+    body: JSON.stringify({ body }),
+  });
+}
+
+export function deleteStaffComment(token: string, commentId: string) {
+  return staffFetch<{ ok: boolean }>(`/v1/staff/comments/${commentId}`, token, { method: "DELETE" });
+}
+
 export function addStaffChecklist(token: string, id: string, title: string) {
   return staffFetch<{ task: StaffTaskDetail }>(`/v1/staff/tasks/${id}/checklists`, token, {
     method: "POST",
@@ -415,19 +452,74 @@ export function addStaffRelation(token: string, id: string, body: { kind: string
   });
 }
 
-export function uploadStaffAttachment(token: string, taskId: string, file: File) {
+export function uploadStaffAttachment(
+  token: string,
+  taskId: string,
+  file: File,
+  onProgress?: (ratio: number) => void,
+) {
   return staffFetch<{ attachment: { id: string }; uploadUrl: string }>(`/v1/staff/tasks/${taskId}/attachments`, token, {
     method: "POST",
     body: JSON.stringify({ filename: file.name, mime: file.type || "application/octet-stream", bytes: file.size }),
   }).then(async (created) => {
-    const put = await fetch(created.uploadUrl, { method: "PUT", body: file, headers: { "content-type": file.type || "application/octet-stream" } });
-    if (!put.ok) throw new Error("Could not upload the attachment.");
-    return created;
+    await putSignedObject(apiUrl(`/v1/staff/attachments/${created.attachment.id}`), file, onProgress, token);
+    const size = await readImageSize(file);
+    return completeStaffAttachment(token, created.attachment.id, size);
   });
 }
 
+export function completeStaffAttachment(
+  token: string,
+  id: string,
+  size?: { width?: number; height?: number },
+) {
+  return staffFetch<{ task: StaffTaskDetail }>(`/v1/staff/attachments/${id}/complete`, token, {
+    method: "POST",
+    body: JSON.stringify(size ?? {}),
+  });
+}
+
+export function deleteStaffAttachment(token: string, id: string) {
+  return staffFetch<{ ok: boolean }>(`/v1/staff/attachments/${id}`, token, { method: "DELETE" });
+}
+
 export function fetchStaffAttachmentUrl(token: string, id: string) {
-  return staffFetch<{ url: string; filename: string }>(`/v1/staff/attachments/${id}/url`, token);
+  return staffFetch<{ url: string; filename: string; mime?: string | null }>(`/v1/staff/attachments/${id}/url`, token);
+}
+
+function putSignedObject(url: string, file: File, onProgress?: (ratio: number) => void, token?: string) {
+  return new Promise<void>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("PUT", url);
+    request.setRequestHeader("content-type", file.type || "application/octet-stream");
+    if (token) request.setRequestHeader("authorization", `Bearer ${token}`);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+    };
+    request.onload = () => {
+      if (request.status >= 200 && request.status < 300) resolve();
+      else reject(new Error("Could not upload the attachment."));
+    };
+    request.onerror = () => reject(new Error("Could not upload the attachment."));
+    request.send(file);
+  });
+}
+
+function readImageSize(file: File): Promise<{ width?: number; height?: number }> {
+  if (!file.type.startsWith("image/")) return Promise.resolve({});
+  return new Promise((resolve) => {
+    const href = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(href);
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(href);
+      resolve({});
+    };
+    image.src = href;
+  });
 }
 
 export function fetchMyStaffTasks(token: string, params: { filter?: string; q?: string; priority?: string; due?: string; page?: number } = {}) {

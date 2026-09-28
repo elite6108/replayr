@@ -358,6 +358,7 @@ mod tests {
         assert!(games.iter().any(|game| game.slug == "valorant"));
         assert!(games.iter().any(|game| game.slug == "cyberpunk-2077"));
         assert!(games.iter().any(|game| game.slug == "dead-by-daylight"));
+        assert!(games.iter().any(|game| game.slug == "wow-forever"));
         let gta = games.iter().find(|game| game.slug == "gta-v").unwrap();
         assert!(gta
             .process_names
@@ -432,5 +433,40 @@ mod tests {
         );
         assert_eq!(snapshot.slug.as_deref(), Some("gta-v"));
         assert_eq!(snapshot.process_name.as_deref(), Some("FiveM_b3258_GTAProcess.exe"));
+    }
+
+    #[test]
+    fn wow_forever_beta_is_not_retail_wow() {
+        let catalog = vec![
+            GameRecord {
+                slug: "wow".into(),
+                cloud_id: None,
+                name: "World of Warcraft".into(),
+                publisher: Some("Blizzard Entertainment".into()),
+                cover_url: None,
+                icon_url: None,
+                process_names: vec!["Wow.exe".into(), "WowClassic.exe".into(), "WowT.exe".into()],
+            },
+            GameRecord {
+                slug: "wow-forever".into(),
+                cloud_id: None,
+                name: "World of Warcraft: Forever".into(),
+                publisher: Some("Blizzard Entertainment".into()),
+                cover_url: None,
+                icon_url: None,
+                process_names: vec!["WowClassicB.exe".into(), "WowB.exe".into()],
+            },
+        ];
+        let snapshot = detect_games(
+            &[ProcessRef {
+                pid: 4400,
+                parent_pid: 0,
+                name: "WowClassicB.exe".into(),
+            }],
+            Some(4400),
+            &catalog,
+        );
+        assert_eq!(snapshot.slug.as_deref(), Some("wow-forever"));
+        assert_eq!(snapshot.name.as_deref(), Some("World of Warcraft: Forever"));
     }
 }

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Seo } from "../components/Seo";
+import { SocialAvatar } from "../components/SocialAvatar";
+import { deleteOwnAvatar, uploadOwnAvatar } from "../lib/avatars";
 import { deleteAccount } from "../lib/api";
 import { isAdminSession } from "../lib/admin";
 import { fetchBillingStatus, startCheckout, startPortal, type BillingStatus } from "../lib/billing";
@@ -11,6 +13,7 @@ import { getSupabase } from "../lib/supabase";
 interface ProfileRow {
   username: string | null;
   display_name: string | null;
+  avatar_url: string | null;
   is_private: boolean | null;
 }
 
@@ -29,7 +32,7 @@ export function AccountPage() {
     void (async () => {
       const supabase = getSupabase();
       const [profileResult, billingResult] = await Promise.all([
-        supabase.from("profiles").select("username, display_name, is_private").eq("id", userId).maybeSingle(),
+        supabase.from("profiles").select("username, display_name, avatar_url, is_private").eq("id", userId).maybeSingle(),
         fetchBillingStatus(session.access_token).catch(() => null),
       ]);
       if (cancelled) return;
@@ -76,6 +79,54 @@ export function AccountPage() {
       <Seo title="Account — Replayr" description="Your Replayr account, plan, and cloud quota." robots="noindex" />
       <h1>Account</h1>
       <p className="muted">Same identity as the Windows app. Capture still happens on the PC.</p>
+      {session ? (
+        <div className="profile-hero">
+          <SocialAvatar
+            name={profile?.display_name || profile?.username || session.user.email || "Player"}
+            avatarUrl={profile?.avatar_url}
+            size={72}
+          />
+          <div className="row">
+            <label className="btn">
+              Change photo
+              <input
+                type="file"
+                hidden
+                accept="image/jpeg,image/png,image/webp"
+                disabled={busy}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.currentTarget.value = "";
+                  if (!file || !session.access_token) return;
+                  setBusy(true);
+                  setError(null);
+                  void uploadOwnAvatar(session.access_token, file)
+                    .then((avatarUrl) => setProfile((current) => (current ? { ...current, avatar_url: avatarUrl } : current)))
+                    .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not upload photo."))
+                    .finally(() => setBusy(false));
+                }}
+              />
+            </label>
+            {profile?.avatar_url ? (
+              <button
+                className="btn"
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  if (!session.access_token) return;
+                  setBusy(true);
+                  void deleteOwnAvatar(session.access_token)
+                    .then(() => setProfile((current) => (current ? { ...current, avatar_url: null } : current)))
+                    .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not remove photo."))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                Remove photo
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       {notice ? <p className="muted">{notice}</p> : null}
       {error ? <p className="error">{error}</p> : null}
       <dl className="meta-list">

@@ -141,6 +141,36 @@ export function requireR2(env: Env) {
   }
 }
 
+export async function putR2Object(env: Env, key: string, body: ArrayBuffer, contentType: string) {
+  requireR2(env);
+  if (env.CLIPS) {
+    await env.CLIPS.put(key, body, { httpMetadata: { contentType } });
+    return;
+  }
+  const response = await r2Client(env).fetch(objectUrl(env, key), {
+    method: "PUT",
+    headers: { "content-type": contentType },
+    body,
+  });
+  if (!response.ok) throw new HttpError(502, "Could not store that file.");
+}
+
+export async function headR2Object(env: Env, key: string): Promise<boolean> {
+  if (env.CLIPS) return Boolean(await env.CLIPS.head(key));
+  requireR2(env);
+  const response = await r2Client(env).fetch(objectUrl(env, key), { method: "HEAD" });
+  return response.ok;
+}
+
+export async function deleteR2Object(env: Env, key: string) {
+  if (env.CLIPS) {
+    await env.CLIPS.delete(key);
+    return;
+  }
+  requireR2(env);
+  await r2Client(env).fetch(objectUrl(env, key), { method: "DELETE" });
+}
+
 export function requireServiceRole(env: Env): string {
   if (!env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new HttpError(503, "Cloud quota is not configured on the Worker.");

@@ -38,6 +38,7 @@ import {
   type GameDailyRow,
 } from "./analyticsQueries";
 import type { Env } from "./env";
+import { clippingUsageFromActivity, uniqueLocalClippersByDay } from "./analyticsClipping";
 
 function catalog(key: string): { availability: MetricAvailability; notes: string } {
   const row = ANALYTICS_METRIC_CATALOG.find((item) => item.key === key);
@@ -102,7 +103,7 @@ function rangeMeta(query: ReturnType<typeof parseAdminAnalyticsQuery>) {
   return {
     from: query.from,
     to: query.to,
-    label: formatRangeLabel(query.from, query.to, query.preset, query.granularity),
+    label: formatRangeLabel(query.from, query.to),
     tz: query.tz,
     preset: query.preset,
     granularity: query.granularity,
@@ -122,6 +123,7 @@ export async function buildAnalyticsClips(env: Env, url: URL) {
     ? await Promise.all([
         getClipDailySeries(env, previousRange),
         getReadyClipFacts(env, previousRange),
+        getUserActivityRows(env, { ...previousRange, environment: "production" }),
       ])
     : null;
   const active = uniqueActiveUsersInRange(activity, query.from, query.to);
@@ -145,18 +147,48 @@ export async function buildAnalyticsClips(env: Env, url: URL) {
   const counts = [...perUser.entries()].map(([user_id, count]) => ({ user_id, count }));
   const power = powerUserIds(counts);
   const labels = daysInRange(query.from, query.to);
+  const usage = clippingUsageFromActivity(activity);
+  const prevUsage = prev ? clippingUsageFromActivity(prev[2]) : null;
+  const uploaded = sum(clips.rows, "cloud_upload_completed");
+  const prevUploaded = prev ? sum(prev[0].rows, "cloud_upload_completed") : null;
   return {
     range: rangeMeta(query),
     comparisonRange: serializeComparisonRange(query.comparison),
     lastUpdated: clips.rows.at(-1)?.updated_at ?? null,
     freshness: "hourly" as const,
     definitions: {
-      clips_saved: "Local clip.saved after a successful desktop save.",
+      clips_saved: "Local clip.saved after a successful desktop save. Unsigned saves are events, not unique clippers.",
       cloud_clips: "Ready cloud clips created in the range.",
+      local_clippers: "Unique authenticated users with clip.saved in the range.",
+      cloud_clippers: "Unique authenticated users with a cloud upload in the range.",
+      local_only_clippers: "Local clippers with no cloud upload in the same range.",
+      conversion: "Share of local clippers who also uploaded in the range.",
       power_users: "Top decile of ready cloud clips in the selected range.",
     },
+    clippingUsage: usage,
     metrics: [
-      kpi("clips_saved", "Clips saved", saved, prevSaved),
+      kpi("local_clippers", "Local clippers", usage.localClippers, prevUsage?.localClippers ?? null, {
+        availability: "AVAILABLE",
+        tooltip: "Unique signed-in users with at least one clip.saved in the selected period.",
+      }),
+      kpi("cloud_clippers", "Cloud clippers", usage.cloudClippers, prevUsage?.cloudClippers ?? null, {
+        availability: "AVAILABLE",
+        tooltip: "Unique users with at least one cloud upload in the selected period.",
+      }),
+      kpi("local_only_clippers", "Local-only clippers", usage.localOnlyClippers, prevUsage?.localOnlyClippers ?? null, {
+        availability: "AVAILABLE",
+        tooltip: "clip.saved users with no cloud upload during the selected period.",
+      }),
+      kpi("cloud_uploading_clippers", "Cloud-uploading clippers", usage.cloudUploadingClippers, prevUsage?.cloudUploadingClippers ?? null, {
+        availability: "AVAILABLE",
+      }),
+      kpi("clips_saved", "Local clips saved", saved, prevSaved),
+      kpi("cloud_upload_completed", "Clips uploaded", uploaded, prevUploaded, { availability: "AVAILABLE" }),
+      kpi("local_cloud_conversion", "Local → cloud conversion", usage.conversion, prevUsage?.conversion ?? null, {
+        availability: "AVAILABLE",
+        unit: "percent",
+        tooltip: "Local clippers who also uploaded anything in the same period.",
+      }),
       kpi("ready_cloud_clips", "Ready cloud clips", ready, prevReady, { availability: "AVAILABLE" }),
       kpi("clips_per_active_user", "Clips saved / DAU", clipsPerActiveUser(saved, active), null),
       kpi("clip_save_failed", "Save failures", failed, prev ? sum(prev[0].rows, "clip_save_failed") : null, {
@@ -188,6 +220,11 @@ export async function buildAnalyticsClips(env: Env, url: URL) {
       ready_cloud_clips: labels.map((day) => {
         const row = clips.rows.find((item) => item.day === day);
         return row?.ready_cloud_clips_created == null ? null : Number(row.ready_cloud_clips_created);
+      }),
+      unique_local_clippers: uniqueLocalClippersByDay(activity, labels),
+      cloud_uploads: labels.map((day) => {
+        const row = clips.rows.find((item) => item.day === day);
+        return row?.cloud_upload_completed == null ? null : Number(row.cloud_upload_completed);
       }),
     },
   };

@@ -1,3 +1,4 @@
+import { handleAvatars } from "./avatars";
 import { handleAdmin } from "./admin";
 import { handleStaff, notifyStaffTaskDueSoon } from "./staff";
 import { drainWaitlistCampaigns } from "./waitlistAdmin";
@@ -244,6 +245,8 @@ async function route(
   if (request.method === "GET" && bunnySource?.[1]) {
     return handleBunnySource(request, env, bunnySource[1]);
   }
+  const avatars = await handleAvatars(request, env, url);
+  if (avatars) return avatars;
   const screenshots = await handleScreenshotApi(request, env, url, ctx);
   if (screenshots) return screenshots;
   const screenshotShare = await handleScreenshotShare(request, env, url, {

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import { AuthCard } from "./components/common/AuthCard";
 import { AppShell } from "./components/layout/AppShell";
 import { HomePage } from "./pages/HomePage";
 import { FolderPage } from "./pages/FolderPage";
@@ -45,6 +46,7 @@ export default function App() {
   const initializeUpdates = useUpdateStore((state) => state.initialize);
   const userId = useAuthStore((state) => state.user?.id);
   const accessToken = useAuthStore((state) => state.session?.access_token ?? null);
+  const passwordRecovery = useAuthStore((state) => state.passwordRecovery);
   const loadBilling = useBillingStore((state) => state.load);
   const refreshCloud = useCloudStore((state) => state.refresh);
   const refreshFolders = useFolderStore((state) => state.refresh);
@@ -128,6 +130,11 @@ export default function App() {
     <>
       <ThemeSync />
       {tree}
+      {passwordRecovery ? (
+        <div className="auth-recovery-overlay">
+          <AuthCard />
+        </div>
+      ) : null}
     </>
   );
 }

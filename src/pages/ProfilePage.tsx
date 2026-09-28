@@ -3,12 +3,14 @@ import { Link } from "react-router-dom";
 import { AuthCard } from "../components/common/AuthCard";
 import { publicSiteUrl } from "../branding";
 import { PageHeader } from "../components/common/PageHeader";
+import { deleteOwnAvatar, uploadOwnAvatar } from "../services/avatars";
 import { startCheckout, startPortal } from "../services/billing";
 import { useAuthStore } from "../stores/authStore";
 import { useBillingStore } from "../stores/billingStore";
 import { useToastStore } from "../stores/toastStore";
 import { isAdminSession } from "../utils/admin";
-import { formatBytes, initials, planLabel } from "../utils/format";
+import { SocialAvatar } from "../components/common/SocialAvatar";
+import { formatBytes, planLabel } from "../utils/format";
 import { validateUsername } from "../utils/username";
 
 export function ProfilePage() {
@@ -20,6 +22,7 @@ export function ProfilePage() {
   const billing = useBillingStore((state) => state.status);
   const signOut = useAuthStore((state) => state.signOut);
   const saveProfile = useAuthStore((state) => state.saveProfile);
+  const refreshProfile = useAuthStore((state) => state.refreshProfile);
   const showToast = useToastStore((state) => state.show);
   const [username, setUsername] = useState(profile?.username ?? "");
   const [displayName, setDisplayName] = useState(profile?.display_name ?? "");
@@ -99,10 +102,48 @@ export function ProfilePage() {
       </PageHeader>
       <section className="panel stack">
         <div className="profile-hero">
-          <span className="avatar lg">{initials(profile?.username || name)}</span>
+          <SocialAvatar
+            person={{ displayName: name, username: profile?.username, avatarUrl: profile?.avatar_url ?? null }}
+            size="lg"
+          />
           <div>
             <div className="stat-value">{name}</div>
             <div className="muted">{user.email}</div>
+            {session?.access_token ? (
+              <div className="row">
+                <label className="btn">
+                  Change photo
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.currentTarget.value = "";
+                      if (!file) return;
+                      void uploadOwnAvatar(session.access_token, file)
+                        .then(() => refreshProfile())
+                        .then(() => showToast("Photo updated"))
+                        .catch((caught: unknown) => showToast(caught instanceof Error ? caught.message : "Could not upload photo."));
+                    }}
+                  />
+                </label>
+                {profile?.avatar_url ? (
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => {
+                      void deleteOwnAvatar(session.access_token)
+                        .then(() => refreshProfile())
+                        .then(() => showToast("Photo removed"))
+                        .catch((caught: unknown) => showToast(caught instanceof Error ? caught.message : "Could not remove photo."));
+                    }}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
         {storage ? (

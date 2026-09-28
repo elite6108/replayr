@@ -25,6 +25,16 @@ const ALLOWED_ORIGINS = new Set([
   "asset://localhost",
 ]);
 
+export function clientFacingOrigin(request: Request, fallbackOrigin: string) {
+  const origin = request.headers.get("origin");
+  if (origin && ALLOWED_ORIGINS.has(origin) && /^https?:\/\//i.test(origin) && !origin.includes("tauri")) {
+    return origin.replace(/\/$/, "");
+  }
+  const fallback = fallbackOrigin.replace(/\/$/, "");
+  if (fallback.includes("replayr.tv")) return "https://www.replayr.tv";
+  return fallback;
+}
+
 export function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -44,6 +54,6 @@ export function cors(response: Response, request?: Request) {
     headers.set("access-control-expose-headers", "location, content-disposition, content-type");
   }
   headers.set("access-control-allow-headers", "authorization, content-type");
-  headers.set("access-control-allow-methods", "GET, POST, PATCH, DELETE, OPTIONS");
+  headers.set("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   return new Response(response.body, { status: response.status, headers });
 }

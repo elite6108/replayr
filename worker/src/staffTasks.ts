@@ -4,14 +4,15 @@ import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { rankAfter, rankBetween } from "./lexorank";
 import { insertNotifications } from "./social";
-import { serviceRest, signedObjectUrl } from "./shared";
+import { headR2Object, putR2Object, serviceRest, signedObjectUrl } from "./shared";
 import { requirePermission, type StaffActor } from "./staffAuth";
 import { assertCanMutate, requireBoardAccess } from "./staffBoards";
+import { assertAllowedAttachment } from "./staffAttachmentRules";
+import { addTaskActivity, loadStaffActorCards } from "./staffTaskActivity";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PRIORITIES = new Set(["none", "low", "medium", "high", "urgent"]);
 const RELATION_KINDS = new Set(["clip", "user", "screenshot", "folder", "creator_application", "error_fingerprint", "url"]);
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MENTION = /@([a-z0-9_]{2,32})/gi;
 
 type TaskRow = {
@@ -92,9 +93,15 @@ export async function handleStaffTasks(
     return addComment(request, env, actor, comments[1], ctx);
   }
   const commentItem = path.match(/^\/v1\/staff\/comments\/([^/]+)$/);
-  if (commentItem?.[1] && method === "DELETE") {
-    const actor = await requirePermission(request, env, "board.comments.delete");
-    return deleteComment(env, actor, commentItem[1]);
+  if (commentItem?.[1] && UUID.test(commentItem[1])) {
+    if (method === "PATCH") {
+      const actor = await requirePermission(request, env, "board.comments.create");
+      return editComment(request, env, actor, commentItem[1]);
+    }
+    if (method === "DELETE") {
+      const actor = await requirePermission(request, env, "board.view");
+      return deleteComment(env, actor, commentItem[1]);
+    }
   }
   const checklists = path.match(/^\/v1\/staff\/tasks\/([^/]+)\/checklists$/);
   if (checklists?.[1] && method === "POST") {
@@ -149,12 +156,21 @@ export async function handleStaffTasks(
     const actor = await requirePermission(request, env, "board.attachments.upload");
     return createAttachment(request, env, actor, attachments[1]);
   }
+  const attachmentComplete = path.match(/^\/v1\/staff\/attachments\/([^/]+)\/complete$/);
+  if (attachmentComplete?.[1] && method === "POST") {
+    const actor = await requirePermission(request, env, "board.attachments.upload");
+    return completeAttachment(request, env, actor, attachmentComplete[1]);
+  }
   const attachmentUrl = path.match(/^\/v1\/staff\/attachments\/([^/]+)\/url$/);
   if (attachmentUrl?.[1] && method === "GET") {
     const actor = await requirePermission(request, env, "board.view");
     return attachmentDownload(env, actor, attachmentUrl[1]);
   }
   const attachmentItem = path.match(/^\/v1\/staff\/attachments\/([^/]+)$/);
+  if (attachmentItem?.[1] && method === "PUT") {
+    const actor = await requirePermission(request, env, "board.attachments.upload");
+    return receiveAttachment(request, env, actor, attachmentItem[1]);
+  }
   if (attachmentItem?.[1] && method === "DELETE") {
     const actor = await requirePermission(request, env, "board.attachments.delete");
     return deleteAttachment(env, actor, attachmentItem[1]);
@@ -279,15 +295,24 @@ async function getTask(env: Env, actor: StaffActor, taskId: string): Promise<Res
       author_staff_id: string | null;
       body: string;
       created_at: string;
+      updated_at: string;
     }>>(
       env,
       "GET",
-      `/staff_task_comments?task_id=eq.${taskId}&select=id,parent_id,author_staff_id,body,created_at&order=created_at.asc`,
+      `/staff_task_comments?task_id=eq.${taskId}&deleted_at=is.null&select=id,parent_id,author_staff_id,body,created_at,updated_at&order=created_at.asc`,
     ),
-    serviceRest<Array<{ id: string; filename: string; mime: string | null; bytes: number | null; created_at: string }>>(
+    serviceRest<Array<{
+      id: string;
+      filename: string;
+      mime: string | null;
+      bytes: number | null;
+      width: number | null;
+      height: number | null;
+      created_at: string;
+    }>>(
       env,
       "GET",
-      `/staff_task_attachments?task_id=eq.${taskId}&select=id,filename,mime,bytes,created_at&order=created_at.asc`,
+      `/staff_task_attachments?task_id=eq.${taskId}&status=eq.ready&select=id,filename,mime,bytes,width,height,created_at&order=created_at.asc`,
     ),
     serviceRest<Array<{ id: string; kind: string; target_id: string; label: string | null }>>(
       env,
@@ -311,15 +336,11 @@ async function getTask(env: Env, actor: StaffActor, taskId: string): Promise<Res
         `/staff_task_checklist_items?checklist_id=in.(${checklistIds.join(",")})&select=id,checklist_id,title,done,rank&order=rank.asc`,
       )
     : [];
-  const authorIds = [...new Set(comments.map((row) => row.author_staff_id).filter((id): id is string => Boolean(id)))];
-  const commentAuthors = authorIds.length
-    ? await serviceRest<Array<{ id: string; display_name: string }>>(
-        env,
-        "GET",
-        `/staff_members?id=in.(${authorIds.join(",")})&select=id,display_name`,
-      )
-    : [];
-  const authorById = new Map(commentAuthors.map((row) => [row.id, row.display_name]));
+  const actorIds = [
+    ...comments.map((row) => row.author_staff_id),
+    ...activity.map((row) => row.actor_staff_id),
+  ].filter((id): id is string => Boolean(id));
+  const actors = await loadStaffActorCards(env, actorIds);
   return json({
     task: {
       id: task.id,
@@ -358,19 +379,27 @@ async function getTask(env: Env, actor: StaffActor, taskId: string): Promise<Res
         done: row.done,
         rank: row.rank,
       })),
-      comments: comments.map((row) => ({
-        id: row.id,
-        parentId: row.parent_id,
-        authorStaffId: row.author_staff_id,
-        authorName: (row.author_staff_id && authorById.get(row.author_staff_id)) || "Staff",
-        body: row.body,
-        createdAt: row.created_at,
-      })),
+      comments: comments.map((row) => {
+        const author = row.author_staff_id ? actors.get(row.author_staff_id) : undefined;
+        return {
+          id: row.id,
+          parentId: row.parent_id,
+          authorStaffId: row.author_staff_id,
+          authorName: author?.displayName || "Staff",
+          author: author ?? null,
+          body: row.body,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          edited: row.updated_at !== row.created_at,
+        };
+      }),
       attachments: attachments.map((row) => ({
         id: row.id,
         filename: row.filename,
         mime: row.mime,
         bytes: row.bytes,
+        width: row.width,
+        height: row.height,
         createdAt: row.created_at,
       })),
       relations: relations.map((row) => ({
@@ -385,6 +414,7 @@ async function getTask(env: Env, actor: StaffActor, taskId: string): Promise<Res
         metadata: row.metadata,
         createdAt: row.created_at,
         actorStaffId: row.actor_staff_id,
+        actor: row.actor_staff_id ? actors.get(row.actor_staff_id) ?? null : null,
       })),
     },
   });
@@ -432,7 +462,7 @@ async function patchTask(
   }
   if (!Object.keys(patch).length) throw new HttpError(400, "Nothing to update.");
   await serviceRest(env, "PATCH", `/staff_tasks?id=eq.${taskId}`, patch);
-  await addActivity(env, taskId, actor.staffId, "updated", patch);
+  await addTaskActivity(env, taskId, actor.staffId, "updated", { before, after: patch });
   if ("dueAt" in body && dueAtChanged(task.due_at, typeof body.dueAt === "string" ? body.dueAt : null)) {
     const nextDue = typeof body.dueAt === "string" ? body.dueAt : null;
     queueBoardActivityEmail(ctx, env, {
@@ -456,7 +486,7 @@ async function archiveTask(env: Env, actor: StaffActor, taskId: string): Promise
   const access = await requireBoardAccess(env, actor, task.board_id, "board.cards.delete");
   assertCanMutate(access);
   await serviceRest(env, "PATCH", `/staff_tasks?id=eq.${taskId}`, { archived_at: new Date().toISOString() });
-  await addActivity(env, taskId, actor.staffId, "archived", {});
+  await addTaskActivity(env, taskId, actor.staffId, "archived", {});
   return json({ ok: true });
 }
 
@@ -484,7 +514,7 @@ async function moveTask(
   if (!columns[0] || columns[0].board_id !== task.board_id) throw new HttpError(400, "Column does not belong to this board.");
   const rank = rankBetween(body.beforeRank, body.afterRank);
   await serviceRest(env, "PATCH", `/staff_tasks?id=eq.${taskId}`, { column_id: columnId, rank });
-  await addActivity(env, taskId, actor.staffId, "moved", { columnId, rank });
+  await addTaskActivity(env, taskId, actor.staffId, "moved", { fromColumnId: task.column_id, columnId, rank });
   if (shouldNotifyBoardMove(task.column_id, columnId)) {
     queueBoardActivityEmail(ctx, env, {
       boardId: task.board_id,
@@ -533,7 +563,11 @@ async function setAssignees(
   }
   const added = staffIds.filter((id) => !previous.some((row) => row.staff_id === id));
   await notifyStaff(env, actor, task, added, "staff_task_assigned");
-  await addActivity(env, taskId, actor.staffId, "assigned", { staffIds });
+  await addTaskActivity(env, taskId, actor.staffId, "assigned", {
+    staffIds,
+    added,
+    removed: previous.map((row) => row.staff_id).filter((id) => !staffIds.includes(id)),
+  });
   if (assigneeSetChanged(previous.map((row) => row.staff_id), staffIds)) {
     queueBoardActivityEmail(ctx, env, {
       boardId: task.board_id,
@@ -630,7 +664,7 @@ async function addComment(
   await notifyStaff(env, actor, task, mentioned, "staff_task_mentioned");
   const watchers = await watcherUserIds(env, taskId, task.board_id, [...mentioned, actor.staffId]);
   await notifyUsers(env, actor.userId, watchers, "staff_task_comment", task.id);
-  await addActivity(env, taskId, actor.staffId, "commented", { commentId: created[0]?.id });
+  await addTaskActivity(env, taskId, actor.staffId, "commented", { commentId: created[0]?.id });
   queueBoardActivityEmail(ctx, env, {
     boardId: task.board_id,
     taskId,
@@ -644,21 +678,52 @@ async function addComment(
   return getTask(env, actor, taskId);
 }
 
-async function deleteComment(env: Env, actor: StaffActor, commentId: string): Promise<Response> {
+async function editComment(request: Request, env: Env, actor: StaffActor, commentId: string): Promise<Response> {
   if (!UUID.test(commentId)) throw new HttpError(400, "Comment id is invalid.");
-  const rows = await serviceRest<Array<{ id: string; task_id: string; author_staff_id: string | null }>>(
+  const rows = await serviceRest<Array<{ id: string; task_id: string; author_staff_id: string | null; deleted_at: string | null }>>(
     env,
     "GET",
-    `/staff_task_comments?id=eq.${commentId}&select=id,task_id,author_staff_id`,
+    `/staff_task_comments?id=eq.${commentId}&select=id,task_id,author_staff_id,deleted_at`,
   );
   const comment = rows[0];
-  if (!comment) throw new HttpError(404, "Comment not found.");
+  if (!comment || comment.deleted_at) throw new HttpError(404, "Comment not found.");
   const task = await mustTask(env, comment.task_id);
-  const access = await requireBoardAccess(env, actor, task.board_id, "board.comments.delete");
-  if (comment.author_staff_id !== actor.staffId && access.boardRole !== "admin" && !actor.isSuperAdmin) {
-    throw new HttpError(403, "You can only delete your own comments.");
+  const access = await requireBoardAccess(env, actor, task.board_id, "board.comments.create");
+  assertCanMutate(access);
+  if (comment.author_staff_id !== actor.staffId) throw new HttpError(403, "You can only edit your own comments.");
+  const body = (await request.json().catch(() => ({}))) as { body?: string };
+  const text = typeof body.body === "string" ? body.body.trim().slice(0, 8000) : "";
+  if (!text) throw new HttpError(400, "Comment cannot be empty.");
+  await serviceRest(env, "PATCH", `/staff_task_comments?id=eq.${commentId}`, {
+    body: text,
+    updated_at: new Date().toISOString(),
+  });
+  await addTaskActivity(env, task.id, actor.staffId, "comment_edited", { commentId });
+  return getTask(env, actor, task.id);
+}
+
+async function deleteComment(env: Env, actor: StaffActor, commentId: string): Promise<Response> {
+  if (!UUID.test(commentId)) throw new HttpError(400, "Comment id is invalid.");
+  const rows = await serviceRest<Array<{ id: string; task_id: string; author_staff_id: string | null; deleted_at: string | null }>>(
+    env,
+    "GET",
+    `/staff_task_comments?id=eq.${commentId}&select=id,task_id,author_staff_id,deleted_at`,
+  );
+  const comment = rows[0];
+  if (!comment || comment.deleted_at) throw new HttpError(404, "Comment not found.");
+  const task = await mustTask(env, comment.task_id);
+  const access = await requireBoardAccess(env, actor, task.board_id);
+  const own = comment.author_staff_id === actor.staffId;
+  const canModerate =
+    actor.isSuperAdmin || access.boardRole === "admin" || actor.permissions.has("board.comments.delete");
+  if (own && !actor.permissions.has("board.comments.create") && !actor.isSuperAdmin) {
+    throw new HttpError(403, "You cannot delete this comment.");
   }
-  await serviceRest(env, "DELETE", `/staff_task_comments?id=eq.${commentId}`);
+  if (!own && !canModerate) throw new HttpError(403, "You can only delete your own comments.");
+  await serviceRest(env, "PATCH", `/staff_task_comments?id=eq.${commentId}`, {
+    deleted_at: new Date().toISOString(),
+  });
+  await addTaskActivity(env, task.id, actor.staffId, "comment_deleted", { commentId });
   return json({ ok: true });
 }
 
@@ -674,7 +739,7 @@ async function addChecklist(request: Request, env: Env, actor: StaffActor, taskI
     `/staff_task_checklists?task_id=eq.${taskId}&select=rank&order=rank.desc&limit=1`,
   );
   await serviceRest(env, "POST", "/staff_task_checklists", { task_id: taskId, title, rank: rankAfter(last[0]?.rank) });
-  await addActivity(env, taskId, actor.staffId, "checklist", { title });
+  await addTaskActivity(env, taskId, actor.staffId, "checklist", { title });
   return getTask(env, actor, taskId);
 }
 
@@ -827,35 +892,92 @@ async function createAttachment(request: Request, env: Env, actor: StaffActor, t
   const access = await requireBoardAccess(env, actor, task.board_id, "board.attachments.upload");
   assertCanMutate(access);
   const body = (await request.json().catch(() => ({}))) as { filename?: string; mime?: string; bytes?: number };
-  const filename = typeof body.filename === "string" ? body.filename.replace(/[^\w.\- ()]/g, "").slice(0, 120) : "";
-  if (!filename) throw new HttpError(400, "Filename is required.");
-  const bytes = Number(body.bytes);
-  if (!Number.isFinite(bytes) || bytes <= 0 || bytes > MAX_ATTACHMENT_BYTES) {
-    throw new HttpError(400, "Attachment must be between 1 byte and 25 MB.");
+  let allowed;
+  try {
+    allowed = assertAllowedAttachment({
+      filename: typeof body.filename === "string" ? body.filename : "",
+      mime: typeof body.mime === "string" ? body.mime : "",
+      bytes: Number(body.bytes),
+    });
+  } catch (caught) {
+    throw new HttpError(400, caught instanceof Error ? caught.message : "That file is not allowed.");
   }
   const id = crypto.randomUUID();
-  const storageKey = `staff/${task.board_id}/${task.id}/${id}`;
-  const mime = typeof body.mime === "string" ? body.mime.slice(0, 120) : "application/octet-stream";
+  const storageKey = `staff/${task.board_id}/${task.id}/${id}.${allowed.ext}`;
   await serviceRest(env, "POST", "/staff_task_attachments", {
     id,
     task_id: taskId,
     storage_key: storageKey,
-    filename,
-    mime,
-    bytes: Math.floor(bytes),
+    filename: allowed.filename,
+    mime: allowed.mime,
+    bytes: Math.floor(Number(body.bytes)),
+    status: "pending",
     created_by: actor.staffId,
   });
-  const uploadUrl = await signedObjectUrl(env, storageKey, "PUT", { "content-type": mime }, 3600);
-  await addActivity(env, taskId, actor.staffId, "attachment", { filename });
-  return json({ attachment: { id, filename, bytes }, uploadUrl });
+  const uploadUrl = await signedObjectUrl(env, storageKey, "PUT", { "content-type": allowed.mime }, 3600);
+  return json({ attachment: { id, filename: allowed.filename, bytes: Math.floor(Number(body.bytes)), status: "pending" }, uploadUrl });
+}
+
+async function receiveAttachment(request: Request, env: Env, actor: StaffActor, attachmentId: string): Promise<Response> {
+  const attachment = await mustAttachment(env, attachmentId);
+  const task = await mustTask(env, attachment.task_id);
+  const access = await requireBoardAccess(env, actor, task.board_id, "board.attachments.upload");
+  assertCanMutate(access);
+  if (attachment.created_by && attachment.created_by !== actor.staffId && !actor.isSuperAdmin) {
+    throw new HttpError(403, "You can only finish your own upload.");
+  }
+  if (attachment.status === "ready") return getTask(env, actor, task.id);
+  if (attachment.status !== "pending") throw new HttpError(409, "Attachment cannot be completed.");
+  const mime = (request.headers.get("content-type") || attachment.mime || "").toLowerCase().split(";")[0]!.trim();
+  const bytes = await request.arrayBuffer();
+  try {
+    assertAllowedAttachment({
+      filename: attachment.filename,
+      mime,
+      bytes: bytes.byteLength,
+    });
+  } catch (caught) {
+    throw new HttpError(400, caught instanceof Error ? caught.message : "That file is not allowed.");
+  }
+  await putR2Object(env, attachment.storage_key, bytes, mime);
+  return completeAttachment(
+    new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }),
+    env,
+    actor,
+    attachmentId,
+  );
+}
+
+async function completeAttachment(request: Request, env: Env, actor: StaffActor, attachmentId: string): Promise<Response> {
+  const attachment = await mustAttachment(env, attachmentId);
+  const task = await mustTask(env, attachment.task_id);
+  const access = await requireBoardAccess(env, actor, task.board_id, "board.attachments.upload");
+  assertCanMutate(access);
+  if (attachment.created_by && attachment.created_by !== actor.staffId && !actor.isSuperAdmin) {
+    throw new HttpError(403, "You can only finish your own upload.");
+  }
+  if (attachment.status === "ready") return getTask(env, actor, task.id);
+  if (attachment.status !== "pending") throw new HttpError(409, "Attachment cannot be completed.");
+  if (!(await headR2Object(env, attachment.storage_key))) throw new HttpError(400, "Upload is not finished.");
+  const body = (await request.json().catch(() => ({}))) as { width?: number; height?: number };
+  const width = Number(body.width);
+  const height = Number(body.height);
+  await serviceRest(env, "PATCH", `/staff_task_attachments?id=eq.${attachmentId}`, {
+    status: "ready",
+    width: Number.isFinite(width) && width > 0 ? Math.floor(width) : null,
+    height: Number.isFinite(height) && height > 0 ? Math.floor(height) : null,
+  });
+  await addTaskActivity(env, task.id, actor.staffId, "attachment", { filename: attachment.filename, attachmentId });
+  return getTask(env, actor, task.id);
 }
 
 async function attachmentDownload(env: Env, actor: StaffActor, attachmentId: string): Promise<Response> {
   const attachment = await mustAttachment(env, attachmentId);
+  if (attachment.status !== "ready") throw new HttpError(404, "Attachment not found.");
   const task = await mustTask(env, attachment.task_id);
   await requireBoardAccess(env, actor, task.board_id);
   const url = await signedObjectUrl(env, attachment.storage_key, "GET", undefined, 300);
-  return json({ url, filename: attachment.filename });
+  return json({ url, filename: attachment.filename, mime: attachment.mime });
 }
 
 async function deleteAttachment(env: Env, actor: StaffActor, attachmentId: string): Promise<Response> {
@@ -876,6 +998,7 @@ async function deleteAttachment(env: Env, actor: StaffActor, attachmentId: strin
     });
   }
   await serviceRest(env, "DELETE", `/staff_task_attachments?id=eq.${attachmentId}`);
+  await addTaskActivity(env, task.id, actor.staffId, "attachment_deleted", { filename: attachment.filename, attachmentId });
   return json({ ok: true });
 }
 
@@ -965,22 +1088,22 @@ async function mustChecklist(env: Env, id: string) {
 
 async function mustAttachment(env: Env, id: string) {
   if (!UUID.test(id)) throw new HttpError(400, "Attachment id is invalid.");
-  const rows = await serviceRest<Array<{ id: string; task_id: string; storage_key: string; filename: string }>>(
+  const rows = await serviceRest<Array<{
+    id: string;
+    task_id: string;
+    storage_key: string;
+    filename: string;
+    mime: string | null;
+    status: string;
+    created_by: string | null;
+    bytes: number | null;
+  }>>(
     env,
     "GET",
-    `/staff_task_attachments?id=eq.${id}&select=id,task_id,storage_key,filename`,
+    `/staff_task_attachments?id=eq.${id}&select=id,task_id,storage_key,filename,mime,status,created_by,bytes`,
   );
   if (!rows[0]) throw new HttpError(404, "Attachment not found.");
   return rows[0];
-}
-
-async function addActivity(env: Env, taskId: string, actorStaffId: string, action: string, metadata: Record<string, unknown>) {
-  await serviceRest(env, "POST", "/staff_task_activity", {
-    task_id: taskId,
-    actor_staff_id: actorStaffId,
-    action,
-    metadata,
-  });
 }
 
 async function resolveMentions(env: Env, boardId: string, body: string): Promise<string[]> {

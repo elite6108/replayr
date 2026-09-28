@@ -175,6 +175,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       persistOnboardingCompleted(settings.onboardingCompleted);
       persistThemePreference(parseThemePreference(settings.theme));
       set({ settings, loaded: true });
+      if (settings.desktopShortcut && !import.meta.env.DEV) {
+        void syncDesktopShortcut(true).catch(() => undefined);
+      }
     } catch (caught) {
       console.warn("settings load failed; using defaults", caught);
       let cachedDone = false;

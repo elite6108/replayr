@@ -37,12 +37,14 @@ export function AssigneePicker({
   onToggle,
   enabled,
   align = "left",
+  blockLabel,
 }: {
   people: AssigneePerson[];
   selected: AssigneePerson[];
   onToggle: (person: AssigneePerson) => void;
   enabled: boolean;
   align?: "left" | "right";
+  blockLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -71,14 +73,23 @@ export function AssigneePicker({
   }, [open]);
 
   if (!enabled) {
+    if (blockLabel) {
+      return selected.length ? (
+        <div className="task-modal-meta-static">
+          <AvatarStack people={selected} />
+        </div>
+      ) : (
+        <span className="muted">{blockLabel.replace(/^\+\s*/, "")}</span>
+      );
+    }
     return selected.length ? <AvatarStack people={selected} /> : <span className="muted">Unassigned</span>;
   }
 
   return (
-    <div className="ops-menu-wrap ops-assignee-picker" ref={ref}>
+    <div className={`ops-menu-wrap ops-assignee-picker${blockLabel ? " is-block" : ""}`} ref={ref}>
       <button
         type="button"
-        className={`ops-assignee-trigger${open ? " is-open" : ""}`}
+        className={blockLabel ? `task-modal-add-block${open ? " is-open" : ""}` : `ops-assignee-trigger${open ? " is-open" : ""}`}
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-label="Assignees"
@@ -88,7 +99,16 @@ export function AssigneePicker({
           setQuery("");
         }}
       >
-        <AvatarStack people={selected} plus />
+        {blockLabel ? (
+          <>
+            {selected.length ? <AvatarStack people={selected} /> : null}
+            <span>
+              <IconPlus width="14" height="14" /> {selected.length ? "Change assignee" : blockLabel}
+            </span>
+          </>
+        ) : (
+          <AvatarStack people={selected} plus />
+        )}
       </button>
       {open ? (
         <div className={`ops-menu ${align}`} role="listbox" aria-label="Assign people" onClick={(event) => event.stopPropagation()}>

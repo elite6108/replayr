@@ -165,7 +165,13 @@ export type AnalyticsClipsResponse = {
     visibility: { public: number; unlisted: number; private: number };
   };
   powerUsers: { count: number; paidShare: number | null; medianClips: number | null; note: string };
-  series: { labels: string[]; clips_saved: Array<number | null>; ready_cloud_clips: Array<number | null> };
+  series: {
+    labels: string[];
+    clips_saved: Array<number | null>;
+    ready_cloud_clips: Array<number | null>;
+    unique_local_clippers?: Array<number | null>;
+    cloud_uploads?: Array<number | null>;
+  };
 };
 
 export type AnalyticsGamesResponse = {

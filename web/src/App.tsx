@@ -31,6 +31,7 @@ import { ScreenshotPage } from "./pages/ScreenshotPage";
 import { UserProfilePage } from "./pages/UserProfilePage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { AuthDesktopPage } from "./pages/AuthDesktopPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { SignInPage } from "./pages/SignInPage";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { AdminOverviewPage } from "./pages/admin/AdminOverviewPage";
@@ -91,8 +92,12 @@ function AppShell() {
   const oauthCode =
     new URLSearchParams(location.search).get("code") ||
     new URLSearchParams(location.hash.replace(/^#/, "")).get("code");
+  const recoveryType =
+    new URLSearchParams(location.search).get("type") === "recovery" ||
+    new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "recovery";
   if (oauthCode && location.pathname === "/") {
-    return <Navigate to={`/auth/desktop${location.search}${location.hash}`} replace />;
+    const dest = recoveryType ? "/auth/reset" : "/auth/desktop";
+    return <Navigate to={`${dest}${location.search}${location.hash}`} replace />;
   }
   return (
       <div className={`site${admin ? " site-admin" : ""}${messages ? " site-messages" : ""}`}>
@@ -110,6 +115,7 @@ function AppShell() {
           <Route path="/games/:slug" element={<GamePage />} />
           <Route path="/signin" element={<SignInPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route path="/auth/reset" element={<ResetPasswordPage />} />
           <Route path="/auth/desktop" element={<AuthDesktopPage />} />
           <Route path="/privacy" element={<LegalPage kind="privacy" />} />
           <Route path="/terms" element={<LegalPage kind="terms" />} />

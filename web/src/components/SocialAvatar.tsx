@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { displayAvatarSrc } from "../lib/avatarSrc";
 
 export function SocialAvatar({
   name,
@@ -10,15 +11,16 @@ export function SocialAvatar({
   size?: number;
 }) {
   const [failed, setFailed] = useState(false);
+  const src = avatarUrl ? displayAvatarSrc(avatarUrl, window.location.origin) : null;
   useEffect(() => {
     setFailed(false);
-  }, [avatarUrl]);
+  }, [src]);
 
   const initial = (name.trim() || "?").slice(0, 1).toUpperCase();
   return (
     <span className="social-avatar" style={{ width: size, height: size, fontSize: size * 0.38 }} aria-hidden="true">
-      {avatarUrl && !failed ? (
-        <img src={avatarUrl} alt="" onError={() => setFailed(true)} />
+      {src && !failed ? (
+        <img src={src} alt="" onError={() => setFailed(true)} />
       ) : (
         <span>{initial}</span>
       )}

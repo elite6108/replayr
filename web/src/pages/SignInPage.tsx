@@ -69,6 +69,30 @@ export function SignInPage() {
     }
   }
 
+  async function onForgot() {
+    const trimmed = email.trim();
+    if (!trimmed || !trimmed.includes("@")) {
+      setError("Enter the email for your account, then choose Forgot password.");
+      setNotice(null);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      if (!supabaseConfigured()) throw new Error("Supabase is not configured.");
+      const { error: next } = await getSupabase().auth.resetPasswordForEmail(trimmed, {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/auth/reset")}`,
+      });
+      if (next) throw next;
+      setNotice("If that email has an account, we sent a reset link. Check your inbox.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not send reset email");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (session === undefined) {
     return (
       <main className="page narrow">
@@ -115,6 +139,11 @@ export function SignInPage() {
             autoComplete={mode === "in" ? "current-password" : "new-password"}
           />
         </label>
+        {mode === "in" ? (
+          <button className="auth-forgot" type="button" disabled={busy} onClick={() => void onForgot()}>
+            Forgot password?
+          </button>
+        ) : null}
         {error ? <p className="error">{error}</p> : null}
         {notice ? <p className="muted">{notice}</p> : null}
         <button className="btn primary" type="submit" disabled={busy}>

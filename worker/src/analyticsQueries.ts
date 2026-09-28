@@ -133,7 +133,7 @@ export async function getUserActivityRows(
   return serviceRest<UserActivityDay[]>(
     env,
     "GET",
-    `/analytics_user_daily_activity?select=day,user_id,environment,active&${dayFilter(from, to, environment)}&limit=20000`,
+    `/analytics_user_daily_activity?select=day,user_id,environment,active,clip_saved,clip_uploaded&${dayFilter(from, to, environment)}&limit=20000`,
   );
 }
 

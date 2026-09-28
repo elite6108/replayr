@@ -46,6 +46,7 @@ describe("isSiteGatedPath", () => {
   it("keeps desktop OAuth return paths open", () => {
     expect(isSiteGatedPath("/auth/desktop")).toBe(false);
     expect(isSiteGatedPath("/auth/callback")).toBe(false);
+    expect(isSiteGatedPath("/auth/reset")).toBe(false);
   });
 
   it("keeps staff invitation entry routes open while gating marketing", () => {

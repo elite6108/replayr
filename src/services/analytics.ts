@@ -82,16 +82,29 @@ export function trackAppOpenedOnce() {
 export function trackClipSaved(input: { localId: string; kind: string; clip?: LocalClip | null }) {
   if (!CLIP_SAVE_KINDS.has(input.kind)) return;
   void import("../stores/settingsStore").then(({ useSettingsStore }) => {
-    const filterId = useSettingsStore.getState().settings.recordingVisuals.filter;
+    const settings = useSettingsStore.getState().settings;
+    const filterId = settings.recordingVisuals.filter;
+    const durationSeconds =
+      input.clip?.durationMs != null && Number.isFinite(input.clip.durationMs)
+        ? Math.round(input.clip.durationMs / 1000)
+        : undefined;
     void trackDesktopEvent(
       "clip.saved",
       {
         duration_bucket: durationBucket(input.clip?.durationMs),
+        clip_duration_seconds: durationSeconds,
         game_slug: input.clip?.gameId || undefined,
         instant_replay: input.kind === "clip",
         webcam_enabled: Boolean(clipWebcamSource(input.clip)),
         cloud: false,
+        cloud_uploaded: false,
         save_kind: input.kind,
+        capture_type: input.kind === "clip" ? "instant_replay" : "manual_clip",
+        resolution_width: input.clip?.width ?? undefined,
+        resolution_height: input.clip?.height ?? undefined,
+        fps: input.clip?.fps ?? undefined,
+        quality_preset: settings.bitrate,
+        source: "desktop",
         filter_id: filterId,
       },
       { idempotencyKey: `clip.saved:${input.localId}` },

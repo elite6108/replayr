@@ -9,7 +9,8 @@ import { useToastStore } from "../../stores/toastStore";
 import type { AppSettings, ReplayDurationSeconds } from "../../types/settings";
 import { APP_NAME } from "../../branding";
 import { useBillingStore } from "../../stores/billingStore";
-import { displayHotkey, formatBytes, initials } from "../../utils/format";
+import { displayHotkey, formatBytes } from "../../utils/format";
+import { SocialAvatar } from "../common/SocialAvatar";
 import { IconChevron } from "../icons";
 import { NotificationBell } from "./NotificationBell";
 import { WindowControls, WindowDragRegion } from "./WindowChrome";
@@ -152,7 +153,13 @@ export function TopBar() {
       <div className="topbar-end">
         <NotificationBell />
         <Link to="/profile" className={`topbar-user ${user ? "" : "sign-in"}`} title={label}>
-          <span className="avatar">{initials(profile?.username || profile?.display_name || user?.email || "R")}</span>
+          <SocialAvatar
+            person={{
+              displayName: profile?.display_name || profile?.username || user?.email || "R",
+              username: profile?.username,
+              avatarUrl: profile?.avatar_url ?? null,
+            }}
+          />
           <span className="topbar-user-name">{user ? label : "Sign in"}</span>
           {premium ? <span className="badge pro">PRO</span> : null}
         </Link>

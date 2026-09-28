@@ -11,7 +11,7 @@ import {
 import type { Profile, UserStorage } from "../types/profile";
 import { authErrorMessage, normalizeAuthEmail, validateAuthCredentials } from "../utils/auth";
 
-export type SocialProvider = "google" | "discord" | "twitter";
+export type SocialProvider = "google" | "apple" | "discord" | "twitter";
 
 interface AuthState {
   configured: boolean;
@@ -21,10 +21,13 @@ interface AuthState {
   profile: Profile | null;
   storage: UserStorage | null;
   error: string | null;
+  passwordRecovery: boolean;
   initialize: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signInWithProvider: (provider: SocialProvider) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
   completeOAuthFromUrl: (url: string) => Promise<void>;
   signOut: () => Promise<void>;
   saveProfile: (patch: Partial<Pick<Profile, "username" | "display_name" | "bio" | "is_private">>) => Promise<void>;
@@ -53,7 +56,7 @@ function attachAuthListeners(
 ) {
   if (!authListenerAttached) {
     authListenerAttached = true;
-    supabase.auth.onAuthStateChange((_event, nextSession) => {
+    supabase.auth.onAuthStateChange((event, nextSession) => {
       void (async () => {
         try {
           const nextExtra = nextSession?.user
@@ -63,12 +66,14 @@ function attachAuthListeners(
             session: nextSession,
             user: nextSession?.user ?? null,
             error: null,
+            passwordRecovery: event === "PASSWORD_RECOVERY" ? true : event === "SIGNED_OUT" ? false : get().passwordRecovery,
             ...nextExtra,
           });
         } catch (caught) {
           set({
             session: nextSession,
             user: nextSession?.user ?? null,
+            passwordRecovery: event === "PASSWORD_RECOVERY" ? true : get().passwordRecovery,
             error: authErrorMessage(caught, "Signed in, but the profile could not load."),
           });
         }
@@ -97,6 +102,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   profile: null,
   storage: null,
   error: null,
+  passwordRecovery: false,
   initialize: async () => {
     if (!supabaseConfigured()) {
       set({ ready: true, configured: false });
@@ -194,6 +200,52 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       throw new Error(message);
     }
   },
+  requestPasswordReset: async (email) => {
+    set({ error: null });
+    const trimmed = normalizeAuthEmail(email);
+    if (!trimmed || !trimmed.includes("@")) {
+      const message = "Enter the email for your account, then choose Forgot password.";
+      set({ error: message });
+      throw new Error(message);
+    }
+    try {
+      const { error } = await getSupabase().auth.resetPasswordForEmail(trimmed, {
+        redirectTo: `${publicSiteUrl()}/auth/desktop`,
+      });
+      if (error) {
+        const message = authErrorMessage(error, "Could not send reset email");
+        set({ error: message });
+        throw new Error(message);
+      }
+    } catch (caught) {
+      if (get().error) throw caught instanceof Error ? caught : new Error(String(caught));
+      const message = authErrorMessage(caught, "Could not send reset email");
+      set({ error: message });
+      throw new Error(message);
+    }
+  },
+  updatePassword: async (password) => {
+    set({ error: null });
+    if (password.length < 6) {
+      const message = "Password must be at least 6 characters.";
+      set({ error: message });
+      throw new Error(message);
+    }
+    try {
+      const { error } = await getSupabase().auth.updateUser({ password });
+      if (error) {
+        const message = authErrorMessage(error, "Could not update password");
+        set({ error: message });
+        throw new Error(message);
+      }
+      set({ passwordRecovery: false, error: null });
+    } catch (caught) {
+      if (get().error) throw caught instanceof Error ? caught : new Error(String(caught));
+      const message = authErrorMessage(caught, "Could not update password");
+      set({ error: message });
+      throw new Error(message);
+    }
+  },
   signInWithProvider: async (provider) => {
     set({ error: null });
     try {
@@ -244,7 +296,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   signOut: async () => {
     await getSupabase().auth.signOut();
-    set({ session: null, user: null, profile: null, storage: null, error: null });
+    set({ session: null, user: null, profile: null, storage: null, error: null, passwordRecovery: false });
   },
   saveProfile: async (patch) => {
     const user = get().user;

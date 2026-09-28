@@ -34,6 +34,8 @@ export type UserActivityDay = {
   user_id: string;
   environment: string;
   active?: boolean;
+  clip_saved?: boolean;
+  clip_uploaded?: boolean;
 };
 
 export type UserMilestone = {

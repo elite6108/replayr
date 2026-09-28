@@ -113,6 +113,14 @@ export function IconPlus(props: IconProps) {
   );
 }
 
+export function IconPaperclip(props: IconProps) {
+  return (
+    <Icon {...props} width="16" height="16">
+      <path d="M8.5 7.5v7.2a3 3 0 0 0 6 0V8a4.5 4.5 0 0 0-9 0v7.2a2 2 0 0 0 4 0V9" />
+    </Icon>
+  );
+}
+
 export function IconStar(props: IconProps) {
   return (
     <Icon {...props}>

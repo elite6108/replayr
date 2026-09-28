@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
 import { Image } from "expo-image";
 import { StyleSheet, Text, View } from "react-native";
+import { displayAvatarSrc } from "@/lib/avatarSrc";
+import { publicAppUrl } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 
 export function Avatar({
@@ -11,9 +14,20 @@ export function Avatar({
   uri?: string | null;
   size?: number;
 }) {
+  const [failed, setFailed] = useState(false);
+  const src = displayAvatarSrc(uri, publicAppUrl());
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
   const letter = (name || "P").trim().slice(0, 1).toUpperCase() || "P";
-  if (uri) {
-    return <Image source={{ uri }} style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]} />;
+  if (src && !failed) {
+    return (
+      <Image
+        source={{ uri: src }}
+        style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]}
+        onError={() => setFailed(true)}
+      />
+    );
   }
   return (
     <View style={[styles.fallback, { width: size, height: size, borderRadius: size / 2 }]}>

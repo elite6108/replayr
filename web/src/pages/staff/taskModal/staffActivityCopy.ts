@@ -6,39 +6,44 @@ export function activityHeadline(
     metadata: Record<string, unknown>;
     actor?: StaffActorCard | null;
   },
+  columns?: Array<{ id: string; name: string }>,
 ): string {
-  const name = item.actor?.displayName || "Someone";
   const meta = item.metadata ?? {};
   switch (item.action) {
     case "created":
-      return `${name} created this card`;
-    case "updated":
-      return `${name} updated ${changedFields(meta)}`;
-    case "moved":
-      return `${name} moved this card`;
+      return "Task created";
+    case "updated": {
+      const fields = changedFields(meta);
+      return fields ? `Updated ${fields}` : "Task updated";
+    }
+    case "moved": {
+      const columnId = typeof meta.columnId === "string" ? meta.columnId : "";
+      const name = columns?.find((column) => column.id === columnId)?.name;
+      return name ? `Task moved to ${name}` : "Task moved";
+    }
     case "assigned":
-      return `${name} changed assignees`;
+      return "Assignees updated";
     case "commented":
-      return `${name} commented`;
+      return "New comment";
     case "comment_edited":
-      return `${name} edited a comment`;
+      return "Comment edited";
     case "comment_deleted":
-      return `${name} deleted a comment`;
+      return "Comment deleted";
     case "attachment":
-      return `${name} attached ${typeof meta.filename === "string" ? meta.filename : "a file"}`;
+      return typeof meta.filename === "string" ? `Attached ${meta.filename}` : "File attached";
     case "attachment_deleted":
-      return `${name} removed ${typeof meta.filename === "string" ? meta.filename : "an attachment"}`;
+      return typeof meta.filename === "string" ? `Removed ${meta.filename}` : "Attachment removed";
     case "checklist":
-      return `${name} added a checklist`;
+      return "Checklist added";
     case "archived":
-      return `${name} archived this card`;
+      return "Task deleted";
     default:
-      return `${name} ${item.action.replace(/_/g, " ")}`;
+      return item.action.replace(/_/g, " ");
   }
 }
 
 function changedFields(metadata: Record<string, unknown>): string {
   const after = metadata.after && typeof metadata.after === "object" ? Object.keys(metadata.after as object) : [];
-  if (!after.length) return "the card";
+  if (!after.length) return "";
   return after.join(", ");
 }

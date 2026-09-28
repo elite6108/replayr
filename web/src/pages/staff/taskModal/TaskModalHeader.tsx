@@ -1,35 +1,48 @@
-import { IconClose } from "../opsIcons";
+import { IconBoard, IconClose } from "../opsIcons";
 
 export function TaskModalHeader({
-  title,
+  boardName,
   columnId,
   columnName,
   columns,
   canMove,
+  saveState,
   onMove,
   onClose,
 }: {
-  title: string;
+  boardName: string;
   columnId: string;
   columnName: string;
   columns: Array<{ id: string; name: string }>;
   canMove: boolean;
+  saveState: "idle" | "saving" | "saved";
   onMove: (columnId: string) => void;
   onClose: () => void;
 }) {
   return (
     <header className="task-modal-head">
       <div className="task-modal-kicker">
-        <span>{title}</span>
+        <h2>Task details</h2>
+        <p className="task-modal-crumb">
+          <IconBoard width="14" height="14" />
+          <span>{boardName}</span>
+          <span className="task-modal-crumb-sep">/</span>
+          <span>Task</span>
+        </p>
       </div>
       <div className="task-modal-head-end">
-        <label className="task-modal-list-pill">
-          <span className="sr-only">Add to list</span>
+        {saveState !== "idle" ? (
+          <span className="task-modal-save-state" role="status">
+            {saveState === "saving" ? "Saving…" : "Saved"}
+          </span>
+        ) : null}
+        <label className="task-modal-status-head">
+          <span>Status</span>
           {canMove && columns.length ? (
             <select
               className="task-modal-list-select"
               value={columnId}
-              aria-label="Add to list"
+              aria-label="Status"
               onChange={(event) => onMove(event.target.value)}
             >
               {columns.map((column) => (
@@ -39,7 +52,7 @@ export function TaskModalHeader({
               ))}
             </select>
           ) : (
-            <strong>{columnName}</strong>
+            <strong className="task-modal-list-select">{columnName}</strong>
           )}
         </label>
         <button type="button" className="task-modal-close" aria-label="Close" onClick={onClose}>

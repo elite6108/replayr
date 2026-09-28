@@ -219,3 +219,68 @@ export function IconGrip(props: IconProps) {
     </Icon>
   );
 }
+
+export function IconPencil(props: IconProps) {
+  return (
+    <Icon {...props} width="16" height="16">
+      <path d="M4.5 16.5 15 6l2.5 2.5-10.5 10.5H4.5Z" />
+      <path d="m13.2 7.8 2.5 2.5" />
+    </Icon>
+  );
+}
+
+export function IconNotes(props: IconProps) {
+  return (
+    <Icon {...props} width="16" height="16">
+      <rect x="5" y="4" width="14" height="16" rx="1.5" />
+      <path d="M8 8.5h8M8 12h8M8 15.5h5" />
+    </Icon>
+  );
+}
+
+export function IconLink(props: IconProps) {
+  return (
+    <Icon {...props} width="16" height="16">
+      <path d="M10 13.5h-2a3.5 3.5 0 0 1 0-7h2" />
+      <path d="M14 6.5h2a3.5 3.5 0 0 1 0 7h-2" />
+      <path d="M9 10h6" />
+    </Icon>
+  );
+}
+
+export function IconCloudUpload(props: IconProps) {
+  return (
+    <Icon {...props} width="28" height="28">
+      <path d="M8 16.5a4 4 0 0 1 .4-7.2A5.5 5.5 0 0 1 18.7 8 4 4 0 0 1 20 16.2" />
+      <path d="M12 19v-7M12 12l-2.4 2.4M12 12l2.4 2.4" />
+    </Icon>
+  );
+}
+
+export function IconEmoji(props: IconProps) {
+  return (
+    <Icon {...props} width="16" height="16">
+      <circle cx="12" cy="12" r="7.5" />
+      <path d="M9 10.2h.01M15 10.2h.01M9.2 14c.8 1 1.8 1.5 2.8 1.5s2-.5 2.8-1.5" />
+    </Icon>
+  );
+}
+
+export function IconFlag(props: IconProps) {
+  return (
+    <Icon {...props} width="16" height="16">
+      <path d="M6 19V5.5" />
+      <path d="M6 5.5h10l-2.2 3.5L16 12.5H6" />
+    </Icon>
+  );
+}
+
+export function IconClip(props: IconProps) {
+  return (
+    <Icon {...props} width="16" height="16">
+      <rect x="4" y="6" width="16" height="12" rx="2" />
+      <path d="m10 14 3-3 3 2.2 4-4.2" />
+      <circle cx="8.2" cy="10" r="1.1" />
+    </Icon>
+  );
+}

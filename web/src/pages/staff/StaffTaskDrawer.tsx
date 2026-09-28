@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import {
-  addStaffChecklist,
   addStaffChecklistItem,
   addStaffRelation,
   addStaffSubtask,
@@ -25,10 +24,12 @@ import {
   type StaffTaskDetail,
   useStaffPermissions,
 } from "../../lib/staff";
-import { AssigneePicker } from "./AssigneePicker";
-import { formatDue, labelTone, taskFromSnapshot, type StaffTaskCardPatch } from "./boardUi";
+import { taskFromSnapshot, type StaffTaskCardPatch } from "./boardUi";
 import { TaskAttachmentLightbox } from "./taskModal/TaskAttachmentLightbox";
 import { TaskAttachmentsSection } from "./taskModal/TaskAttachmentsSection";
+import { TaskActivityPanel } from "./taskModal/TaskActivityPanel";
+import { TaskCommentsPanel } from "./taskModal/TaskCommentsPanel";
+import { TaskDangerZone } from "./taskModal/TaskDangerZone";
 import { TaskDescriptionEditor } from "./taskModal/TaskDescriptionEditor";
 import { TaskMetaSidebar } from "./taskModal/TaskMetaSidebar";
 import { TaskModalHeader } from "./taskModal/TaskModalHeader";
@@ -58,13 +59,21 @@ export function StaffTaskDrawer({
   );
   const [error, setError] = useState<string | null>(null);
   const [comment, setComment] = useState("");
-  const [renameTitle, setRenameTitle] = useState(false);
-  const [descFocused, setDescFocused] = useState(false);
-  const [descDraft, setDescDraft] = useState(snapshot?.id === taskId ? "" : "");
-  const [panel, setPanel] = useState<null | "add" | "labels" | "members" | "dates">(null);
+  const [titleDraft, setTitleDraft] = useState(snapshot?.id === taskId ? snapshot.title : "");
+  const [descDraft, setDescDraft] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [uploadLabel, setUploadLabel] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ title: string; url: string; mime: string | null } | null>(null);
   const dirty = useRef(false);
+  const titleTimer = useRef(0);
+  const descTimer = useRef(0);
+  const savedTimer = useRef(0);
+  const titleDraftRef = useRef(titleDraft);
+  const descDraftRef = useRef(descDraft);
+  const taskRef = useRef(task);
+  titleDraftRef.current = titleDraft;
+  descDraftRef.current = descDraft;
+  taskRef.current = task;
 
   function emit(next: StaffTaskDetail) {
     onTaskChanged?.({
@@ -84,6 +93,17 @@ export function StaffTaskDrawer({
     emit(next);
   }
 
+  function markSaving() {
+    window.clearTimeout(savedTimer.current);
+    setSaveState("saving");
+  }
+
+  function markSaved() {
+    setSaveState("saved");
+    window.clearTimeout(savedTimer.current);
+    savedTimer.current = window.setTimeout(() => setSaveState("idle"), 1600);
+  }
+
   async function load() {
     if (!token) return;
     const detail = await fetchStaffTask(token, taskId);
@@ -99,19 +119,21 @@ export function StaffTaskDrawer({
         description: current.description ?? detail.task.description,
       };
     });
-    if (!dirty.current) setDescDraft(detail.task.description ?? "");
+    if (!dirty.current) {
+      setTitleDraft(detail.task.title);
+      setDescDraft(detail.task.description ?? "");
+    }
   }
 
   useEffect(() => {
     dirty.current = false;
-    setRenameTitle(false);
-    setDescFocused(false);
-    setPanel(null);
     setError(null);
     setComment("");
+    setSaveState("idle");
     if (snapshot && snapshot.id === taskId) {
       const seeded = taskFromSnapshot(snapshot, board);
       setTask(seeded);
+      setTitleDraft(seeded.title);
       setDescDraft("");
     } else {
       setTask((current) => (current?.id === taskId ? current : null));
@@ -120,53 +142,97 @@ export function StaffTaskDrawer({
     const refresh = window.setInterval(() => {
       if (!dirty.current) void load().catch(() => undefined);
     }, 20_000);
-    return () => window.clearInterval(refresh);
+    return () => {
+      window.clearInterval(refresh);
+      window.clearTimeout(titleTimer.current);
+      window.clearTimeout(descTimer.current);
+      window.clearTimeout(savedTimer.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId, token]);
-
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      if (panel) {
-        setPanel(null);
-        return;
-      }
-      if (!renameTitle && !descFocused) onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, renameTitle, descFocused, panel]);
 
   async function patch(body: Record<string, unknown>, optimistic: Partial<StaffTaskDetail>) {
     if (!token || !task) return;
     const previous = task;
+    markSaving();
     apply({ ...task, ...optimistic });
     try {
       const result = await patchStaffTask(token, task.id, body);
       dirty.current = false;
       setTask(result.task);
       emit(result.task);
+      markSaved();
     } catch (caught) {
       setTask(previous);
       emit(previous);
+      setSaveState("idle");
       setError(caught instanceof Error ? caught.message : "Could not update task.");
     }
   }
+
+  function flushTitle() {
+    const current = taskRef.current;
+    const next = titleDraftRef.current.trim();
+    if (!current || !next || next === current.title) return;
+    void patch({ title: next }, { title: next });
+  }
+
+  function flushDescription() {
+    const current = taskRef.current;
+    if (!current) return;
+    const next = descDraftRef.current;
+    if (next === (current.description ?? "")) return;
+    void patch({ description: next }, { description: next });
+  }
+
+  function scheduleTitle(value: string) {
+    setTitleDraft(value);
+    titleDraftRef.current = value;
+    window.clearTimeout(titleTimer.current);
+    titleTimer.current = window.setTimeout(() => flushTitle(), 500);
+  }
+
+  function scheduleDescription(value: string) {
+    setDescDraft(value);
+    descDraftRef.current = value;
+    window.clearTimeout(descTimer.current);
+    descTimer.current = window.setTimeout(() => flushDescription(), 700);
+  }
+
+  function requestClose() {
+    window.clearTimeout(titleTimer.current);
+    window.clearTimeout(descTimer.current);
+    flushTitle();
+    flushDescription();
+    onClose();
+  }
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") requestClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose]);
 
   async function toggleAssignee(person: { id: string; displayName: string }) {
     if (!token || !task) return;
     const on = task.assignees.some((item) => item.id === person.id);
     const nextPeople = on ? task.assignees.filter((item) => item.id !== person.id) : [...task.assignees, person];
     const previous = task;
+    markSaving();
     apply({ ...task, assignees: nextPeople });
     try {
       const result = await setStaffAssignees(token, task.id, nextPeople.map((item) => item.id));
       dirty.current = false;
       setTask(result.task);
       emit(result.task);
+      markSaved();
     } catch (caught) {
       setTask(previous);
       emit(previous);
+      setSaveState("idle");
       setError(caught instanceof Error ? caught.message : "Could not update assignees.");
     }
   }
@@ -176,16 +242,37 @@ export function StaffTaskDrawer({
     const on = task.labelIds.includes(labelId);
     const next = on ? task.labelIds.filter((id) => id !== labelId) : [...task.labelIds, labelId];
     const previous = task;
+    markSaving();
     apply({ ...task, labelIds: next });
     try {
       const result = await setStaffTaskLabels(token, task.id, next);
       dirty.current = false;
       setTask(result.task);
       emit(result.task);
+      markSaved();
     } catch (caught) {
       setTask(previous);
       emit(previous);
+      setSaveState("idle");
       setError(caught instanceof Error ? caught.message : "Could not update labels.");
+    }
+  }
+
+  async function toggleWatch() {
+    if (!token || !task) return;
+    const previous = task;
+    const next = !task.watching;
+    markSaving();
+    apply({ ...task, watching: next });
+    try {
+      await watchStaffTask(token, task.id, next);
+      dirty.current = false;
+      markSaved();
+    } catch (caught) {
+      setTask(previous);
+      emit(previous);
+      setSaveState("idle");
+      setError(caught instanceof Error ? caught.message : "Could not update watchers.");
     }
   }
 
@@ -217,6 +304,7 @@ export function StaffTaskDrawer({
   async function moveToColumn(columnId: string) {
     if (!token || !task || columnId === task.columnId) return;
     const previous = task;
+    markSaving();
     apply({ ...task, columnId });
     try {
       await moveStaffTask(token, task.id, { columnId, afterRank: null, beforeRank: null });
@@ -224,17 +312,12 @@ export function StaffTaskDrawer({
       dirty.current = false;
       setTask(result.task);
       emit(result.task);
+      markSaved();
     } catch (caught) {
       setTask(previous);
       emit(previous);
+      setSaveState("idle");
       setError(caught instanceof Error ? caught.message : "Could not move card.");
-    }
-  }
-
-  function flushDescription() {
-    if (!task || !canEdit) return;
-    if (descDraft !== (task.description ?? "")) {
-      void patch({ description: descDraft }, { description: descDraft });
     }
   }
 
@@ -242,14 +325,13 @@ export function StaffTaskDrawer({
   const mutate = Boolean(task?.canMutate);
   const hydrating = Boolean(task && !task.createdAt);
   const canEdit = mutate && can("board.cards.edit");
-  const columnName = board?.columns.find((column) => column.id === task?.columnId)?.name ?? "List";
-  const isFresh = Boolean(
-    task && !task.description && !task.comments.length && task.activity.filter((item) => item.action !== "created").length === 0,
-  );
+  const columns = board?.columns.length ? board.columns : task ? [{ id: task.columnId, name: "List" }] : [];
+  const columnName = columns.find((column) => column.id === task?.columnId)?.name ?? "List";
+  const canMove = can("board.cards.move") && mutate && Boolean(board);
 
   return (
     <>
-      <button type="button" className="ops-drawer-backdrop task-modal-backdrop" aria-label="Close task" onClick={onClose} />
+      <button type="button" className="ops-drawer-backdrop task-modal-backdrop" aria-label="Close task" onClick={requestClose} />
       <aside className="task-modal" aria-label="Task details" role="dialog">
         {!task ? (
           <div className="task-modal-loading">
@@ -261,305 +343,167 @@ export function StaffTaskDrawer({
         ) : (
           <>
             <TaskModalHeader
-              title={isFresh ? "New task" : "Task details"}
+              boardName={board?.name || "Operations"}
               columnId={task.columnId || ""}
               columnName={columnName}
-              columns={board?.columns.length ? board.columns : [{ id: task.columnId, name: columnName }]}
-              canMove={can("board.cards.move") && mutate && Boolean(board)}
+              columns={columns}
+              canMove={canMove}
+              saveState={saveState}
               onMove={(columnId) => void moveToColumn(columnId)}
-              onClose={onClose}
+              onClose={requestClose}
             />
             {error ? <p className="ops-error">{error}</p> : null}
             {hydrating ? <p className="ops-drawer-status">Loading details…</p> : null}
-            <div className="task-modal-grid">
-              <div className="task-modal-main">
-                <TaskTitleField
-                  value={task.title}
-                  enabled={canEdit}
-                  editing={renameTitle}
-                  onEditingChange={setRenameTitle}
-                  onSave={(title) => patch({ title }, { title })}
-                />
-                <TaskDescriptionEditor
-                  value={descDraft}
-                  preview={task.description ? <MarkdownPreview value={task.description} /> : null}
-                  focused={descFocused}
-                  enabled={canEdit}
-                  onFocus={() => setDescFocused(true)}
-                  onChange={setDescDraft}
-                  onBlur={() => {
-                    setDescFocused(false);
-                    flushDescription();
-                  }}
-                  onPreviewClick={() => canEdit && setDescFocused(true)}
-                />
-                <div className="task-modal-badges">
-                  {task.assignees.length ? (
-                    <div>
-                      <h4>Members</h4>
-                      <AssigneePicker people={people} selected={task.assignees} enabled={mutate && can("board.cards.assign")} onToggle={(person) => void toggleAssignee(person)} />
-                    </div>
-                  ) : null}
-                  {task.labelIds.length ? (
-                    <div>
-                      <h4>Labels</h4>
-                      <div className="staff-chip-row">
-                        {task.labelIds.map((labelId) => {
-                          const label = board?.labels.find((item) => item.id === labelId);
-                          if (!label) return null;
-                          return (
-                            <span key={label.id} className="ops-label" style={{ "--ops-label": labelTone(label.name, label.color) } as CSSProperties}>
-                              {label.name}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-                  {task.dueAt ? (
-                    <div>
-                      <h4>Due date</h4>
-                      <span className={`ops-due${new Date(task.dueAt).getTime() < Date.now() ? " is-overdue" : ""}`}>{formatDue(task.dueAt)}</span>
-                    </div>
-                  ) : null}
-                  {task.priority !== "none" ? (
-                    <div>
-                      <h4>Priority</h4>
-                      <span className={`ops-prio prio-${task.priority}`}>{task.priority}</span>
-                    </div>
-                  ) : null}
-                </div>
-                {canEdit ? (
-                  <div className="trello-add-row">
-                    <button type="button" className="trello-add-btn" onClick={() => setPanel(panel === "add" ? null : "add")}>
-                      Add
-                    </button>
-                    {panel === "add" ? (
-                      <div className="trello-pop">
-                        {board?.labels.length ? (
-                          <button type="button" className="ops-menu-item" onClick={() => setPanel("labels")}>
-                            Labels
-                          </button>
-                        ) : null}
-                        {can("board.cards.assign") ? (
-                          <button type="button" className="ops-menu-item" onClick={() => setPanel("members")}>
-                            Members
-                          </button>
-                        ) : null}
-                        <button type="button" className="ops-menu-item" onClick={() => setPanel("dates")}>
-                          Dates
-                        </button>
-                        {can("board.checklists.manage") ? (
-                          <button
-                            type="button"
-                            className="ops-menu-item"
-                            onClick={() => {
-                              const title = window.prompt("Checklist title", "Checklist");
-                              if (!title?.trim()) return;
-                              void addStaffChecklist(token, task.id, title.trim()).then((body) => setTask(body.task));
-                              setPanel(null);
-                            }}
-                          >
-                            Checklist
-                          </button>
-                        ) : null}
-                        {can("board.attachments.upload") ? (
-                          <label className="ops-menu-item trello-file">
-                            Attachment
-                            <input
-                              type="file"
-                              hidden
-                              accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,.log"
-                              onChange={(event) => {
-                                const file = event.target.files?.[0];
-                                event.currentTarget.value = "";
-                                if (!file) return;
-                                void startUpload(file);
-                                setPanel(null);
-                              }}
-                            />
-                          </label>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="ops-menu-item"
-                          onClick={() => {
-                            const next = window.prompt("Priority: none, low, medium, high, urgent", task.priority);
-                            if (!next) return;
-                            void patch({ priority: next }, { priority: next });
-                            setPanel(null);
-                          }}
-                        >
-                          Priority
-                        </button>
-                      </div>
-                    ) : null}
-                    {panel === "labels" && board ? (
-                      <div className="trello-pop">
-                        {board.labels.map((label) => (
-                          <button
-                            key={label.id}
-                            type="button"
-                            className={`ops-menu-item${task.labelIds.includes(label.id) ? " is-active" : ""}`}
-                            onClick={() => void toggleLabel(label.id)}
-                          >
-                            {label.name}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    {panel === "members" ? (
-                      <div className="trello-pop trello-pop-members">
-                        <AssigneePicker people={people} selected={task.assignees} enabled={mutate && can("board.cards.assign")} onToggle={(person) => void toggleAssignee(person)} />
-                      </div>
-                    ) : null}
-                    {panel === "dates" ? (
-                      <div className="trello-pop">
-                        <label className="trello-date-field">
-                          Due date
-                          <input
-                            type="date"
-                            value={task.dueAt ? task.dueAt.slice(0, 10) : ""}
-                            onChange={(event) => {
-                              const value = event.target.value ? new Date(`${event.target.value}T12:00:00`).toISOString() : null;
-                              void patch({ dueAt: value }, { dueAt: value });
-                            }}
-                          />
-                        </label>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                {task.checklists.map((list) => (
-                  <section key={list.id} className="task-modal-extra">
-                    <h4>{list.title}</h4>
-                    {list.items.map((item) => (
-                      <label key={item.id} className="staff-check">
-                        <input
-                          type="checkbox"
-                          checked={item.done}
-                          disabled={!can("board.checklists.manage")}
-                          onChange={() => void patchStaffChecklistItem(token, item.id, { done: !item.done }).then((body) => setTask(body.task))}
-                        />
-                        {item.title}
-                      </label>
-                    ))}
-                    {can("board.checklists.manage") ? (
-                      <input
-                        placeholder="Add an item"
-                        onKeyDown={(event) => {
-                          if (event.key !== "Enter") return;
-                          const value = event.currentTarget.value.trim();
-                          if (!value) return;
-                          event.currentTarget.value = "";
-                          void addStaffChecklistItem(token, list.id, value).then((body) => setTask(body.task));
-                        }}
-                      />
-                    ) : null}
-                  </section>
-                ))}
-                {task.subtasks.length ? (
-                  <section className="task-modal-extra">
-                    <h4>Subtasks</h4>
-                    {task.subtasks.map((item) => (
-                      <label key={item.id} className="staff-check">
-                        <input
-                          type="checkbox"
-                          checked={item.done}
-                          disabled={!mutate}
-                          onChange={() => void patchStaffSubtask(token, item.id, { done: !item.done }).then((body) => setTask(body.task))}
-                        />
-                        {item.title}
-                      </label>
-                    ))}
-                    {mutate ? (
-                      <input
-                        placeholder="Add a subtask"
-                        onKeyDown={(event) => {
-                          if (event.key !== "Enter") return;
-                          const value = event.currentTarget.value.trim();
-                          if (!value) return;
-                          event.currentTarget.value = "";
-                          void addStaffSubtask(token, task.id, value).then((body) => setTask(body.task));
-                        }}
-                      />
-                    ) : null}
-                  </section>
-                ) : null}
-                <TaskAttachmentsSection
-                  token={token}
-                  attachments={task.attachments}
-                  uploadLabel={uploadLabel}
-                  canUpload={can("board.attachments.upload")}
-                  canDelete={can("board.attachments.delete") && mutate}
-                  onPick={(file) => void startUpload(file)}
-                  onOpen={(file) => void openAttachment(file)}
-                  onDelete={(id) => {
-                    if (!window.confirm("Remove this attachment?")) return;
-                    void deleteStaffAttachment(token, id).then(load);
-                  }}
-                />
-                <TaskRelationsSection
-                  relations={task.relations}
-                  canEdit={mutate}
-                  onLink={(payload) => {
-                    void addStaffRelation(token, task.id, payload).then((body) => setTask(body.task));
-                  }}
-                />
-                <div className="task-modal-actions">
-                  <button type="button" className="task-modal-ghost" onClick={onClose}>
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="task-modal-primary"
-                    onClick={() => {
-                      flushDescription();
-                      onClose();
-                    }}
-                  >
-                    {isFresh ? "Create task" : "Save changes"}
-                  </button>
-                </div>
-              </div>
-              <TaskMetaSidebar
+            <TaskTitleField
+              value={titleDraft}
+              enabled={canEdit}
+              onChange={scheduleTitle}
+              onCommit={flushTitle}
+            />
+            <div className="task-modal-body">
+              <div className="task-modal-grid">
+              <TaskDescriptionEditor
+                value={descDraft}
+                enabled={canEdit}
+                onChange={scheduleDescription}
+                onBlur={flushDescription}
+              />
+              <TaskRelationsSection
+                relations={task.relations}
+                canEdit={mutate}
+                onLink={(payload) => {
+                  void addStaffRelation(token, task.id, payload).then((body) => setTask(body.task));
+                }}
+              />
+              <TaskCommentsPanel
                 comments={task.comments}
-                commentDraft={comment}
+                draft={comment}
                 canComment={can("board.comments.create")}
                 currentStaffId={me?.staff.id}
-                canModerateComments={can("board.comments.delete")}
-                onCommentDraft={setComment}
-                onCommentSubmit={() => {
+                canModerate={can("board.comments.delete")}
+                onDraftChange={setComment}
+                onSubmit={() => {
                   if (!comment.trim()) return;
                   void commentStaffTask(token, task.id, comment.trim()).then((body) => {
                     setComment("");
                     setTask(body.task);
                   });
                 }}
-                onCommentEdit={(commentId, body) => {
+                onEdit={(commentId, body) => {
                   void editStaffComment(token, commentId, body).then((result) => setTask(result.task));
                 }}
-                onCommentDelete={(commentId) => {
+                onDelete={(commentId) => {
                   if (!window.confirm("Delete this comment?")) return;
                   void deleteStaffComment(token, commentId).then(load);
                 }}
-                activity={task.activity}
+              />
+              <TaskMetaSidebar
+                columnId={task.columnId}
+                columns={columns}
+                canMove={canMove}
+                onMove={(columnId) => void moveToColumn(columnId)}
+                priority={task.priority}
+                canEdit={canEdit}
+                onPriority={(priority) => void patch({ priority }, { priority })}
+                watching={task.watching}
+                onToggleWatch={() => void toggleWatch()}
                 people={people}
                 assignees={task.assignees}
                 canAssign={mutate && can("board.cards.assign")}
                 onToggleAssignee={(person) => void toggleAssignee(person)}
-                watching={task.watching}
-                onToggleWatch={() => void watchStaffTask(token, task.id, !task.watching).then(load)}
-                canDelete={can("board.cards.delete") && mutate}
-                onDelete={() => {
-                  if (!window.confirm("Delete this card?")) return;
-                  void archiveStaffTask(token, task.id).then(() => {
-                    onTaskArchived?.(task.id);
-                    onClose();
-                  });
+                labels={board?.labels ?? []}
+                selectedLabelIds={task.labelIds}
+                onToggleLabel={(labelId) => void toggleLabel(labelId)}
+                dueAt={task.dueAt}
+                onDueAt={(value) => void patch({ dueAt: value }, { dueAt: value })}
+              />
+              <TaskActivityPanel activity={task.activity} columns={columns} />
+              <TaskAttachmentsSection
+                token={token}
+                attachments={task.attachments}
+                uploadLabel={uploadLabel}
+                canUpload={can("board.attachments.upload")}
+                canDelete={can("board.attachments.delete") && mutate}
+                onPick={(file) => void startUpload(file)}
+                onOpen={(file) => void openAttachment(file)}
+                onDelete={(id) => {
+                  if (!window.confirm("Remove this attachment?")) return;
+                  void deleteStaffAttachment(token, id).then(load);
                 }}
               />
             </div>
+            {task.checklists.map((list) => (
+              <section key={list.id} className="task-modal-extra-card">
+                <h4>{list.title}</h4>
+                {list.items.map((item) => (
+                  <label key={item.id} className="staff-check">
+                    <input
+                      type="checkbox"
+                      checked={item.done}
+                      disabled={!can("board.checklists.manage")}
+                      onChange={() => void patchStaffChecklistItem(token, item.id, { done: !item.done }).then((body) => setTask(body.task))}
+                    />
+                    {item.title}
+                  </label>
+                ))}
+                {can("board.checklists.manage") ? (
+                  <input
+                    placeholder="Add an item"
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return;
+                      const value = event.currentTarget.value.trim();
+                      if (!value) return;
+                      event.currentTarget.value = "";
+                      void addStaffChecklistItem(token, list.id, value).then((body) => setTask(body.task));
+                    }}
+                  />
+                ) : null}
+              </section>
+            ))}
+            {task.subtasks.length ? (
+              <section className="task-modal-extra-card">
+                <h4>Subtasks</h4>
+                {task.subtasks.map((item) => (
+                  <label key={item.id} className="staff-check">
+                    <input
+                      type="checkbox"
+                      checked={item.done}
+                      disabled={!mutate}
+                      onChange={() => void patchStaffSubtask(token, item.id, { done: !item.done }).then((body) => setTask(body.task))}
+                    />
+                    {item.title}
+                  </label>
+                ))}
+                {mutate ? (
+                  <input
+                    placeholder="Add a subtask"
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return;
+                      const value = event.currentTarget.value.trim();
+                      if (!value) return;
+                      event.currentTarget.value = "";
+                      void addStaffSubtask(token, task.id, value).then((body) => setTask(body.task));
+                    }}
+                  />
+                ) : null}
+              </section>
+            ) : null}
+            </div>
+            <footer className="task-modal-footer">
+              {can("board.cards.delete") && mutate ? (
+                <TaskDangerZone
+                  onDelete={() => {
+                    if (!window.confirm("Delete this card?")) return;
+                    void archiveStaffTask(token, task.id).then(() => {
+                      onTaskArchived?.(task.id);
+                      onClose();
+                    });
+                  }}
+                />
+              ) : (
+                <span />
+              )}
+            </footer>
           </>
         )}
       </aside>
@@ -568,25 +512,4 @@ export function StaffTaskDrawer({
       ) : null}
     </>
   );
-}
-
-function MarkdownPreview({ value }: { value: string }) {
-  const html = renderMarkdown(value);
-  return <div className="staff-markdown" dangerouslySetInnerHTML={{ __html: html }} />;
-}
-
-function renderMarkdown(value: string) {
-  const escaped = value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  return escaped
-    .replace(/^### (.*)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.*)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.*)$/gm, "<h1>$1</h1>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\[(.+?)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-    .replace(/\n/g, "<br />");
 }

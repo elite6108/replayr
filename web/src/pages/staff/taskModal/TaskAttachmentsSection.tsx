@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { fetchStaffAttachmentUrl } from "../../../lib/staff";
 import { formatBytes } from "../../../lib/format";
-import { IconPaperclip, IconPlus, IconTrash } from "../opsIcons";
+import { IconCloudUpload, IconPaperclip, IconTrash } from "../opsIcons";
 
 export type StaffAttachmentItem = {
   id: string;
   filename: string;
   mime: string | null;
   bytes: number | null;
+  createdAt?: string;
 };
 
 export function TaskAttachmentsSection({
@@ -29,9 +30,59 @@ export function TaskAttachmentsSection({
   onOpen: (file: StaffAttachmentItem) => void;
   onDelete: (id: string) => void;
 }) {
+  const [over, setOver] = useState(false);
+  const inputId = useId();
+
+  function takeFiles(list: FileList | File[]) {
+    for (const file of Array.from(list)) onPick(file);
+  }
+
   return (
-    <section className="task-modal-extra">
-      <h4>Attachments</h4>
+    <section className="task-modal-card task-modal-card-attach" style={{ gridArea: "attach" }}>
+      <header className="task-modal-card-head">
+        <IconPaperclip />
+        <div>
+          <h3>Attachments</h3>
+        </div>
+        <span className="task-modal-count">{attachments.length}</span>
+      </header>
+      {canUpload ? (
+        <div className="task-attach-pick">
+          <label
+            htmlFor={inputId}
+            className={`task-attach-drop${over ? " is-over" : ""}`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setOver(true);
+            }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setOver(false);
+              if (event.dataTransfer.files.length) takeFiles(event.dataTransfer.files);
+            }}
+          >
+            <IconCloudUpload />
+            <strong>
+              Drag and drop files here
+              <span> or click to browse</span>
+            </strong>
+            <em>Supports images, PDFs, and text (max 25 MB)</em>
+          </label>
+          <input
+            id={inputId}
+            className="task-attach-input"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,.log"
+            onChange={(event) => {
+              const input = event.currentTarget;
+              const picked = input.files ? Array.from(input.files) : [];
+              input.value = "";
+              if (picked.length) takeFiles(picked);
+            }}
+          />
+        </div>
+      ) : null}
       {uploadLabel ? (
         <div className="task-attach-progress" role="status">
           <span>{uploadLabel}</span>
@@ -47,8 +98,8 @@ export function TaskAttachmentsSection({
                 <span className="task-attach-meta">
                   <strong>{file.filename}</strong>
                   <span>
-                    {kindLabel(file.mime, file.filename)}
-                    {file.bytes ? ` · ${formatBytes(file.bytes)}` : ""}
+                    {file.bytes ? formatBytes(file.bytes) : kindLabel(file.mime, file.filename)}
+                    {file.createdAt ? ` · ${formatAttachDate(file.createdAt)}` : ""}
                   </span>
                 </span>
               </button>
@@ -65,22 +116,6 @@ export function TaskAttachmentsSection({
             </li>
           ))}
         </ul>
-      ) : null}
-      {canUpload ? (
-        <label className="task-attach-add">
-          <IconPlus width="14" height="14" />
-          Add file
-          <input
-            type="file"
-            hidden
-            accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,.log"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.currentTarget.value = "";
-              if (file) onPick(file);
-            }}
-          />
-        </label>
       ) : null}
     </section>
   );
@@ -104,7 +139,7 @@ function AttachmentThumb({ token, file }: { token: string; file: StaffAttachment
   if (src) return <img className="task-attach-thumb" src={src} alt="" />;
   return (
     <span className={`task-attach-badge is-${kindClass(file.mime)}`}>
-      {image ? <IconPaperclip /> : kindLabel(file.mime, file.filename).slice(0, 4)}
+      {kindLabel(file.mime, file.filename).slice(0, 4)}
     </span>
   );
 }
@@ -120,4 +155,10 @@ function kindClass(mime: string | null) {
   if (mime?.startsWith("image/")) return "image";
   if (mime === "application/pdf") return "pdf";
   return "file";
+}
+
+function formatAttachDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }

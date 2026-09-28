@@ -1,4 +1,7 @@
 {
+  "0.1.58": [
+    "Account photos upload to Replayr and show in the top bar, on the website, and in the mobile app."
+  ],
   "0.1.57": [
     "Sign-in uses the official Google, Apple, Discord, and X icons, with Forgot password under the password field."
   ],

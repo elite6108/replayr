@@ -61,6 +61,8 @@ npx wrangler secret put RESEND_API_KEY
 
 `RESEND_FROM_EMAIL` and `RESEND_REPLY_TO` are optional; the Worker defaults to the Replayr sender above. If they are set as production variables, never put the API key in `wrangler.toml`.
 
+Staff-board **iOS push** uses the Expo Push API from the same Worker. Store `EXPO_ACCESS_TOKEN` as a Worker secret (`npx wrangler secret put EXPO_ACCESS_TOKEN`). Payloads only include task title, board name, actor name, and task/board UUIDs.
+
 ## 4. Acceptance checks
 
 1. Create a Replayr account with email/password and confirm the email.

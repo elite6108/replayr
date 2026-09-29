@@ -1,32 +1,33 @@
-import { useCallback, useState } from "react";
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import * as Linking from "expo-linking";
-import { useLocalSearchParams, useRouter, type Href } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppHeader } from "@/components/AppHeader";
 import { FolderSheetFrame } from "@/components/folders/FolderSheetFrame";
 import { StaffAccessDenied } from "@/components/staff/StaffAccessDenied";
 import { StaffAssigneePicker } from "@/components/staff/StaffAssigneePicker";
 import { StaffGate } from "@/components/staff/StaffGate";
-import { StaffLabelPills } from "@/components/staff/StaffLabelPills";
-import { StaffPriorityChip } from "@/components/staff/StaffPriorityChip";
+import { StaffTaskActivity } from "@/components/staff/taskDetail/StaffTaskActivity";
+import { StaffTaskAttachments } from "@/components/staff/taskDetail/StaffTaskAttachments";
+import { StaffTaskComments } from "@/components/staff/taskDetail/StaffTaskComments";
+import { StaffTaskDescription } from "@/components/staff/taskDetail/StaffTaskDescription";
+import { StaffTaskDetails } from "@/components/staff/taskDetail/StaffTaskDetails";
+import { StaffTaskHeader } from "@/components/staff/taskDetail/StaffTaskHeader";
+import { StaffTaskRelations } from "@/components/staff/taskDetail/StaffTaskRelations";
+import { StaffTaskTitleField } from "@/components/staff/taskDetail/StaffTaskTitleField";
 import { staffStyles } from "@/components/staff/staffStyles";
 import { useStaffPoll } from "@/components/staff/useStaffPoll";
 import { Button, Notice } from "@/components/ui";
 import {
   addStaffChecklist,
   addStaffChecklistItem,
+  addStaffRelation,
   archiveStaffTask,
   commentStaffTask,
+  deleteStaffAttachment,
+  deleteStaffComment,
+  editStaffComment,
   fetchStaffAttachmentUrl,
   fetchStaffBoard,
   fetchStaffTask,
@@ -36,16 +37,14 @@ import {
   patchStaffTask,
   setStaffAssignees,
   setStaffTaskLabels,
-  staffBoardHref,
+  uploadStaffAttachment,
   watchStaffTask,
   type StaffBoardDetail,
   type StaffTaskDetail,
 } from "@/lib/api.staff";
 import { useAuth } from "@/lib/auth";
-import { formatTimeAgo } from "@/lib/format";
 import { useStaffPermissions } from "@/lib/staffPermissions";
-import { PRIORITIES, dueInputValue, parseDueInput, relationHref } from "@/lib/staffUi";
-import { colors } from "@/lib/theme";
+import { PRIORITIES, dueInputValue, parseDueInput } from "@/lib/staffUi";
 
 export default function StaffTaskDetailScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
@@ -53,7 +52,7 @@ export default function StaffTaskDetailScreen() {
   const router = useRouter();
   const { session } = useAuth();
   const token = session?.access_token ?? "";
-  const { can } = useStaffPermissions();
+  const { can, me } = useStaffPermissions();
   const [task, setTask] = useState<StaffTaskDetail | null>(null);
   const [board, setBoard] = useState<StaffBoardDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -63,14 +62,24 @@ export default function StaffTaskDetailScreen() {
   const [descDraft, setDescDraft] = useState("");
   const [dueDraft, setDueDraft] = useState("");
   const [itemDraft, setItemDraft] = useState<Record<string, string>>({});
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [uploadLabel, setUploadLabel] = useState<string | null>(null);
   const [statusOpen, setStatusOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [priorityOpen, setPriorityOpen] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
-  const [labelsOpen, setLabelsOpen] = useState(false);
+  const dirty = useRef(false);
+  const titleTimer = useRef(0);
+  const descTimer = useRef(0);
+  const savedTimer = useRef(0);
+  const titleRef = useRef(titleDraft);
+  const descRef = useRef(descDraft);
+  const taskRef = useRef(task);
+  titleRef.current = titleDraft;
+  descRef.current = descDraft;
+  taskRef.current = task;
 
   const load = useCallback(async () => {
-    if (!token || !id) return;
+    if (!token || !id || dirty.current) return;
     try {
       const detail = await fetchStaffTask(token, id);
       setTask(detail.task);
@@ -94,21 +103,61 @@ export default function StaffTaskDetailScreen() {
   useStaffPoll(load);
 
   async function patch(body: Record<string, unknown>, optimistic: Partial<StaffTaskDetail>) {
-    if (!token || !task) return;
-    const previous = task;
-    setTask({ ...task, ...optimistic });
+    if (!token) return;
+    const current = taskRef.current;
+    if (!current) return;
+    const previous = current;
+    markSaving();
+    setTask({ ...current, ...optimistic });
     try {
-      const result = await patchStaffTask(token, task.id, body);
+      const result = await patchStaffTask(token, current.id, body);
+      dirty.current = false;
       setTask(result.task);
-      setTitleDraft(result.task.title);
-      setDescDraft(result.task.description ?? "");
-      setDueDraft(dueInputValue(result.task.dueAt));
+      markSaved();
       setError(null);
     } catch (caught) {
       setTask(previous);
+      setSaveState("idle");
       setError(caught instanceof Error ? caught.message : "Could not update task.");
     }
   }
+
+  function markSaving() {
+    clearTimeout(savedTimer.current);
+    setSaveState("saving");
+  }
+
+  function markSaved() {
+    setSaveState("saved");
+    clearTimeout(savedTimer.current);
+    savedTimer.current = setTimeout(() => setSaveState("idle"), 1600) as unknown as number;
+  }
+
+  function flushTitle() {
+    const next = titleRef.current.trim();
+    const current = taskRef.current;
+    if (!current || !next || next === current.title) return;
+    dirty.current = true;
+    void patch({ title: next }, { title: next });
+  }
+
+  function flushDesc() {
+    const next = descRef.current;
+    const current = taskRef.current;
+    if (!current || next === (current.description ?? "")) return;
+    dirty.current = true;
+    void patch({ description: next }, { description: next });
+  }
+
+  useEffect(() => {
+    return () => {
+      clearTimeout(titleTimer.current);
+      clearTimeout(descTimer.current);
+      flushTitle();
+      flushDesc();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function moveTo(columnId: string) {
     if (!token || !task || !board) return;
@@ -118,7 +167,6 @@ export default function StaffTaskDetailScreen() {
     const last = column?.tasks.filter((item) => item.id !== task.id).at(-1);
     try {
       await moveStaffTask(token, task.id, { columnId, afterRank: last?.rank ?? null, beforeRank: null });
-      setError(null);
       setStatusOpen(false);
       void load();
     } catch (caught) {
@@ -136,50 +184,10 @@ export default function StaffTaskDetailScreen() {
     try {
       const result = await setStaffAssignees(token, task.id, nextPeople.map((item) => item.id));
       setTask(result.task);
-      setError(null);
     } catch (caught) {
       setTask(previous);
       setError(caught instanceof Error ? caught.message : "Could not update assignees.");
     }
-  }
-
-  async function toggleLabel(labelId: string) {
-    if (!token || !task) return;
-    const next = task.labelIds.includes(labelId)
-      ? task.labelIds.filter((item) => item !== labelId)
-      : [...task.labelIds, labelId];
-    const previous = task;
-    setTask({ ...task, labelIds: next });
-    try {
-      const result = await setStaffTaskLabels(token, task.id, next);
-      setTask(result.task);
-      setError(null);
-    } catch (caught) {
-      setTask(previous);
-      setError(caught instanceof Error ? caught.message : "Could not update labels.");
-    }
-  }
-
-  async function sendComment() {
-    if (!token || !task || !comment.trim()) return;
-    try {
-      const result = await commentStaffTask(token, task.id, comment.trim());
-      setTask(result.task);
-      setComment("");
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not post comment.");
-    }
-  }
-
-  function openRelation(kind: string, targetId: string, label: string | null) {
-    const href = relationHref(kind, targetId, label);
-    if (!href) return;
-    if (href.startsWith("http")) {
-      void Linking.openURL(href);
-      return;
-    }
-    router.push(href as Href);
   }
 
   const mutate = Boolean(task?.canMutate);
@@ -190,6 +198,7 @@ export default function StaffTaskDetailScreen() {
   const canLists = can("board.checklists.manage");
   const columnName = board?.columns.find((column) => column.id === task?.columnId)?.name ?? "Status";
   const people = board?.people?.length ? board.people : task?.assignees ?? [];
+  const priorityChoices = PRIORITIES.filter((value) => value !== "urgent" || task?.priority === "urgent");
 
   if (denied) {
     return (
@@ -205,127 +214,159 @@ export default function StaffTaskDetailScreen() {
         <AppHeader padded />
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <ScrollView contentContainerStyle={staffStyles.scroll} keyboardShouldPersistTaps="handled">
-            <Pressable onPress={() => router.back()}>
-              <Text style={staffStyles.back}>Back</Text>
-            </Pressable>
             {!task ? (
               <>
                 <View style={[staffStyles.skeleton, { height: 32, width: 180 }]} />
-                <View style={staffStyles.skeleton} />
                 <View style={staffStyles.skeleton} />
                 {error ? <Notice tone="danger">{error}</Notice> : null}
               </>
             ) : (
               <>
-                <Text style={staffStyles.eyebrow}>Operations</Text>
-                {canEdit ? (
-                  <TextInput
-                    style={[staffStyles.input, { fontSize: 22, fontWeight: "800" }]}
-                    value={titleDraft}
-                    onChangeText={setTitleDraft}
-                    onBlur={() => {
-                      if (titleDraft.trim() && titleDraft.trim() !== task.title) {
-                        void patch({ title: titleDraft.trim() }, { title: titleDraft.trim() });
-                      }
-                    }}
-                  />
-                ) : (
-                  <Text style={staffStyles.title}>{task.title}</Text>
-                )}
+                <StaffTaskHeader
+                  boardName={board?.name ?? null}
+                  columnName={columnName}
+                  saveState={saveState}
+                  canMove={canMove}
+                  onBack={() => {
+                    flushTitle();
+                    flushDesc();
+                    router.back();
+                  }}
+                  onStatus={() => setStatusOpen(true)}
+                />
+                <StaffTaskTitleField
+                  value={titleDraft}
+                  canEdit={canEdit}
+                  onChange={(value) => {
+                    dirty.current = true;
+                    setTitleDraft(value);
+                    clearTimeout(titleTimer.current);
+                    titleTimer.current = setTimeout(flushTitle, 500) as unknown as number;
+                  }}
+                  onBlur={flushTitle}
+                />
                 {error ? <Notice tone="danger">{error}</Notice> : null}
-                {canEdit ? (
-                  <Pressable style={staffStyles.addBtn} onPress={() => setAddOpen(true)}>
-                    <Text style={staffStyles.addBtnText}>Add</Text>
-                  </Pressable>
-                ) : null}
-                <View style={staffStyles.row}>
-                  <Pressable
-                    style={staffStyles.pill}
-                    onPress={() => (canMove ? setStatusOpen(true) : undefined)}
-                    disabled={!canMove}
-                  >
-                    <Text style={staffStyles.pillTextOn}>{columnName}</Text>
-                  </Pressable>
-                  <Pressable onPress={() => (canEdit ? setPriorityOpen(true) : undefined)} disabled={!canEdit}>
-                    <StaffPriorityChip priority={task.priority} />
-                  </Pressable>
-                  <Pressable
-                    style={staffStyles.pill}
-                    onPress={() =>
-                      void watchStaffTask(token, task.id, !task.watching)
-                        .then(() => setTask({ ...task, watching: !task.watching }))
-                        .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not update watch."))
+                <StaffTaskDescription
+                  value={descDraft}
+                  canEdit={canEdit}
+                  onChange={(value) => {
+                    dirty.current = true;
+                    setDescDraft(value);
+                    clearTimeout(descTimer.current);
+                    descTimer.current = setTimeout(flushDesc, 700) as unknown as number;
+                  }}
+                  onBlur={flushDesc}
+                />
+                <StaffTaskDetails
+                  task={task}
+                  board={board}
+                  columnName={columnName}
+                  dueDraft={dueDraft}
+                  canEdit={canEdit}
+                  canMove={canMove}
+                  canAssign={canAssign}
+                  onStatus={() => setStatusOpen(true)}
+                  onPriority={() => setPriorityOpen(true)}
+                  onWatch={() =>
+                    void watchStaffTask(token, task.id, !task.watching)
+                      .then(() => setTask({ ...task, watching: !task.watching }))
+                      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not update watch."))
+                  }
+                  onAssignees={() => setAssignOpen(true)}
+                  onRemoveAssignee={(staffId) => {
+                    const person = task.assignees.find((item) => item.id === staffId);
+                    if (person) void toggleAssignee(person);
+                  }}
+                  onToggleLabel={(labelId) => {
+                    const next = task.labelIds.includes(labelId)
+                      ? task.labelIds.filter((item) => item !== labelId)
+                      : [...task.labelIds, labelId];
+                    const previous = task;
+                    setTask({ ...task, labelIds: next });
+                    void setStaffTaskLabels(token, task.id, next)
+                      .then((result) => setTask(result.task))
+                      .catch((caught: unknown) => {
+                        setTask(previous);
+                        setError(caught instanceof Error ? caught.message : "Could not update labels.");
+                      });
+                  }}
+                  onDueChange={setDueDraft}
+                  onDueBlur={() => {
+                    const next = parseDueInput(dueDraft);
+                    if (next === undefined) {
+                      setError("Use YYYY-MM-DD for the due date.");
+                      setDueDraft(dueInputValue(task.dueAt));
+                      return;
                     }
-                  >
-                    <Text style={staffStyles.pillTextOn}>{task.watching ? "Watching" : "Watch"}</Text>
-                  </Pressable>
-                  {board ? (
-                    <Pressable style={staffStyles.pill} onPress={() => router.push(staffBoardHref(board.id))}>
-                      <Text style={staffStyles.pillTextOn}>{board.name}</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-                <Text style={staffStyles.section}>Description</Text>
-                {canEdit ? (
-                  <TextInput
-                    style={[staffStyles.input, { minHeight: 96, textAlignVertical: "top" }]}
-                    multiline
-                    value={descDraft}
-                    onChangeText={setDescDraft}
-                    placeholder="Add a description"
-                    placeholderTextColor={colors.muted}
-                    onBlur={() => {
-                      if (descDraft !== (task.description ?? "")) {
-                        void patch({ description: descDraft }, { description: descDraft });
-                      }
-                    }}
-                  />
-                ) : (
-                  <Text style={staffStyles.muted}>{task.description || "No description."}</Text>
-                )}
-                <Text style={staffStyles.section}>Assignees</Text>
-                <Pressable style={staffStyles.row} onPress={() => (canAssign ? setAssignOpen(true) : undefined)}>
-                  {task.assignees.length ? (
-                    task.assignees.map((person) => (
-                      <View key={person.id} style={staffStyles.pill}>
-                        <Text style={staffStyles.pillTextOn}>{person.displayName}</Text>
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={staffStyles.muted}>{canAssign ? "Tap to assign" : "Unassigned"}</Text>
-                  )}
-                </Pressable>
-                <Text style={staffStyles.section}>Due</Text>
-                {canEdit ? (
-                  <TextInput
-                    style={staffStyles.input}
-                    value={dueDraft}
-                    onChangeText={setDueDraft}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={colors.muted}
-                    onBlur={() => {
-                      const next = parseDueInput(dueDraft);
-                      if (next === undefined) {
-                        setError("Use YYYY-MM-DD for the due date.");
-                        setDueDraft(dueInputValue(task.dueAt));
-                        return;
-                      }
-                      if (next !== task.dueAt) void patch({ dueAt: next }, { dueAt: next });
-                    }}
-                  />
-                ) : (
-                  <Text style={staffStyles.muted}>{task.dueAt ? new Date(task.dueAt).toLocaleDateString() : "No due date"}</Text>
-                )}
-                {board?.labels.length ? (
-                  <>
-                    <Text style={staffStyles.section}>Labels</Text>
-                    <StaffLabelPills
-                      labels={board.labels}
-                      selectedIds={task.labelIds}
-                      onToggle={canEdit ? toggleLabel : undefined}
-                    />
-                  </>
-                ) : null}
+                    if (next !== task.dueAt) void patch({ dueAt: next }, { dueAt: next });
+                  }}
+                />
+                <StaffTaskRelations
+                  relations={task.relations}
+                  canEdit={canEdit}
+                  onLink={(kind, targetId, label) =>
+                    void addStaffRelation(token, task.id, { kind, targetId, label })
+                      .then((result) => setTask(result.task))
+                      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not add relation."))
+                  }
+                />
+                <StaffTaskActivity activity={task.activity} columns={board?.columns} />
+                <StaffTaskComments
+                  comments={task.comments}
+                  draft={comment}
+                  staffId={me?.staff.id ?? null}
+                  canComment={canComment}
+                  canModerate={Boolean(task.boardRole === "admin" || me?.isSuperAdmin)}
+                  onDraft={setComment}
+                  onPost={() => {
+                    if (!comment.trim()) return;
+                    void commentStaffTask(token, task.id, comment.trim())
+                      .then((result) => {
+                        setTask(result.task);
+                        setComment("");
+                      })
+                      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not post comment."));
+                  }}
+                  onEdit={(commentId, body) => {
+                    if (!body) return;
+                    void editStaffComment(token, commentId, body)
+                      .then((result) => setTask(result.task))
+                      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not edit comment."));
+                  }}
+                  onDelete={(commentId) =>
+                    void deleteStaffComment(token, commentId)
+                      .then(() => load())
+                      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not delete comment."))
+                  }
+                />
+                <StaffTaskAttachments
+                  attachments={task.attachments}
+                  uploadLabel={uploadLabel}
+                  canUpload={can("board.attachments.upload")}
+                  canDelete={can("board.attachments.delete") && mutate}
+                  onOpen={(fileId) =>
+                    void fetchStaffAttachmentUrl(token, fileId)
+                      .then((body) => Linking.openURL(body.url))
+                      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not open attachment."))
+                  }
+                  onUpload={(file) => {
+                    setUploadLabel("Uploading…");
+                    void uploadStaffAttachment(token, task.id, file)
+                      .then((result) => {
+                        setTask(result.task);
+                        setUploadLabel(null);
+                      })
+                      .catch((caught: unknown) => {
+                        setUploadLabel(null);
+                        setError(caught instanceof Error ? caught.message : "Could not upload the attachment.");
+                      });
+                  }}
+                  onDelete={(fileId) =>
+                    void deleteStaffAttachment(token, fileId)
+                      .then(() => load())
+                      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not remove attachment."))
+                  }
+                />
                 <Text style={staffStyles.section}>Checklists</Text>
                 {task.checklists.map((list) => (
                   <View key={list.id} style={staffStyles.card}>
@@ -347,8 +388,8 @@ export default function StaffTaskDetailScreen() {
                             height: 20,
                             borderRadius: 4,
                             borderWidth: 1,
-                            borderColor: item.done ? colors.accent : colors.border,
-                            backgroundColor: item.done ? colors.accent : "transparent",
+                            borderColor: item.done ? "#00d8f0" : "#1e2530",
+                            backgroundColor: item.done ? "#00d8f0" : "transparent",
                           }}
                         />
                         <Text style={[staffStyles.muted, item.done && { textDecorationLine: "line-through" }]}>{item.title}</Text>
@@ -358,7 +399,7 @@ export default function StaffTaskDetailScreen() {
                       <TextInput
                         style={staffStyles.input}
                         placeholder="Add item"
-                        placeholderTextColor={colors.muted}
+                        placeholderTextColor="#8b93a3"
                         value={itemDraft[list.id] ?? ""}
                         onChangeText={(value) => setItemDraft((current) => ({ ...current, [list.id]: value }))}
                         onSubmitEditing={() => {
@@ -378,56 +419,9 @@ export default function StaffTaskDetailScreen() {
                 {canLists && mutate ? (
                   <Button label="Add checklist" onPress={() => void addStaffChecklist(token, task.id, "Checklist").then((body) => setTask(body.task))} />
                 ) : null}
-                <Text style={staffStyles.section}>Comments</Text>
-                {task.comments.map((item) => (
-                  <View key={item.id} style={staffStyles.comment}>
-                    <Text style={staffStyles.commentName}>
-                      {item.authorName} <Text style={staffStyles.muted}>{formatTimeAgo(item.createdAt)}</Text>
-                    </Text>
-                    <Text style={staffStyles.commentBody}>{item.body}</Text>
-                  </View>
-                ))}
-                {task.comments.length === 0 ? <Text style={staffStyles.muted}>No comments yet.</Text> : null}
-                <Text style={staffStyles.section}>Attachments</Text>
-                {task.attachments.map((file) => (
-                  <Pressable
-                    key={file.id}
-                    style={staffStyles.hubRow}
-                    onPress={() =>
-                      void fetchStaffAttachmentUrl(token, file.id)
-                        .then((body) => Linking.openURL(body.url))
-                        .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Could not open attachment."))
-                    }
-                  >
-                    <Text style={staffStyles.hubLabel}>{file.filename}</Text>
-                  </Pressable>
-                ))}
-                {task.attachments.length === 0 ? <Text style={staffStyles.muted}>No attachments.</Text> : null}
-                <Text style={staffStyles.section}>Related</Text>
-                {task.relations.map((row) => {
-                  const href = relationHref(row.kind, row.targetId, row.label);
-                  if (!href) return null;
-                  return (
-                    <Pressable key={row.id} style={staffStyles.hubRow} onPress={() => openRelation(row.kind, row.targetId, row.label)}>
-                      <View>
-                        <Text style={staffStyles.hubLabel}>{row.label || row.targetId}</Text>
-                        <Text style={staffStyles.hubHint}>{row.kind}</Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-                {task.relations.filter((row) => relationHref(row.kind, row.targetId, row.label)).length === 0 ? (
-                  <Text style={staffStyles.muted}>No related Replayr items.</Text>
-                ) : null}
-                <Text style={staffStyles.section}>Activity</Text>
-                {task.activity.map((item) => (
-                  <Text key={item.id} style={staffStyles.muted}>
-                    {item.action} · {formatTimeAgo(item.createdAt)}
-                  </Text>
-                ))}
                 {can("board.cards.delete") && mutate ? (
                   <Button
-                    label="Delete card"
+                    label="Delete task"
                     kind="danger"
                     onPress={() =>
                       Alert.alert("Delete this card?", undefined, [
@@ -447,20 +441,8 @@ export default function StaffTaskDetailScreen() {
               </>
             )}
           </ScrollView>
-          {task && canComment ? (
-            <View style={[staffStyles.composer, { paddingBottom: 16 }]}>
-              <TextInput
-                style={staffStyles.input}
-                value={comment}
-                onChangeText={setComment}
-                placeholder="Comment. Use @username to mention."
-                placeholderTextColor={colors.muted}
-              />
-              <Button label="Comment" kind="primary" disabled={!comment.trim()} onPress={() => void sendComment()} />
-            </View>
-          ) : null}
         </KeyboardAvoidingView>
-        <FolderSheetFrame visible={statusOpen} title="Move" onClose={() => setStatusOpen(false)}>
+        <FolderSheetFrame visible={statusOpen} title="Status" onClose={() => setStatusOpen(false)}>
           {(board?.columns ?? []).map((column) => (
             <Pressable
               key={column.id}
@@ -472,7 +454,7 @@ export default function StaffTaskDetailScreen() {
           ))}
         </FolderSheetFrame>
         <FolderSheetFrame visible={priorityOpen} title="Priority" onClose={() => setPriorityOpen(false)}>
-          {PRIORITIES.map((value) => (
+          {priorityChoices.map((value) => (
             <Pressable
               key={value}
               style={[staffStyles.hubRow, task?.priority === value && staffStyles.pillOn]}
@@ -484,59 +466,6 @@ export default function StaffTaskDetailScreen() {
               <Text style={staffStyles.hubLabel}>{value}</Text>
             </Pressable>
           ))}
-        </FolderSheetFrame>
-        <FolderSheetFrame visible={addOpen} title="Add to card" onClose={() => setAddOpen(false)}>
-          {board?.labels.length ? (
-            <Pressable
-              style={staffStyles.hubRow}
-              onPress={() => {
-                setAddOpen(false);
-                setLabelsOpen(true);
-              }}
-            >
-              <Text style={staffStyles.hubLabel}>Labels</Text>
-            </Pressable>
-          ) : null}
-          {canAssign ? (
-            <Pressable
-              style={staffStyles.hubRow}
-              onPress={() => {
-                setAddOpen(false);
-                setAssignOpen(true);
-              }}
-            >
-              <Text style={staffStyles.hubLabel}>Members</Text>
-            </Pressable>
-          ) : null}
-          {canEdit ? (
-            <Pressable
-              style={staffStyles.hubRow}
-              onPress={() => {
-                setAddOpen(false);
-                setPriorityOpen(true);
-              }}
-            >
-              <Text style={staffStyles.hubLabel}>Priority</Text>
-            </Pressable>
-          ) : null}
-          {canLists && mutate ? (
-            <Pressable
-              style={staffStyles.hubRow}
-              onPress={() => {
-                setAddOpen(false);
-                void addStaffChecklist(token, task?.id ?? "", "Checklist").then((body) => setTask(body.task));
-              }}
-            >
-              <Text style={staffStyles.hubLabel}>Checklist</Text>
-            </Pressable>
-          ) : null}
-        </FolderSheetFrame>
-        <FolderSheetFrame visible={labelsOpen} title="Labels" onClose={() => setLabelsOpen(false)}>
-          {board?.labels.length ? (
-            <StaffLabelPills labels={board.labels} selectedIds={task?.labelIds ?? []} onToggle={canEdit ? toggleLabel : undefined} />
-          ) : (
-            <Text style={staffStyles.muted}>No labels on this board.</Text>
-          )}
         </FolderSheetFrame>
         <StaffAssigneePicker
           visible={assignOpen}

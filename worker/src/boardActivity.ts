@@ -1,5 +1,6 @@
 import { boardActivityEmail, sendReplayrEmail } from "./email";
 import type { Env } from "./env";
+import { sendExpoPush } from "./push";
 import { serviceRest } from "./shared";
 import { SUPER_ADMIN_ROLE_ID } from "./staffPermissions";
 
@@ -24,6 +25,7 @@ export type BoardEmailCandidate = {
   status: string;
   notifyBoardEmail: boolean;
   notifyOwnBoardEmail: boolean;
+  notifyBoardPush: boolean;
   muted: boolean;
   canAccess: boolean;
 };
@@ -35,6 +37,7 @@ type StaffJoin = {
   display_name: string;
   notify_board_email: boolean | null;
   notify_own_board_email: boolean | null;
+  notify_board_push: boolean | null;
 };
 
 function asStaff(value: StaffJoin | StaffJoin[] | null | undefined): StaffJoin | null {
@@ -79,6 +82,18 @@ export function filterBoardEmailRecipients(
   });
 }
 
+export function filterBoardPushRecipients(
+  candidates: BoardEmailCandidate[],
+  actorStaffId: string,
+  ownerStaffId?: string | null,
+): BoardEmailCandidate[] {
+  return candidates.filter((row) => {
+    if (!row.canAccess || row.status !== "active" || !row.notifyBoardPush || row.muted || !row.userId) return false;
+    if (row.staffId !== actorStaffId) return true;
+    return Boolean(ownerStaffId) && row.staffId === ownerStaffId && row.notifyOwnBoardEmail;
+  });
+}
+
 export function queueBoardActivityEmail(ctx: WaitUntilCtx | undefined, env: Env, payload: BoardActivityPayload): void {
   const work = notifyBoardActivityEmail(env, payload).catch((caught) => {
     console.error("Board activity email failed", {
@@ -117,15 +132,12 @@ export async function notifyBoardActivityEmail(env: Env, payload: BoardActivityP
     `/staff_board_email_prefs?board_id=eq.${payload.boardId}&select=staff_id,email`,
   );
   const muted = new Set(mutes.filter((row) => row.email === false).map((row) => row.staff_id));
-  const recipients = filterBoardEmailRecipients(
-    people.map((person) => ({
-      ...person,
-      muted: muted.has(person.staffId),
-    })),
-    payload.actorStaffId,
-    board.created_by,
-  );
-  if (!recipients.length) return;
+  const audience = people.map((person) => ({
+    ...person,
+    muted: muted.has(person.staffId),
+  }));
+  const recipients = filterBoardEmailRecipients(audience, payload.actorStaffId, board.created_by);
+  const pushRecipients = filterBoardPushRecipients(audience, payload.actorStaffId, board.created_by);
 
   const origin = publicAppOrigin(env);
   const boardUrl = `${origin}/staff/board/${payload.boardId}`;
@@ -148,6 +160,16 @@ export async function notifyBoardActivityEmail(env: Env, payload: BoardActivityP
       idempotencyKey: boardActivityIdempotencyKey(payload.kind, payload.taskId, recipient.userId),
     });
   }
+
+  await sendExpoPush(
+    env,
+    pushRecipients.map((row) => row.userId),
+    {
+      title: taskTitle.slice(0, 80),
+      body: payload.summary.slice(0, 140),
+      data: { type: "staff_task", staffTaskId: payload.taskId, boardId: payload.boardId },
+    },
+  );
 }
 
 async function loadAccessibleStaff(
@@ -161,6 +183,7 @@ async function loadAccessibleStaff(
   status: string;
   notifyBoardEmail: boolean;
   notifyOwnBoardEmail: boolean;
+  notifyBoardPush: boolean;
   canAccess: boolean;
 }>> {
   const byId = new Map<string, {
@@ -169,6 +192,7 @@ async function loadAccessibleStaff(
     status: string;
     notifyBoardEmail: boolean;
     notifyOwnBoardEmail: boolean;
+    notifyBoardPush: boolean;
     canAccess: boolean;
   }>();
 
@@ -185,6 +209,7 @@ async function loadAccessibleStaff(
       status: staff.status,
       notifyBoardEmail: staff.notify_board_email !== false,
       notifyOwnBoardEmail: Boolean(staff.notify_own_board_email),
+      notifyBoardPush: staff.notify_board_push !== false,
       canAccess,
     });
   }
@@ -192,7 +217,7 @@ async function loadAccessibleStaff(
   const members = await serviceRest<Array<{ staff_id: string; staff_members: StaffJoin | StaffJoin[] | null }>>(
     env,
     "GET",
-    `/staff_board_members?board_id=eq.${boardId}&select=staff_id,staff_members(id,user_id,status,display_name,notify_board_email,notify_own_board_email)`,
+    `/staff_board_members?board_id=eq.${boardId}&select=staff_id,staff_members(id,user_id,status,display_name,notify_board_email,notify_own_board_email,notify_board_push)`,
   );
   for (const row of members) add(asStaff(row.staff_members) ?? null, true);
 
@@ -200,7 +225,7 @@ async function loadAccessibleStaff(
     const owners = await serviceRest<StaffJoin[]>(
       env,
       "GET",
-      `/staff_members?id=eq.${ownerStaffId}&select=id,user_id,status,display_name,notify_board_email,notify_own_board_email`,
+      `/staff_members?id=eq.${ownerStaffId}&select=id,user_id,status,display_name,notify_board_email,notify_own_board_email,notify_board_push`,
     );
     add(owners[0] ?? null, true);
   }
@@ -208,7 +233,7 @@ async function loadAccessibleStaff(
   const supers = await serviceRest<Array<{ staff_id: string; staff_members: StaffJoin | StaffJoin[] | null }>>(
     env,
     "GET",
-    `/staff_role_assignments?role_id=eq.${SUPER_ADMIN_ROLE_ID}&select=staff_id,staff_members(id,user_id,status,display_name,notify_board_email,notify_own_board_email)`,
+    `/staff_role_assignments?role_id=eq.${SUPER_ADMIN_ROLE_ID}&select=staff_id,staff_members(id,user_id,status,display_name,notify_board_email,notify_own_board_email,notify_board_push)`,
   );
   for (const row of supers) add(asStaff(row.staff_members) ?? null, true);
 
@@ -223,7 +248,7 @@ async function loadAccessibleStaff(
       const granted = await serviceRest<Array<{ staff_id: string; staff_members: StaffJoin | StaffJoin[] | null }>>(
         env,
         "GET",
-        `/staff_role_assignments?role_id=in.(${roleIds.join(",")})&select=staff_id,staff_members(id,user_id,status,display_name,notify_board_email,notify_own_board_email)`,
+        `/staff_role_assignments?role_id=in.(${roleIds.join(",")})&select=staff_id,staff_members(id,user_id,status,display_name,notify_board_email,notify_own_board_email,notify_board_push)`,
       );
       for (const row of granted) add(asStaff(row.staff_members) ?? null, true);
     }

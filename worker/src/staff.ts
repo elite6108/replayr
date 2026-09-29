@@ -295,10 +295,12 @@ async function patchMe(request: Request, env: Env, actor: StaffActor): Promise<R
   const body = (await request.json().catch(() => ({}))) as {
     notifyBoardEmail?: boolean;
     notifyOwnBoardEmail?: boolean;
+    notifyBoardPush?: boolean;
   };
   const patch: Record<string, unknown> = {};
   let notifyBoardEmail = actor.notifyBoardEmail;
   let notifyOwnBoardEmail = actor.notifyOwnBoardEmail;
+  let notifyBoardPush = actor.notifyBoardPush;
   if (typeof body.notifyBoardEmail === "boolean") {
     notifyBoardEmail = body.notifyBoardEmail;
     patch.notify_board_email = body.notifyBoardEmail;
@@ -307,10 +309,14 @@ async function patchMe(request: Request, env: Env, actor: StaffActor): Promise<R
     notifyOwnBoardEmail = body.notifyOwnBoardEmail;
     patch.notify_own_board_email = body.notifyOwnBoardEmail;
   }
+  if (typeof body.notifyBoardPush === "boolean") {
+    notifyBoardPush = body.notifyBoardPush;
+    patch.notify_board_push = body.notifyBoardPush;
+  }
   if (!Object.keys(patch).length) throw new HttpError(400, "Nothing to update.");
   await serviceRest(env, "PATCH", `/staff_members?id=eq.${actor.staffId}`, patch);
   invalidateStaffCache(actor.userId);
-  return json(presentMe({ ...actor, notifyBoardEmail, notifyOwnBoardEmail }));
+  return json(presentMe({ ...actor, notifyBoardEmail, notifyOwnBoardEmail, notifyBoardPush }));
 }
 
 async function patchMember(request: Request, env: Env, actor: StaffActor, id: string): Promise<Response> {

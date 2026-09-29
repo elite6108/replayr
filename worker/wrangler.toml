@@ -54,6 +54,9 @@ crons = ["15 * * * *"]
 # Coming-soon site gate (never VITE_):
 # SITE_ACCESS_PASSWORD
 #
+# Expo Push (optional; Worker secret). Enables iOS staff-board notifications:
+# EXPO_ACCESS_TOKEN
+#
 # Transactional email (Resend; API key is a Worker secret):
 # RESEND_API_KEY
 # RESEND_FROM_EMAIL             (optional; default Replayr <support@replayr.tv>)

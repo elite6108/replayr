@@ -34,6 +34,8 @@ eas build --platform android --profile preview
 eas build --platform ios --profile production
 ```
 
+Staff board push uses **Expo Push → APNs**. OTA (`eas update`) cannot add the notification entitlement. After this change, ship a **new native iOS EAS build** (and enable Push Notifications on the Apple App ID). Set Worker secret `EXPO_ACCESS_TOKEN` from an Expo access token so the API can fan out to devices.
+
 Never put `SUPABASE_SERVICE_ROLE_KEY` or R2 keys in `EXPO_PUBLIC_*` or EAS secrets for the app.
 
 ## Store kit

@@ -11,6 +11,7 @@ export function StaffLayout() {
   const kicker = (me?.staff.department || "ELITE").toUpperCase();
   const emailOn = me?.notifyBoardEmail !== false;
   const ownEmailOn = Boolean(me?.notifyOwnBoardEmail);
+  const pushOn = me?.notifyBoardPush !== false;
   const token = session?.access_token;
 
   async function toggleBoardEmail() {
@@ -27,6 +28,16 @@ export function StaffLayout() {
     if (!token) return;
     try {
       await patchStaffMe(token, { notifyOwnBoardEmail: !ownEmailOn });
+      reload();
+    } catch {
+      /* keep current toggle */
+    }
+  }
+
+  async function toggleBoardPush() {
+    if (!token) return;
+    try {
+      await patchStaffMe(token, { notifyBoardPush: !pushOn });
       reload();
     } catch {
       /* keep current toggle */
@@ -91,6 +102,13 @@ export function StaffLayout() {
               <span>
                 <strong>Email me about my own edits on boards I own</strong>
                 <small>Off by default. Turn this on if you want a copy when you add, move, assign, comment, or change due dates.</small>
+              </span>
+            </label>
+            <label className="ops-email-pref">
+              <input type="checkbox" checked={pushOn} onChange={() => void toggleBoardPush()} />
+              <span>
+                <strong>Push me about board activity</strong>
+                <small>iPhone lock-screen alerts when others add, move, assign, comment, or change due dates.</small>
               </span>
             </label>
             <NavLink to="/" className="ops-nav-item ops-nav-home">

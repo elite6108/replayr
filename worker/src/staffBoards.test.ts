@@ -34,6 +34,7 @@ function actor(overrides: Partial<StaffActor> = {}): StaffActor {
     isSuperAdmin: false,
     notifyBoardEmail: true,
     notifyOwnBoardEmail: false,
+    notifyBoardPush: true,
     serviceKey: "service",
     requestId: null,
     ...overrides,

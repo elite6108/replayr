@@ -7,6 +7,7 @@ import { cleanupLiveVisitors, handlePresence, observeLiveVisitor } from "./prese
 import { installerArtifact, recordClipDownloadEvent, serveInstallerDownload } from "./analyticsDownloads";
 import { runRecentAnalyticsRollup } from "./analyticsRollup";
 import { handlePublicAnnouncements } from "./announcements";
+import { handlePush } from "./pushRoutes";
 import type { Env } from "./env";
 import { ingestClientError, recordWorkerError } from "./errors";
 import { cors, HttpError, json } from "./http";
@@ -40,7 +41,7 @@ import { assertUploadAllowed, handleBilling, loadStatus } from "./billing";
 import { handleFolders } from "./folders";
 import { handlePublicFolders } from "./folderPublic";
 import { handlePosts } from "./posts";
-import { handleSocial } from "./social";
+import { handleSocial, insertNotifications } from "./social";
 import {
   brandedDownloadRedirect,
   deleteBunnyAssetForClip,
@@ -347,6 +348,9 @@ async function route(
   }
   if (url.pathname.startsWith("/v1/admin")) {
     return handleAdmin(request, env, url, ctx);
+  }
+  if (url.pathname.startsWith("/v1/push")) {
+    return handlePush(request, env, url);
   }
   if (url.pathname.startsWith("/v1/staff")) {
     return handleStaff(request, env, url, ctx);
@@ -1246,10 +1250,17 @@ async function getPlayback(
 async function likeClip(request: Request, env: Env, slug: string): Promise<Response> {
   const user = await requireUser(request, env);
   const clip = await requireShareableClip(env, slug);
+  let created = true;
   try {
     await serviceRest(env, "POST", "/clip_likes", { clip_id: clip.id, user_id: user.id });
   } catch (caught) {
     if (!(caught instanceof HttpError) || caught.status !== 409) throw caught;
+    created = false;
+  }
+  if (created && clip.user_id !== user.id) {
+    await insertNotifications(env, [
+      { user_id: clip.user_id, kind: "clip_like", actor_id: user.id, clip_id: clip.id },
+    ]);
   }
   return json(await socialState(env, clip.id, user.id, true));
 }
@@ -1294,6 +1305,11 @@ async function addClipComment(request: Request, env: Env, slug: string): Promise
     throw new HttpError(400, "Comments must be 1–500 characters.");
   }
   await serviceRest(env, "POST", "/clip_comments", { clip_id: clip.id, user_id: user.id, body });
+  if (clip.user_id !== user.id) {
+    await insertNotifications(env, [
+      { user_id: clip.user_id, kind: "clip_comment", actor_id: user.id, clip_id: clip.id },
+    ]);
+  }
   const listed = await listClipComments(request, env, slug);
   const data = (await listed.json()) as { comments: unknown[] };
   const counts = await clipCounts(env, clip.id);

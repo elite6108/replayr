@@ -38,6 +38,7 @@ export default function StaffHubScreen() {
   const role = me?.isSuperAdmin ? "Super Admin" : me?.roles[0]?.name || "Staff";
   const emailOn = me?.notifyBoardEmail !== false;
   const ownEmailOn = Boolean(me?.notifyOwnBoardEmail);
+  const pushOn = me?.notifyBoardPush !== false;
 
   return (
     <StaffGate permission="staff.access">
@@ -50,7 +51,7 @@ export default function StaffHubScreen() {
             {(me?.staff.department || "Internal").toUpperCase()} · {role}
           </Text>
           {can("board.view") ? (
-            <HubRow label="Task Boards" hint="Single-lane boards and cards" onPress={() => router.push(staffBoardsHref())} />
+            <HubRow label="Task Boards" hint="Kanban columns and cards" onPress={() => router.push(staffBoardsHref())} />
           ) : null}
           {can("board.view") ? (
             <HubRow label="My Tasks" hint="Assigned, watching, and created" onPress={() => router.push(staffTasksHref())} />
@@ -94,6 +95,25 @@ export default function StaffHubScreen() {
                 onValueChange={(next) => {
                   if (!token) return;
                   void patchStaffMe(token, { notifyOwnBoardEmail: next }).then(reload);
+                }}
+                trackColor={{ false: colors.border, true: colors.accent }}
+                thumbColor={colors.text}
+              />
+            </View>
+          </View>
+          <View style={staffStyles.card}>
+            <View style={staffStyles.memberHeading}>
+              <View style={{ flex: 1 }}>
+                <Text style={staffStyles.cardTitle}>Push me about board activity</Text>
+                <Text style={staffStyles.muted}>
+                  Lock-screen alerts when others add, move, assign, comment, or change due dates.
+                </Text>
+              </View>
+              <Switch
+                value={pushOn}
+                onValueChange={(next) => {
+                  if (!token) return;
+                  void patchStaffMe(token, { notifyBoardPush: next }).then(reload);
                 }}
                 trackColor={{ false: colors.border, true: colors.accent }}
                 thumbColor={colors.text}

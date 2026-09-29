@@ -31,6 +31,8 @@ function copyFor(item: NotificationItem) {
   if (item.kind === "staff_task_mentioned") return `${name} mentioned you on a staff task`;
   if (item.kind === "staff_task_comment") return `${name} commented on a staff task`;
   if (item.kind === "staff_task_due_soon") return `A staff task is due soon`;
+  if (item.kind === "clip_like") return `${name} liked your clip`;
+  if (item.kind === "clip_comment") return `${name} commented on your clip`;
   return `${name} sent you a message`;
 }
 
@@ -139,6 +141,11 @@ export function NotificationBell() {
     }
     if ((item.kind === "message" || item.kind === "group_invite") && item.conversationId) {
       navigate(`/messages/${item.conversationId}`);
+      return;
+    }
+    if ((item.kind === "clip_like" || item.kind === "clip_comment") && item.clipSlug) {
+      navigate(`/c/${item.clipSlug}`);
+      return;
     }
     if (item.kind === "folder_invite") {
       navigate("/library/folders");

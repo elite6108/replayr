@@ -32,6 +32,7 @@ export type StaffMe = {
   isSuperAdmin: boolean;
   notifyBoardEmail: boolean;
   notifyOwnBoardEmail: boolean;
+  notifyBoardPush: boolean;
 };
 
 export type StaffMember = {
@@ -159,6 +160,7 @@ export type StaffTaskDetail = {
     authorName: string;
     body: string;
     createdAt: string;
+    updatedAt?: string;
   }>;
   attachments: Array<{ id: string; filename: string; mime: string | null; bytes: number | null; createdAt: string }>;
   relations: Array<{ id: string; kind: string; targetId: string; label: string | null }>;
@@ -224,7 +226,7 @@ export function fetchStaffMe(token: string) {
   return staffFetch<StaffMe>("/v1/staff/me", token);
 }
 
-export function patchStaffMe(token: string, body: { notifyBoardEmail?: boolean; notifyOwnBoardEmail?: boolean }) {
+export function patchStaffMe(token: string, body: { notifyBoardEmail?: boolean; notifyOwnBoardEmail?: boolean; notifyBoardPush?: boolean }) {
   return staffFetch<StaffMe>("/v1/staff/me", token, { method: "PATCH", body: JSON.stringify(body) });
 }
 
@@ -400,5 +402,70 @@ export function patchStaffChecklistItem(token: string, itemId: string, body: { t
 }
 
 export function fetchStaffAttachmentUrl(token: string, id: string) {
-  return staffFetch<{ url: string; filename: string }>(`/v1/staff/attachments/${id}/url`, token);
+  return staffFetch<{ url: string; filename: string; mime?: string | null }>(`/v1/staff/attachments/${id}/url`, token);
+}
+
+export function editStaffComment(token: string, commentId: string, body: string) {
+  return staffFetch<{ task: StaffTaskDetail }>(`/v1/staff/comments/${commentId}`, token, {
+    method: "PATCH",
+    body: JSON.stringify({ body }),
+  });
+}
+
+export function deleteStaffComment(token: string, commentId: string) {
+  return staffFetch<{ ok: boolean }>(`/v1/staff/comments/${commentId}`, token, { method: "DELETE" });
+}
+
+export function addStaffRelation(token: string, id: string, body: { kind: string; targetId: string; label?: string }) {
+  return staffFetch<{ task: StaffTaskDetail }>(`/v1/staff/tasks/${id}/relations`, token, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function uploadStaffAttachment(
+  token: string,
+  taskId: string,
+  file: { uri: string; name: string; mime: string; bytes: number },
+) {
+  const created = await staffFetch<{ attachment: { id: string } }>(`/v1/staff/tasks/${taskId}/attachments`, token, {
+    method: "POST",
+    body: JSON.stringify({ filename: file.name, mime: file.mime || "application/octet-stream", bytes: file.bytes }),
+  });
+  const blob = await fetch(file.uri).then((response) => response.arrayBuffer());
+  const put = await fetch(apiUrl(`/v1/staff/attachments/${created.attachment.id}`), {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": file.mime || "application/octet-stream",
+    },
+    body: blob,
+  });
+  if (!put.ok) throw new StaffApiError("Could not upload the attachment.", put.status);
+  return completeStaffAttachment(token, created.attachment.id);
+}
+
+export function completeStaffAttachment(token: string, id: string) {
+  return staffFetch<{ task: StaffTaskDetail }>(`/v1/staff/attachments/${id}/complete`, token, {
+    method: "POST",
+    body: "{}",
+  });
+}
+
+export function deleteStaffAttachment(token: string, id: string) {
+  return staffFetch<{ ok: boolean }>(`/v1/staff/attachments/${id}`, token, { method: "DELETE" });
+}
+
+export function registerPushToken(token: string, expoPushToken: string, platform: string) {
+  return staffFetch<{ ok: boolean }>("/v1/push/tokens", token, {
+    method: "POST",
+    body: JSON.stringify({ expoPushToken, platform }),
+  });
+}
+
+export function unregisterPushToken(token: string, expoPushToken?: string) {
+  return staffFetch<{ ok: boolean }>("/v1/push/tokens", token, {
+    method: "DELETE",
+    body: JSON.stringify({ expoPushToken }),
+  });
 }

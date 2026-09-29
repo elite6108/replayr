@@ -18,7 +18,9 @@ export type NotificationKind =
   | "staff_task_assigned"
   | "staff_task_mentioned"
   | "staff_task_comment"
-  | "staff_task_due_soon";
+  | "staff_task_due_soon"
+  | "clip_like"
+  | "clip_comment";
 
 export type FollowState = {
   viewerFollows: boolean;
@@ -131,6 +133,7 @@ export type NotificationItem = {
   messageId: string | null;
   folderId?: string | null;
   staffTaskId?: string | null;
+  clipSlug?: string | null;
 };
 
 export type NotificationsResponse = {

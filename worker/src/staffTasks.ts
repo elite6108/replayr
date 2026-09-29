@@ -4,6 +4,7 @@ import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { rankAfter, rankBetween } from "./lexorank";
 import { insertNotifications } from "./social";
+import { sendExpoPush } from "./push";
 import { headR2Object, putR2Object, serviceRest, signedObjectUrl } from "./shared";
 import { requirePermission, type StaffActor } from "./staffAuth";
 import { assertCanMutate, requireBoardAccess } from "./staffBoards";
@@ -1061,6 +1062,11 @@ export async function notifyStaffTaskDueSoon(env: Env): Promise<void> {
         staff_task_id: task.id,
       })),
     );
+    await sendExpoPush(env, watchers, {
+      title: task.title.slice(0, 80),
+      body: "Due in the next 24 hours.",
+      data: { type: "staff_task", staffTaskId: task.id, boardId: task.board_id },
+    });
   }
 }
 

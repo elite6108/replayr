@@ -42,6 +42,7 @@ import type {
   Relationship,
   SocialUser,
 } from "./social-types";
+import { fanOutInboxPush } from "./socialPush";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const USERNAME = /^[A-Za-z0-9_]{3,24}$/;
@@ -125,6 +126,7 @@ type NotificationRow = {
   message_id: string | null;
   folder_id: string | null;
   staff_task_id?: string | null;
+  clip_id?: string | null;
   read_at: string | null;
   created_at: string;
 };
@@ -797,12 +799,17 @@ async function listNotifications(request: Request, env: Env, url: URL): Promise<
   const rows = await serviceRest<NotificationRow[]>(
     env,
     "GET",
-    `/notifications?user_id=eq.${user.id}&select=id,user_id,kind,actor_id,friendship_id,conversation_id,message_id,folder_id,staff_task_id,read_at,created_at&order=created_at.desc&limit=${limit}`,
+    `/notifications?user_id=eq.${user.id}&select=id,user_id,kind,actor_id,friendship_id,conversation_id,message_id,folder_id,staff_task_id,clip_id,read_at,created_at&order=created_at.desc&limit=${limit}`,
   );
   const actors = await loadSocialUsers(
     env,
     rows.map((row) => row.actor_id).filter((id): id is string => Boolean(id)),
   );
+  const clipIds = [...new Set(rows.map((row) => row.clip_id).filter((id): id is string => Boolean(id)))];
+  const clips = clipIds.length
+    ? await serviceRest<Array<{ id: string; slug: string }>>(env, "GET", `/clips?id=in.(${clipIds.join(",")})&select=id,slug`)
+    : [];
+  const slugById = new Map(clips.map((row) => [row.id, row.slug]));
   return json({
     notifications: rows.map((row) => ({
       id: row.id,
@@ -815,6 +822,7 @@ async function listNotifications(request: Request, env: Env, url: URL): Promise<
       messageId: row.message_id,
       folderId: row.folder_id,
       staffTaskId: row.staff_task_id ?? null,
+      clipSlug: row.clip_id ? slugById.get(row.clip_id) ?? null : null,
     })),
   });
 }
@@ -1203,6 +1211,7 @@ export async function insertNotifications(
     message_id?: string | null;
     folder_id?: string | null;
     staff_task_id?: string | null;
+    clip_id?: string | null;
   }>,
 ) {
   const payload = rows
@@ -1217,9 +1226,11 @@ export async function insertNotifications(
       message_id: row.message_id ?? null,
       folder_id: row.folder_id ?? null,
       staff_task_id: row.staff_task_id ?? null,
+      clip_id: row.clip_id ?? null,
     }));
   if (payload.length === 0) return;
   await serviceRest(env, "POST", "/notifications", payload);
+  await fanOutInboxPush(env, payload);
 }
 
 function otherUser(row: FriendshipRow, me: string) {

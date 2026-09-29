@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { getSupabase, supabaseConfigured } from "./supabase";
+import { registerStaffPush, unregisterStaffPush } from "./registerStaffPush";
 
 interface AuthValue {
   session: Session | null | undefined;
@@ -34,11 +35,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => data.subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const token = session?.access_token;
+    if (!token) return;
+    void registerStaffPush(token).catch(() => undefined);
+  }, [session?.access_token]);
+
   const value = useMemo<AuthValue>(
     () => ({
       session,
       signOut: async () => {
         if (!supabaseConfigured()) return;
+        const access = session?.access_token;
+        if (access) await unregisterStaffPush(access);
         await getSupabase().auth.signOut();
         setSession(null);
       },

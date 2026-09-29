@@ -17,7 +17,8 @@
       ],
       "infoPlist": {
         "NSPhotoLibraryAddUsageDescription": "Replayr saves clips and screenshots you download to your photo library.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
     "android": {
@@ -104,6 +105,12 @@
       "expo-image",
       "expo-apple-authentication",
       "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "enableBackgroundRemoteNotifications": true
+        }
+      ],
       [
         "expo-media-library",
         {

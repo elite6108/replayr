@@ -26,6 +26,7 @@ export type StaffMe = {
   isSuperAdmin: boolean;
   notifyBoardEmail: boolean;
   notifyOwnBoardEmail: boolean;
+  notifyBoardPush: boolean;
 };
 
 export type StaffMember = {
@@ -208,7 +209,7 @@ export function fetchStaffMe(token: string) {
   return staffFetch<StaffMe>("/v1/staff/me", token);
 }
 
-export function patchStaffMe(token: string, body: { notifyBoardEmail?: boolean; notifyOwnBoardEmail?: boolean }) {
+export function patchStaffMe(token: string, body: { notifyBoardEmail?: boolean; notifyOwnBoardEmail?: boolean; notifyBoardPush?: boolean }) {
   return staffFetch<StaffMe>("/v1/staff/me", token, { method: "PATCH", body: JSON.stringify(body) });
 }
 

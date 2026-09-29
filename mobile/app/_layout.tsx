@@ -9,7 +9,10 @@ import { AnnouncementHost } from "@/components/AnnouncementHost";
 import { AppTabBar, shouldShowAppTabBar } from "@/components/AppTabBar";
 import { folderHref } from "@/lib/api.folders";
 import { staffBoardHref, staffTaskHref } from "@/lib/api.staff";
+import { threadHref } from "@/lib/api.messages";
 import { openReplayrLink } from "@/lib/openReplayrLink";
+import { targetFromPushData } from "@/lib/registerStaffPush";
+import * as Notifications from "expo-notifications";
 import { installMobileTelemetry } from "@/lib/telemetry";
 import { colors } from "@/lib/theme";
 
@@ -93,7 +96,29 @@ export default function RootLayout() {
     }
     const sub = Linking.addEventListener("url", (event) => open(event.url));
     void Linking.getInitialURL().then(open);
-    return () => sub.remove();
+    function openPush(data: unknown) {
+      const target = targetFromPushData(data);
+      if (!target) return;
+      if (target.kind === "staff-task") {
+        router.push(staffTaskHref(target.taskId));
+        return;
+      }
+      if (target.kind === "clip") {
+        router.push(`/c/${target.slug}` as Href);
+        return;
+      }
+      router.push(threadHref(target.conversationId));
+    }
+    const tap = Notifications.addNotificationResponseReceivedListener((response) => {
+      openPush(response.notification.request.content.data);
+    });
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      openPush(response?.notification.request.content.data);
+    });
+    return () => {
+      sub.remove();
+      tap.remove();
+    };
   }, [router]);
 
   return (

@@ -5,6 +5,7 @@ import {
   boardActivityIdempotencyKey,
   dueAtChanged,
   filterBoardEmailRecipients,
+  filterBoardPushRecipients,
   notifyBoardActivityEmail,
   shouldNotifyBoardMove,
   type BoardEmailCandidate,
@@ -26,6 +27,7 @@ function candidate(overrides: Partial<BoardEmailCandidate> = {}): BoardEmailCand
     status: "active",
     notifyBoardEmail: true,
     notifyOwnBoardEmail: false,
+    notifyBoardPush: true,
     muted: false,
     canAccess: true,
     ...overrides,
@@ -91,6 +93,29 @@ describe("board activity recipient filter", () => {
       ACTOR,
     );
     expect(kept).toEqual([]);
+  });
+});
+
+describe("board activity push recipient filter", () => {
+  it("uses the push master switch instead of email", () => {
+    const kept = filterBoardPushRecipients(
+      [
+        candidate(),
+        candidate({ staffId: "push-off", userId: "push-off-user", notifyBoardPush: false }),
+        candidate({ staffId: ACTOR, userId: "actor-user" }),
+      ],
+      ACTOR,
+    );
+    expect(kept.map((row) => row.staffId)).toEqual([MEMBER]);
+  });
+
+  it("lets a board owner opt into push for their own edits", () => {
+    const kept = filterBoardPushRecipients(
+      [candidate({ staffId: ACTOR, userId: "actor-user", notifyOwnBoardEmail: true })],
+      ACTOR,
+      ACTOR,
+    );
+    expect(kept.map((row) => row.staffId)).toEqual([ACTOR]);
   });
 });
 
@@ -174,6 +199,9 @@ describe("notifyBoardActivityEmail", () => {
         if (url.includes("/staff_board_email_prefs?")) {
           return Response.json([{ staff_id: STRANGER, email: false }]);
         }
+        if (url.includes("/push_tokens?")) {
+          return Response.json([]);
+        }
         if (url.includes("/auth/v1/admin/users/")) {
           const id = url.split("/").pop();
           return Response.json({
@@ -241,7 +269,7 @@ describe("notifyBoardActivityEmail", () => {
             },
           ]);
         }
-        if (url.includes("/staff_role_assignments?") || url.includes("/staff_board_email_prefs?")) {
+        if (url.includes("/staff_role_assignments?") || url.includes("/staff_board_email_prefs?") || url.includes("/push_tokens?")) {
           return Response.json([]);
         }
         if (url.includes("/auth/v1/admin/users/")) {

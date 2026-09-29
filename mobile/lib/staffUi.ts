@@ -26,6 +26,17 @@ const PRIORITY_RANK: Record<string, number> = {
 
 export const PRIORITIES = ["none", "low", "medium", "high", "urgent"] as const;
 
+export type ColumnTone = "slate" | "blue" | "cyan" | "purple" | "green";
+
+export function columnTone(name: string): ColumnTone {
+  const value = name.trim().toLowerCase();
+  if (/(done|complete|shipped|closed)/.test(value)) return "green";
+  if (/(test|review|qa|approval)/.test(value)) return "purple";
+  if (/(progress|doing|active|wip)/.test(value)) return "cyan";
+  if (/(confirm|todo|to do|ready|planned)/.test(value)) return "blue";
+  return "slate";
+}
+
 export function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   const letters = `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? parts[0]?.[1] ?? ""}`;

@@ -52,7 +52,7 @@ function RootShell() {
           <Stack.Screen name="friends" options={{ title: "Following" }} />
           <Stack.Screen name="search" options={{ title: "Search" }} />
           <Stack.Screen name="u/[username]" options={{ title: "Profile" }} />
-          <Stack.Screen name="messages/[id]" options={{ title: "Chat" }} />
+          <Stack.Screen name="messages/[id]" options={{ title: "Chat", headerBackTitle: "Back" }} />
           <Stack.Screen name="settings" options={{ title: "Settings" }} />
           <Stack.Screen name="staff" options={{ headerShown: false }} />
           <Stack.Screen name="folders" options={{ headerShown: false }} />

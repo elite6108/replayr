@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,7 +13,9 @@ import {
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ProfileAvatarLink } from "@/components/ProfileAvatarLink";
 import { ClipThumb } from "@/components/ClipThumb";
 import { Notice } from "@/components/ui";
@@ -23,6 +26,7 @@ import {
   fetchConversation,
   fetchMessages,
   leaveConversation,
+  mergeMessagesById,
   postMessage,
   type ChatMessage,
   type ConversationSummary,
@@ -31,6 +35,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useSocialUnread } from "@/lib/socialUnread";
 import { formatDurationMs, formatTimeAgo } from "@/lib/format";
+import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 
 function firstParam(value: string | string[] | undefined) {
@@ -46,6 +51,8 @@ export default function ThreadScreen() {
   const token = session?.access_token;
   const userId = session?.user.id;
   const { setActiveConversation, markConversationRead } = useSocialUnread();
+  const headerHeight = useHeaderHeight();
+  const insets = useSafeAreaInsets();
   const [conversation, setConversation] = useState<ConversationSummary | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -54,6 +61,7 @@ export default function ThreadScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   const title = conversation ? conversationTitle(conversation, userId) : "Chat";
   const peer = conversation ? conversationPeer(conversation, userId) : null;
@@ -76,7 +84,7 @@ export default function ThreadScreen() {
     } finally {
       setLoading(false);
     }
-  }, [token, conversationId]);
+  }, [token, conversationId, setActiveConversation, markConversationRead]);
 
   useEffect(() => {
     if (!token) {
@@ -86,6 +94,50 @@ export default function ThreadScreen() {
     void load();
     return () => setActiveConversation(null);
   }, [token, load, setActiveConversation]);
+
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => {
+      setKeyboardOpen(true);
+    });
+    const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => {
+      setKeyboardOpen(false);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!token || !userId || !conversationId || !supabaseConfigured()) return;
+    const supabase = getSupabase();
+    const channel = supabase
+      .channel(`messages-live:${userId}:${conversationId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
+        const row = payload.new as { id?: string; conversation_id?: string };
+        if (!row.id || row.conversation_id !== conversationId) return;
+        void Promise.all([
+          fetchMessages(token, conversationId, { limit: 50 }),
+          fetchConversation(token, conversationId).catch(() => null),
+        ])
+          .then(([thread, summary]) => {
+            setMessages((current) => mergeMessagesById(current, thread));
+            markConversationRead(conversationId);
+            if (summary) {
+              setConversation({
+                ...summary,
+                lastMessage: thread[thread.length - 1] ?? summary.lastMessage,
+                unreadCount: 0,
+              });
+            }
+          })
+          .catch(() => undefined);
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [token, userId, conversationId, markConversationRead]);
 
   async function loadOlder() {
     if (!token || !conversationId || loading || loadingMore || !hasMore || messages.length === 0) return;
@@ -140,7 +192,7 @@ export default function ThreadScreen() {
   if (session === undefined || loading) {
     return (
       <View style={styles.center}>
-        <Stack.Screen options={{ title: "Chat" }} />
+        <Stack.Screen options={{ title: "Chat", headerBackTitle: "Back" }} />
         <ActivityIndicator color={colors.accent} />
       </View>
     );
@@ -149,7 +201,7 @@ export default function ThreadScreen() {
   if (!session) {
     return (
       <View style={styles.center}>
-        <Stack.Screen options={{ title: "Chat" }} />
+        <Stack.Screen options={{ title: "Chat", headerBackTitle: "Back" }} />
         <Text style={styles.muted}>Sign in to read this conversation.</Text>
       </View>
     );
@@ -161,11 +213,12 @@ export default function ThreadScreen() {
     <KeyboardAvoidingView
       style={styles.page}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
+      keyboardVerticalOffset={Platform.OS === "ios" ? headerHeight : 0}
     >
       <Stack.Screen
         options={{
           title,
+          headerBackTitle: "Back",
           headerTitle:
             conversation?.type === "dm"
               ? () => (
@@ -213,7 +266,7 @@ export default function ThreadScreen() {
           )}
         />
       )}
-      <View style={[styles.composer, { paddingBottom: 10 }]}>
+      <View style={[styles.composer, { paddingBottom: keyboardOpen ? 10 : Math.max(insets.bottom, 10) }]}>
         <TextInput
           style={styles.input}
           value={draft}

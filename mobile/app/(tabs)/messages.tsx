@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -20,13 +20,16 @@ import {
   conversationPeer,
   conversationTitle,
   createConversation,
+  fetchConversation,
   fetchConversations,
   lastMessagePreview,
   threadHref,
+  upsertConversation,
   type ConversationSummary,
 } from "@/lib/api.messages";
 import { useAuth } from "@/lib/auth";
 import { formatTimeAgo } from "@/lib/format";
+import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 
 export default function MessagesScreen() {
@@ -70,6 +73,33 @@ export default function MessagesScreen() {
       void load();
     }, [token, load]),
   );
+
+  useEffect(() => {
+    if (!token || !userId || !supabaseConfigured()) return;
+    const supabase = getSupabase();
+    const channel = supabase
+      .channel(`messages-inbox:${userId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
+        const row = payload.new as { id?: string; conversation_id?: string; sender_id?: string };
+        const conversationKey = row.conversation_id;
+        if (!conversationKey || !row.id) return;
+        const mine = row.sender_id === userId;
+        void fetchConversation(token, conversationKey)
+          .then((summary) => {
+            setConversations((current) =>
+              upsertConversation(
+                { ...summary, unreadCount: mine ? 0 : Math.max(1, summary.unreadCount) },
+                current,
+              ),
+            );
+          })
+          .catch(() => undefined);
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [token, userId]);
 
   async function openDm(friend: Friend) {
     if (!token) return;

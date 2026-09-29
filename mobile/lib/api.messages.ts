@@ -108,6 +108,17 @@ export function lastMessagePreview(message: ChatMessage | null) {
   return "No messages yet";
 }
 
+export function mergeMessagesById(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const map = new Map(current.map((item) => [item.id, item]));
+  for (const item of incoming) map.set(item.id, item);
+  return [...map.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function upsertConversation(next: ConversationSummary, current: ConversationSummary[]) {
+  const without = current.filter((item) => item.id !== next.id);
+  return [next, ...without].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 export async function fetchConversations(accessToken: string): Promise<ConversationSummary[]> {
   const response = await fetch(apiUrl("/v1/conversations"), { headers: authHeaders(accessToken) });
   const body = await readApiJson<ConversationsResponse>(response, "Could not load messages.");

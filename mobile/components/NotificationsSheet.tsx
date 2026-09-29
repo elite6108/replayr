@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -58,40 +58,58 @@ export function NotificationsSheet({
 }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { setFriendsUnread, setNotificationsUnread } = useSocialUnread();
+  const { setFriendsUnread, setNotificationsUnread, notificationsUnread } = useSocialUnread();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const canLiveRefresh = useRef(false);
 
-  useEffect(() => {
-    if (!visible || !token) {
-      if (!visible) setItems([]);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    void fetchNotifications(token)
-      .then(async (notifications) => {
-        if (cancelled) return;
+  const loadNotifications = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!token) return;
+      if (!opts?.silent) {
+        setLoading(true);
+        setError(null);
+      }
+      try {
+        const notifications = await fetchNotifications(token);
         setItems(notifications);
         const unreadIds = notifications.filter((item) => !item.readAt).map((item) => item.id);
         setNotificationsUnread(0);
         if (unreadIds.length > 0) {
           await readNotifications(token, unreadIds).catch(() => undefined);
         }
-      })
-      .catch((caught) => {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not load notifications.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      } catch (caught) {
+        if (!opts?.silent) {
+          setError(caught instanceof Error ? caught.message : "Could not load notifications.");
+        }
+      } finally {
+        if (!opts?.silent) setLoading(false);
+      }
+    },
+    [token, setNotificationsUnread],
+  );
+
+  useEffect(() => {
+    if (!visible || !token) {
+      canLiveRefresh.current = false;
+      if (!visible) setItems([]);
+      return;
+    }
+    let cancelled = false;
+    void loadNotifications().finally(() => {
+      if (!cancelled) canLiveRefresh.current = true;
+    });
     return () => {
       cancelled = true;
     };
-  }, [visible, token, setNotificationsUnread]);
+  }, [visible, token, loadNotifications]);
+
+  useEffect(() => {
+    if (!visible || !token || !canLiveRefresh.current || notificationsUnread <= 0) return;
+    void loadNotifications({ silent: true });
+  }, [visible, token, notificationsUnread, loadNotifications]);
 
   async function refreshFriendsFlag() {
     if (!token) return;

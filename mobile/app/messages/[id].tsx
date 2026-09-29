@@ -13,8 +13,8 @@ import {
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useHeaderHeight } from "@react-navigation/elements";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ProfileAvatarLink } from "@/components/ProfileAvatarLink";
 import { ClipThumb } from "@/components/ClipThumb";

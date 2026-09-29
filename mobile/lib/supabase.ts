@@ -24,6 +24,11 @@ export function getSupabase(): SupabaseClient {
   return client;
 }
 
+export function applyRealtimeAuth(accessToken: string) {
+  if (!supabaseConfigured()) return;
+  void getSupabase().realtime.setAuth(accessToken);
+}
+
 export function publicAppUrl(): string {
   const fromEnv = (process.env.EXPO_PUBLIC_APP_URL || "https://www.replayr.tv").replace(/\/$/, "");
   try {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -13,34 +13,48 @@ import {
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Notifications from "expo-notifications";
 import { ProfileAvatarLink } from "@/components/ProfileAvatarLink";
 import { ClipThumb } from "@/components/ClipThumb";
 import { Notice } from "@/components/ui";
-import { socialName } from "@/lib/api.friends";
+import { socialName, type SocialUser } from "@/lib/api.friends";
 import {
   conversationPeer,
   conversationTitle,
   fetchConversation,
   fetchMessages,
   leaveConversation,
-  mergeMessagesById,
+  mergeThreadMessages,
   postMessage,
   type ChatMessage,
   type ConversationSummary,
   type MessageClip,
 } from "@/lib/api.messages";
 import { useAuth } from "@/lib/auth";
+import { targetFromPushData } from "@/lib/registerStaffPush";
 import { useSocialUnread } from "@/lib/socialUnread";
 import { formatDurationMs, formatTimeAgo } from "@/lib/format";
-import { getSupabase, supabaseConfigured } from "@/lib/supabase";
+import { applyRealtimeAuth, getSupabase, supabaseConfigured } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 
 function firstParam(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value[0] ?? "";
   return value ?? "";
+}
+
+function senderFromConversation(conversation: ConversationSummary | null, userId?: string): SocialUser {
+  const me = conversation?.members.find((member) => member.id === userId);
+  if (me) return me;
+  return {
+    id: userId ?? "me",
+    username: null,
+    displayName: "You",
+    avatarUrl: null,
+    verified: false,
+  };
 }
 
 export default function ThreadScreen() {
@@ -53,6 +67,7 @@ export default function ThreadScreen() {
   const { setActiveConversation, markConversationRead } = useSocialUnread();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
+  const inputRef = useRef<TextInput>(null);
   const [conversation, setConversation] = useState<ConversationSummary | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -60,7 +75,6 @@ export default function ThreadScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   const title = conversation ? conversationTitle(conversation, userId) : "Chat";
@@ -75,7 +89,7 @@ export default function ThreadScreen() {
         fetchMessages(token, conversationId, { limit: 50 }),
       ]);
       setConversation(nextConversation);
-      setMessages(nextMessages);
+      setMessages((current) => mergeThreadMessages(current, nextMessages));
       setHasMore(nextMessages.length >= 50);
       setActiveConversation(conversationId);
       markConversationRead(conversationId);
@@ -86,6 +100,27 @@ export default function ThreadScreen() {
     }
   }, [token, conversationId, setActiveConversation, markConversationRead]);
 
+  const refreshLive = useCallback(async () => {
+    if (!token || !conversationId) return;
+    try {
+      const [thread, summary] = await Promise.all([
+        fetchMessages(token, conversationId, { limit: 50 }),
+        fetchConversation(token, conversationId).catch(() => null),
+      ]);
+      setMessages((current) => mergeThreadMessages(current, thread));
+      markConversationRead(conversationId);
+      if (summary) {
+        setConversation({
+          ...summary,
+          lastMessage: thread[thread.length - 1] ?? summary.lastMessage,
+          unreadCount: 0,
+        });
+      }
+    } catch {
+      /* next poll or event retries */
+    }
+  }, [token, conversationId, markConversationRead]);
+
   useEffect(() => {
     if (!token) {
       setLoading(false);
@@ -94,6 +129,16 @@ export default function ThreadScreen() {
     void load();
     return () => setActiveConversation(null);
   }, [token, load, setActiveConversation]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || !conversationId) return;
+      const timer = setInterval(() => {
+        void refreshLive();
+      }, 2000);
+      return () => clearInterval(timer);
+    }, [token, conversationId, refreshLive]),
+  );
 
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => {
@@ -111,44 +156,48 @@ export default function ThreadScreen() {
   useEffect(() => {
     if (!token || !userId || !conversationId || !supabaseConfigured()) return;
     const supabase = getSupabase();
+    applyRealtimeAuth(token);
+    const onRow = (conversationKey?: string | null) => {
+      if (conversationKey === conversationId) void refreshLive();
+    };
     const channel = supabase
       .channel(`messages-live:${userId}:${conversationId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
-        const row = payload.new as { id?: string; conversation_id?: string };
-        if (!row.id || row.conversation_id !== conversationId) return;
-        void Promise.all([
-          fetchMessages(token, conversationId, { limit: 50 }),
-          fetchConversation(token, conversationId).catch(() => null),
-        ])
-          .then(([thread, summary]) => {
-            setMessages((current) => mergeMessagesById(current, thread));
-            markConversationRead(conversationId);
-            if (summary) {
-              setConversation({
-                ...summary,
-                lastMessage: thread[thread.length - 1] ?? summary.lastMessage,
-                unreadCount: 0,
-              });
-            }
-          })
-          .catch(() => undefined);
+        const row = payload.new as { conversation_id?: string };
+        onRow(row.conversation_id);
       })
-      .subscribe();
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, (payload) => {
+        const row = payload.new as { kind?: string; conversation_id?: string | null };
+        if (row.kind === "message") onRow(row.conversation_id);
+      })
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") void refreshLive();
+      });
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [token, userId, conversationId, markConversationRead]);
+  }, [token, userId, conversationId, refreshLive]);
+
+  useEffect(() => {
+    if (!conversationId || Platform.OS === "web") return;
+    const sub = Notifications.addNotificationReceivedListener((event) => {
+      const target = targetFromPushData(event.request.content.data);
+      if (target?.kind === "message" && target.conversationId === conversationId) {
+        void refreshLive();
+      }
+    });
+    return () => sub.remove();
+  }, [conversationId, refreshLive]);
 
   async function loadOlder() {
     if (!token || !conversationId || loading || loadingMore || !hasMore || messages.length === 0) return;
+    const oldest = messages.find((item) => !item.id.startsWith("local:"));
+    if (!oldest) return;
     setLoadingMore(true);
     try {
-      const older = await fetchMessages(token, conversationId, { before: messages[0].id, limit: 50 });
+      const older = await fetchMessages(token, conversationId, { before: oldest.id, limit: 50 });
       setHasMore(older.length >= 50);
-      setMessages((current) => {
-        const seen = new Set(current.map((item) => item.id));
-        return [...older.filter((item) => !seen.has(item.id)), ...current];
-      });
+      setMessages((current) => mergeThreadMessages(current, older));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not load older messages.");
     } finally {
@@ -156,21 +205,45 @@ export default function ThreadScreen() {
     }
   }
 
-  async function send() {
-    if (!token || !conversationId) return;
+  function keepKeyboard() {
+    inputRef.current?.focus();
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  function send() {
+    if (!token || !conversationId || !userId) return;
     const body = draft.trim();
     if (!body) return;
-    setBusy(true);
+    const localId = `local:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const createdAt = new Date().toISOString();
+    const optimistic: ChatMessage = {
+      id: localId,
+      conversationId,
+      senderId: userId,
+      body,
+      createdAt,
+      sender: senderFromConversation(conversation, userId),
+      clip: null,
+    };
     setError(null);
-    try {
-      const message = await postMessage(token, conversationId, { body });
-      setMessages((current) => (current.some((item) => item.id === message.id) ? current : [...current, message]));
-      setDraft("");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not send that message.");
-    } finally {
-      setBusy(false);
-    }
+    setDraft("");
+    setMessages((current) => mergeThreadMessages(current, [optimistic]));
+    keepKeyboard();
+    void postMessage(token, conversationId, { body })
+      .then((message) => {
+        setMessages((current) =>
+          mergeThreadMessages(
+            current.filter((item) => item.id !== localId),
+            [message],
+          ),
+        );
+      })
+      .catch((caught) => {
+        setMessages((current) => current.filter((item) => item.id !== localId));
+        setDraft(body);
+        setError(caught instanceof Error ? caught.message : "Could not send that message.");
+        keepKeyboard();
+      });
   }
 
   function confirmLeave() {
@@ -245,18 +318,21 @@ export default function ThreadScreen() {
       />
       <Notice tone="danger">{error}</Notice>
       {messages.length === 0 && !error ? (
-        <View style={styles.empty}>
+        <Pressable style={styles.empty} onPress={Keyboard.dismiss}>
           <Text style={styles.muted}>No messages yet. Say something — clip sending comes from the player later.</Text>
-        </View>
+        </Pressable>
       ) : (
         <FlatList
           inverted
           data={newestFirst}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="interactive"
           onEndReached={() => void loadOlder()}
           onEndReachedThreshold={0.2}
           ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.accent} /> : null}
+          ListHeaderComponent={<Pressable style={styles.listDismiss} onPress={Keyboard.dismiss} />}
           renderItem={({ item }) => (
             <Bubble
               message={item}
@@ -268,17 +344,25 @@ export default function ThreadScreen() {
       )}
       <View style={[styles.composer, { paddingBottom: keyboardOpen ? 10 : Math.max(insets.bottom, 10) }]}>
         <TextInput
+          ref={inputRef}
           style={styles.input}
           value={draft}
           onChangeText={setDraft}
           placeholder="Message"
           placeholderTextColor={colors.muted}
           maxLength={2000}
-          editable={!busy}
           multiline
+          blurOnSubmit={false}
         />
-        <Pressable style={[styles.send, (!draft.trim() || busy) && styles.sendOff]} onPress={() => void send()} disabled={!draft.trim() || busy}>
-          {busy ? <ActivityIndicator color={colors.onAccent} /> : <Ionicons name="send" size={16} color={colors.onAccent} />}
+        <Pressable
+          style={[styles.send, !draft.trim() && styles.sendOff]}
+          onPress={() => {
+            send();
+            keepKeyboard();
+          }}
+          disabled={!draft.trim()}
+        >
+          <Ionicons name="send" size={16} color={colors.onAccent} />
         </Pressable>
       </View>
     </KeyboardAvoidingView>
@@ -330,6 +414,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center", padding: 24 },
   muted: { color: colors.muted, fontSize: 15, lineHeight: 22, textAlign: "center" },
   list: { paddingHorizontal: 12, paddingVertical: 12, gap: 10, flexGrow: 1 },
+  listDismiss: { minHeight: 16 },
   empty: { flex: 1, padding: 24, justifyContent: "center" },
   bubbleWrap: { flexDirection: "row", alignItems: "flex-end", gap: 8, maxWidth: "88%" },
   bubbleMine: { alignSelf: "flex-end", flexDirection: "row-reverse" },

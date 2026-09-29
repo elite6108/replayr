@@ -114,6 +114,28 @@ export function mergeMessagesById(current: ChatMessage[], incoming: ChatMessage[
   return [...map.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+export function isLocalMessageId(id: string) {
+  return id.startsWith("local:");
+}
+
+export function mergeThreadMessages(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const locals = current.filter((item) => isLocalMessageId(item.id));
+  const merged = mergeMessagesById(
+    current.filter((item) => !isLocalMessageId(item.id)),
+    incoming,
+  );
+  const kept = locals.filter(
+    (local) =>
+      !merged.some(
+        (item) =>
+          item.senderId === local.senderId &&
+          item.body === local.body &&
+          Math.abs(Date.parse(item.createdAt) - Date.parse(local.createdAt)) < 60_000,
+      ),
+  );
+  return [...merged, ...kept].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 export function upsertConversation(next: ConversationSummary, current: ConversationSummary[]) {
   const without = current.filter((item) => item.id !== next.id);
   return [next, ...without].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

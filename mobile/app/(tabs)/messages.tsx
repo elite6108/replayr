@@ -3,12 +3,14 @@ import {
   ActivityIndicator,
   FlatList,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import * as Notifications from "expo-notifications";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -29,7 +31,8 @@ import {
 } from "@/lib/api.messages";
 import { useAuth } from "@/lib/auth";
 import { formatTimeAgo } from "@/lib/format";
-import { getSupabase, supabaseConfigured } from "@/lib/supabase";
+import { targetFromPushData } from "@/lib/registerStaffPush";
+import { applyRealtimeAuth, getSupabase, supabaseConfigured } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 
 export default function MessagesScreen() {
@@ -64,6 +67,31 @@ export default function MessagesScreen() {
     }
   }, [token]);
 
+  const refreshInbox = useCallback(async () => {
+    if (!token) return;
+    try {
+      const next = await fetchConversations(token);
+      setConversations(next);
+    } catch {
+      /* next poll or event retries */
+    }
+  }, [token]);
+
+  const bumpConversation = useCallback(
+    async (conversationKey: string, mine: boolean) => {
+      if (!token) return;
+      try {
+        const summary = await fetchConversation(token, conversationKey);
+        setConversations((current) =>
+          upsertConversation({ ...summary, unreadCount: mine ? 0 : Math.max(1, summary.unreadCount) }, current),
+        );
+      } catch {
+        void refreshInbox();
+      }
+    },
+    [token, refreshInbox],
+  );
+
   useFocusEffect(
     useCallback(() => {
       if (!token) {
@@ -71,35 +99,46 @@ export default function MessagesScreen() {
         return;
       }
       void load();
-    }, [token, load]),
+      const timer = setInterval(() => {
+        void refreshInbox();
+      }, 2000);
+      return () => clearInterval(timer);
+    }, [token, load, refreshInbox]),
   );
 
   useEffect(() => {
     if (!token || !userId || !supabaseConfigured()) return;
     const supabase = getSupabase();
+    applyRealtimeAuth(token);
     const channel = supabase
       .channel(`messages-inbox:${userId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
         const row = payload.new as { id?: string; conversation_id?: string; sender_id?: string };
         const conversationKey = row.conversation_id;
         if (!conversationKey || !row.id) return;
-        const mine = row.sender_id === userId;
-        void fetchConversation(token, conversationKey)
-          .then((summary) => {
-            setConversations((current) =>
-              upsertConversation(
-                { ...summary, unreadCount: mine ? 0 : Math.max(1, summary.unreadCount) },
-                current,
-              ),
-            );
-          })
-          .catch(() => undefined);
+        void bumpConversation(conversationKey, row.sender_id === userId);
       })
-      .subscribe();
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, (payload) => {
+        const row = payload.new as { kind?: string; conversation_id?: string | null };
+        if (row.kind !== "message" || !row.conversation_id) return;
+        void bumpConversation(row.conversation_id, false);
+      })
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") void refreshInbox();
+      });
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [token, userId]);
+  }, [token, userId, bumpConversation, refreshInbox]);
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const sub = Notifications.addNotificationReceivedListener((event) => {
+      const target = targetFromPushData(event.request.content.data);
+      if (target?.kind === "message") void bumpConversation(target.conversationId, false);
+    });
+    return () => sub.remove();
+  }, [bumpConversation]);
 
   async function openDm(friend: Friend) {
     if (!token) return;

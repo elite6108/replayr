@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { fetchFriendRequests, fetchNotifications } from "./api.friends";
 import { fetchConversations } from "./api.messages";
 import { useAuth } from "./auth";
-import { getSupabase, supabaseConfigured } from "./supabase";
+import { applyRealtimeAuth, getSupabase, supabaseConfigured } from "./supabase";
 
 type UnreadValue = {
   friendsUnread: boolean;
@@ -71,6 +71,7 @@ export function SocialUnreadProvider({ children }: { children: ReactNode }) {
       .catch(() => undefined);
 
     const supabase = getSupabase();
+    applyRealtimeAuth(token);
     const channel = supabase
       .channel(`social-unread:${userId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {

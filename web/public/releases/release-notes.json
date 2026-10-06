@@ -1,4 +1,7 @@
 {
+  "0.1.59": [
+    "This PC library shows Cloud only on clips that were actually uploaded, not lookalikes with the same title."
+  ],
   "0.1.58": [
     "Account photos upload to Replayr and show in the top bar, on the website, and in the mobile app."
   ],

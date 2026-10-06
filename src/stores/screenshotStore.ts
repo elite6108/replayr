@@ -8,6 +8,7 @@ import {
   copyScreenshot,
   deleteScreenshot,
   exportScreenshot,
+  backfillScreenshotThumbs,
   listScreenshots,
   provideScreenshotSession,
   revealScreenshot,
@@ -30,6 +31,7 @@ interface ScreenshotState {
   loaded: boolean;
   usage: ScreenshotUsage | null;
   refresh: () => Promise<void>;
+  backfillThumbs: () => Promise<void>;
   refreshUsage: () => Promise<void>;
   take: () => Promise<void>;
   copy: (id: string, what: "image" | "link") => Promise<void>;
@@ -41,6 +43,11 @@ interface ScreenshotState {
 }
 
 const LISTEN_KEY = "__replayScreenshotListeners";
+const THUMB_BATCH = 4;
+const THUMB_ROUNDS = 40;
+
+let backfillRunning = false;
+let backfillUnsupported = false;
 
 function upsert(items: Screenshot[], next: Screenshot): Screenshot[] {
   const rest = items.filter((item) => item.id !== next.id);
@@ -58,6 +65,30 @@ export const useScreenshotStore = create<ScreenshotState>((set, get) => ({
     } catch (caught) {
       set({ loaded: true });
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not load screenshots"));
+    }
+  },
+
+  backfillThumbs: async () => {
+    if (backfillRunning || backfillUnsupported) return;
+    backfillRunning = true;
+    try {
+      for (let round = 0; round < THUMB_ROUNDS; round += 1) {
+        const updated = await backfillScreenshotThumbs(THUMB_BATCH);
+        if (updated.length === 0) return;
+        set((state) => ({
+          items: state.items.map((item) => updated.find((next) => next.id === item.id) ?? item),
+        }));
+      }
+    } catch (caught) {
+      const message = invokeErrorMessage(caught, "");
+      // The desktop process that is already open was built before this command existed.
+      if (/not allowed|command not found/i.test(message)) {
+        backfillUnsupported = true;
+        return;
+      }
+      useToastStore.getState().show(message || "Could not prepare screenshot thumbnails");
+    } finally {
+      backfillRunning = false;
     }
   },
 
@@ -149,7 +180,15 @@ export const useScreenshotStore = create<ScreenshotState>((set, get) => ({
 
   syncCloud: async () => {
     try {
-      set({ items: await syncScreenshotCloud(), loaded: true });
+      const next = await syncScreenshotCloud();
+      set((state) => ({
+        items: next.map((item) => {
+          if (item.thumbPath) return item;
+          const previous = state.items.find((row) => row.id === item.id);
+          return previous?.thumbPath ? { ...item, thumbPath: previous.thumbPath } : item;
+        }),
+        loaded: true,
+      }));
     } catch (caught) {
       const message = invokeErrorMessage(caught, "");
       if (/not allowed|not found/i.test(message)) {

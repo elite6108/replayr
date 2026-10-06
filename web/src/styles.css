@@ -687,6 +687,10 @@ textarea {
   gap: 14px;
 }
 
+.clip-grid > * {
+  min-width: 0;
+}
+
 .library-sentinel {
   height: 1px;
 }

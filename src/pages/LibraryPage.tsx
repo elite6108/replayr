@@ -73,6 +73,7 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "sc
   const screenshotsLoaded = useScreenshotStore((state) => state.loaded);
   const screenshotUsage = useScreenshotStore((state) => state.usage);
   const refreshScreenshots = useScreenshotStore((state) => state.refresh);
+  const backfillScreenshotThumbs = useScreenshotStore((state) => state.backfillThumbs);
   const refreshScreenshotUsage = useScreenshotStore((state) => state.refreshUsage);
   const syncScreenshots = useScreenshotStore((state) => state.syncCloud);
   const copyScreenshot = useScreenshotStore((state) => state.copy);
@@ -103,18 +104,25 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "sc
   const userId = user?.id;
 
   useEffect(() => {
+    if (view === "screenshots") return;
     void refreshLocal();
     if (userId) void refreshCloud();
-  }, [refreshCloud, refreshLocal, userId]);
+  }, [refreshCloud, refreshLocal, userId, view]);
 
   useEffect(() => {
     if (view !== "screenshots") return;
-    void refreshScreenshots();
-    if (userId) {
+    let cancelled = false;
+    void (async () => {
+      await refreshScreenshots();
+      if (cancelled) return;
       void refreshScreenshotUsage();
-      void syncScreenshots();
-    }
-  }, [refreshScreenshotUsage, refreshScreenshots, syncScreenshots, userId, view]);
+      void backfillScreenshotThumbs();
+      if (userId) void syncScreenshots();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [backfillScreenshotThumbs, refreshScreenshotUsage, refreshScreenshots, syncScreenshots, userId, view]);
 
   function openLocalDelete(localIds: string[]) {
     const linkedCloud = clips.some((clip) => localIds.includes(clip.localId) && clip.cloudClipId);

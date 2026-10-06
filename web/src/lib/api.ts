@@ -263,8 +263,9 @@ export interface CloudScreenshot {
 export async function fetchUserScreenshots(
   accessToken: string,
   page = 1,
+  limit = 24,
 ): Promise<{ screenshots: CloudScreenshot[]; total: number }> {
-  const response = await fetch(apiUrl(`/v1/screenshots?page=${page}&limit=48`), {
+  const response = await fetch(apiUrl(`/v1/screenshots?page=${page}&limit=${limit}`), {
     headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
   });
   return readApiJson(response, "Could not load screenshots.");

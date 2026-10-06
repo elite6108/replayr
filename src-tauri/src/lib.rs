@@ -293,6 +293,7 @@ pub fn run() {
             commands::save_screenshot,
             snip::commands::screenshot_start,
             snip::commands::screenshot_list,
+            snip::commands::screenshot_backfill_thumbs,
             snip::commands::screenshot_delete,
             snip::commands::screenshot_copy,
             snip::commands::screenshot_reveal,

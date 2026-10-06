@@ -292,6 +292,10 @@ export async function listScreenshots(limit?: number): Promise<Screenshot[]> {
   return invoke("screenshot_list", { limit: limit ?? null });
 }
 
+export async function backfillScreenshotThumbs(limit = 4): Promise<Screenshot[]> {
+  return invoke("screenshot_backfill_thumbs", { limit });
+}
+
 export async function deleteScreenshot(id: string, deleteFile: boolean, deleteCloud = false): Promise<void> {
   return invoke("screenshot_delete", { id, deleteFile, deleteCloud });
 }

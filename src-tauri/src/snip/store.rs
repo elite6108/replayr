@@ -176,6 +176,28 @@ pub fn set_file_path(conn: &Connection, id: &str, file_path: &str) -> rusqlite::
     Ok(conn.execute("UPDATE screenshots SET file_path = ?1 WHERE id = ?2", params![file_path, id])? > 0)
 }
 
+pub fn set_thumb_path(conn: &Connection, id: &str, thumb_path: &str) -> rusqlite::Result<bool> {
+    Ok(conn.execute(
+        "UPDATE screenshots SET thumb_path = ?1 WHERE id = ?2",
+        params![thumb_path, id],
+    )? > 0)
+}
+
+/// Newest local screenshots that still have a PNG but no library JPEG.
+pub fn list_missing_thumbs(
+    conn: &Connection,
+    limit: u32,
+) -> rusqlite::Result<Vec<ScreenshotRecord>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {COLUMNS} FROM screenshots \
+         WHERE upload_status <> 'deleted' AND file_path <> '' \
+           AND (thumb_path IS NULL OR thumb_path = '') \
+         ORDER BY created_at DESC, id DESC LIMIT ?1"
+    ))?;
+    let rows = stmt.query_map([limit.clamp(1, 64)], from_row)?;
+    rows.collect()
+}
+
 pub fn set_upload(
     conn: &Connection,
     id: &str,
@@ -296,6 +318,14 @@ mod tests {
         assert_eq!(get(&conn, "shot-1").unwrap().unwrap().width, 640);
         let listed = list(&conn, 10).unwrap();
         assert_eq!(listed.len(), 1, "deleted rows are hidden");
+        let missing = list_missing_thumbs(&conn, 10).unwrap();
+        assert_eq!(missing.len(), 1, "a local png without a jpeg is due a thumbnail");
+        assert!(set_thumb_path(&conn, "shot-1", "C:/thumbs/shot-1.jpg").unwrap());
+        assert!(list_missing_thumbs(&conn, 10).unwrap().is_empty());
+        assert_eq!(
+            get(&conn, "shot-1").unwrap().unwrap().thumb_path.as_deref(),
+            Some("C:/thumbs/shot-1.jpg")
+        );
         assert!(remove(&conn, "shot-1").unwrap());
         assert!(get(&conn, "shot-1").unwrap().is_none());
     }

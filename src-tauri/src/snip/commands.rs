@@ -1,6 +1,9 @@
 //! Tauri commands for region screenshots.
 
-use tauri::AppHandle;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+use tauri::{AppHandle, Manager};
 
 use crate::error::{AppError, AppResult};
 
@@ -19,22 +22,98 @@ pub fn screenshot_start(app: AppHandle) {
     super::start(&app, SnipTrigger::InApp);
 }
 
-/// Newest screenshots first, with their files allowed through the asset protocol for display.
+/// Newest screenshots first, with their folders allowed through the asset protocol for display.
 #[tauri::command]
 pub fn screenshot_list(app: AppHandle, limit: Option<u32>) -> AppResult<Vec<ScreenshotRecord>> {
     let records = with_db(&app, |conn| {
         store::list(conn, limit.unwrap_or(DEFAULT_LIST_LIMIT)).map_err(|err| err.to_string())
     })
     .map_err(to_app_error)?;
-    for record in &records {
+    allow_screenshot_dirs(&app, &records);
+    Ok(records)
+}
+
+/// Allow each screenshots folder once. The grid only displays JPEG thumbs; opening one still
+/// needs the PNG folder, but neither has to be granted file by file.
+fn allow_screenshot_dirs(app: &AppHandle, records: &[ScreenshotRecord]) {
+    let mut dirs = HashSet::<PathBuf>::new();
+    if let Ok(thumbs) = super::thumbs_dir(app) {
+        dirs.insert(thumbs);
+    }
+    for record in records {
         if !record.file_path.is_empty() {
-            crate::paths::allow_asset_file(&app, std::path::Path::new(&record.file_path));
+            push_parent(&mut dirs, Path::new(&record.file_path));
         }
         if let Some(thumb) = &record.thumb_path {
-            crate::paths::allow_asset_file(&app, std::path::Path::new(thumb));
+            push_parent(&mut dirs, Path::new(thumb));
         }
     }
-    Ok(records)
+    let scope = app.asset_protocol_scope();
+    for dir in dirs {
+        let _ = scope.allow_directory(&dir, true);
+    }
+}
+
+fn push_parent(dirs: &mut HashSet<PathBuf>, path: &Path) {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            dirs.insert(parent.to_path_buf());
+        }
+    }
+}
+
+const BACKFILL_DEFAULT: u32 = 4;
+
+/// Build missing library JPEGs from local PNGs, a few at a time, after the grid is already shown.
+#[tauri::command]
+pub fn screenshot_backfill_thumbs(
+    app: AppHandle,
+    limit: Option<u32>,
+) -> AppResult<Vec<ScreenshotRecord>> {
+    let batch = limit.unwrap_or(BACKFILL_DEFAULT).clamp(1, 8);
+    // Look past a run of unreadable files so one bad PNG does not block the rest of the library.
+    let scan = 64;
+    let pending = with_db(&app, |conn| {
+        store::list_missing_thumbs(conn, scan).map_err(|err| err.to_string())
+    })
+    .map_err(to_app_error)?;
+    let mut updated = Vec::new();
+    for record in pending {
+        if updated.len() >= batch as usize {
+            break;
+        }
+        match write_missing_thumb(&app, &record) {
+            Ok(Some(next)) => updated.push(next),
+            Ok(None) => {}
+            Err(err) => {
+                tracing::warn!(id = %record.id, %err, "could not build screenshot thumbnail")
+            }
+        }
+    }
+    allow_screenshot_dirs(&app, &updated);
+    Ok(updated)
+}
+
+fn write_missing_thumb(
+    app: &AppHandle,
+    record: &ScreenshotRecord,
+) -> Result<Option<ScreenshotRecord>, String> {
+    if record.file_path.is_empty() {
+        return Ok(None);
+    }
+    crate::paths::assert_reveal_allowed(app, &record.file_path).map_err(|err| err.to_string())?;
+    let png = std::fs::read(&record.file_path)
+        .map_err(|_| "That screenshot is no longer on disk.".to_string())?;
+    let frame = super::encode::decode_png(&png)?;
+    let jpeg = super::encode::thumbnail(&frame)?;
+    let path = store::write_new(&super::thumbs_dir(app)?, &record.id, "jpg", &jpeg)?;
+    let thumb_path = path.display().to_string();
+    with_db(app, |conn| {
+        store::set_thumb_path(conn, &record.id, &thumb_path).map_err(|err| err.to_string())?;
+        store::get(conn, &record.id).map_err(|err| err.to_string())
+    })?
+    .ok_or_else(|| "That screenshot was not found.".to_string())
+    .map(Some)
 }
 
 /// Remove a screenshot from the Library, and optionally its file on disk and/or cloud copy.

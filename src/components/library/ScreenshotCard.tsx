@@ -40,7 +40,7 @@ export function ScreenshotCard({
   onRetry?: (shot: Screenshot) => void;
   onDelete?: (shot: Screenshot) => void;
 }) {
-  const thumb = shot.thumbPath || shot.filePath;
+  const thumb = shot.thumbPath;
   const badge = statusBadge(shot);
   const date = formatClipDate(shot.createdAt);
   const location = badge.state === "ready" ? "Cloud" : "This PC";
@@ -70,7 +70,7 @@ export function ScreenshotCard({
       ) : null}
       <button type="button" className="clip-open" onClick={() => onOpen(shot)}>
         <div className="clip-thumb">
-          {thumb ? <img src={convertFileSrc(thumb)} alt="" loading="lazy" /> : null}
+          {thumb ? <img src={convertFileSrc(thumb)} alt="" loading="lazy" decoding="async" /> : null}
           <span className={`clip-cloud-badge ${badge.state === "local" ? "busy" : badge.state}`} title={badge.title}>
             <IconCloud size={14} fill={badge.state === "ready" ? "currentColor" : "none"} />
             <span>

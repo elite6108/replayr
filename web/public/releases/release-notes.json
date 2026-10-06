@@ -1,4 +1,8 @@
 {
+  "0.1.60": [
+    "The Windows screenshots library opens from thumbnails instead of decoding every full image.",
+    "Website screenshots sit in a card grid instead of stacking on top of each other."
+  ],
   "0.1.59": [
     "This PC library shows Cloud only on clips that were actually uploaded, not lookalikes with the same title."
   ],

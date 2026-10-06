@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { AnalyticsLineChart } from "../../../components/analytics/AnalyticsLineChart";
 import type { AnalyticsSeries } from "../../../lib/adminAnalytics";
 
@@ -7,12 +8,14 @@ export function ActivityChart({
   active,
   signups,
   clips,
+  analyticsHref,
 }: {
   loading: boolean;
   error: string | null;
   active: AnalyticsSeries | null;
   signups: AnalyticsSeries | null;
   clips: AnalyticsSeries | null;
+  analyticsHref?: string;
 }) {
   const series = [
     active ? { key: "active", label: "Active users", color: "#7fd0ef", data: active } : null,
@@ -23,6 +26,11 @@ export function ActivityChart({
 
   return (
     <section className="admin-panel admin-activity">
+      {analyticsHref ? (
+        <p className="admin-activity-link">
+          <Link to={analyticsHref}>Open analytics</Link>
+        </p>
+      ) : null}
       {loading ? <p className="muted">Loading activity…</p> : null}
       {error ? <p className="error">{error}</p> : null}
       {empty ? (

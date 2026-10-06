@@ -13,13 +13,6 @@ export type AnalyticsSection = {
   tabs: AnalyticsTab[];
 };
 
-export type AnalyticsSidebarItem = {
-  id: string;
-  label: string;
-  to: string;
-  end?: boolean;
-};
-
 export const analyticsSections: AnalyticsSection[] = [
   {
     id: "growth",
@@ -65,18 +58,18 @@ export const analyticsSections: AnalyticsSection[] = [
       { id: "product-health", label: "Product Health", path: "/admin/analytics/health", end: true },
       { id: "live", label: "Live", path: "/admin/analytics/health/live" },
       { id: "traffic", label: "Traffic", path: "/admin/analytics/health/traffic" },
-      { id: "errors", label: "Errors", path: "/admin/analytics/health/errors" },
     ],
   },
 ];
 
-export const analyticsSidebarItems: AnalyticsSidebarItem[] = [
-  { id: "overview", label: "Overview", to: "/admin/analytics", end: true },
-  { id: "growth", label: "Growth", to: "/admin/analytics/growth" },
-  { id: "product", label: "Product", to: "/admin/analytics/product" },
-  { id: "business", label: "Business", to: "/admin/analytics/business" },
-  { id: "health", label: "Health", to: "/admin/analytics/health" },
-  { id: "reports", label: "Reports", to: "/admin/analytics/reports" },
+/** Second-level analytics navigation. Topic pages stay nested under these sections. */
+export const analyticsTopTabs: AnalyticsTab[] = [
+  { id: "overview", label: "Overview", path: "/admin/analytics", end: true },
+  { id: "growth", label: "Growth", path: "/admin/analytics/growth" },
+  { id: "product", label: "Product", path: "/admin/analytics/product" },
+  { id: "business", label: "Business", path: "/admin/analytics/business" },
+  { id: "health", label: "Health", path: "/admin/analytics/health" },
+  { id: "reports", label: "Reports", path: "/admin/analytics/reports" },
 ];
 
 /** Bookmarked topic URLs → nested section paths. Search params are preserved at redirect time. */

@@ -15,6 +15,7 @@ export function SocialIconButton({
   disabled?: boolean;
   onPress: () => void;
 }) {
+  const short = label.replace(/^Continue with /, "");
   return (
     <Pressable
       accessibilityRole="button"
@@ -24,22 +25,26 @@ export function SocialIconButton({
       style={({ pressed }) => [styles.btn, pressed && styles.pressed, disabled && styles.disabled]}
     >
       {icon ? <Ionicons name={icon} size={22} color={colors.text} /> : <Text style={styles.mark}>{mark}</Text>}
+      <Text style={styles.caption}>{short}</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   btn: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    minWidth: 76,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 4,
   },
   pressed: { opacity: 0.7 },
   disabled: { opacity: 0.45 },
   mark: { color: colors.text, fontSize: 18, fontWeight: "800" },
+  caption: { color: colors.text, fontSize: 12, fontWeight: "600" },
 });

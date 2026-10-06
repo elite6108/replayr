@@ -273,7 +273,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   recordingVisuals: { ...DEFAULT_RECORDING_VISUALS, overlays: { ...DEFAULT_RECORDING_VISUALS.overlays } },
   clipStudio: { ...DEFAULT_CLIP_STUDIO, scenes: [] },
   screenshots: { ...DEFAULT_SCREENSHOT_SETTINGS },
-  previewQuality: "balanced",
+  previewQuality: "full",
   clipSceneLibrary: null,
   clipComposition: null,
 };

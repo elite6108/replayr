@@ -9,6 +9,7 @@ import { fetchBillingStatus, startCheckout, startPortal, type BillingStatus } fr
 import { useAuth } from "../lib/auth";
 import { formatBytes, planLabel } from "../lib/format";
 import { getSupabase } from "../lib/supabase";
+import { usernameTakenMessage, validateUsername } from "../lib/username";
 
 interface ProfileRow {
   username: string | null;
@@ -25,6 +26,7 @@ export function AccountPage() {
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [usernameDraft, setUsernameDraft] = useState("");
 
   useEffect(() => {
     if (!userId || !session?.access_token) return;
@@ -37,7 +39,11 @@ export function AccountPage() {
       ]);
       if (cancelled) return;
       if (profileResult.error) setError(profileResult.error.message);
-      else setProfile(profileResult.data as ProfileRow | null);
+      else {
+        const row = profileResult.data as ProfileRow | null;
+        setProfile(row);
+        setUsernameDraft(row?.username ?? "");
+      }
       if (billingResult) setBilling(billingResult);
     })();
     return () => {
@@ -133,7 +139,52 @@ export function AccountPage() {
         <dt>Email</dt>
         <dd>{session?.user.email}</dd>
         <dt>Username</dt>
-        <dd>{profile?.username || "Not set yet — choose one in the desktop app."}</dd>
+        <dd>
+          <form
+            className="stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const invalid = validateUsername(usernameDraft);
+              if (invalid) {
+                setError(invalid);
+                return;
+              }
+              const nextName = usernameDraft.trim();
+              if (!userId) return;
+              setBusy(true);
+              setError(null);
+              const patch: { username: string; display_name?: string } = { username: nextName };
+              if (!profile?.display_name?.trim()) patch.display_name = nextName;
+              void getSupabase()
+                .from("profiles")
+                .update(patch)
+                .eq("id", userId)
+                .then(({ error: updateError }) => {
+                  if (updateError) setError(usernameTakenMessage(updateError));
+                  else {
+                    setProfile((current) =>
+                      current
+                        ? { ...current, username: nextName, display_name: patch.display_name ?? current.display_name }
+                        : { username: nextName, display_name: nextName, avatar_url: null, is_private: false },
+                    );
+                  }
+                  setBusy(false);
+                });
+            }}
+          >
+            <input
+              value={usernameDraft}
+              onChange={(event) => setUsernameDraft(event.target.value)}
+              autoCapitalize="none"
+              autoComplete="username"
+              aria-label="Username"
+              disabled={busy}
+            />
+            <button className="btn" type="submit" disabled={busy || usernameDraft.trim() === (profile?.username ?? "")}>
+              {profile?.username ? "Update username" : "Save username"}
+            </button>
+          </form>
+        </dd>
         <dt>Display name</dt>
         <dd>{profile?.display_name || "—"}</dd>
         <dt>Private account</dt>

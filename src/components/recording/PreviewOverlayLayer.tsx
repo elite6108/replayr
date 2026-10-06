@@ -9,9 +9,11 @@ function formatClock(now: Date) {
 export function PreviewOverlayLayer({
   filter,
   overlays,
+  recorded = false,
 }: {
   filter: GameplayVisualFilter;
   overlays: RecordingOverlaySettings;
+  recorded?: boolean;
 }) {
   const [now, setNow] = useState(() => new Date());
   const showClock = overlays.timestamp;
@@ -26,7 +28,7 @@ export function PreviewOverlayLayer({
   if (!showClock && !showRec) return null;
 
   return (
-    <div className={`preview-overlays overlay-${filter}`} aria-hidden="true">
+    <div className={`preview-overlays overlay-${filter}${recorded ? " is-recorded" : ""}`} aria-hidden="true">
       {showRec ? (
         <span className="preview-rec">
           <i />

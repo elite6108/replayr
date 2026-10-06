@@ -76,12 +76,12 @@ export function CaptureOutputFields({
             onSave("previewQuality", event.target.value as AppSettings["previewQuality"])
           }
         >
-          <option value="full">Full (up to 1080p)</option>
+          <option value="full">Full (match output, up to 2560)</option>
           <option value="balanced">Balanced (720p)</option>
           <option value="performance">Performance (540p)</option>
         </select>
         <p className="muted" style={{ marginTop: 6 }}>
-          Does not change the recording file. Full size applies on the next recording session.
+          Does not change the recording file. A composed session keeps the preview size it opened with.
         </p>
       </div>
     </div>

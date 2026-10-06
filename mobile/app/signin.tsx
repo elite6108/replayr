@@ -15,6 +15,14 @@ import { SocialAuthRow } from "@/components/SocialAuthRow";
 import { Button, Field, Notice } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { takePendingDeepLink } from "@/lib/pendingDeepLink";
+import {
+  CONFIRM_EMAIL_MESSAGE,
+  EXISTING_ACCOUNT_MESSAGE,
+  isAlreadyRegisteredError,
+  MOBILE_EMAIL_REDIRECT,
+  normalizeAuthEmail,
+  signupUserAlreadyExists,
+} from "@/lib/signup";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 
@@ -42,6 +50,7 @@ export default function SignInScreen() {
   const { session } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [mode, setMode] = useState<"in" | "up">("in");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -82,23 +91,66 @@ export default function SignInScreen() {
     try {
       if (!supabaseConfigured()) throw new Error("Supabase is not configured.");
       const auth = getSupabase().auth;
+      const normalized = normalizeAuthEmail(email);
       if (mode === "in") {
-        const { error: next } = await auth.signInWithPassword({ email: email.trim(), password });
+        const { error: next } = await auth.signInWithPassword({ email: normalized, password });
         if (next) throw next;
       } else {
+        if (password.length < 6) {
+          setError("Password must be at least 6 characters.");
+          return;
+        }
+        if (password !== confirm) {
+          setError("Passwords do not match.");
+          return;
+        }
         const { data, error: next } = await auth.signUp({
-          email: email.trim(),
+          email: normalized,
           password,
-          options: { emailRedirectTo: "https://www.replayr.tv/auth/callback" },
+          options: { emailRedirectTo: MOBILE_EMAIL_REDIRECT },
         });
-        if (next) throw next;
+        if (next) {
+          if (isAlreadyRegisteredError(next.message)) {
+            setError(EXISTING_ACCOUNT_MESSAGE);
+            return;
+          }
+          throw next;
+        }
+        if (signupUserAlreadyExists(data.user)) {
+          setError(EXISTING_ACCOUNT_MESSAGE);
+          return;
+        }
         if (!data.session) {
-          setNotice("Account created. Confirm the email, then sign in.");
+          setNotice(CONFIRM_EMAIL_MESSAGE);
           return;
         }
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not sign in");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onResend() {
+    const trimmed = normalizeAuthEmail(email);
+    if (!trimmed || !trimmed.includes("@")) {
+      setError("Enter your email, then resend the confirmation.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      if (!supabaseConfigured()) throw new Error("Supabase is not configured.");
+      const { error: resendError } = await getSupabase().auth.resend({
+        type: "signup",
+        email: trimmed,
+        options: { emailRedirectTo: MOBILE_EMAIL_REDIRECT },
+      });
+      if (resendError) throw resendError;
+      setNotice("Confirmation email sent. Confirm it, then sign in.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not resend the confirmation email");
     } finally {
       setBusy(false);
     }
@@ -138,8 +190,24 @@ export default function SignInScreen() {
         <Text style={styles.title}>{mode === "in" ? "Sign in" : "Create account"}</Text>
         <Text style={styles.muted}>Same Replayr account as the Windows app. Clipping still happens on the PC.</Text>
         <View style={styles.row}>
-          <Button label="Sign in" kind={mode === "in" ? "primary" : "default"} onPress={() => setMode("in")} />
-          <Button label="Create account" kind={mode === "up" ? "primary" : "default"} onPress={() => setMode("up")} />
+          <Button
+            label="Sign in"
+            kind={mode === "in" ? "primary" : "default"}
+            onPress={() => {
+              setMode("in");
+              setError(null);
+              setNotice(null);
+            }}
+          />
+          <Button
+            label="Create account"
+            kind={mode === "up" ? "primary" : "default"}
+            onPress={() => {
+              setMode("up");
+              setError(null);
+              setNotice(null);
+            }}
+          />
         </View>
         <SocialAuthRow
           disabled={busy}
@@ -172,8 +240,30 @@ export default function SignInScreen() {
           autoComplete={mode === "in" ? "current-password" : "new-password"}
           onFocus={revealField}
         />
+        {mode === "up" ? (
+          <Field
+            label="Confirm password"
+            value={confirm}
+            onChangeText={setConfirm}
+            secureTextEntry
+            autoComplete="new-password"
+            onFocus={revealField}
+          />
+        ) : null}
         <Notice tone="danger">{error}</Notice>
+        {error === EXISTING_ACCOUNT_MESSAGE ? (
+          <Button
+            label="Sign in"
+            onPress={() => {
+              setMode("in");
+              setError(null);
+            }}
+          />
+        ) : null}
         <Notice>{notice}</Notice>
+        {notice === CONFIRM_EMAIL_MESSAGE ? (
+          <Button label="Resend email" disabled={busy || !email.trim()} onPress={() => void onResend()} />
+        ) : null}
         <Button
           label={busy ? "Working…" : mode === "in" ? "Sign in" : "Create account"}
           kind="primary"

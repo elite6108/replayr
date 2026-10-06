@@ -559,3 +559,31 @@
     animation: none;
   }
 }
+
+/* Output-pixel text. Clips keep the CSS-pixel style above. */
+.preview-text.is-recorded {
+  display: block;
+  padding: 2px 4px;
+  font-family: "Segoe UI", sans-serif;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: left;
+  text-shadow: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  place-items: start;
+}
+
+.preview-text.is-recorded.align-center { text-align: center; }
+.preview-text.is-recorded.align-right { text-align: right; }
+
+.preview-overlays.is-recorded .preview-rec,
+.preview-overlays.is-recorded .preview-timestamp {
+  font-family: "Segoe UI", sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  text-shadow: none;
+}
+
+.preview-overlays.is-recorded .preview-rec { top: 12px; right: 12px; }
+.preview-overlays.is-recorded .preview-timestamp { left: 12px; bottom: 12px; }

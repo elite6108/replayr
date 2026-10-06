@@ -52,6 +52,8 @@ pub struct ComposedRecordingState {
 
 struct ActiveComposed {
     stop: Arc<AtomicBool>,
+    finished: Arc<AtomicBool>,
+    failure: Arc<Mutex<Option<String>>>,
     thread: Option<JoinHandle<Result<FinishedComposed, String>>>,
     path: std::path::PathBuf,
     started: Instant,
@@ -60,6 +62,7 @@ struct ActiveComposed {
     width: u32,
     height: u32,
     fps: u32,
+    output_fallback: bool,
     webcam_layout: Option<crate::overlay::OverlayLayout>,
 }
 
@@ -72,6 +75,20 @@ struct FinishedComposed {
     frames: u64,
     game_id: Option<String>,
     title: String,
+    error: Option<String>,
+}
+
+/// Encoder or finalize failure after frames are written keeps the file and reports it.
+/// Zero frames stays a hard error. A clean finish has no error.
+pub(crate) fn composed_completion(fatal: Option<String>, frames: u64) -> Result<Option<String>, String> {
+    match fatal {
+        Some(err) if frames == 0 => Err(err),
+        Some(err) => Ok(Some(format!(
+            "{err} The file was kept but was not added to the library."
+        ))),
+        None if frames == 0 => Err("Composed recording captured no frames.".into()),
+        None => Ok(None),
+    }
 }
 
 impl Default for ComposedRecordingState {
@@ -84,20 +101,34 @@ impl Default for ComposedRecordingState {
 
 impl ComposedRecordingState {
     pub fn is_active(&self) -> bool {
-        self.inner.lock().map(|inner| inner.is_some()).unwrap_or(true)
+        self.inner
+            .lock()
+            .map(|inner| {
+                inner
+                    .as_ref()
+                    .map(|session| !session.finished.load(Ordering::SeqCst))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(true)
     }
 
     pub fn status(&self) -> Option<RecordingStatus> {
         let inner = self.inner.lock().ok()?;
         let session = inner.as_ref()?;
+        let finished = session.finished.load(Ordering::SeqCst);
+        let error = session.failure.lock().ok().and_then(|slot| slot.clone());
         Some(RecordingStatus {
-            active: true,
+            active: !finished,
             path: Some(session.path.display().to_string()),
             target: Some(session.target.clone()),
-            started_at: Some(session.started_at.clone()),
+            started_at: if finished { None } else { Some(session.started_at.clone()) },
             duration_ms: session.started.elapsed().as_millis() as u64,
-            error: None,
+            error,
             composed: true,
+            output_width: session.width,
+            output_height: session.height,
+            output_fps: session.fps,
+            output_fallback: session.output_fallback,
         })
     }
 }
@@ -161,6 +192,21 @@ fn start_windows(
             "Webcam is in use by Instant Replay. Turn off Instant Replay or use Legacy recording.".into(),
         ));
     }
+    let slot = composed
+        .inner
+        .lock()
+        .map_err(|err| AppError::Message(err.to_string()))?;
+    let already_finished = slot
+        .as_ref()
+        .map(|session| session.finished.load(Ordering::SeqCst))
+        .unwrap_or(false);
+    if slot.is_some() && !already_finished {
+        return Err(AppError::Message("Composed recording is already running.".into()));
+    }
+    drop(slot);
+    if already_finished {
+        reap_composed_slot(composed);
+    }
     let mut slot = composed
         .inner
         .lock()
@@ -197,7 +243,14 @@ fn start_windows(
     };
     let audio = (*app.state::<crate::audio::AudioRuntime>()).clone();
     let stop = Arc::new(AtomicBool::new(false));
+    let finished = Arc::new(AtomicBool::new(false));
+    let failure: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let output_fallback_flag = Arc::new(AtomicBool::new(false));
+    let thread_fallback = Arc::clone(&output_fallback_flag);
     let thread_stop = Arc::clone(&stop);
+    let thread_finished = Arc::clone(&finished);
+    let thread_failure = Arc::clone(&failure);
+    let thread_app = app.clone();
     let thread_path = path.clone();
     let thread_spec = spec.clone();
     let thread_title = title.clone();
@@ -210,19 +263,52 @@ fn start_windows(
     let handle = std::thread::Builder::new()
         .name("composed-record".into())
         .spawn(move || {
-            run_composed_session(
+            let result = run_composed_session(
                 thread_spec,
-                thread_path,
+                thread_path.clone(),
                 thread_pid,
                 thread_game_id,
-                thread_title,
+                thread_title.clone(),
                 audio_plan,
                 audio,
                 thread_settings,
                 thread_preview,
-                thread_stop,
+                thread_stop.clone(),
                 ready_tx,
-            )
+            );
+            if thread_stop.load(Ordering::SeqCst) {
+                return result;
+            }
+            thread_finished.store(true, Ordering::SeqCst);
+            let error = match &result {
+                Err(err) => Some(err.clone()),
+                Ok(done) => done.error.clone(),
+            };
+            if let Ok(mut slot) = thread_failure.lock() {
+                *slot = error.clone();
+            }
+            let (width, height, fps) = match &result {
+                Ok(done) => (done.width, done.height, done.fps),
+                Err(_) => (0, 0, 0),
+            };
+            let fallback = thread_fallback.load(Ordering::SeqCst);
+            let _ = thread_app.emit(
+                "recording-status",
+                &RecordingStatus {
+                    active: false,
+                    path: Some(thread_path.display().to_string()),
+                    target: Some(thread_title),
+                    started_at: None,
+                    duration_ms: 0,
+                    error,
+                    composed: true,
+                    output_width: width,
+                    output_height: height,
+                    output_fps: fps,
+                    output_fallback: fallback,
+                },
+            );
+            result
         })
         .map_err(|err| {
             rec.shared.preview.resume_if_wanted();
@@ -232,6 +318,8 @@ fn start_windows(
     let started_at = stamp.to_string();
     *slot = Some(ActiveComposed {
         stop: Arc::clone(&stop),
+        finished: Arc::clone(&finished),
+        failure: Arc::clone(&failure),
         thread: Some(handle),
         path: path.clone(),
         started: Instant::now(),
@@ -240,13 +328,14 @@ fn start_windows(
         width: 0,
         height: 0,
         fps: spec.fps,
+        output_fallback: false,
         webcam_layout,
     });
     drop(slot);
 
     let ready = ready_rx.recv_timeout(Duration::from_secs(20));
     match ready {
-        Ok(Ok((width, height))) => {
+        Ok(Ok((width, height, fallback))) => {
             let mut slot = composed
                 .inner
                 .lock()
@@ -260,6 +349,8 @@ fn start_windows(
             };
             session.width = width;
             session.height = height;
+            session.output_fallback = fallback;
+            output_fallback_flag.store(fallback, Ordering::SeqCst);
             let status = RecordingStatus {
                 active: true,
                 path: Some(path.display().to_string()),
@@ -268,6 +359,10 @@ fn start_windows(
                 duration_ms: 0,
                 error: None,
                 composed: true,
+                output_width: width,
+                output_height: height,
+                output_fps: session.fps,
+                output_fallback: fallback,
             };
             drop(slot);
             let _ = app.emit("recording-status", &status);
@@ -333,34 +428,40 @@ fn stop_windows(
     rec.shared.preview.resume_if_wanted();
     match finished {
         Ok(done) => {
-            let local_id = crate::library::insert(
-                app,
-                &done.path,
-                done.duration_ms,
-                done.width,
-                done.height,
-                done.fps,
-                done.game_id,
-                done.title.clone(),
-                None,
-                session.webcam_layout,
-            )?;
-            let _ = app.emit(
-                "local-clip-saved",
-                SavedClipEvent {
-                    path: done.path.display().to_string(),
-                    kind: "recording".into(),
-                    local_id,
-                },
-            );
+            if done.error.is_none() {
+                let local_id = crate::library::insert(
+                    app,
+                    &done.path,
+                    done.duration_ms,
+                    done.width,
+                    done.height,
+                    done.fps,
+                    done.game_id,
+                    done.title.clone(),
+                    None,
+                    session.webcam_layout,
+                )?;
+                let _ = app.emit(
+                    "local-clip-saved",
+                    SavedClipEvent {
+                        path: done.path.display().to_string(),
+                        kind: "recording".into(),
+                        local_id,
+                    },
+                );
+            }
             let status = RecordingStatus {
                 active: false,
                 path: Some(done.path.display().to_string()),
                 target: Some(done.title),
                 started_at: None,
                 duration_ms: done.duration_ms,
-                error: None,
+                error: done.error,
                 composed: true,
+                output_width: done.width,
+                output_height: done.height,
+                output_fps: done.fps,
+                output_fallback: session.output_fallback,
             };
             let _ = app.emit("recording-status", &status);
             Ok(status)
@@ -375,6 +476,10 @@ fn stop_windows(
                 duration_ms: session.started.elapsed().as_millis() as u64,
                 error: Some(err.clone()),
                 composed: true,
+                output_width: session.width,
+                output_height: session.height,
+                output_fps: session.fps,
+                output_fallback: session.output_fallback,
             };
             let _ = app.emit("recording-status", &status);
             Err(AppError::Message(err))
@@ -394,7 +499,7 @@ fn run_composed_session(
     settings: crate::settings::AppSettings,
     preview: crate::preview::PreviewHub,
     stop: Arc<AtomicBool>,
-    ready: std::sync::mpsc::Sender<Result<(u32, u32), String>>,
+    ready: std::sync::mpsc::Sender<Result<(u32, u32, bool), String>>,
 ) -> Result<FinishedComposed, String> {
     use crate::audio_timeline::{frames_from_hns, AUDIO_LEAD_HNS};
     use crate::camera::SessionClock;
@@ -667,7 +772,7 @@ fn run_composed_session(
     };
     diagnostics::log_ready(&encoder_name, encoder.has_audio(), compositor.adapter(), stats.init_ms);
     if ready
-        .send(Ok((resolved.width, resolved.height)))
+        .send(Ok((resolved.width, resolved.height, resolved.fallback_occurred)))
         .is_err()
     {
         let _ = encoder.finish();
@@ -806,15 +911,14 @@ fn run_composed_session(
             game_samples_mixed: game_mixed,
         },
     );
-    if let Some(err) = fatal.or(finish_err) {
-        if stats.frames_encoded == 0 {
-            return Err(err);
-        }
-        tracing::warn!("composed session ended with encoder error after {} frames: {err}", stats.frames_encoded);
+    let completion = composed_completion(fatal.or(finish_err), stats.frames_encoded);
+    if let Ok(Some(err)) = &completion {
+        tracing::warn!(
+            "composed session ended with encoder error after {} frames: {err}",
+            stats.frames_encoded
+        );
     }
-    if stats.frames_encoded == 0 {
-        return Err("Composed recording captured no frames.".into());
-    }
+    let error = completion?;
     Ok(FinishedComposed {
         path,
         duration_ms: started.elapsed().as_millis() as u64,
@@ -824,6 +928,7 @@ fn run_composed_session(
         frames: stats.frames_encoded,
         game_id,
         title,
+        error,
     })
 }
 
@@ -932,4 +1037,25 @@ fn output_path(dir: &std::path::Path, slug: &str, ext: &str) -> std::path::PathB
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
         .collect::<String>();
     dir.join(format!("{slug}-{stamp}.{ext}"))
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::composed_completion;
+
+    #[test]
+    fn encoder_error_after_frames_is_partial_not_library_success() {
+        let err = composed_completion(Some("encoder failed".into()), 12).unwrap();
+        assert!(err.unwrap().contains("not added to the library"));
+    }
+
+    #[test]
+    fn encoder_error_with_no_frames_is_a_hard_failure() {
+        assert!(composed_completion(Some("encoder failed".into()), 0).is_err());
+    }
+
+    #[test]
+    fn clean_finish_has_no_error() {
+        assert_eq!(composed_completion(None, 4).unwrap(), None);
+    }
 }

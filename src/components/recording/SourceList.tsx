@@ -39,6 +39,7 @@ export function SourceList({
   compositionLocked,
   studio = "recording",
   audioLocked = false,
+  legacySession = false,
 }: {
   scene: RecordingScene;
   scenes: RecordingScene[];
@@ -61,6 +62,8 @@ export function SourceList({
   compositionLocked?: boolean;
   studio?: StudioMode;
   audioLocked?: boolean;
+  /** Recordings studio only. Clips do not pass this. */
+  legacySession?: boolean;
 }) {
   const [visualMenu, setVisualMenu] = useState(false);
   const [audioMenu, setAudioMenu] = useState(false);
@@ -136,7 +139,7 @@ export function SourceList({
           studio={studio}
         />
         {compositionLocked ? (
-          <p className="studio-lock-note">Layout changes apply to the next recording.</p>
+          <p className="studio-lock-note">Stop recording to edit layout.</p>
         ) : null}
         {visuals.length === 0 ? (
           <p className="studio-empty">No visual sources. Add one or create a scene.</p>
@@ -150,6 +153,7 @@ export function SourceList({
                 selected={selectedId === source.id}
                 compositionLocked={compositionLocked}
                 studio={studio}
+                legacySession={legacySession}
                 dropBefore={Boolean(drag && drag.id !== source.id && drag.overId === source.id)}
                 onSelect={() => onSelect(source.id)}
                 onToggle={(enabled) => onToggle(source.id, enabled)}

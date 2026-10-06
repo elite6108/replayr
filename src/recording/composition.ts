@@ -216,7 +216,7 @@ function asCapture(source: RecordingSource): CaptureCompositionSource | null {
   };
 }
 
-function asWebcam(source: RecordingSource, settings: AppSettings): WebcamCompositionSource | null {
+function asWebcam(source: RecordingSource, settings: AppSettings, mirror: boolean): WebcamCompositionSource | null {
   if (source.type !== "webcam") return null;
   return {
     kind: "webcam",
@@ -230,7 +230,7 @@ function asWebcam(source: RecordingSource, settings: AppSettings): WebcamComposi
     width: settings.webcam.width,
     height: settings.webcam.height,
     fps: settings.webcam.fps,
-    mirror: settings.webcam.mirrorPreview,
+    mirror,
     shape: webcamSettingsOf(source).shape,
   };
 }
@@ -282,7 +282,11 @@ function asOverlay(source: RecordingSource): OverlayCompositionSource | null {
   };
 }
 
-export function snapshotRecordingComposition(scene: RecordingScene, settings: AppSettings): RecordingComposition {
+export function snapshotRecordingComposition(
+  scene: RecordingScene,
+  settings: AppSettings,
+  mirror = settings.webcam.mirrorPreview,
+): RecordingComposition {
   const frozenScene: RecordingScene = {
     id: scene.id,
     name: scene.name,
@@ -294,14 +298,18 @@ export function snapshotRecordingComposition(scene: RecordingScene, settings: Ap
       settings: { ...source.settings },
     })),
   };
-  return buildRecordingComposition(frozenScene, {
-    ...settings,
-    webcam: { ...settings.webcam },
-    recordingVisuals: {
-      filter: settings.recordingVisuals.filter,
-      overlays: { ...settings.recordingVisuals.overlays },
+  return buildRecordingComposition(
+    frozenScene,
+    {
+      ...settings,
+      webcam: { ...settings.webcam },
+      recordingVisuals: {
+        filter: settings.recordingVisuals.filter,
+        overlays: { ...settings.recordingVisuals.overlays },
+      },
     },
-  });
+    mirror,
+  );
 }
 
 export function composedStartBlocker(scene: RecordingScene, settings: AppSettings): string | null {
@@ -325,7 +333,11 @@ export function composedStartBlocker(scene: RecordingScene, settings: AppSetting
   return null;
 }
 
-export function buildRecordingComposition(scene: RecordingScene, settings: AppSettings): RecordingComposition {
+export function buildRecordingComposition(
+  scene: RecordingScene,
+  settings: AppSettings,
+  mirror = settings.webcam.mirrorPreview,
+): RecordingComposition {
   const sources: RecordingComposition["sources"] = [];
   const capture = primaryCapture(scene);
   if (capture && sourceComposedSupported(capture.type)) {
@@ -335,7 +347,7 @@ export function buildRecordingComposition(scene: RecordingScene, settings: AppSe
   for (const source of scene.sources) {
     if (!sourceComposedSupported(source.type)) continue;
     if (source.type === "webcam") {
-      const payload = asWebcam(source, settings);
+      const payload = asWebcam(source, settings, mirror);
       if (payload) sources.push(payload);
     } else if (source.type === "image") {
       const payload = asImage(source);

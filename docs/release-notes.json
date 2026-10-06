@@ -1,4 +1,9 @@
 {
+  "0.1.61": [
+    "Creating an account confirms the password and treats the email check as success, with a link that opens Replayr.",
+    "First launch opens on Create account. Opening the app from that step brings account setup back until a username is saved.",
+    "The website and phone app can set a username. New accounts join the waitlist after the email is confirmed."
+  ],
   "0.1.60": [
     "The Windows screenshots library opens from thumbnails instead of decoding every full image.",
     "Website screenshots sit in a card grid instead of stacking on top of each other."

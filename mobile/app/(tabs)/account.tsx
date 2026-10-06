@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button } from "@/components/ui";
+import { Button, Field, Notice } from "@/components/ui";
+import { usernameTakenMessage, validateUsername } from "@/lib/username";
 import { UserProfileView } from "@/components/UserProfileView";
 import { useAuth } from "@/lib/auth";
 import { staffHref } from "@/lib/api.staff";
@@ -16,6 +17,10 @@ export default function AccountScreen() {
   const { session } = useAuth();
   const userId = session?.user.id ?? "";
   const [username, setUsername] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [loading, setLoading] = useState(Boolean(session));
   const { can } = useStaffPermissions();
   const staff = can("staff.access");
@@ -23,6 +28,7 @@ export default function AccountScreen() {
   useEffect(() => {
     if (!userId) {
       setUsername(null);
+      setDisplayName(null);
       setLoading(false);
       return;
     }
@@ -30,15 +36,18 @@ export default function AccountScreen() {
     setLoading(true);
     void getSupabase()
       .from("profiles")
-      .select("username")
+      .select("username, display_name")
       .eq("id", userId)
       .maybeSingle()
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error) {
           setUsername(null);
+          setDisplayName(null);
         } else {
-          setUsername((data as { username: string | null } | null)?.username ?? null);
+          const row = data as { username: string | null; display_name: string | null } | null;
+          setUsername(row?.username ?? null);
+          setDisplayName(row?.display_name ?? null);
         }
         setLoading(false);
       });
@@ -80,13 +89,44 @@ export default function AccountScreen() {
     );
   }
 
+  async function saveUsername() {
+    const invalid = validateUsername(draft);
+    if (invalid) {
+      setSaveError(invalid);
+      return;
+    }
+    if (!userId) return;
+    const nextName = draft.trim();
+    setSaving(true);
+    setSaveError(null);
+    const patch = displayName?.trim()
+      ? { username: nextName }
+      : { username: nextName, display_name: nextName };
+    const { error } = await getSupabase().from("profiles").update(patch).eq("id", userId);
+    setSaving(false);
+    if (error) {
+      setSaveError(usernameTakenMessage(error));
+      return;
+    }
+    setUsername(nextName);
+  }
+
   if (!username) {
     return (
       <SafeAreaView style={styles.safe} edges={["top"]}>
         {header}
         <View style={styles.center}>
-          <Text style={styles.lede}>Choose a username in the desktop app to publish your public profile and posts.</Text>
-          <Button label="Open settings" onPress={() => router.push("/settings")} />
+          <Text style={styles.lede}>Choose a username to publish your public profile and posts.</Text>
+          <Field
+            label="Username"
+            value={draft}
+            onChangeText={setDraft}
+            autoCapitalize="none"
+            autoComplete="username"
+            autoCorrect={false}
+          />
+          <Notice tone="danger">{saveError}</Notice>
+          <Button label={saving ? "Saving…" : "Save username"} kind="primary" disabled={saving} onPress={() => void saveUsername()} />
         </View>
       </SafeAreaView>
     );

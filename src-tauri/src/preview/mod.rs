@@ -36,7 +36,7 @@ impl PreviewQuality {
 
     pub fn max_width(self) -> u32 {
         match self {
-            Self::Full => 1920,
+            Self::Full => 2560,
             Self::Balanced => 1280,
             Self::Performance => 960,
         }
@@ -51,17 +51,20 @@ impl PreviewQuality {
 
     pub fn jpeg_quality(self) -> u8 {
         match self {
+            Self::Full => 95,
             Self::Performance => 85,
-            _ => 90,
+            Self::Balanced => 90,
         }
     }
 
-    /// Composed tap dest size from canvas. Full matches canvas up to 1080p box.
+    /// Composed tap dest size from canvas. Full matches the output, capped at a 2560 long edge.
     pub fn composed_size(self, out_w: u32, out_h: u32) -> (u32, u32) {
+        let out_w = out_w.max(2);
+        let out_h = out_h.max(2);
         match self {
-            Self::Balanced => (1280, 720),
-            Self::Performance => (960, 540),
-            Self::Full => fit_within(out_w.max(2), out_h.max(2), 1920, 1080),
+            Self::Balanced => fit_within(out_w, out_h, 1280, 720),
+            Self::Performance => fit_within(out_w, out_h, 960, 540),
+            Self::Full => fit_within(out_w, out_h, 2560, 2560),
         }
     }
 }
@@ -695,5 +698,27 @@ mod tests {
         hub.offer(frame);
         let pending = hub.inner.pending.lock().expect("pending");
         assert!(pending.is_none());
+    }
+
+    #[test]
+    fn composed_preview_box_keeps_output_aspect() {
+        let (w, h) = PreviewQuality::Balanced.composed_size(3440, 1440);
+        assert!(w <= 1280 && h <= 720);
+        assert!(w > 2 && h > 2);
+        let aspect = w as f64 / h as f64;
+        assert!((aspect - (3440.0 / 1440.0)).abs() < 0.03, "{w}x{h}");
+
+        let (pw, ph) = PreviewQuality::Performance.composed_size(1080, 1920);
+        assert!(pw <= 960 && ph <= 540);
+        let portrait = pw as f64 / ph as f64;
+        assert!((portrait - (1080.0 / 1920.0)).abs() < 0.03, "{pw}x{ph}");
+
+        let (fw, fh) = PreviewQuality::Full.composed_size(3440, 1440);
+        assert!(fw <= 2560 && fh <= 2560);
+        assert!(fw.max(fh) <= 2560);
+        let full_aspect = fw as f64 / fh as f64;
+        assert!((full_aspect - (3440.0 / 1440.0)).abs() < 0.03, "{fw}x{fh}");
+
+        assert_eq!(PreviewQuality::Full.composed_size(1920, 1080), (1920, 1080));
     }
 }

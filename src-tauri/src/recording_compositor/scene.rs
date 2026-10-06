@@ -115,6 +115,17 @@ pub struct WebcamCompositionSource {
     pub height: u32,
     pub fps: u32,
     pub mirror: bool,
+    #[serde(default)]
+    pub shape: WebcamShape,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum WebcamShape {
+    #[default]
+    Rectangle,
+    Rounded,
+    Circle,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -253,6 +264,7 @@ pub struct ValidatedWebcam {
     pub height: u32,
     pub fps: u32,
     pub mirror: bool,
+    pub shape: WebcamShape,
 }
 
 #[derive(Debug, Clone)]
@@ -382,6 +394,7 @@ impl RecordingComposition {
                         height: src.height.clamp(120, 1080),
                         fps: src.fps.clamp(15, 60),
                         mirror: src.mirror,
+                        shape: src.shape,
                     };
                     layers.push(ValidatedLayer::Webcam);
                     webcam = Some(validated);
@@ -802,5 +815,23 @@ mod tests {
         assert!(spec.audio.game_audio.routed());
         assert!(spec.audio.desktop_audio.routed());
         assert!(spec.audio.include());
+    }
+
+    #[test]
+    fn webcam_shape_defaults_to_rectangle_and_parses_circle() {
+        let omitted = format!(
+            r#"{{"canvas":{{"width":1920,"height":1080,"fps":60}},"sources":[{},{}]}}"#,
+            capture_source("game-1", 0),
+            r#"{"kind":"webcam","id":"cam-1","name":"Cam","enabled":true,"order":1,"transform":{"x":0.7,"y":0.7,"w":0.2,"h":0.2,"opacity":1},"deviceId":"cam","width":1280,"height":720,"fps":30,"mirror":false}"#
+        );
+        let spec = parse(&omitted).unwrap();
+        assert_eq!(spec.webcam.as_ref().unwrap().shape, WebcamShape::Rectangle);
+        let circle = format!(
+            r#"{{"canvas":{{"width":1920,"height":1080,"fps":60}},"sources":[{},{}]}}"#,
+            capture_source("game-1", 0),
+            r#"{"kind":"webcam","id":"cam-1","name":"Cam","enabled":true,"order":1,"transform":{"x":0.7,"y":0.7,"w":0.2,"h":0.2,"opacity":1},"deviceId":"cam","width":1280,"height":720,"fps":30,"mirror":true,"shape":"circle"}"#
+        );
+        let spec = parse(&circle).unwrap();
+        assert_eq!(spec.webcam.as_ref().unwrap().shape, WebcamShape::Circle);
     }
 }

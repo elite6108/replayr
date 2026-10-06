@@ -13,11 +13,14 @@ export function PreviewWebcamLayer({
   camera,
   source,
   framed,
+  mirror,
 }: {
   webcam: WebcamSettings;
   camera: CameraStatus;
   source?: RecordingSource;
   framed?: boolean;
+  /** When set, overrides preview-only mirroring so the layout matches the recording. */
+  mirror?: boolean;
 }) {
   if (!webcam.enabled) return null;
 
@@ -54,7 +57,7 @@ export function PreviewWebcamLayer({
       width={webcam.width}
       height={webcam.height}
       fps={webcam.fps}
-      mirror={webcam.mirrorPreview}
+      mirror={mirror ?? webcam.mirrorPreview}
       disconnected={false}
       message=""
     />

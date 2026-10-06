@@ -6,6 +6,10 @@ export interface RecordingStatus {
   durationMs: number;
   error: string | null;
   composed?: boolean;
+  outputWidth?: number;
+  outputHeight?: number;
+  outputFps?: number;
+  outputFallback?: boolean;
 }
 
 export const IDLE_RECORDING: RecordingStatus = {

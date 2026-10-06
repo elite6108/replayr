@@ -23,6 +23,14 @@ pub struct RecordingStatus {
     pub error: Option<String>,
     #[serde(default)]
     pub composed: bool,
+    #[serde(default)]
+    pub output_width: u32,
+    #[serde(default)]
+    pub output_height: u32,
+    #[serde(default)]
+    pub output_fps: u32,
+    #[serde(default)]
+    pub output_fallback: bool,
 }
 
 impl Default for RecordingStatus {
@@ -35,6 +43,10 @@ impl Default for RecordingStatus {
             duration_ms: 0,
             error: None,
             composed: false,
+            output_width: 0,
+            output_height: 0,
+            output_fps: 0,
+            output_fallback: false,
         }
     }
 }
@@ -892,6 +904,10 @@ mod windows_impl {
             duration_ms: 0,
             error: None,
             composed: false,
+            output_width: 0,
+            output_height: 0,
+            output_fps: 0,
+            output_fallback: false,
         };
         *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
         *inner = Some(ActiveRecording {
@@ -1023,6 +1039,10 @@ mod windows_impl {
                         duration_ms: 0,
                         error: None,
                         composed: false,
+            output_width: 0,
+            output_height: 0,
+            output_fps: 0,
+            output_fallback: false,
                     };
                     *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
                     drop(inner);
@@ -1131,6 +1151,10 @@ mod windows_impl {
                 duration_ms: elapsed.as_millis() as u64,
                 error: None,
                 composed: false,
+            output_width: 0,
+            output_height: 0,
+            output_fps: 0,
+            output_fallback: false,
             };
             *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
             let _ = app.emit("recording-status", &status);
@@ -1172,6 +1196,10 @@ mod windows_impl {
             duration_ms: elapsed.as_millis() as u64,
             error: None,
             composed: false,
+            output_width: 0,
+            output_height: 0,
+            output_fps: 0,
+            output_fallback: false,
         };
         *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
         let _ = app.emit("recording-status", &status);

@@ -5,6 +5,7 @@ import { useToastStore } from "../stores/toastStore";
 import {
   clampCrop,
   createSource,
+  FULL_CROP,
   findSource,
   findSourceByType,
   isPrimaryCapture,
@@ -80,10 +81,31 @@ export function useSceneStudio(adapter: SceneStudioAdapter) {
   libraryRef.current = library;
   sceneRef.current = scene;
 
+  const gestureHold = useRef(false);
+  const gestureRef = useRef<{
+    sceneId: string;
+    sourceId: string;
+    transform: SourceTransform;
+    crop: SourceCrop;
+  } | null>(null);
+
   useEffect(() => {
+    if (gestureHold.current) return;
     adapterRef.current.persist(library);
     adapterRef.current.persistActive?.(scene);
   }, [library, scene]);
+
+  useEffect(() => {
+    return () => {
+      const gesture = gestureRef.current;
+      if (!gestureHold.current || !gesture) return;
+      gestureHold.current = false;
+      gestureRef.current = null;
+      if (activeSceneOf(libraryRef.current).id !== gesture.sceneId) return;
+      adapterRef.current.persist(libraryRef.current);
+      adapterRef.current.persistActive?.(activeSceneOf(libraryRef.current));
+    };
+  }, []);
 
   const inboundDeps = adapter.inboundDeps ?? [];
   useEffect(() => {
@@ -208,6 +230,59 @@ export function useSceneStudio(adapter: SceneStudioAdapter) {
     });
   }, []);
 
+  const beginGesture = useCallback((sourceId: string) => {
+    const current = sceneRef.current;
+    const source = findSource(current, sourceId);
+    if (!source?.transform) return;
+    gestureHold.current = true;
+    gestureRef.current = {
+      sceneId: current.id,
+      sourceId,
+      transform: source.transform,
+      crop: source.crop ?? FULL_CROP,
+    };
+  }, []);
+
+  const applyGesture = useCallback((sourceId: string, patch: { transform?: SourceTransform; crop?: SourceCrop }) => {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.sourceId !== sourceId || gesture.sceneId !== sceneRef.current.id) return;
+    setLibrary((prev) => {
+      if (activeSceneOf(prev).id !== gesture.sceneId) return prev;
+      const nextPatch = patch.crop ? { ...patch, crop: clampCrop(patch.crop) } : patch;
+      return replaceActive(prev, updateSource(activeSceneOf(prev), sourceId, nextPatch));
+    });
+  }, []);
+
+  const commitGesture = useCallback(() => {
+    const gesture = gestureRef.current;
+    gestureRef.current = null;
+    gestureHold.current = false;
+    if (!gesture) return;
+    if (activeSceneOf(libraryRef.current).id !== gesture.sceneId) return;
+    adapterRef.current.persist(libraryRef.current);
+    adapterRef.current.persistActive?.(activeSceneOf(libraryRef.current));
+  }, []);
+
+  const cancelGesture = useCallback(() => {
+    const gesture = gestureRef.current;
+    gestureRef.current = null;
+    gestureHold.current = false;
+    if (!gesture) return;
+    setLibrary((prev) => {
+      if (activeSceneOf(prev).id !== gesture.sceneId) return prev;
+      const next = replaceActive(
+        prev,
+        updateSource(activeSceneOf(prev), gesture.sourceId, {
+          transform: gesture.transform,
+          crop: gesture.crop,
+        }),
+      );
+      adapterRef.current.persist(next);
+      adapterRef.current.persistActive?.(activeSceneOf(next));
+      return next;
+    });
+  }, []);
+
   const selectScene = useCallback(
     (id: string) => {
       const previous = sceneRef.current;
@@ -279,6 +354,10 @@ export function useSceneStudio(adapter: SceneStudioAdapter) {
     deleteSource,
     setTransform,
     setCrop,
+    beginGesture,
+    applyGesture,
+    commitGesture,
+    cancelGesture,
     writeSettings,
     selectScene,
     addScene,

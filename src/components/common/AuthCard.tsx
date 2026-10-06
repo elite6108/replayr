@@ -3,6 +3,7 @@ import { publicSiteUrl } from "../../branding";
 import { IconApple, IconDiscord, IconGoogle, IconX } from "../icons";
 import { useAuthStore, type SocialProvider } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
+import { CONFIRM_EMAIL_MESSAGE, EXISTING_ACCOUNT_MESSAGE } from "../../utils/auth";
 
 const PROVIDERS: { id: SocialProvider; label: string; icon: typeof IconGoogle }[] = [
   { id: "google", label: "Continue with Google", icon: IconGoogle },
@@ -11,11 +12,19 @@ const PROVIDERS: { id: SocialProvider; label: string; icon: typeof IconGoogle }[
   { id: "twitter", label: "Continue with X", icon: IconX },
 ];
 
-export function AuthCard({ compact = false }: { compact?: boolean }) {
+export function AuthCard({
+  compact = false,
+  initialMode = "in",
+}: {
+  compact?: boolean;
+  initialMode?: "in" | "up";
+}) {
   const error = useAuthStore((state) => state.error);
+  const notice = useAuthStore((state) => state.notice);
   const passwordRecovery = useAuthStore((state) => state.passwordRecovery);
   const signIn = useAuthStore((state) => state.signIn);
   const signUp = useAuthStore((state) => state.signUp);
+  const resendSignupEmail = useAuthStore((state) => state.resendSignupEmail);
   const signInWithProvider = useAuthStore((state) => state.signInWithProvider);
   const requestPasswordReset = useAuthStore((state) => state.requestPasswordReset);
   const updatePassword = useAuthStore((state) => state.updatePassword);
@@ -23,7 +32,7 @@ export function AuthCard({ compact = false }: { compact?: boolean }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [mode, setMode] = useState<"in" | "up">("in");
+  const [mode, setMode] = useState<"in" | "up">(initialMode);
   const [busy, setBusy] = useState(false);
 
   async function run(action: () => Promise<void>, success: string) {
@@ -55,8 +64,14 @@ export function AuthCard({ compact = false }: { compact?: boolean }) {
     }
     const nextEmail = String(form.get("email") ?? email);
     const nextPassword = String(form.get("password") ?? password);
+    const nextConfirm = String(form.get("confirm") ?? confirm);
     setEmail(nextEmail);
     setPassword(nextPassword);
+    setConfirm(nextConfirm);
+    if (mode === "up" && nextPassword !== nextConfirm) {
+      useAuthStore.setState({ error: "Passwords do not match.", notice: null });
+      return;
+    }
     void run(
       () => (mode === "in" ? signIn(nextEmail, nextPassword) : signUp(nextEmail, nextPassword)),
       mode === "in" ? "Signed in" : "Account created",
@@ -112,14 +127,20 @@ export function AuthCard({ compact = false }: { compact?: boolean }) {
         <button
           className={`btn ${mode === "in" ? "primary" : ""}`}
           type="button"
-          onClick={() => setMode("in")}
+          onClick={() => {
+            setMode("in");
+            useAuthStore.setState({ error: null, notice: null });
+          }}
         >
           Sign in
         </button>
         <button
           className={`btn ${mode === "up" ? "primary" : ""}`}
           type="button"
-          onClick={() => setMode("up")}
+          onClick={() => {
+            setMode("up");
+            useAuthStore.setState({ error: null, notice: null });
+          }}
         >
           Create account
         </button>
@@ -137,6 +158,7 @@ export function AuthCard({ compact = false }: { compact?: boolean }) {
               onClick={() => void run(() => signInWithProvider(provider.id), "Finish sign-in in your browser")}
             >
               <Icon size={20} />
+              <span>{provider.label.replace("Continue with ", "")}</span>
             </button>
           );
         })}
@@ -168,6 +190,21 @@ export function AuthCard({ compact = false }: { compact?: boolean }) {
             minLength={6}
           />
         </div>
+        {mode === "up" ? (
+          <div className="field">
+            <label htmlFor="auth-signup-confirm">Confirm password</label>
+            <input
+              id="auth-signup-confirm"
+              name="confirm"
+              type="password"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(event) => setConfirm(event.target.value)}
+              required
+              minLength={6}
+            />
+          </div>
+        ) : null}
         {mode === "in" ? (
           <button
             className="auth-forgot"
@@ -184,6 +221,30 @@ export function AuthCard({ compact = false }: { compact?: boolean }) {
           </button>
         ) : null}
         {error ? <div className="error-text">{error}</div> : null}
+        {error === EXISTING_ACCOUNT_MESSAGE ? (
+          <button
+            className="btn"
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setMode("in");
+              useAuthStore.setState({ error: null, notice: null });
+            }}
+          >
+            Sign in
+          </button>
+        ) : null}
+        {notice ? <p className="muted">{notice}</p> : null}
+        {notice === CONFIRM_EMAIL_MESSAGE ? (
+          <button
+            className="auth-forgot"
+            type="button"
+            disabled={busy || !email.trim()}
+            onClick={() => void run(() => resendSignupEmail(email), "Confirmation email sent.")}
+          >
+            Resend email
+          </button>
+        ) : null}
         <button className="btn primary" type="submit" disabled={busy}>
           {busy ? "Working…" : mode === "in" ? "Sign in" : "Create account"}
         </button>

@@ -3,6 +3,13 @@ import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { SocialAuthIcons } from "../components/SocialAuthIcons";
 import { useAuth } from "../lib/auth";
+import {
+  CONFIRM_EMAIL_MESSAGE,
+  EXISTING_ACCOUNT_MESSAGE,
+  isAlreadyRegisteredError,
+  normalizeAuthEmail,
+  signupUserAlreadyExists,
+} from "../lib/signup";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
 
 type SocialProvider = "google" | "apple" | "discord" | "twitter";
@@ -12,6 +19,7 @@ export function SignInPage() {
   const { session } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [mode, setMode] = useState<"in" | "up">("in");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,20 +53,34 @@ export function SignInPage() {
     try {
       if (!supabaseConfigured()) throw new Error("Supabase is not configured.");
       const auth = getSupabase().auth;
+      const normalized = normalizeAuthEmail(email);
       if (mode === "in") {
-        const { error: next } = await auth.signInWithPassword({ email: email.trim(), password });
+        const { error: next } = await auth.signInWithPassword({ email: normalized, password });
         if (next) throw next;
       } else {
+        if (password !== confirm) {
+          setError("Passwords do not match.");
+          return;
+        }
+        const emailRedirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
         const { data, error: signUpError } = await auth.signUp({
-          email: email.trim(),
+          email: normalized,
           password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
-          },
+          options: { emailRedirectTo },
         });
-        if (signUpError) throw signUpError;
+        if (signUpError) {
+          if (isAlreadyRegisteredError(signUpError.message)) {
+            setError(EXISTING_ACCOUNT_MESSAGE);
+            return;
+          }
+          throw signUpError;
+        }
+        if (signupUserAlreadyExists(data.user)) {
+          setError(EXISTING_ACCOUNT_MESSAGE);
+          return;
+        }
         if (!data.session) {
-          setNotice("Account created. Confirm the email, then sign in.");
+          setNotice(CONFIRM_EMAIL_MESSAGE);
           return;
         }
       }
@@ -70,7 +92,7 @@ export function SignInPage() {
   }
 
   async function onForgot() {
-    const trimmed = email.trim();
+    const trimmed = normalizeAuthEmail(email);
     if (!trimmed || !trimmed.includes("@")) {
       setError("Enter the email for your account, then choose Forgot password.");
       setNotice(null);
@@ -88,6 +110,32 @@ export function SignInPage() {
       setNotice("If that email has an account, we sent a reset link. Check your inbox.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not send reset email");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onResend() {
+    const trimmed = normalizeAuthEmail(email);
+    if (!trimmed || !trimmed.includes("@")) {
+      setError("Enter your email, then resend the confirmation.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      if (!supabaseConfigured()) throw new Error("Supabase is not configured.");
+      const { error: resendError } = await getSupabase().auth.resend({
+        type: "signup",
+        email: trimmed,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        },
+      });
+      if (resendError) throw resendError;
+      setNotice("Confirmation email sent. Confirm it, then sign in.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not resend the confirmation email");
     } finally {
       setBusy(false);
     }
@@ -112,10 +160,26 @@ export function SignInPage() {
       <h1>{mode === "in" ? "Sign in" : "Create account"}</h1>
       <p className="muted">Same Replayr account as the Windows app. Clipping still happens on the PC.</p>
       <div className="auth-modes">
-        <button className={`btn ${mode === "in" ? "primary" : ""}`} type="button" onClick={() => setMode("in")}>
+        <button
+          className={`btn ${mode === "in" ? "primary" : ""}`}
+          type="button"
+          onClick={() => {
+            setMode("in");
+            setError(null);
+            setNotice(null);
+          }}
+        >
           Sign in
         </button>
-        <button className={`btn ${mode === "up" ? "primary" : ""}`} type="button" onClick={() => setMode("up")}>
+        <button
+          className={`btn ${mode === "up" ? "primary" : ""}`}
+          type="button"
+          onClick={() => {
+            setMode("up");
+            setError(null);
+            setNotice(null);
+          }}
+        >
           Create account
         </button>
       </div>
@@ -139,13 +203,44 @@ export function SignInPage() {
             autoComplete={mode === "in" ? "current-password" : "new-password"}
           />
         </label>
+        {mode === "up" ? (
+          <label className="field">
+            Confirm password
+            <input
+              type="password"
+              value={confirm}
+              onChange={(event) => setConfirm(event.target.value)}
+              required
+              minLength={6}
+              autoComplete="new-password"
+            />
+          </label>
+        ) : null}
         {mode === "in" ? (
           <button className="auth-forgot" type="button" disabled={busy} onClick={() => void onForgot()}>
             Forgot password?
           </button>
         ) : null}
         {error ? <p className="error">{error}</p> : null}
+        {error === EXISTING_ACCOUNT_MESSAGE ? (
+          <button
+            className="btn"
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setMode("in");
+              setError(null);
+            }}
+          >
+            Sign in
+          </button>
+        ) : null}
         {notice ? <p className="muted">{notice}</p> : null}
+        {notice === CONFIRM_EMAIL_MESSAGE ? (
+          <button className="auth-forgot" type="button" disabled={busy || !email.trim()} onClick={() => void onResend()}>
+            Resend email
+          </button>
+        ) : null}
         <button className="btn primary" type="submit" disabled={busy}>
           {busy ? "Working…" : mode === "in" ? "Sign in" : "Create account"}
         </button>

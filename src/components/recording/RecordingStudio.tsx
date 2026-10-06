@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCameraStatus } from "../../services/tauri";
@@ -6,9 +6,12 @@ import { useRecordingStore } from "../../stores/recordingStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { IDLE_CAMERA_STATUS, type CameraDevice, type CameraStatus } from "../../types/camera";
 import type { AppSettings } from "../../types/settings";
+import { canvasFromAspect } from "../../recording/previewCanvas";
 import {
   createSource,
   findSourceByType,
+  isAudioSource,
+  isPrimaryCapture,
   nextOrder,
   visualsToOverlaySettings,
   type RecordingSourceType,
@@ -44,6 +47,10 @@ export function RecordingStudio() {
     deleteSource,
     setTransform,
     setCrop,
+    beginGesture,
+    applyGesture,
+    commitGesture,
+    cancelGesture,
     selectScene,
     addScene,
     renameScene,
@@ -54,10 +61,35 @@ export function RecordingStudio() {
   } = useRecordingScene();
   const [camera, setCamera] = useState<CameraStatus>(IDLE_CAMERA_STATUS);
   const [propertiesId, setPropertiesId] = useState<string | null>(null);
+  const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
+  const dragging = useRef(false);
   const { displays, error: displayError } = useDisplays();
   const levels = useStudioAudio();
   const propertiesSource = scene.sources.find((source) => source.id === propertiesId) ?? null;
   const quiet = status.active || replay.active || camera.rolling || camera.recording;
+  const negotiated = (status.outputWidth ?? 0) >= 2 && (status.outputHeight ?? 0) >= 2;
+  const frameAspect = frameSize.w > 1 && frameSize.h > 1 ? frameSize.w / frameSize.h : 16 / 9;
+  const logical = negotiated
+    ? { width: status.outputWidth ?? 0, height: status.outputHeight ?? 0 }
+    : canvasFromAspect(frameAspect, settings.resolution);
+  const canvasAspect = logical.width > 0 && logical.height > 0 ? logical.width / logical.height : 16 / 9;
+  const selectedAspect = (() => {
+    if (!selected) return null;
+    if (selected.type === "webcam" && settings.webcam.width > 1 && settings.webcam.height > 1) {
+      return settings.webcam.width / settings.webcam.height;
+    }
+    if (isPrimaryCapture(selected.type) && frameSize.w > 1 && frameSize.h > 1) return frameSize.w / frameSize.h;
+    return null;
+  })();
+
+  useEffect(() => {
+    if (compositionLocked) commitGesture();
+  }, [compositionLocked, commitGesture]);
+
+  useEffect(() => {
+    if (!compositionLocked || !propertiesSource || isAudioSource(propertiesSource.type)) return;
+    setPropertiesId(null);
+  }, [compositionLocked, propertiesSource]);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,9 +151,11 @@ export function RecordingStudio() {
         levels={levels}
         settingsGain={{ mic: settings.micGain, desktop: settings.systemAudioGain, game: settings.gameAudioGain }}
         compositionLocked={compositionLocked}
+        legacySession={scene.outputMode !== "composed"}
         onSelect={setSelectedId}
         onToggle={(id, enabled) => {
-          if (compositionLocked) return;
+          const source = scene.sources.find((item) => item.id === id);
+          if (compositionLocked && !(source && isAudioSource(source.type))) return;
           toggleSource(id, enabled);
         }}
         onLock={(id, locked) => {
@@ -158,6 +192,8 @@ export function RecordingStudio() {
           removeScene(id);
         }}
         onProperties={(id) => {
+          const source = scene.sources.find((item) => item.id === id);
+          if (compositionLocked && source && !isAudioSource(source.type)) return;
           setSelectedId(id);
           setPropertiesId(id);
         }}
@@ -174,14 +210,32 @@ export function RecordingStudio() {
         quiet={quiet}
         selectedId={selectedId}
         compositionLocked={compositionLocked}
+        fitOutputCanvas
+        outputWidth={status.outputWidth}
+        outputHeight={status.outputHeight}
+        onFrameSize={(width, height) => setFrameSize((prev) => (prev.w === width && prev.h === height ? prev : { w: width, h: height }))}
+        onGestureStart={(id) => {
+          dragging.current = true;
+          beginGesture(id);
+        }}
+        onGestureEnd={() => {
+          dragging.current = false;
+          commitGesture();
+        }}
+        onGestureCancel={() => {
+          dragging.current = false;
+          cancelGesture();
+        }}
         onSelect={setSelectedId}
         onTransform={(id, transform) => {
           if (compositionLocked) return;
-          setTransform(id, transform);
+          if (dragging.current) applyGesture(id, { transform });
+          else setTransform(id, transform);
         }}
         onCrop={(id, crop) => {
           if (compositionLocked) return;
-          setCrop(id, crop);
+          if (dragging.current) applyGesture(id, { crop });
+          else setCrop(id, crop);
         }}
       />
       <SourceInspector
@@ -190,6 +244,9 @@ export function RecordingStudio() {
         camera={camera}
         levels={levels}
         compositionLocked={compositionLocked}
+        describeFit
+        canvasAspect={canvasAspect}
+        sourceAspect={selectedAspect}
         composed={scene.outputMode === "composed"}
         displays={displays}
         listError={displayError}
@@ -200,7 +257,8 @@ export function RecordingStudio() {
             void writeSettings(key, value);
             return;
           }
-          if (compositionLocked) return;
+          const liveAudio = key === "micGain" || key === "systemAudioGain" || key === "gameAudioGain";
+          if (compositionLocked && !liveAudio) return;
           void writeSettings(key, value);
         }}
         onPatch={(id, patch) => {
@@ -208,7 +266,8 @@ export function RecordingStudio() {
           patchSource(id, patch);
         }}
         onToggle={(id, enabled) => {
-          if (compositionLocked) return;
+          const source = scene.sources.find((item) => item.id === id);
+          if (compositionLocked && !isAudioSource(source?.type ?? "game")) return;
           toggleSource(id, enabled);
         }}
         onTransform={(id, transform) => {
@@ -236,6 +295,8 @@ export function RecordingStudio() {
           onToggleDesktop={(enabled) => toggleAudio("desktopAudio", enabled)}
           onSave={(key, value) => void writeSettings(key, value)}
           onProperties={(id) => {
+            const source = scene.sources.find((item) => item.id === id);
+            if (compositionLocked && source && !isAudioSource(source.type)) return;
             setSelectedId(id);
             setPropertiesId(id);
           }}
@@ -252,8 +313,17 @@ export function RecordingStudio() {
         />
       </div>
       <footer className="studio-status">
-        <span>Output: {outputSizeLabel(settings.resolution)} · {scene.outputMode === "composed" ? "Composed" : "Legacy"}</span>
-        <span>{settings.fps} FPS</span>
+        <span>
+          Requested: {outputSizeLabel(settings.resolution)} · {settings.fps} FPS
+          {scene.outputMode === "composed" ? " · Composed" : " · Legacy"}
+        </span>
+        {scene.outputMode === "composed" && negotiated ? (
+          <span>
+            Recording: {status.outputWidth} × {status.outputHeight}
+            {status.outputFps ? ` · ${status.outputFps} FPS` : ""}
+            {status.outputFallback ? " · fallback" : ""}
+          </span>
+        ) : null}
         <span>Selected video quality: {qualityLabel(settings.bitrate)}</span>
         <IrEncoderDetails replay={replay} />
       </footer>

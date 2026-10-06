@@ -520,12 +520,12 @@ function RecordingPane({
               void onChange("previewQuality", event.target.value as AppSettings["previewQuality"])
             }
           >
-            <option value="full">Full (up to 1080p)</option>
+            <option value="full">Full (match output, up to 2560)</option>
             <option value="balanced">Balanced (720p)</option>
             <option value="performance">Performance (540p)</option>
           </select>
           <p className="muted" style={{ marginTop: 6 }}>
-            Live Output Preview only. Does not change the recording file.
+            Live Output Preview only. Does not change the recording file. A composed session keeps the preview size it opened with.
           </p>
         </div>
         <div className="field">

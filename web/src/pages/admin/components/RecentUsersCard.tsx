@@ -7,7 +7,7 @@ export function RecentUsersCard({ users, loading, error }: { users: AdminUserRow
     <section className="admin-panel">
       <header className="admin-panel-head">
         <h3>Recent Signups</h3>
-        <Link to="/admin/users">View all</Link>
+        <Link to="/admin/people">View all</Link>
       </header>
       {error ? <p className="error">{error}</p> : null}
       {loading ? <p className="muted">Loading accounts…</p> : null}

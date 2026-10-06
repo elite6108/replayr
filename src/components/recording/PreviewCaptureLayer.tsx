@@ -147,16 +147,25 @@ export function PreviewCaptureLayer({
 
   const live = Boolean(displaySrc);
   const label = frame?.label ?? (mode === "desktop" ? "Desktop Preview" : "Waiting for game");
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  const lastStatusKey = useRef("");
 
   useEffect(() => {
-    onStatus?.({
+    const width = frame && frame.width > 0 ? frame.width : 0;
+    const height = frame && frame.height > 0 ? frame.height : 0;
+    const source = frame?.source ?? "none";
+    const key = `${live}\0${label}\0${source}\0${width}\0${height}`;
+    if (lastStatusKey.current === key) return;
+    lastStatusKey.current = key;
+    onStatusRef.current?.({
       live,
       label,
-      source: frame?.source ?? "none",
-      width: frame && frame.width > 0 ? frame.width : undefined,
-      height: frame && frame.height > 0 ? frame.height : undefined,
+      source,
+      width: width > 0 ? width : undefined,
+      height: height > 0 ? height : undefined,
     });
-  }, [live, label, frame?.source, frame?.width, frame?.height, onStatus]);
+  }, [live, label, frame?.source, frame?.width, frame?.height]);
 
   const sourceAspect =
     frame && frame.width > 0 && frame.height > 0 ? frame.width / frame.height : 16 / 9;

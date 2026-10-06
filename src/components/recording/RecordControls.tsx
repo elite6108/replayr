@@ -63,7 +63,7 @@ export function RecordControls({
           ) : (
             <>
               <strong>Start Recording</strong>
-              <p>Start a new recording session</p>
+              <p>{status.error && !status.active ? status.error : "Start a new recording session"}</p>
             </>
           )}
         </div>
@@ -96,7 +96,7 @@ export function RecordControls({
             </p>
           ) : (
             <p className="studio-output-hint">
-              Session recordings follow the webcam box in this preview.
+              Legacy records the detected game plus an optional webcam sidecar. It does not record the selected monitor or this layout. Composed is required for that.
             </p>
           )}
           <CaptureOutputFields settings={settings} onSave={onSave} disabled={composedRecording} />

@@ -39,6 +39,7 @@ async function attachRecordingListeners() {
   slot[RECORDING_LISTEN_KEY] = [
     await listen<RecordingStatus>("recording-status", (event) => {
       const status = liveRecording(event.payload);
+      noteRecordingError(status.active ? null : status.error);
       useRecordingStore.setState({ status, busy: false });
       setClockTick(status.active || useRecordingStore.getState().replay.active);
     }),
@@ -107,6 +108,18 @@ function startedAtMs(startedAt: string | null): number | null {
   if (Number.isFinite(secs) && secs > 1_000_000_000) return secs * 1000;
   const parsed = Date.parse(startedAt);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+let lastRecordingError = "";
+
+function noteRecordingError(message: string | null | undefined) {
+  if (!message) {
+    lastRecordingError = "";
+    return;
+  }
+  if (message === lastRecordingError) return;
+  lastRecordingError = message;
+  useToastStore.getState().show(message);
 }
 
 function liveRecording(status: RecordingStatus): RecordingStatus {
@@ -184,7 +197,10 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
     try {
       const status = liveRecording(
         startingComposed
-          ? await startComposedRecording(snapshotRecordingComposition(scene, settings), webcamLayout)
+          ? await startComposedRecording(
+              snapshotRecordingComposition(scene, settings, settings.webcam.mirrorRecording),
+              webcamLayout,
+            )
           : await startRecording(webcamLayout),
       );
       set({ status, busy: false, startingComposed: false });
@@ -205,9 +221,10 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       const next = useComposed ? await stopComposedRecording() : await stopRecording();
       set({ status: next, busy: false, libraryEpoch: get().libraryEpoch + 1 });
       setClockTick(get().replay.active);
+      if (!next.active) noteRecordingError(next.error);
     } catch (caught) {
       set({ busy: false, startingComposed: false });
-      useToastStore.getState().show(invokeErrorMessage(caught, "Could not stop recording"));
+      noteRecordingError(invokeErrorMessage(caught, "Could not stop recording"));
     }
   },
   saveClip: async () => {

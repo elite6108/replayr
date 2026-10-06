@@ -5,6 +5,7 @@ import { APP_NAME } from "../branding";
 import { AuthCard } from "../components/common/AuthCard";
 import { useAuthStore } from "../stores/authStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { clearAccountSetupPending, markAccountSetupPending } from "../utils/accountSetup";
 import { validateUsername } from "../utils/username";
 import type { AppSettings } from "../types/settings";
 import { MicrophoneControls } from "../components/settings/MicrophoneControls";
@@ -12,8 +13,8 @@ import { AppWindowTitleBar } from "../components/layout/AppWindowTitleBar";
 
 const STEPS = ["Welcome", "Account", "Quality", "Length", "Microphone", "Save folder", "Hotkey", "Startup", "Done"] as const;
 
-export function OnboardingPage() {
-  const [step, setStep] = useState(0);
+export function OnboardingPage({ returningForAccount = false }: { returningForAccount?: boolean }) {
+  const [step, setStep] = useState(returningForAccount ? 1 : 0);
   const settings = useSettingsStore((state) => state.settings);
   const patch = useSettingsStore((state) => state.patch);
   const configured = useAuthStore((state) => state.configured);
@@ -73,7 +74,21 @@ export function OnboardingPage() {
       return;
     }
     await saveProfile({ username: username.trim(), display_name: username.trim() });
+    clearAccountSetupPending();
+    if (returningForAccount) return;
     setStep(2);
+  }
+
+  function skipAccount() {
+    clearAccountSetupPending();
+    if (returningForAccount) return;
+    setStep(2);
+  }
+
+  function openFromAccount() {
+    if (!useAuthStore.getState().profile?.username) markAccountSetupPending();
+    else clearAccountSetupPending();
+    void finish();
   }
 
   return (
@@ -130,15 +145,17 @@ export function OnboardingPage() {
                 </form>
               )
             ) : (
-              <AuthCard compact />
+              <AuthCard compact initialMode="up" />
             )}
             <div className="row">
-              <button className="btn" type="button" onClick={() => setStep(2)}>
+              <button className="btn" type="button" onClick={skipAccount}>
                 Skip account
               </button>
-              <button className="btn" type="button" onClick={() => void finish()}>
-                Open {APP_NAME}
-              </button>
+              {returningForAccount ? null : (
+                <button className="btn" type="button" onClick={openFromAccount}>
+                  Open {APP_NAME}
+                </button>
+              )}
             </div>
           </>
         ) : null}

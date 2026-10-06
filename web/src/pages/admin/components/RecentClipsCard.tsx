@@ -8,7 +8,7 @@ export function RecentClipsCard({ clips, loading, error }: { clips: AdminClipRow
     <section className="admin-panel">
       <header className="admin-panel-head">
         <h3>Recent Clips</h3>
-        <Link to="/admin/clips">View all</Link>
+        <Link to="/admin/library">View all</Link>
       </header>
       {error ? <p className="error">{error}</p> : null}
       {loading ? <p className="muted">Loading clips…</p> : null}

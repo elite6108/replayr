@@ -38,12 +38,12 @@ const cards: Array<{
   icon: typeof IconAccounts;
   format?: (value: number) => string;
 }> = [
-  { key: "users", label: "Accounts", to: "/admin/users", icon: IconAccounts },
-  { key: "active7d", label: "Active in 7 days", to: "/admin/users", icon: IconActive },
-  { key: "readyClips", label: "Ready clips", to: "/admin/clips", icon: IconClips },
-  { key: "clipsToday", label: "Clips today", to: "/admin/clips", icon: IconClips },
-  { key: "storageUsedBytes", label: "Cloud storage used", to: "/admin/storage", icon: IconCloud, format: formatBytes },
-  { key: "pendingCreatorApps", label: "Pending creators", to: "/admin/creators", icon: IconCreators },
+  { key: "users", label: "Accounts", to: "/admin/people", icon: IconAccounts },
+  { key: "active7d", label: "Active in 7 days", to: "/admin/people", icon: IconActive },
+  { key: "readyClips", label: "Ready clips", to: "/admin/library", icon: IconClips },
+  { key: "clipsToday", label: "Clips today", to: "/admin/library", icon: IconClips },
+  { key: "storageUsedBytes", label: "Cloud storage used", to: "/admin/library/storage", icon: IconCloud, format: formatBytes },
+  { key: "pendingCreatorApps", label: "Pending creators", to: "/admin/people/creators", icon: IconCreators },
   { key: "premiumCount", label: "Premium accounts", to: "/admin/billing", icon: IconPremium },
   { key: "pastDueCount", label: "Past due", to: "/admin/billing", icon: IconBilling },
   { key: "openErrors", label: "Open errors", to: "/admin/errors", icon: IconErrors },
@@ -233,7 +233,14 @@ export function AdminOverviewPage() {
       </div>
       {caption ? <p className="muted admin-dash-caption">{caption}</p> : null}
       <div className="admin-mid">
-        <ActivityChart loading={chartLoading} error={chartError} active={active} signups={signups} clips={clipSeries} />
+        <ActivityChart
+          loading={chartLoading}
+          error={chartError}
+          active={active}
+          signups={signups}
+          clips={clipSeries}
+          analyticsHref={canAnalytics ? "/admin/analytics" : undefined}
+        />
         <StorageUsageCard bytes={data?.storageUsedBytes ?? null} />
       </div>
       <div className="admin-lower">

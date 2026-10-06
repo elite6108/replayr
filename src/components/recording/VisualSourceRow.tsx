@@ -22,6 +22,7 @@ export function VisualSourceRow({
   dropBefore,
   compositionLocked,
   studio = "recording",
+  legacySession = false,
 }: {
   source: RecordingSource;
   outputMode?: RecordingOutputMode;
@@ -37,16 +38,21 @@ export function VisualSourceRow({
   dropBefore?: boolean;
   compositionLocked?: boolean;
   studio?: StudioMode;
+  legacySession?: boolean;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const entry = registryEntry(source.type);
   const composedUnsupported = outputMode === "composed" && !sourceComposedSupported(source.type);
   const composedCap = outputMode === "composed" ? composedSourceCaption(source.type) : null;
+  const legacyCap =
+    legacySession && (source.type === "display" || source.type === "window" || source.type === "game")
+      ? "Legacy records the detected game, or the primary display. Composed is required to record this source."
+      : null;
   const caption =
     studio === "clip"
       ? clipSourceCaption(source.type) ?? capabilityCaption(source.capability, studio)
-      : composedCap ?? (entry?.capability === "recorded" ? "" : (entry?.hint ?? capabilityCaption(source.capability)));
+      : legacyCap ?? composedCap ?? (entry?.capability === "recorded" ? "" : (entry?.hint ?? capabilityCaption(source.capability)));
 
   return (
     <div
@@ -140,7 +146,7 @@ export function VisualSourceRow({
           onClose={() => setMenu(null)}
           items={
             compositionLocked
-              ? [{ label: "Layout changes apply to the next recording.", onClick: () => undefined }]
+              ? [{ label: "Stop recording to edit layout.", onClick: () => undefined }]
               : [
                   { label: "Properties", onClick: onProperties },
                   { label: "Rename", onClick: () => setRenaming(true) },

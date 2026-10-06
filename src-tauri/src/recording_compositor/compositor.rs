@@ -30,7 +30,7 @@ use super::gpu::{create_bgra_input, create_nv12_output, upload_bgra, GpuEvent, S
 use super::still_blend::{self, StillBlender};
 use super::nv12::align_output;
 use super::scene::{
-    ComposedFilterId, TextAlign, ValidatedComposition, ValidatedHud, ValidatedLayer,
+    ComposedFilterId, TextAlign, ValidatedComposition, ValidatedHud, ValidatedLayer, WebcamShape,
 };
 use super::sources::image::{load_image, DecodedImage};
 use super::sources::overlay::raster_filter_chrome;
@@ -94,6 +94,8 @@ struct BlitOp {
     capture: bool,
     /// PNG / text / overlay / HUD: per-pixel straight alpha via the Draw blender.
     still: bool,
+    /// 0 rectangle, 1 rounded, 2 circle. Only the composed webcam still path uses a non-zero mask.
+    mask: u8,
 }
 
 impl RecordingCompositor {
@@ -415,7 +417,9 @@ impl RecordingCompositor {
             } else {
                 self.blt(spec, &video, &self.bgra_vp_out)?;
             }
-            for op in stills {
+            // Shaped webcams are stills so the mask can live in the pixel shader, but they
+            // stay under images and text the same way a rectangle webcam does on the video pass.
+            for op in stills.iter().filter(|op| op.mask != 0).chain(stills.iter().filter(|op| op.mask == 0)) {
                 let Some(srv) = op.srv.as_ref() else {
                     continue;
                 };
@@ -430,6 +434,9 @@ impl RecordingCompositor {
                     op.tex_w,
                     op.tex_h,
                     op.alpha,
+                    op.mask,
+                    op.dest.w,
+                    op.dest.h,
                 )?;
             }
             self.convert_bgra_to_nv12()?;
@@ -470,6 +477,7 @@ impl RecordingCompositor {
                         alpha: spec.capture.opacity,
                         capture: true,
                         still: false,
+                        mask: 0,
                     });
                 }
                 ValidatedLayer::Webcam => {
@@ -486,16 +494,23 @@ impl RecordingCompositor {
                         dest.w,
                         dest.h,
                     );
+                    let masked = !matches!(spec_cam.shape, WebcamShape::Rectangle);
+                    let mask = match spec_cam.shape {
+                        WebcamShape::Rectangle => 0,
+                        WebcamShape::Rounded => 1,
+                        WebcamShape::Circle => 2,
+                    };
                     ops.push(BlitOp {
                         view: slot.view.clone(),
-                        srv: None,
+                        srv: if masked { Some(slot.srv.clone()) } else { None },
                         dest,
                         src: Some(src),
                         tex_w: slot.width,
                         tex_h: slot.height,
                         alpha: spec_cam.opacity,
                         capture: false,
-                        still: false,
+                        still: masked,
+                        mask,
                     });
                 }
                 ValidatedLayer::Image(image) => {
@@ -535,6 +550,7 @@ impl RecordingCompositor {
                         alpha: image.opacity,
                         capture: false,
                         still: true,
+                        mask: 0,
                     });
                 }
                 ValidatedLayer::Text(text) => {
@@ -551,6 +567,7 @@ impl RecordingCompositor {
                         alpha: text.opacity,
                         capture: false,
                         still: true,
+                        mask: 0,
                     });
                 }
                 ValidatedLayer::OverlayChrome { .. } => {}
@@ -573,6 +590,7 @@ impl RecordingCompositor {
                 alpha: 1.0,
                 capture: false,
                 still: true,
+                mask: 0,
             });
         }
         for cached in &self.hud {
@@ -586,6 +604,7 @@ impl RecordingCompositor {
                 alpha: 1.0,
                 capture: false,
                 still: true,
+                mask: 0,
             });
         }
         Ok(ops)

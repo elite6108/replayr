@@ -9,7 +9,15 @@ import {
   updateOwnProfile,
 } from "../services/supabase";
 import type { Profile, UserStorage } from "../types/profile";
-import { authErrorMessage, normalizeAuthEmail, validateAuthCredentials } from "../utils/auth";
+import {
+  authErrorMessage,
+  CONFIRM_EMAIL_MESSAGE,
+  EXISTING_ACCOUNT_MESSAGE,
+  isAlreadyRegisteredError,
+  normalizeAuthEmail,
+  signupUserAlreadyExists,
+  validateAuthCredentials,
+} from "../utils/auth";
 
 export type SocialProvider = "google" | "apple" | "discord" | "twitter";
 
@@ -21,10 +29,12 @@ interface AuthState {
   profile: Profile | null;
   storage: UserStorage | null;
   error: string | null;
+  notice: string | null;
   passwordRecovery: boolean;
   initialize: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
+  resendSignupEmail: (email: string) => Promise<void>;
   signInWithProvider: (provider: SocialProvider) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
@@ -102,6 +112,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   profile: null,
   storage: null,
   error: null,
+  notice: null,
   passwordRecovery: false,
   initialize: async () => {
     if (!supabaseConfigured()) {
@@ -139,7 +150,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   signIn: async (email, password) => {
-    set({ error: null });
+    set({ error: null, notice: null });
     const invalid = validateAuthCredentials(email, password);
     if (invalid) {
       set({ error: invalid });
@@ -160,7 +171,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ error: message });
         throw new Error(message);
       }
-      set({ session: data.session, user: data.session.user, error: null });
+      set({ session: data.session, user: data.session.user, error: null, notice: null });
       await get().refreshProfile();
     } catch (caught) {
       if (get().error) throw caught instanceof Error ? caught : new Error(String(caught));
@@ -170,32 +181,64 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   signUp: async (email, password) => {
-    set({ error: null });
+    set({ error: null, notice: null });
     const invalid = validateAuthCredentials(email, password);
     if (invalid) {
       set({ error: invalid });
       throw new Error(invalid);
     }
+    const redirectTo = `${publicSiteUrl()}/auth/desktop`;
     try {
       const { data, error } = await getSupabase().auth.signUp({
         email: normalizeAuthEmail(email),
         password,
+        options: { emailRedirectTo: redirectTo },
       });
       if (error) {
-        const message = authErrorMessage(error, "Could not create account");
-        set({ error: message });
+        const raw = authErrorMessage(error, "Could not create account");
+        const message = isAlreadyRegisteredError(raw) ? EXISTING_ACCOUNT_MESSAGE : raw;
+        set({ error: message, notice: null });
         throw new Error(message);
+      }
+      if (signupUserAlreadyExists(data.user)) {
+        set({ error: EXISTING_ACCOUNT_MESSAGE, notice: null });
+        throw new Error(EXISTING_ACCOUNT_MESSAGE);
       }
       if (!data.session) {
-        const message = "Account created. Confirm the email, then sign in.";
-        set({ error: message });
-        throw new Error(message);
+        set({ error: null, notice: CONFIRM_EMAIL_MESSAGE });
+        return;
       }
-      set({ session: data.session, user: data.session.user, error: null });
+      set({ session: data.session, user: data.session.user, error: null, notice: null });
       await get().refreshProfile();
     } catch (caught) {
       if (get().error) throw caught instanceof Error ? caught : new Error(String(caught));
       const message = authErrorMessage(caught, "Could not create account");
+      set({ error: message });
+      throw new Error(message);
+    }
+  },
+  resendSignupEmail: async (email) => {
+    set({ error: null });
+    const trimmed = normalizeAuthEmail(email);
+    if (!trimmed || !trimmed.includes("@")) {
+      const message = "Enter your email, then resend the confirmation.";
+      set({ error: message });
+      throw new Error(message);
+    }
+    try {
+      const { error } = await getSupabase().auth.resend({
+        type: "signup",
+        email: trimmed,
+        options: { emailRedirectTo: `${publicSiteUrl()}/auth/desktop` },
+      });
+      if (error) {
+        const message = authErrorMessage(error, "Could not resend the confirmation email");
+        set({ error: message });
+        throw new Error(message);
+      }
+    } catch (caught) {
+      if (get().error) throw caught instanceof Error ? caught : new Error(String(caught));
+      const message = authErrorMessage(caught, "Could not resend the confirmation email");
       set({ error: message });
       throw new Error(message);
     }
@@ -296,7 +339,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   signOut: async () => {
     await getSupabase().auth.signOut();
-    set({ session: null, user: null, profile: null, storage: null, error: null, passwordRecovery: false });
+    set({ session: null, user: null, profile: null, storage: null, error: null, notice: null, passwordRecovery: false });
   },
   saveProfile: async (patch) => {
     const user = get().user;

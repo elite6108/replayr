@@ -24,19 +24,31 @@ use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FO
 use super::transforms::PixelRect;
 
 const HLSL: &[u8] = br#"
-struct VSIn { float2 pos : POSITION; float2 uv : TEXCOORD; };
-struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD; };
-cbuffer Opacity : register(b0) { float opacity; float3 pad; };
+struct VSIn { float2 pos : POSITION; float2 uv : TEXCOORD0; float2 local : TEXCOORD1; };
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float2 local : TEXCOORD1; };
+cbuffer Params : register(b0) { float opacity; float mask; float destW; float destH; };
 Texture2D tex : register(t0);
 SamplerState samp : register(s0);
 VSOut vs_main(VSIn i) {
     VSOut o;
     o.pos = float4(i.pos, 0.0, 1.0);
     o.uv = i.uv;
+    o.local = i.local;
     return o;
 }
 float4 ps_main(VSOut i) : SV_Target {
     float4 c = tex.Sample(samp, i.uv);
+    if (mask > 1.5) {
+        float2 d = (i.local - 0.5) * 2.0;
+        if (dot(d, d) > 1.0) discard;
+    } else if (mask > 0.5) {
+        float2 pixel = i.local * float2(destW, destH);
+        float2 halfSize = float2(destW, destH) * 0.5;
+        float radius = 14.0;
+        float2 q = abs(pixel - halfSize) - halfSize + radius;
+        float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+        if (dist > 0.0) discard;
+    }
     c.a *= opacity;
     return c;
 }
@@ -49,6 +61,8 @@ struct Vertex {
     y: f32,
     u: f32,
     v: f32,
+    lu: f32,
+    lv: f32,
 }
 
 pub struct StillBlender {
@@ -132,6 +146,15 @@ impl StillBlender {
                     Format: DXGI_FORMAT_R32G32_FLOAT,
                     InputSlot: 0,
                     AlignedByteOffset: 8,
+                    InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
+                    InstanceDataStepRate: 0,
+                },
+                D3D11_INPUT_ELEMENT_DESC {
+                    SemanticName: s!("TEXCOORD"),
+                    SemanticIndex: 1,
+                    Format: DXGI_FORMAT_R32G32_FLOAT,
+                    InputSlot: 0,
+                    AlignedByteOffset: 16,
                     InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
                     InstanceDataStepRate: 0,
                 },
@@ -230,12 +253,20 @@ impl StillBlender {
         tex_w: u32,
         tex_h: u32,
         opacity: f32,
+        mask: u8,
+        dest_w: u32,
+        dest_h: u32,
     ) -> Result<(), String> {
         if dest.is_empty() || canvas_w < 2 || canvas_h < 2 || tex_w == 0 || tex_h == 0 {
             return Ok(());
         }
         let verts = quad(canvas_w, canvas_h, dest, src, tex_w, tex_h);
-        let opacity = [opacity.clamp(0.0, 1.0), 0.0, 0.0, 0.0];
+        let opacity = [
+            opacity.clamp(0.0, 1.0),
+            mask as f32,
+            dest_w.max(1) as f32,
+            dest_h.max(1) as f32,
+        ];
         unsafe {
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
             context
@@ -329,9 +360,9 @@ fn quad(
         _ => (0.0, 0.0, 1.0, 1.0),
     };
     [
-        Vertex { x: l, y: t, u: u0, v: v0 },
-        Vertex { x: r, y: t, u: u1, v: v0 },
-        Vertex { x: l, y: b, u: u0, v: v1 },
-        Vertex { x: r, y: b, u: u1, v: v1 },
+        Vertex { x: l, y: t, u: u0, v: v0, lu: 0.0, lv: 0.0 },
+        Vertex { x: r, y: t, u: u1, v: v0, lu: 1.0, lv: 0.0 },
+        Vertex { x: l, y: b, u: u0, v: v1, lu: 0.0, lv: 1.0 },
+        Vertex { x: r, y: b, u: u1, v: v1, lu: 1.0, lv: 1.0 },
     ]
 }

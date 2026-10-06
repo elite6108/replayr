@@ -2,6 +2,7 @@ import type { CameraDevice, CameraStatus } from "../../types/camera";
 import type { AppSettings, WebcamPlacement, WebcamShape } from "../../types/settings";
 import { DEFAULT_WEBCAM_SETTINGS } from "../../types/settings";
 import { RecordingVisualControls } from "./RecordingVisualControls";
+import { containOnCanvas, croppedSourceAspect } from "../../recording/previewCanvas";
 import {
   clampCrop,
   clampTransform,
@@ -9,6 +10,7 @@ import {
   FULL_CROP,
   isAudioSource,
   isCroppableSource,
+  isPrimaryCapture,
   overlayToVisuals,
   placementToTransform,
   transformCenter,
@@ -40,6 +42,9 @@ export function SourceInspector({
   onCrop,
   onWebcamDevice,
   compositionLocked,
+  describeFit = false,
+  canvasAspect = 16 / 9,
+  sourceAspect = null,
   composed,
   displays,
   listError,
@@ -57,6 +62,10 @@ export function SourceInspector({
   onCrop?: (id: string, crop: SourceCrop) => void;
   onWebcamDevice: (device: CameraDevice) => void;
   compositionLocked?: boolean;
+  /** Recordings studio only. Clips keep the contain/cover select. */
+  describeFit?: boolean;
+  canvasAspect?: number;
+  sourceAspect?: number | null;
   composed?: boolean;
   displays?: DisplayInfo[];
   listError?: string | null;
@@ -69,13 +78,13 @@ export function SourceInspector({
         <h2>Inspector</h2>
       </div>
       {compositionLocked ? (
-        <p className="studio-lock-note">Layout changes apply to the next recording.</p>
+        <p className="studio-lock-note">Stop recording to edit layout.</p>
       ) : null}
       {!source ? (
         <p className="studio-empty">Select a source to edit it.</p>
       ) : (
         <div className="studio-inspector-body">
-          <fieldset className="studio-inspector-fields" disabled={compositionLocked}>
+          <fieldset className="studio-inspector-fields" disabled={Boolean(compositionLocked) && !isAudioSource(source.type)}>
           <div className="studio-inspector-title">
             <input
               id="record-source-name"
@@ -107,6 +116,9 @@ export function SourceInspector({
             <TransformSection
               source={source}
               settings={settings}
+              describeFit={describeFit}
+              canvasAspect={canvasAspect}
+              sourceAspect={sourceAspect}
               onTransform={(next) => onTransform(source.id, next)}
             />
           ) : null}
@@ -272,13 +284,26 @@ function TransformSection({
   source,
   settings,
   onTransform,
+  describeFit = false,
+  canvasAspect = 16 / 9,
+  sourceAspect = null,
 }: {
   source: RecordingSource;
   settings: AppSettings;
   onTransform: (transform: SourceTransform) => void;
+  describeFit?: boolean;
+  canvasAspect?: number;
+  sourceAspect?: number | null;
 }) {
   const transform = source.transform!;
   const fit = transform.w >= 0.98 && transform.h >= 0.98 ? "cover" : "contain";
+  const fitCopy = isPrimaryCapture(source.type)
+    ? "Capture is contained in its box."
+    : source.type === "webcam"
+      ? "Webcam covers its box."
+      : source.type === "image"
+        ? "Images keep their current contain fit."
+        : "This box is the recorded placement.";
 
   function patch(partial: Partial<SourceTransform>) {
     onTransform(clampTransform({ ...transform, ...partial }));
@@ -343,6 +368,24 @@ function TransformSection({
           </span>
         </label>
       </div>
+      {describeFit ? (
+        <div className="field">
+          <p className="studio-section-copy">{fitCopy}</p>
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled={source.locked || sourceAspect == null}
+            onClick={() => {
+              if (sourceAspect == null) return;
+              const aspect = croppedSourceAspect(sourceAspect, source.crop?.w ?? 1, source.crop?.h ?? 1);
+              const next = containOnCanvas(aspect, canvasAspect);
+              onTransform({ ...transform, ...next });
+            }}
+          >
+            Fit to canvas
+          </button>
+        </div>
+      ) : (
       <div className="field">
         <label htmlFor="record-source-fit">Fit</label>
         <select
@@ -355,6 +398,7 @@ function TransformSection({
           <option value="cover">Cover</option>
         </select>
       </div>
+      )}
       <button
         type="button"
         className="btn ghost sm studio-reset"

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthCard } from "./components/common/AuthCard";
 import { AppShell } from "./components/layout/AppShell";
@@ -31,11 +31,15 @@ import { useFolderStore } from "./stores/folderStore";
 import { useUpdateStore } from "./stores/updateStore";
 import { useSocialUnreadSync } from "./hooks/useSocialUnreadSync";
 import { associateDesktopAcquisition, trackAppOpenedOnce } from "./services/analytics";
+import { ACCOUNT_SETUP_EVENT, accountSetupPending, clearAccountSetupPending } from "./utils/accountSetup";
 import { ThemeSync } from "./theme/ThemeSync";
 
 export default function App() {
   const loaded = useSettingsStore((state) => state.loaded);
   const onboardingCompleted = useSettingsStore((state) => state.settings.onboardingCompleted);
+  const authReady = useAuthStore((state) => state.ready);
+  const profileUsername = useAuthStore((state) => state.profile?.username ?? null);
+  const [accountPending, setAccountPending] = useState(accountSetupPending);
   const loadSettings = useSettingsStore((state) => state.load);
   const initializeAuth = useAuthStore((state) => state.initialize);
   const initializeDetection = useDetectionStore((state) => state.initialize);
@@ -51,6 +55,18 @@ export default function App() {
   const refreshCloud = useCloudStore((state) => state.refresh);
   const refreshFolders = useFolderStore((state) => state.refresh);
   useSocialUnreadSync();
+
+  useEffect(() => {
+    const sync = () => setAccountPending(accountSetupPending());
+    window.addEventListener(ACCOUNT_SETUP_EVENT, sync);
+    return () => window.removeEventListener(ACCOUNT_SETUP_EVENT, sync);
+  }, []);
+
+  useEffect(() => {
+    if (!profileUsername) return;
+    clearAccountSetupPending();
+    setAccountPending(false);
+  }, [profileUsername]);
 
   useEffect(() => {
     void loadSettings();
@@ -88,11 +104,12 @@ export default function App() {
 
   // Open the app immediately. Settings/auth continue in the background.
   // Onboarding only appears once we know it is actually unfinished.
+  const reopenAccount = accountPending && (!authReady || !profileUsername);
   const tree =
-    loaded && !onboardingCompleted ? (
+    loaded && (!onboardingCompleted || reopenAccount) ? (
       <>
         <MicDisconnectToasts />
-        <OnboardingPage />
+        <OnboardingPage returningForAccount={onboardingCompleted} />
         <ToastRegion />
       </>
     ) : (

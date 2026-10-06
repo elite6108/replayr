@@ -23,7 +23,7 @@ fn default_true() -> bool {
 }
 
 fn default_preview_quality() -> String {
-    "balanced".into()
+    "full".into()
 }
 
 fn default_game_audio_enabled() -> bool {

@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import type { SourceCrop, SourceTransform } from "../../recording/scene";
 import { clampCrop, clampTransform, FULL_CROP, isFullCrop } from "../../recording/scene";
 
@@ -17,6 +17,9 @@ export function PreviewTransformBox({
   onSelect,
   onTransform,
   onCrop,
+  onGestureStart,
+  onGestureEnd,
+  onGestureCancel,
   children,
 }: {
   transform: SourceTransform;
@@ -29,6 +32,9 @@ export function PreviewTransformBox({
   onSelect: () => void;
   onTransform: (next: SourceTransform) => void;
   onCrop?: (next: SourceCrop) => void;
+  onGestureStart?: () => void;
+  onGestureEnd?: () => void;
+  onGestureCancel?: () => void;
   children: ReactNode;
 }) {
   const dragRef = useRef<{
@@ -43,6 +49,23 @@ export function PreviewTransformBox({
     canvasH: number;
   } | null>(null);
   const [shiftCropActive, setShiftCropActive] = useState(false);
+  const gestureEndRef = useRef(onGestureEnd);
+  const gestureCancelRef = useRef(onGestureCancel);
+  const draggingRef = useRef(false);
+  const stopListenersRef = useRef<(() => void) | null>(null);
+  gestureEndRef.current = onGestureEnd;
+  gestureCancelRef.current = onGestureCancel;
+
+  useEffect(() => {
+    return () => {
+      stopListenersRef.current?.();
+      stopListenersRef.current = null;
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      dragRef.current = null;
+      gestureEndRef.current?.();
+    };
+  }, []);
 
   const cropMode = mode === "crop" && Boolean(onCrop);
   const activeCrop = crop ?? FULL_CROP;
@@ -94,6 +117,35 @@ export function PreviewTransformBox({
     }
 
     event.currentTarget.setPointerCapture(event.pointerId);
+    draggingRef.current = true;
+    onGestureStart?.();
+
+    const finish = (cancel: boolean) => {
+      if (!draggingRef.current && !dragRef.current) return;
+      draggingRef.current = false;
+      dragRef.current = null;
+      stopListenersRef.current = null;
+      setShiftCropActive(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      node.removeEventListener("lostpointercapture", onLost);
+      if (cancel) gestureCancelRef.current?.();
+      else gestureEndRef.current?.();
+    };
+    const onUp = () => finish(false);
+    const onCancel = () => finish(true);
+    const onLost = (lostEvent: PointerEvent) => {
+      if (lostEvent.pointerId !== event.pointerId) return;
+      finish(true);
+    };
+    const node = event.currentTarget;
+    stopListenersRef.current = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      node.removeEventListener("lostpointercapture", onLost);
+    };
 
     const onMove = (moveEvent: PointerEvent) => {
       const drag = dragRef.current;
@@ -128,14 +180,10 @@ export function PreviewTransformBox({
       onTransform(applyDrag(drag.origin as SourceTransform, drag.mode, dx, dy));
     };
 
-    const onUp = () => {
-      dragRef.current = null;
-      setShiftCropActive(false);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    node.addEventListener("lostpointercapture", onLost);
   }
 
   return (

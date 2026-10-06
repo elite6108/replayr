@@ -26,6 +26,7 @@ export function SocialAuthIcons({
           onClick={() => onProvider(provider.id)}
         >
           <SocialMark provider={provider.id} />
+          <span>{provider.label.replace("Continue with ", "")}</span>
         </button>
       ))}
     </div>

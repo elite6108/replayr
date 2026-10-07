@@ -14,7 +14,7 @@ mod webcam;
 mod writer;
 
 #[allow(unused_imports)]
-pub(crate) use audio::{fit_pcm_to_video, spawn_compose_audio};
+pub(crate) use audio::{audio_peaks, fit_pcm_to_video, spawn_compose_audio};
 pub use compose::sizing::fit_compose_size;
 #[allow(unused_imports)]
 pub(crate) use compose_scene::{compose_clip_scene_timed, ClipSceneComposeReport};

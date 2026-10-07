@@ -103,6 +103,19 @@ export async function saveTrimmedClip(
   });
 }
 
+/** Joins several kept ranges of one local clip into a new clip (lossless stream copy). */
+export async function saveSegmentedClip(
+  sourceLocalId: string,
+  ranges: Array<[number, number]>,
+  title?: string,
+): Promise<LocalClip> {
+  return invoke("save_segmented_clip", {
+    sourceLocalId,
+    ranges: ranges.map(([startMs, endMs]) => [Math.round(startMs), Math.round(endMs)]),
+    title,
+  });
+}
+
 export async function saveShortClip(
   sourceLocalId: string,
   startMs: number,
@@ -161,6 +174,16 @@ export async function listClipFilmstrip(
     return Array.isArray(frames) ? frames : [];
   } catch (caught) {
     console.warn("list_clip_filmstrip failed", caught);
+    return [];
+  }
+}
+
+export async function getClipWaveform(localId: string, buckets = 800): Promise<number[]> {
+  try {
+    const peaks = await invoke<number[]>("get_clip_waveform", { localId, buckets });
+    return Array.isArray(peaks) ? peaks : [];
+  } catch (caught) {
+    console.warn("get_clip_waveform failed", caught);
     return [];
   }
 }

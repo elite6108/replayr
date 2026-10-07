@@ -527,6 +527,30 @@ pub async fn save_trimmed_clip(
 }
 
 #[tauri::command]
+pub async fn save_segmented_clip(
+    app: AppHandle,
+    source_local_id: String,
+    ranges: Vec<[f64; 2]>,
+    title: Option<String>,
+) -> AppResult<crate::library::LocalClipDto> {
+    if ranges.len() > crate::editor::MAX_SEGMENTS {
+        return Err(AppError::Message(format!(
+            "Keep at most {} sections.",
+            crate::editor::MAX_SEGMENTS
+        )));
+    }
+    let ranges: Vec<(u64, u64)> = ranges
+        .into_iter()
+        .map(|[start, end]| (ms_arg(start), ms_arg(end)))
+        .collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::editor::save_segmented_clip(&app, &source_local_id, &ranges, title)
+    })
+    .await
+    .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+#[tauri::command]
 pub async fn save_short_clip(
     app: AppHandle,
     source_local_id: String,
@@ -569,6 +593,15 @@ pub async fn list_clip_filmstrip(
 ) -> AppResult<Vec<crate::editor::FilmstripFrame>> {
     tauri::async_runtime::spawn_blocking(move || {
         crate::editor::list_filmstrip(&app, &local_id, count.unwrap_or(12))
+    })
+    .await
+    .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+#[tauri::command]
+pub async fn get_clip_waveform(app: AppHandle, local_id: String, buckets: Option<u32>) -> AppResult<Vec<f32>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::editor::clip_waveform(&app, &local_id, buckets.unwrap_or(800))
     })
     .await
     .map_err(|err| AppError::Message(err.to_string()))?

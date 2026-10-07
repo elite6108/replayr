@@ -1,4 +1,9 @@
 {
+  "0.1.62": [
+    "The editor timeline zooms and pans so cuts can be placed precisely.",
+    "Split a clip, delete a section, and the strip closes up into one continuous edit.",
+    "Saving several sections makes a new clip without changing the original recording."
+  ],
   "0.1.61": [
     "Creating an account confirms the password and treats the email check as success, with a link that opens Replayr.",
     "First launch opens on Create account. Opening the app from that step brings account setup back until a username is saved.",

@@ -164,6 +164,37 @@ pub(super) fn decode_audio_pcm(path: &Path) -> Result<Vec<u8>, String> {
     Ok(pcm)
 }
 
+/// Normalized 0–1 absolute peaks of the whole audio track, in `buckets` evenly
+/// spaced bins. Used for the editor timeline waveform only.
+pub(crate) fn audio_peaks(path: &Path, buckets: usize) -> Result<Vec<f32>, String> {
+    // The editor can request this before any recorder or thumbnail path has
+    // started Media Foundation in this process.
+    unsafe {
+        use windows::Win32::Media::MediaFoundation::{MFStartup, MFSTARTUP_FULL, MF_VERSION};
+        MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|err| err.to_string())?;
+    }
+    let pcm = decode_audio_pcm(path)?;
+    let frames = pcm.len() / PCM_ALIGN;
+    let buckets = buckets.clamp(16, 4096);
+    if frames == 0 {
+        return Ok(vec![0.0; buckets]);
+    }
+    let mut peaks = vec![0_i32; buckets];
+    for frame in 0..frames {
+        let offset = frame * PCM_ALIGN;
+        let left = i16::from_le_bytes([pcm[offset], pcm[offset + 1]]) as i32;
+        let right = i16::from_le_bytes([pcm[offset + 2], pcm[offset + 3]]) as i32;
+        let level = left.abs().max(right.abs());
+        let bucket = ((frame as u64 * buckets as u64) / frames as u64) as usize;
+        let slot = &mut peaks[bucket.min(buckets - 1)];
+        if level > *slot {
+            *slot = level;
+        }
+    }
+    let ceiling = peaks.iter().copied().max().unwrap_or(0).max(1) as f32;
+    Ok(peaks.into_iter().map(|peak| peak as f32 / ceiling).collect())
+}
+
 pub(super) fn append_pcm_file(
     file: &mut std::fs::File,
     dest_len: &mut u64,

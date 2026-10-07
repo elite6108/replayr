@@ -1,13 +1,36 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { PageHeader } from "../components/common/PageHeader";
-import { EditorClipDetails } from "../components/editor/EditorClipDetails";
-import { EditorStudioTools } from "../components/editor/EditorStudioTools";
-import { IconInstagram, IconTikTok, IconYoutube } from "../components/icons";
+import { CaretDown, CornersOut, Pause, Play, SkipBack, SkipForward, SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
+import { EditorHeader } from "../components/editor/EditorHeader";
+import { EditorInspector } from "../components/editor/EditorInspector";
+import { EditorTimeline } from "../components/editor/EditorTimeline";
 import {
+  clampSegmentEdge,
+  clampViewStart,
+  clampZoom,
+  mergeWithNext,
+  nextSegmentAfter,
+  outerRange,
+  removeSegment,
+  segmentAt,
+  segmentsToRanges,
+  setOuterRange,
+  singleSegment,
+  splitAt,
+  timelineMap,
+  totalMs,
+  viewSpanMs,
+  zoomAround,
+  type Segment,
+  type SegmentEdge,
+  type TimelineMap,
+} from "../components/editor/segments";
+import {
+  getClipWaveform,
   listClipFilmstrip,
   revealLocalClip,
+  saveSegmentedClip,
   saveShortClip,
   saveTrimmedClip,
   setClipEditorCrop,
@@ -46,8 +69,9 @@ const WEBCAM_SHAPES: { id: WebcamShape; label: string }[] = [
   { id: "circle", label: "Circle" },
 ];
 
-type DragKind = "start" | "end" | "playhead";
-type SaveKind = "trim" | "short";
+/** Edge drags keep the map captured at pointer-down so the seam under the cursor does not move mid-drag. */
+type DragKind = "playhead" | { segmentId: string; edge: SegmentEdge; map: TimelineMap };
+type SaveKind = "trim" | "short" | "sections";
 
 function asMs(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -230,12 +254,16 @@ export function EditorPage() {
 
   const [videoMs, setVideoMs] = useState(0);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
-  const [startMs, setStartMs] = useState(0);
-  const [endMs, setEndMs] = useState(0);
+  const [segments, setSegments] = useState<Segment[]>(() => singleSegment(0, MIN_TRIM_MS));
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [viewStartMs, setViewStartMs] = useState(0);
   const [playheadMs, setPlayheadMs] = useState(0);
   const [startText, setStartText] = useState("00:00");
   const [endText, setEndText] = useState("00:00");
   const [playing, setPlaying] = useState(false);
+  const [previewVolume, setPreviewVolume] = useState(1);
+  const [previewFit, setPreviewFit] = useState<"contain" | "cover">("contain");
   const [previewing, setPreviewing] = useState(false);
   const [savingKind, setSavingKind] = useState<SaveKind | null>(null);
   const [sharing, setSharing] = useState(false);
@@ -244,15 +272,28 @@ export function EditorPage() {
   const [savedKind, setSavedKind] = useState<SaveKind | null>(null);
   const [savedTitle, setSavedTitle] = useState("");
   const [stripFrames, setStripFrames] = useState<Array<{ path: string; atMs: number }>>([]);
+  const [wavePeaks, setWavePeaks] = useState<number[] | null>(null);
   const [pan, setPan] = useState(0.5);
   const [shortsMode, setShortsMode] = useState(false);
   const [webcamLayout, setWebcamLayout] = useState<ClipSourceLayout>(() => parseSourceLayout(null));
 
   panRef.current = pan;
+  // Edge drags read the latest segments without waiting for a re-render.
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
   const webcamLayoutRef = useRef(webcamLayout);
   webcamLayoutRef.current = webcamLayout;
   const saving = savingKind !== null;
   const durationMs = Math.max(source?.durationMs ?? 0, videoMs);
+  const { startMs, endMs } = outerRange(segments);
+  const multiSection = segments.length > 1;
+  const tl = useMemo(() => timelineMap(segments, durationMs), [segments, durationMs]);
+  const tlRef = useRef(tl);
+  tlRef.current = tl;
+  const viewDomain = Math.max(tl.domainMs, MIN_TRIM_MS);
+  const viewSpan = viewSpanMs(viewDomain, zoom);
+  const viewStart = clampViewStart(viewStartMs, viewDomain, zoom);
+  const viewEnd = viewStart + viewSpan;
   const savedClip = clips.find((item) => item.localId === saved?.localId) ?? saved;
   const cloud = savedClip?.cloudClipId
     ? cloudClips.find((item) => item.id === savedClip.cloudClipId) ?? null
@@ -351,8 +392,10 @@ export function EditorPage() {
   useEffect(() => {
     if (!source) return;
     const duration = Math.max(source.durationMs ?? 0, MIN_TRIM_MS);
-    setStartMs(0);
-    setEndMs(duration);
+    setSegments(singleSegment(0, duration));
+    setSelectedSegmentId(null);
+    setZoom(1);
+    setViewStartMs(0);
     setPlayheadMs(0);
     setStartText(formatClock(0, true));
     setEndText(formatClock(duration, true));
@@ -372,8 +415,7 @@ export function EditorPage() {
     const stored = folderSession?.editData;
     if (stored?.trim) {
       const next = clampRange(stored.trim.startMs, stored.trim.endMs || duration, duration);
-      setStartMs(next.startMs);
-      setEndMs(next.endMs);
+      setSegments(singleSegment(next.startMs, next.endMs));
       setStartText(formatClock(next.startMs, true));
       setEndText(formatClock(next.endMs, true));
       setPan(clampPan(stored.composition?.cropX ?? source.editorCropX ?? 0.5));
@@ -406,13 +448,19 @@ export function EditorPage() {
   useEffect(() => {
     if (!source || (folderSession && !localSource)) {
       setStripFrames([]);
+      setWavePeaks([]);
       return;
     }
     let cancelled = false;
     setStripFrames([]);
+    setWavePeaks(null);
     void (async () => {
       const frames = await listClipFilmstrip(source.localId, STRIP_TILES);
       if (!cancelled) setStripFrames(frames);
+    })();
+    void (async () => {
+      const peaks = await getClipWaveform(source.localId);
+      if (!cancelled) setWavePeaks(peaks);
     })();
     return () => {
       cancelled = true;
@@ -422,13 +470,34 @@ export function EditorPage() {
   const applyRange = useCallback(
     (nextStart: number, nextEnd: number) => {
       const next = clampRange(nextStart, nextEnd, durationMs);
-      setStartMs(next.startMs);
-      setEndMs(next.endMs);
+      setSegments((prev) => setOuterRange(prev, next.startMs, next.endMs, MIN_TRIM_MS, durationMs));
       setStartText(formatClock(next.startMs, true));
       setEndText(formatClock(next.endMs, true));
       return next;
     },
     [durationMs],
+  );
+
+  // Keep the In/Out text in step when sections change the outer range (split, delete, join).
+  useEffect(() => {
+    setStartText(formatClock(startMs, true));
+    setEndText(formatClock(endMs, true));
+  }, [startMs, endMs]);
+
+  const zoomTo = useCallback(
+    (nextZoom: number, anchorMs: number, anchorFrac: number) => {
+      const clamped = clampZoom(nextZoom);
+      setZoom(clamped);
+      setViewStartMs(zoomAround(anchorMs, anchorFrac, viewDomain, clamped));
+    },
+    [viewDomain],
+  );
+
+  const scrollView = useCallback(
+    (nextViewStartMs: number) => {
+      setViewStartMs(clampViewStart(nextViewStartMs, viewDomain, zoom));
+    },
+    [viewDomain, zoom],
   );
 
   const seekTo = useCallback((ms: number) => {
@@ -444,13 +513,17 @@ export function EditorPage() {
     }
   }, [durationMs]);
 
-  const msFromClientX = useCallback((clientX: number) => {
-    const node = timelineRef.current;
-    if (!node || durationMs <= 0) return 0;
-    const rect = node.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    return asMs(ratio * durationMs);
-  }, [durationMs]);
+  /** Pointer x -> source ms. `map` defaults to the live timeline map; drags pass a frozen one. */
+  const msFromClientX = useCallback(
+    (clientX: number, map: TimelineMap = tlRef.current) => {
+      const node = timelineRef.current;
+      if (!node || durationMs <= 0) return 0;
+      const rect = node.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      return asMs(map.toSource(viewStart + ratio * viewSpan));
+    },
+    [durationMs, viewStart, viewSpan],
+  );
 
   const persistPan = useCallback(
     (next: number) => {
@@ -516,17 +589,16 @@ export function EditorPage() {
       }
       const kind = dragRef.current;
       if (!kind) return;
-      const at = msFromClientX(event.clientX);
-      if (kind === "start") {
-        applyRange(Math.min(at, endMs - MIN_TRIM_MS), endMs);
-        seekTo(Math.min(at, endMs - MIN_TRIM_MS));
-      } else if (kind === "end") {
-        applyRange(startMs, Math.max(at, startMs + MIN_TRIM_MS));
-        seekTo(Math.max(at, startMs + MIN_TRIM_MS));
-      } else {
+      if (kind === "playhead") {
         videoRef.current?.pause();
-        seekTo(at);
+        seekTo(msFromClientX(event.clientX));
+        return;
       }
+      const at = msFromClientX(event.clientX, kind.map);
+      const result = clampSegmentEdge(segmentsRef.current, kind.segmentId, kind.edge, at, MIN_TRIM_MS, durationMs);
+      segmentsRef.current = result.segments;
+      setSegments(result.segments);
+      seekTo(result.ms);
     }
     function onUp() {
       if (webcamDragRef.current) {
@@ -547,10 +619,11 @@ export function EditorPage() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [applyRange, endMs, msFromClientX, overlay.visible, overlay.width, persistPan, persistWebcamLayout, seekTo, startMs]);
+  }, [durationMs, msFromClientX, overlay.visible, overlay.width, persistPan, persistWebcamLayout, seekTo]);
 
   const saveRef = useRef<(share: boolean) => Promise<void>>(async () => {});
   const togglePlayRef = useRef<() => void>(() => {});
+  const sectionActionsRef = useRef<{ split: () => void; remove: () => void }>({ split: () => {}, remove: () => {} });
   const rangeRef = useRef({ startMs, endMs, playheadMs });
   rangeRef.current = { startMs, endMs, playheadMs };
 
@@ -583,22 +656,106 @@ export function EditorPage() {
       if (event.key === "o" || event.key === "O") {
         event.preventDefault();
         applyRange(latest.startMs, latest.playheadMs);
+        return;
+      }
+      if ((event.key === "s" || event.key === "S") && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        sectionActionsRef.current.split();
+        return;
+      }
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        sectionActionsRef.current.remove();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [applyRange, seekTo]);
 
-  const selectedMs = Math.max(0, endMs - startMs);
-  const startPct = durationMs > 0 ? (startMs / durationMs) * 100 : 0;
-  const endPct = durationMs > 0 ? (endMs / durationMs) * 100 : 100;
-  const playheadPct = durationMs > 0 ? (playheadMs / durationMs) * 100 : 0;
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.volume = previewVolume;
+    video.muted = previewVolume === 0;
+  }, [previewVolume, source?.localId]);
+
+  const selectedMs = multiSection ? totalMs(segments) : Math.max(0, endMs - startMs);
   const canSave =
     Boolean(source) &&
     selectedMs >= MIN_TRIM_MS &&
     !saving &&
     (!folderSession || folderSession.permissions.modifyEdits);
   const longShort = selectedMs > SHORTS_WARN_MS;
+  // Sections only export through the local multi-range path.
+  const sectionsAllowed = Boolean(localSource) && !folderSession;
+
+  function splitAtPlayhead() {
+    if (!sectionsAllowed) {
+      showToast("Sections are available for local clips only.");
+      return;
+    }
+    const next = splitAt(segments, playheadMs, MIN_TRIM_MS);
+    if (next === segments) {
+      showToast("Move the playhead inside a section, at least one second from its edges.");
+      return;
+    }
+    setSegments(next);
+    setShortsMode(false);
+    const created = segmentAt(next, playheadMs);
+    setSelectedSegmentId(created?.id ?? null);
+  }
+
+  function deleteSelectedSection() {
+    if (!selectedSegmentId) return;
+    const next = removeSegment(segments, selectedSegmentId);
+    if (next === segments) return;
+    setSegments(next);
+    setSelectedSegmentId(null);
+  }
+
+  function joinSelectedSection() {
+    if (!selectedSegmentId) return;
+    setSegments((prev) => mergeWithNext(prev, selectedSegmentId));
+  }
+  sectionActionsRef.current = { split: splitAtPlayhead, remove: deleteSelectedSection };
+
+  /** During preview, jump over removed sections and stop at the last kept one. */
+  function followPreview(video: HTMLVideoElement, ms: number) {
+    if (segmentAt(segments, ms)) {
+      if (ms >= endMs) {
+        video.pause();
+        video.currentTime = endMs / 1000;
+        setPlayheadMs(asMs(endMs));
+        setPreviewing(false);
+      }
+      return;
+    }
+    const next = nextSegmentAfter(segments, ms);
+    if (next) {
+      video.currentTime = next.startMs / 1000;
+      setPlayheadMs(next.startMs);
+      return;
+    }
+    video.pause();
+    video.currentTime = endMs / 1000;
+    setPlayheadMs(asMs(endMs));
+    setPreviewing(false);
+  }
+
+  /** Keeps the playhead visible while zoomed in and playing. */
+  function followPlayhead(ms: number) {
+    if (zoom <= 1) return;
+    const at = tl.toTimeline(ms);
+    if (at < viewStart || at > viewEnd) {
+      setViewStartMs(clampViewStart(at - viewSpan * 0.1, viewDomain, zoom));
+    }
+  }
+
+  function stepFrame(direction: -1 | 1) {
+    const fps = source?.fps;
+    const frameMs = fps != null && fps > 1 ? 1000 / fps : 33;
+    seekTo(tl.toSource(tl.toTimeline(playheadMs) + direction * frameMs));
+  }
 
   function togglePlay() {
     const video = videoRef.current;
@@ -621,7 +778,8 @@ export function EditorPage() {
   }
 
   function resetRange() {
-    applyRange(0, durationMs);
+    setSegments(singleSegment(0, Math.max(durationMs, MIN_TRIM_MS)));
+    setSelectedSegmentId(null);
     seekTo(0);
     setPreviewing(false);
     setShortsMode(false);
@@ -662,12 +820,19 @@ export function EditorPage() {
       }
       return;
     }
+    if (kind === "sections" && !multiSection) kind = "trim";
+    if (kind === "short" && multiSection) {
+      showToast("Shorts save a single section. Join the sections first.");
+      return;
+    }
     setSavingKind(kind);
     try {
       const next =
         kind === "short"
           ? await saveShortClip(source.localId, asMs(startMs), asMs(endMs), pan)
-          : await saveTrimmedClip(source.localId, asMs(startMs), asMs(endMs));
+          : kind === "sections"
+            ? await saveSegmentedClip(source.localId, segmentsToRanges(segments))
+            : await saveTrimmedClip(source.localId, asMs(startMs), asMs(endMs));
       setSaved(next);
       setSavedKind(kind);
       setSavedTitle(next.title || "");
@@ -681,10 +846,19 @@ export function EditorPage() {
         setSharing(true);
         await copyLink(next.localId);
       } else {
-        showToast(kind === "short" ? "Saved as a Short" : "Saved as a new clip");
+        showToast(
+          kind === "short"
+            ? "Saved as a Short"
+            : kind === "sections"
+              ? `Saved ${segments.length} sections as a new clip`
+              : "Saved as a new clip",
+        );
       }
     } catch (caught) {
-      const message = invokeErrorMessage(caught, kind === "short" ? "Could not save that Short" : "Could not save that trim");
+      const message = invokeErrorMessage(
+        caught,
+        kind === "short" ? "Could not save that Short" : kind === "sections" ? "Could not save those sections" : "Could not save that trim",
+      );
       showToast(message);
       trackClipSaveFailed(message);
       if (kind === "short") trackClipRenderFailed({ kind: "short", message });
@@ -693,7 +867,7 @@ export function EditorPage() {
       setSharing(false);
     }
   }
-  saveRef.current = (share) => saveClip(shortsMode ? "short" : "trim", share);
+  saveRef.current = (share) => saveClip(multiSection ? "sections" : shortsMode ? "short" : "trim", share);
 
   async function shareSaved() {
     if (!savedClip) return;
@@ -771,6 +945,10 @@ export function EditorPage() {
     return <p className="muted">Loading clip…</p>;
   }
 
+  const frameWidth = frameSize.width || source.width || 0;
+  const frameHeight = frameSize.height || source.height || 0;
+  const sourceIs16x9 =
+    frameWidth > 0 && frameHeight > 0 && Math.abs(frameWidth / frameHeight - 16 / 9) / (16 / 9) < 0.03;
   return (
     <div
       className="editor-studio"
@@ -780,47 +958,72 @@ export function EditorPage() {
           : undefined
       }
     >
-      <PageHeader
+      <EditorHeader
         title={folderSession ? folderSession.editName : source.title || "Untitled clip"}
-        subtitle={
-          folderSession
-            ? `${folderSession.folderName} / ${folderSession.sourceTitle} · Shared Edit · the clean original is not overwritten`
-            : "Trim a new local MP4. The original file stays unchanged."
+        meta={`${formatDuration(durationMs)} · ${source.width} × ${source.height}${source.fps ? ` · ${source.fps} FPS` : ""}`}
+        backTo={folderSession ? `/library/folders/${folderSession.folderId}` : "/library"}
+        onBack={() => closePlayer()}
+        badge={folderSession ? "Shared Edit" : undefined}
+        saving={saving}
+        menu={
+          <>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={!canSave}
+              onClick={() => void saveClip(multiSection ? "sections" : shortsMode ? "short" : "trim", false)}
+            >
+              {folderSession
+                ? "Save Folder Edit"
+                : multiSection
+                  ? `Save as New Clip (${segments.length} sections)`
+                  : "Save as New Clip"}
+            </button>
+            {folderSession || multiSection ? null : (
+              <button type="button" role="menuitem" onClick={() => setShortsMode(true)}>
+                Export / Share
+              </button>
+            )}
+            {folderSession && localSource ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!canSave || !folderSession.permissions.renderEdits}
+                onClick={() => void saveEditedCopy()}
+              >
+                Save Edited Copy
+              </button>
+            ) : null}
+            {savedClip ? (
+              <>
+                <button type="button" role="menuitem" onClick={() => play(savedClip.localId)}>
+                  Watch saved clip
+                </button>
+                <button type="button" role="menuitem" onClick={() => void revealLocalClip(savedClip.filePath)}>
+                  Show in folder
+                </button>
+                <button type="button" role="menuitem" onClick={() => void download(savedClip.localId)}>
+                  Save a copy…
+                </button>
+                <button type="button" role="menuitem" disabled={sharingFile} onClick={() => void shareSavedFile()}>
+                  {sharingFile ? "Sharing…" : "Share file"}
+                </button>
+                <button type="button" role="menuitem" disabled={sharing || uploading} onClick={() => void shareSaved()}>
+                  {uploadStatus === "completed" ? "Copy Replayr link" : sharing || uploading ? "Uploading…" : "Replayr link"}
+                </button>
+              </>
+            ) : null}
+          </>
         }
-      >
-        {folderSession ? <span className="badge editor-shared-badge">Shared Edit</span> : null}
-        <Link
-          className="btn"
-          to={folderSession ? `/library/folders/${folderSession.folderId}` : "/library"}
-          onClick={() => closePlayer()}
-        >
-          Back
-        </Link>
-        <button
-          type="button"
-          className="btn"
-          disabled={!canSave}
-          onClick={() => void saveClip(shortsMode ? "short" : "trim", false)}
-        >
-          Save as New Clip
-        </button>
-        {folderSession ? null : (
-          <button
-            type="button"
-            className="btn primary"
-            disabled={shortsMode}
-            onClick={() => setShortsMode(true)}
-          >
-            Export / Share
-          </button>
-        )}
-      </PageHeader>
+      />
 
-      <div className="editor-studio-body">
+      <div className="editor-workspace">
       <div className="editor-main">
 
-      <div className="editor-stage player-stage">
-        <div ref={previewRef} className="editor-preview">
+      <div className="editor-stage">
+        <div className="editor-preview-stack">
+        <div className="editor-preview-frame">
+        <div ref={previewRef} className={`editor-preview fit-${previewFit}`}>
           <video
             ref={videoRef}
             className="editor-gameplay"
@@ -840,6 +1043,8 @@ export function EditorPage() {
               if (video.videoWidth > 0 && video.videoHeight > 0) {
                 setFrameSize({ width: video.videoWidth, height: video.videoHeight });
               }
+              video.volume = previewVolume;
+              video.muted = previewVolume === 0;
               void ensureFirstFrame(video);
             }}
             onTimeUpdate={(event) => {
@@ -847,12 +1052,8 @@ export function EditorPage() {
               const ms = asMs(video.currentTime * 1000);
               setPlayheadMs(ms);
               syncWebcam(video);
-              if (previewing && ms >= endMs) {
-                video.pause();
-                video.currentTime = endMs / 1000;
-                setPlayheadMs(asMs(endMs));
-                setPreviewing(false);
-              }
+              followPlayhead(ms);
+              if (previewing || tl.collapsed) followPreview(video, ms);
             }}
             onPlay={(event) => {
               setPlaying(true);
@@ -942,239 +1143,138 @@ export function EditorPage() {
             </div>
           ) : null}
         </div>
+        </div>
+        <div className="editor-playback">
+          <span className="editor-timecode">
+            <strong>{formatClock(tl.collapsed ? tl.toTimeline(playheadMs) : playheadMs, true)}</strong>
+            <span>/ {formatClock(tl.collapsed ? tl.domainMs : durationMs, true)}</span>
+          </span>
+          <div className="editor-transport">
+            <button type="button" onClick={() => stepFrame(-1)} aria-label="Previous frame">
+              <SkipBack size={16} weight="fill" />
+            </button>
+            <button type="button" className="editor-play" onClick={togglePlay} aria-label={playing ? "Pause" : "Play"}>
+              {playing ? <Pause size={18} weight="fill" /> : <Play size={18} weight="fill" />}
+            </button>
+            <button type="button" onClick={() => stepFrame(1)} aria-label="Next frame">
+              <SkipForward size={16} weight="fill" />
+            </button>
+          </div>
+          <div className="editor-volume">
+            <label className="editor-volume-slider">
+              {previewVolume === 0 ? <SpeakerSlash size={15} /> : <SpeakerHigh size={15} />}
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={previewVolume}
+                aria-label="Preview volume"
+                onChange={(event) => setPreviewVolume(Number(event.target.value))}
+              />
+            </label>
+            <button
+              type="button"
+              aria-label="Fullscreen preview"
+              title="Fullscreen"
+              onClick={() => void previewRef.current?.requestFullscreen?.()}
+            >
+              <CornersOut size={15} />
+            </button>
+            <button
+              type="button"
+              className="editor-fit"
+              title={previewFit === "contain" ? "Fit: whole frame" : "Fit: fill"}
+              onClick={() => setPreviewFit((value) => (value === "contain" ? "cover" : "contain"))}
+            >
+              {previewFit === "contain" ? "Fit" : "Fill"}
+              <CaretDown size={10} />
+            </button>
+          </div>
+        </div>
+        </div>
       </div>
 
-      <div className="editor-transport">
-        <button type="button" className="btn primary" onClick={togglePlay}>
-          {playing ? "Pause" : "Play"}
-        </button>
-        <strong>{formatClock(playheadMs, true)}</strong>
-        <span className="muted">/ {formatClock(durationMs, true)}</span>
       </div>
 
-      <div
-        ref={timelineRef}
-        className="editor-timeline"
+      <EditorInspector
+        source={source}
+        shortsMode={shortsMode}
+        sourceIs16x9={sourceIs16x9}
+        pan={pan}
+        overlayVisible={shortsMode && overlay.visible}
+        onShortsMode={setShortsMode}
+        sections={multiSection ? { count: segments.length } : null}
+        onPan={(value) => {
+          const next = clampPan(value);
+          panRef.current = next;
+          setPan(next);
+        }}
+        onPersistPan={() => persistPan(panRef.current)}
+        onResetPan={() => {
+          panRef.current = 0.5;
+          setPan(0.5);
+          persistPan(0.5);
+        }}
+        longSelection={longShort && shortsMode}
+        webcam={
+          webcamMedia
+            ? {
+                layout: webcamLayout,
+                placements: WEBCAM_PLACEMENTS,
+                shapes: WEBCAM_SHAPES,
+                onPlacement: (id) => persistWebcamLayout({ ...webcamLayout, placement: id, x: null, y: null }),
+                onShape: (id) => persistWebcamLayout({ ...webcamLayout, shape: id }),
+                onWidth: (percent) => persistWebcamLayout({ ...webcamLayout, width: percent / 100 }),
+              }
+            : null
+        }
+      />
+      </div>
+
+      <EditorTimeline
+        timelineRef={timelineRef}
+        durationMs={durationMs}
+        segments={segments}
+        map={tl}
+        selectedSegmentId={selectedSegmentId}
+        startMs={startMs}
+        endMs={endMs}
+        startText={startText}
+        endText={endText}
+        playheadMs={playheadMs}
+        viewStartMs={viewStart}
+        viewEndMs={viewEnd}
+        zoom={zoom}
+        frames={stripFrames.map((frame) => convertFileSrc(frame.path))}
+        peaks={wavePeaks}
         onPointerDown={(event) => {
           if ((event.target as HTMLElement).dataset.handle) return;
+          if (!(event.target as HTMLElement).dataset.segment) setSelectedSegmentId(null);
           dragRef.current = "playhead";
           videoRef.current?.pause();
           seekTo(msFromClientX(event.clientX));
         }}
-      >
-        <div className="editor-strip">
-          {stripFrames.length > 0
-            ? stripFrames.map((frame) => (
-                <img key={frame.path} src={convertFileSrc(frame.path)} alt="" draggable={false} />
-              ))
-            : Array.from({ length: STRIP_TILES }, (_, index) => (
-                <span key={index} className="editor-strip-empty" />
-              ))}
-        </div>
-        <div className="editor-dim" style={{ left: 0, width: `${startPct}%` }} />
-        <div className="editor-dim" style={{ left: `${endPct}%`, right: 0 }} />
-        <div className="editor-range" style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }} />
-        <button
-          type="button"
-          className="editor-handle"
-          data-handle="start"
-          style={{ left: `${startPct}%` }}
-          aria-label="Trim start"
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            dragRef.current = "start";
-          }}
-        />
-        <button
-          type="button"
-          className="editor-handle"
-          data-handle="end"
-          style={{ left: `${endPct}%` }}
-          aria-label="Trim end"
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            dragRef.current = "end";
-          }}
-        />
-        <button
-          type="button"
-          className="editor-playhead"
-          data-handle="playhead"
-          style={{ left: `${playheadPct}%` }}
-          aria-label="Playhead"
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            dragRef.current = "playhead";
-            videoRef.current?.pause();
-          }}
-        />
-      </div>
-
-      <div className="editor-fields">
-        <label>
-          Start
-          <input
-            value={startText}
-            aria-label="Trim start"
-            onChange={(event) => setStartText(event.target.value)}
-            onBlur={(event) => commitClock("start", event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.currentTarget.blur();
-            }}
-          />
-        </label>
-        <label>
-          End
-          <input
-            value={endText}
-            aria-label="Trim end"
-            onChange={(event) => setEndText(event.target.value)}
-            onBlur={(event) => commitClock("end", event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.currentTarget.blur();
-            }}
-          />
-        </label>
-        <div className="editor-duration">
-          <span className="muted">Selected</span>
-          <strong>{formatDuration(selectedMs)}</strong>
-        </div>
-      </div>
-
-      {webcamMedia ? (
-        <div className="editor-webcam-controls">
-          <span className="settings-group-label">Webcam overlay</span>
-          <p className="muted editor-webcam-hint">Drag the camera on the preview, or snap to a corner.</p>
-          <div className="placement-grid" role="group" aria-label="Webcam position">
-            {WEBCAM_PLACEMENTS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`placement-cell ${webcamLayout.placement === item.id ? "on" : ""}`}
-                onClick={() =>
-                  persistWebcamLayout({ ...webcamLayout, placement: item.id, x: null, y: null })
-                }
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <div className="shape-row">
-            {WEBCAM_SHAPES.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`chip ${webcamLayout.shape === item.id ? "on" : ""}`}
-                onClick={() => persistWebcamLayout({ ...webcamLayout, shape: item.id })}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <label className="setting-row">
-            <span>Size</span>
-            <span className="muted">{Math.round(webcamLayout.width * 100)}%</span>
-          </label>
-          <input
-            type="range"
-            min={12}
-            max={40}
-            value={Math.round(webcamLayout.width * 100)}
-            onChange={(event) =>
-              persistWebcamLayout({ ...webcamLayout, width: Number(event.target.value) / 100 })
-            }
-          />
-        </div>
-      ) : null}
-
-      <p className="muted editor-hint">
-        Space plays, I / O set in and out, arrows nudge 1s (Shift 5s). Start may snap back by up to about 2 seconds to
-        the previous keyframe.
-      </p>
-      {longShort && shortsMode ? (
-        <p className="muted editor-hint">Longer than 60 seconds — some apps cap Shorts there. You can still save.</p>
-      ) : null}
-
-      <div className="row editor-actions">
-        <button type="button" className="btn" onClick={resetRange}>
-          Reset
-        </button>
-        <button type="button" className="btn" onClick={previewSelection}>
-          {playing && previewing ? "Previewing…" : "Preview Selection"}
-        </button>
-        <button
-          type="button"
-          className={`btn ${shortsMode ? "primary" : ""}`}
-          disabled={!canSave}
-          onClick={() => void saveClip(shortsMode ? "short" : "trim", false)}
-        >
-          {saving
-            ? folderSession
-              ? "Saving…"
-              : shortsMode
-                ? "Saving Short…"
-                : "Saving…"
-            : folderSession
-              ? "Save Folder Edit"
-              : "Save as New Clip"}
-        </button>
-        {folderSession && localSource ? (
-          <button type="button" className="btn" disabled={!canSave || !folderSession.permissions.renderEdits} onClick={() => void saveEditedCopy()}>
-            Save Edited Copy
-          </button>
-        ) : null}
-        {folderSession ? null : <button
-          type="button"
-          className={`btn editor-short-btn ${shortsMode ? "on" : "primary"}`}
-          disabled={shortsMode}
-          aria-pressed={shortsMode}
-          onClick={() => setShortsMode(true)}
-        >
-          <span className="editor-brand-logos" aria-hidden="true">
-            <IconTikTok className="logo-tiktok" />
-            <IconInstagram className="logo-instagram" />
-            <IconYoutube className="logo-youtube" />
-          </span>
-          Save as Short
-        </button>}
-      </div>
-      {shortsMode ? (
-        <p className="muted editor-hint editor-short-hint">
-          <span className="editor-brand-logos" aria-hidden="true">
-            <IconTikTok className="logo-tiktok" />
-            <IconInstagram className="logo-instagram" />
-            <IconYoutube className="logo-youtube" />
-          </span>
-          Drag to frame, then Save as New Clip. 1080×1920 for TikTok, Instagram Reels, and YouTube Shorts.
-        </p>
-      ) : (
-        <p className="muted editor-hint editor-short-hint">
-          <span className="editor-brand-logos" aria-hidden="true">
-            <IconTikTok className="logo-tiktok" />
-            <IconInstagram className="logo-instagram" />
-            <IconYoutube className="logo-youtube" />
-          </span>
-          1080×1920 for TikTok, Instagram Reels, and YouTube Shorts.
-        </p>
-      )}
-
-      </div>
-      <aside className="editor-side">
-        <EditorStudioTools
-          trimActive={!shortsMode}
-          cropActive={shortsMode}
-          onTrim={() => setShortsMode(false)}
-          onCrop={() => setShortsMode(true)}
-        />
-        <EditorClipDetails
-          durationMs={source.durationMs}
-          width={source.width}
-          height={source.height}
-          fps={source.fps}
-          fileSize={source.fileSize}
-        />
-      </aside>
-      </div>
+        onHandlePointerDown={(segmentId, edge) => {
+          dragRef.current = { segmentId, edge, map: tl };
+        }}
+        onJoinSeam={(beforeId) => setSegments((prev) => mergeWithNext(prev, beforeId))}
+        onPlayheadPointerDown={() => {
+          dragRef.current = "playhead";
+          videoRef.current?.pause();
+        }}
+        onSelectSegment={setSelectedSegmentId}
+        onSplit={splitAtPlayhead}
+        onDeleteSelected={deleteSelectedSection}
+        onJoinSelected={joinSelectedSection}
+        onStartText={setStartText}
+        onEndText={setEndText}
+        onCommitClock={commitClock}
+        onReset={resetRange}
+        onPreviewSelection={previewSelection}
+        onZoom={zoomTo}
+        onScroll={scrollView}
+      />
 
       {savedClip ? (
         <section className="panel stack editor-success">

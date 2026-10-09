@@ -11,6 +11,7 @@
     "expo-clipboard": "~57.0.1",
     "expo-constants": "~57.0.13",
     "expo-crypto": "~57.0.1",
+    "expo-dev-client": "~57.0.0",
     "expo-device": "~57.0.2",
     "expo-document-picker": "~57.0.2",
     "expo-file-system": "~57.0.5",
@@ -35,7 +36,8 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-web": "~0.21.0",
-    "react-native-worklets": "0.10.1"
+    "react-native-worklets": "0.10.1",
+    "replayr-export": "file:./modules/replayr-export"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
@@ -44,6 +46,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "node --test lib/editProject.test.ts",
     "start": "node scripts/start.mjs",
     "start:tunnel": "npx expo start --tunnel",
     "android": "expo start --android",

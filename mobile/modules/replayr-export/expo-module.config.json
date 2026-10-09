@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["ReplayrExportModule"]
+  },
+  "android": {
+    "modules": ["tv.elite.replay.export.ReplayrExportModule"]
+  }
+}

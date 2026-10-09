@@ -54,6 +54,16 @@ function RootShell() {
           <Stack.Screen name="u/[username]" options={{ title: "Profile" }} />
           <Stack.Screen name="messages/[id]" options={{ title: "Chat", headerBackTitle: "Back" }} />
           <Stack.Screen name="settings" options={{ title: "Settings" }} />
+          <Stack.Screen
+            name="editor/[slug]"
+            options={{
+              headerShown: false,
+              animation: "slide_from_bottom",
+              gestureDirection: "horizontal",
+              fullScreenGestureEnabled: false,
+              gestureResponseDistance: { start: 16 },
+            }}
+          />
           <Stack.Screen name="staff" options={{ headerShown: false }} />
           <Stack.Screen name="folders" options={{ headerShown: false }} />
           <Stack.Screen name="auth/callback" options={{ title: "Signing in" }} />

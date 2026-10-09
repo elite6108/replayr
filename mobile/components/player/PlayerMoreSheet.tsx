@@ -11,6 +11,7 @@ export function PlayerMoreSheet({
   onPanel,
   onShare,
   onSave,
+  onEdit,
   onVisibility,
   onDelete,
   onClose,
@@ -21,6 +22,7 @@ export function PlayerMoreSheet({
   onPanel: (panel: Panel) => void;
   onShare: () => void;
   onSave: () => void;
+  onEdit?: () => void;
   onVisibility: (visibility: "public" | "unlisted" | "private") => void;
   onDelete: () => void;
   onClose: () => void;
@@ -56,6 +58,7 @@ export function PlayerMoreSheet({
             </Text>
             <Row label="Share" onPress={onShare} />
             <Row label="Save to Photos" onPress={onSave} />
+            {onEdit ? <Row label="Edit" onPress={onEdit} /> : null}
             {canManage ? (
               <>
                 <Row label="Visibility" onPress={() => onPanel("visibility")} />

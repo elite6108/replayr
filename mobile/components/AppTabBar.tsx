@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSocialUnread } from "@/lib/socialUnread";
 import { colors, glow, glowSm } from "@/lib/theme";
 
-const HIDDEN = [/^\/signin/, /^\/auth\//, /\/folders\/.+\/play/, /^\/messages\/[^/]+/];
+const HIDDEN = [/^\/signin/, /^\/auth\//, /\/folders\/.+\/play/, /^\/messages\/[^/]+/, /^\/editor(\/|$)/];
 
 export function shouldShowAppTabBar(pathname: string) {
   return !HIDDEN.some((pattern) => pattern.test(pathname)) && !pathname.startsWith("/s/");

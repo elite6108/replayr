@@ -2,15 +2,18 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": [
         "./*"
       ]
     }
   },
+  "exclude": ["**/*.test.ts"],
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    "../src/components/editor/segments.ts",
     "../packages/avatar-src/index.ts",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"

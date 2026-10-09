@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useRouter, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView, type VideoPlayer } from "expo-video";
 import { Avatar } from "@/components/Avatar";
@@ -398,6 +398,15 @@ function ReadyCell({
             });
             setMoreOpen(false);
           }}
+          onEdit={
+            clip.mine
+              ? () => {
+                  pausePlayer(player);
+                  setMoreOpen(false);
+                  router.push(`/editor/${encodeURIComponent(clip.slug)}` as Href);
+                }
+              : undefined
+          }
           onVisibility={(visibility) => void setVisibility(visibility)}
           onDelete={() => {
             if (!token || !clipId) return;

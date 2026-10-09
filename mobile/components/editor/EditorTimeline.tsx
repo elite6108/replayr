@@ -36,15 +36,18 @@ function rulerLabel(ms: number, step: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function audioShape(count: number): number[] {
-  return Array.from({ length: count }, (_, index) => {
-    const a = Math.abs(Math.sin(index * 0.47));
-    const b = Math.abs(Math.sin(index * 0.13 + 1.2));
-    return 0.18 + a * b * 0.78;
-  });
-}
+type GestureMode = "none" | "pan" | "pinch" | "trim-start" | "trim-end";
+const HANDLE_WIDTH = 14;
+const HANDLE_GRAB_PX = 22;
 
-type GestureMode = "none" | "pan" | "pinch";
+/** Picks the trim handle under the touch, nearest first. Null when the touch is away from both. */
+function trimHandleAt(pageX: number, startX: number, endX: number, enabled: boolean): "trim-start" | "trim-end" | null {
+  if (!enabled) return null;
+  const toStart = Math.abs(pageX - startX);
+  const toEnd = Math.abs(pageX - endX);
+  if (toStart > HANDLE_GRAB_PX && toEnd > HANDLE_GRAB_PX) return null;
+  return toStart <= toEnd ? "trim-start" : "trim-end";
+}
 
 export function EditorTimeline({
   durationMs,
@@ -52,6 +55,7 @@ export function EditorTimeline({
   rangeStartMs,
   rangeEndMs,
   frames,
+  peaks,
   thumbnailUrl,
   trimEnabled,
   playing,
@@ -63,6 +67,7 @@ export function EditorTimeline({
   rangeStartMs: number;
   rangeEndMs: number;
   frames: VideoThumbnail[];
+  peaks?: number[] | null;
   thumbnailUrl?: string | null;
   trimEnabled: boolean;
   playing: boolean;
@@ -92,7 +97,7 @@ export function EditorTimeline({
   viewRef.current = viewStart;
   const span = viewSpanMs(duration, zoom);
   const viewEnd = viewStart + span;
-  const bars = useMemo(() => audioShape(140), []);
+  const bars = peaks && peaks.length > 0 ? peaks : null;
 
   useEffect(() => {
     if (!playing || gesture.current.mode !== "none" || zoom <= 1.01) return;
@@ -129,8 +134,34 @@ export function EditorTimeline({
     return Math.hypot(points[0].pageX - points[1].pageX, points[0].pageY - points[1].pageY) || 1;
   };
 
+  const handlePageX = (ms: number) => {
+    const pct = pctInView(ms, viewRef.current, viewRef.current + viewSpanMs(duration, zoomRef.current));
+    return laneLeft.current + (pct / 100) * laneWidth;
+  };
+
   const onGrant = (event: GestureResponderEvent) => {
     const points = event.nativeEvent.touches;
+    if (points && points.length < 2) {
+      const grabbed = trimHandleAt(
+        event.nativeEvent.pageX,
+        handlePageX(rangeStartMs),
+        handlePageX(rangeEndMs),
+        trimEnabled,
+      );
+      if (grabbed) {
+        gesture.current = {
+          mode: grabbed,
+          x: event.nativeEvent.pageX,
+          view: viewRef.current,
+          zoom: zoomRef.current,
+          dist: 1,
+          anchorMs: 0,
+          frac: 0.5,
+          moved: false,
+        };
+        return;
+      }
+    }
     if (points && points.length >= 2) {
       const mid = (points[0].pageX + points[1].pageX) / 2;
       const frac = (mid - laneLeft.current) / Math.max(1, laneWidth);
@@ -159,6 +190,12 @@ export function EditorTimeline({
   };
 
   const onMove = (event: GestureResponderEvent) => {
+    const mode = gesture.current.mode;
+    if (mode === "trim-start" || mode === "trim-end") {
+      gesture.current.moved = true;
+      onTrim(mode === "trim-start" ? "start" : "end", msFromPage(event.nativeEvent.pageX));
+      return;
+    }
     const points = event.nativeEvent.touches;
     if (points && points.length >= 2) {
       if (gesture.current.mode !== "pinch") onGrant(event);
@@ -181,7 +218,13 @@ export function EditorTimeline({
   };
 
   const onRelease = (event: GestureResponderEvent) => {
-    if (gesture.current.mode === "pan" && !gesture.current.moved) {
+    const mode = gesture.current.mode;
+    if (mode === "trim-start" || mode === "trim-end") {
+      if (gesture.current.moved) onTrim(mode === "trim-start" ? "start" : "end", msFromPage(event.nativeEvent.pageX));
+      gesture.current.mode = "none";
+      return;
+    }
+    if (mode === "pan" && !gesture.current.moved) {
       const now = Date.now();
       const pageX = event.nativeEvent.pageX;
       if (now - lastTap.current < 280) {
@@ -240,26 +283,14 @@ export function EditorTimeline({
         {trimEnabled ? (
           <Dim left={Math.max(0, Math.min(100, endPct))} width={Math.max(0, 100 - Math.max(0, Math.min(100, endPct)))} />
         ) : null}
-        {trimEnabled ? (
-          <TrimHandle
-            left={(startPct / 100) * laneWidth}
-            laneWidth={laneWidth}
-            onMove={(pageX) => onTrim("start", msFromPage(pageX))}
-          />
-        ) : null}
-        {trimEnabled ? (
-          <TrimHandle
-            left={(endPct / 100) * laneWidth}
-            laneWidth={laneWidth}
-            onMove={(pageX) => onTrim("end", msFromPage(pageX))}
-          />
-        ) : null}
+        {trimEnabled ? <TrimHandle left={(startPct / 100) * laneWidth} laneWidth={laneWidth} /> : null}
+        {trimEnabled ? <TrimHandle left={(endPct / 100) * laneWidth} laneWidth={laneWidth} /> : null}
       </Track>
       <Track icon="volume-medium-outline" label="Audio">
         <View style={[styles.strip, styles.waveRow, { width: stripWidth, transform: [{ translateX: shift }] }]}>
-          {bars.map((bar, index) => (
-            <View key={index} style={[styles.bar, { height: `${bar * 100}%` }]} />
-          ))}
+          {bars
+            ? bars.map((bar, index) => <View key={index} style={[styles.bar, { height: `${Math.max(0.04, bar) * 100}%` }]} />)
+            : <View style={styles.flat} />}
         </View>
       </Track>
       <Track icon="text" label="Text">
@@ -304,18 +335,14 @@ function Dim({ left, width }: { left: number; width: number }) {
   return <View pointerEvents="none" style={[styles.dim, { left: `${left}%`, width: `${width}%` }]} />;
 }
 
-function TrimHandle({ left, laneWidth, onMove }: { left: number; laneWidth: number; onMove: (pageX: number) => void }) {
+/** Visual only. The timeline responder owns the drag so trim never falls through to seek. */
+function TrimHandle({ left, laneWidth }: { left: number; laneWidth: number }) {
   if (left < -16 || left > laneWidth + 16) return null;
+  const clamped = Math.max(0, Math.min(laneWidth - HANDLE_WIDTH, left - HANDLE_WIDTH / 2));
   return (
-    <View
-      style={[styles.handle, { left: left - 7 }]}
-      onStartShouldSetResponderCapture={() => true}
-      onStartShouldSetResponder={() => true}
-      onMoveShouldSetResponder={() => true}
-      onResponderTerminationRequest={() => false}
-      onResponderMove={(event) => onMove(event.nativeEvent.pageX)}
-      onResponderRelease={(event) => onMove(event.nativeEvent.pageX)}
-    />
+    <View pointerEvents="none" style={[styles.handle, { left: clamped }]}>
+      <View style={styles.handleGrip} />
+    </View>
   );
 }
 
@@ -348,16 +375,20 @@ const styles = StyleSheet.create({
   tile: { flex: 1, height: "100%" },
   waveRow: { alignItems: "center", paddingHorizontal: 1 },
   bar: { flex: 1, marginHorizontal: 0.5, borderRadius: 1, backgroundColor: colors.accent, alignSelf: "center" },
+  flat: { flex: 1, height: 2, borderRadius: 1, backgroundColor: "rgba(0,216,240,0.45)", alignSelf: "center" },
   textLane: { flex: 1 },
   dim: { position: "absolute", top: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.55)" },
   handle: {
     position: "absolute",
     top: 0,
-    width: 14,
+    width: HANDLE_WIDTH,
     height: LANE,
     borderRadius: 3,
     backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  handleGrip: { width: 2, height: 14, borderRadius: 1, backgroundColor: "rgba(4,20,24,0.55)" },
   playhead: { position: "absolute", top: 0, bottom: 6, width: 12, marginLeft: -6, alignItems: "center" },
   playheadDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent },
   playheadLine: { width: 2, flex: 1, backgroundColor: colors.accent },

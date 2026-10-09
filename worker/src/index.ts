@@ -108,6 +108,8 @@ const MAX_PRESIGN_PARTS = 80;
 const LEGACY_FULL_PRESIGN_PARTS = 256;
 /** Absolute cloud object size. ~8 GB covers ~14 min at 75 Mbps. */
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024 * 1024;
+/** Phone exports ask for one PUT. Desktop omits the flag and stays multipart above PART_SIZE. */
+const SINGLE_PUT_LIMIT = 512 * 1024 * 1024;
 const SLUG_ALPHABET = "abcdefghijkmnopqrstuvwxyz23456789";
 const CONTENT_TYPE = "video/mp4";
 
@@ -120,12 +122,17 @@ interface UploadBody {
   fps?: number | null;
   title?: string | null;
   gameSlug?: string | null;
+  replacesClipId?: string | null;
+  preferSinglePut?: boolean;
 }
 
 interface CompleteBody {
   uploadId?: string | null;
   parts?: { partNumber: number; etag: string }[];
   composeMs?: number | null;
+  durationMs?: number | null;
+  width?: number | null;
+  height?: number | null;
 }
 
 export default {
@@ -508,6 +515,10 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
   if (!quota) {
     return json({ error: "No storage plan is attached to this account." }, 403);
   }
+  const replacesClipId = typeof body.replacesClipId === "string" ? body.replacesClipId.trim() : "";
+  if (replacesClipId) {
+    return createReplaceUpload(env, user, body, size, quota, replacesClipId);
+  }
   if (quota.storage_used_bytes + size > quota.storage_limit_bytes) {
     return json({ error: "This clip would exceed your cloud storage limit. Upgrade to Premium for 100 GB." }, 403);
   }
@@ -552,7 +563,8 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
   const parts: { partNumber: number; url: string }[] = [];
   const signHeaders = { "content-type": CONTENT_TYPE };
 
-  if (size > PART_SIZE) {
+  const singlePut = body.preferSinglePut === true && size <= SINGLE_PUT_LIMIT;
+  if (size > PART_SIZE && !singlePut) {
     const started = await aws.fetch(`${endpoint}?uploads`, { method: "POST" });
     const xml = await started.text();
     if (!started.ok) {
@@ -624,6 +636,125 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
   });
 }
 
+async function createReplaceUpload(
+  env: Env,
+  user: AuthUser,
+  body: UploadBody,
+  size: number,
+  quota: StorageRow,
+  replacesClipId: string,
+): Promise<Response> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(replacesClipId)) {
+    return json({ error: "Clip id is invalid." }, 400);
+  }
+  const clips = await serviceRest<(ClipRow & { watermark?: boolean })[]>(
+    env,
+    "GET",
+    `/clips?id=eq.${replacesClipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,thumbnail_key,status,file_size_bytes,watermark`,
+  );
+  const clip = clips[0];
+  if (!clip) return json({ error: "That clip was not found." }, 404);
+  if (clip.status !== "ready") return json({ error: "That clip is not ready to replace." }, 409);
+  if (!ownedObjectKey(user.id, clip.storage_key)) return json({ error: "Clip storage key is invalid." }, 403);
+
+  const oldSize = Math.max(0, Number(clip.file_size_bytes ?? 0));
+  if (quota.storage_used_bytes - oldSize + size > quota.storage_limit_bytes) {
+    return json({ error: "This clip would exceed your cloud storage limit. Upgrade to Premium for 100 GB." }, 403);
+  }
+  await assertUploadAllowed(env, user.id, {
+    durationMs: body.durationMs,
+    width: body.width,
+    height: body.height,
+    fps: body.fps,
+  });
+  const openSessions = await serviceRestCount(
+    env,
+    `/upload_sessions?user_id=eq.${user.id}&status=eq.uploading&expires_at=gt.${new Date().toISOString()}&select=id`,
+  );
+  if (openSessions >= 5) {
+    return json({ error: "Finish or wait for an existing upload before starting another." }, 429);
+  }
+  const active = await serviceRest<{ id: string }[]>(
+    env,
+    "GET",
+    `/upload_sessions?clip_id=eq.${replacesClipId}&user_id=eq.${user.id}&status=eq.uploading&select=id&limit=1`,
+  );
+  if (active.length > 0) {
+    return json({ error: "An upload for this clip is already in progress." }, 409);
+  }
+
+  const key = `clips/${user.id}/${clip.id}/edit-${Date.now()}.mp4`;
+  if (!ownedObjectKey(user.id, key)) return json({ error: "Could not start that upload." }, 500);
+
+  const aws = r2Client(env);
+  const endpoint = objectUrl(env, key);
+  let uploadId: string | null = null;
+  const parts: { partNumber: number; url: string }[] = [];
+  const signHeaders = { "content-type": CONTENT_TYPE };
+  const singlePut = body.preferSinglePut === true && size <= SINGLE_PUT_LIMIT;
+
+  if (size > PART_SIZE && !singlePut) {
+    const started = await aws.fetch(`${endpoint}?uploads`, { method: "POST" });
+    const xml = await started.text();
+    if (!started.ok) return json({ error: `Could not start multipart upload: ${xml}` }, 502);
+    uploadId = xml.match(/<UploadId>([^<]+)<\/UploadId>/)?.[1] ?? null;
+    if (!uploadId) return json({ error: "R2 did not return an upload id." }, 502);
+    const count = Math.ceil(size / PART_SIZE);
+    const batchCount = count <= LEGACY_FULL_PRESIGN_PARTS ? count : Math.min(count, MAX_PRESIGN_PARTS);
+    const partNumbers = Array.from({ length: batchCount }, (_, index) => index + 1);
+    parts.push(
+      ...(await mapPool(partNumbers, 16, async (partNumber) => {
+        const signed = await aws.sign(
+          `${endpoint}?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId!)}&X-Amz-Expires=3600`,
+          { method: "PUT", headers: signHeaders, aws: { signQuery: true } },
+        );
+        return { partNumber, url: signed.url };
+      })),
+    );
+  } else {
+    const signed = await aws.sign(`${endpoint}?X-Amz-Expires=3600`, {
+      method: "PUT",
+      headers: signHeaders,
+      aws: { signQuery: true },
+    });
+    parts.push({ partNumber: 1, url: signed.url });
+  }
+
+  const reserved = Math.max(0, size - oldSize);
+  try {
+    if (reserved > 0) await reserveUploadBytes(env, user.id, reserved);
+  } catch (caught) {
+    await abortMultipart(env, key, uploadId);
+    throw caught;
+  }
+
+  try {
+    await serviceRest(env, "POST", "/upload_sessions", {
+      clip_id: clip.id,
+      user_id: user.id,
+      storage_key: key,
+      multipart_upload_id: uploadId,
+      expected_size_bytes: size,
+      declared_content_type: CONTENT_TYPE,
+      status: "uploading",
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    });
+  } catch (caught) {
+    if (reserved > 0) await releaseReservedBytes(env, user.id, reserved);
+    await abortMultipart(env, key, uploadId);
+    throw caught;
+  }
+
+  return json({
+    clipId: clip.id,
+    slug: clip.slug,
+    replacesClipId: clip.id,
+    uploadId,
+    partSize: PART_SIZE,
+    parts,
+  });
+}
+
 interface ContinuePartsBody {
   uploadId?: string | null;
   partNumbers?: number[];
@@ -639,22 +770,33 @@ async function continueUploadParts(request: Request, env: Env, clipId: string): 
     `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,status,thumbnail_key`,
   );
   const clip = clips[0];
-  if (!clip || clip.status !== "uploading") {
+  if (!clip) {
     return json({ error: "Clip upload was not found or is no longer resumable." }, 404);
   }
-  if (!ownedObjectKey(user.id, clip.storage_key)) {
-    return json({ error: "Clip storage key is invalid." }, 403);
-  }
   const sessions = await serviceRest<
-    { multipart_upload_id: string | null; expected_size_bytes: number; status: string; expires_at: string }[]
+    {
+      storage_key: string | null;
+      multipart_upload_id: string | null;
+      expected_size_bytes: number;
+      status: string;
+      expires_at: string;
+    }[]
   >(
     env,
     "GET",
-    `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&status=eq.uploading&select=multipart_upload_id,expected_size_bytes,status,expires_at`,
+    `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&status=eq.uploading&select=storage_key,multipart_upload_id,expected_size_bytes,status,expires_at`,
   );
   const session = sessions[0];
   if (!session) {
     return json({ error: "Upload session expired. Start a new upload." }, 410);
+  }
+  const replacing = clip.status === "ready" && !!session.storage_key && session.storage_key !== clip.storage_key;
+  if (clip.status !== "uploading" && !replacing) {
+    return json({ error: "Clip upload was not found or is no longer resumable." }, 404);
+  }
+  const objectKey = replacing ? session.storage_key : clip.storage_key;
+  if (!ownedObjectKey(user.id, objectKey)) {
+    return json({ error: "Clip storage key is invalid." }, 403);
   }
   if (new Date(session.expires_at).getTime() < Date.now()) {
     await releaseExpiredUploads(env, user.id);
@@ -673,7 +815,7 @@ async function continueUploadParts(request: Request, env: Env, clipId: string): 
   }
 
   const aws = r2Client(env);
-  const endpoint = objectUrl(env, clip.storage_key);
+  const endpoint = objectUrl(env, objectKey);
   const signHeaders = { "content-type": CONTENT_TYPE };
   const parts: { partNumber: number; url: string }[] = [];
 
@@ -725,13 +867,21 @@ async function completeUpload(
   const clips = await serviceRest<(ClipRow & { watermark?: boolean })[]>(
     env,
     "GET",
-    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,status,watermark`,
+    `/clips?id=eq.${clipId}&user_id=eq.${user.id}&select=id,user_id,slug,storage_key,status,file_size_bytes,watermark`,
   );
   const clip = clips[0];
   if (!clip) {
     return json({ error: "Clip upload was not found." }, 404);
   }
-  if (clip.status === "ready") {
+  const sessions = await serviceRest<{ storage_key: string | null; expected_size_bytes: number; status: string }[]>(
+    env,
+    "GET",
+    `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&status=eq.uploading&select=storage_key,expected_size_bytes,status&order=created_at.desc&limit=1`,
+  );
+  const session = sessions[0] ?? null;
+  const oldSize = Math.max(0, Number(clip.file_size_bytes ?? 0));
+  const replacing = clip.status === "ready" && !!session?.storage_key && session.storage_key !== clip.storage_key;
+  if (clip.status === "ready" && !replacing) {
     observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadCompleted, {
       userId: user.id,
       entityId: clipId,
@@ -743,16 +893,20 @@ async function completeUpload(
       shareUrl: `${publicShareOrigin(env)}/c/${clip.slug}`,
     });
   }
-  if (clip.status !== "uploading") {
+  if (!replacing && clip.status !== "uploading") {
     return json({ error: "Clip upload was not found." }, 404);
   }
-  if (!ownedObjectKey(user.id, clip.storage_key)) {
-    await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, { status: "failed" });
-    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadFailed, {
-      userId: user.id,
-      entityId: clipId,
-      properties: { reason: "invalid_storage_key" },
-    });
+  const objectKey = replacing ? session?.storage_key : clip.storage_key;
+  const expected = Number(session?.expected_size_bytes ?? NaN);
+  if (!ownedObjectKey(user.id, objectKey)) {
+    if (!replacing) {
+      await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, { status: "failed" });
+      observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadFailed, {
+        userId: user.id,
+        entityId: clipId,
+        properties: { reason: "invalid_storage_key" },
+      });
+    }
     return json({ error: "Clip storage key is invalid." }, 403);
   }
 
@@ -764,7 +918,7 @@ async function completeUpload(
         .map((part) => `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>"${part.etag.replaceAll('"', "")}"</ETag></Part>`),
       "</CompleteMultipartUpload>",
     ].join("");
-    const done = await r2Client(env).fetch(`${objectUrl(env, clip.storage_key)}?uploadId=${encodeURIComponent(body.uploadId)}`, {
+    const done = await r2Client(env).fetch(`${objectUrl(env, objectKey)}?uploadId=${encodeURIComponent(body.uploadId)}`, {
       method: "POST",
       headers: { "content-type": "application/xml" },
       body: xml,
@@ -774,18 +928,15 @@ async function completeUpload(
     }
   }
 
-  const sessions = await serviceRest<{ expected_size_bytes: number }[]>(
-    env,
-    "GET",
-    `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&select=expected_size_bytes`,
-  );
-  const expected = Number(sessions[0]?.expected_size_bytes ?? NaN);
-  const size = await objectSize(env, clip.storage_key);
+  const size = await objectSize(env, objectKey);
   if (size == null || size <= 0 || !Number.isFinite(expected) || size !== expected) {
-    await deleteOwnedObject(env, user.id, clip.storage_key);
-    await releaseReservedBytes(env, user.id, expected);
-    await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, { status: "failed" });
-    await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`, {
+    await deleteOwnedObject(env, user.id, objectKey);
+    const reserved = replacing ? Math.max(0, expected - oldSize) : expected;
+    await releaseReservedBytes(env, user.id, reserved);
+    if (!replacing) {
+      await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, { status: "failed" });
+    }
+    await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&status=eq.uploading`, {
       status: "aborted",
     });
     observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadFailed, {
@@ -796,11 +947,27 @@ async function completeUpload(
     return json({ error: "Uploaded object was not found in cloud storage." }, 400);
   }
 
-  await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, {
-    status: "ready",
-    file_size_bytes: size,
-  });
-  await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`, {
+  if (replacing) {
+    const patch: Record<string, unknown> = {
+      storage_key: objectKey,
+      file_size_bytes: size,
+    };
+    const duration = roundedPositive(body.durationMs);
+    const width = roundedPositive(body.width);
+    const height = roundedPositive(body.height);
+    if (duration) patch.duration_ms = duration;
+    if (width) patch.width = width;
+    if (height) patch.height = height;
+    await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, patch);
+    if (oldSize > size) await releaseReservedBytes(env, user.id, oldSize - size);
+    await deleteOwnedObject(env, user.id, clip.storage_key);
+  } else {
+    await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, {
+      status: "ready",
+      file_size_bytes: size,
+    });
+  }
+  await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&status=eq.uploading`, {
     status: "completed",
   });
 
@@ -843,12 +1010,29 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
 
   const sessions =
     clip.status === "uploading"
-      ? await serviceRest<{ expected_size_bytes: number }[]>(
+      ? await serviceRest<{ expected_size_bytes: number; storage_key: string | null; multipart_upload_id: string | null }[]>(
           env,
           "GET",
-          `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&select=expected_size_bytes`,
+          `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&select=expected_size_bytes,storage_key,multipart_upload_id`,
         )
-      : [];
+      : clip.status === "ready"
+        ? await serviceRest<{ expected_size_bytes: number; storage_key: string | null; multipart_upload_id: string | null }[]>(
+            env,
+            "GET",
+            `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&status=eq.uploading&select=expected_size_bytes,storage_key,multipart_upload_id`,
+          )
+        : [];
+  for (const session of sessions) {
+    if (clip.status === "ready" && session.storage_key && session.storage_key !== clip.storage_key) {
+      await abortMultipart(env, session.storage_key, session.multipart_upload_id);
+      await deleteOwnedObject(env, user.id, session.storage_key);
+      await releaseReservedBytes(
+        env,
+        user.id,
+        Math.max(0, Number(session.expected_size_bytes) - Number(clip.file_size_bytes ?? 0)),
+      );
+    }
+  }
 
   if (clip.storage_key || clip.thumbnail_key) requireR2(env);
   await deleteOwnedObject(env, user.id, clip.storage_key);
@@ -1539,11 +1723,7 @@ async function releaseExpiredUploads(env: Env, userId: string) {
     `/upload_sessions?user_id=eq.${userId}&status=eq.uploading&expires_at=lt.${new Date().toISOString()}&select=clip_id,expected_size_bytes,storage_key,multipart_upload_id`,
   );
   for (const session of expired) {
-    await abortMultipart(env, session.storage_key ?? "", session.multipart_upload_id);
-    await deleteOwnedObject(env, userId, session.storage_key);
-    await releaseReservedBytes(env, userId, Number(session.expected_size_bytes));
-    await failClip(env, userId, session.clip_id);
-    await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${session.clip_id}&user_id=eq.${userId}`);
+    await expireUploadSession(env, { ...session, user_id: userId });
   }
 }
 
@@ -1563,12 +1743,39 @@ async function cleanupExpiredUploadsGlobal(env: Env) {
     `/upload_sessions?status=eq.uploading&expires_at=lt.${new Date().toISOString()}&select=clip_id,user_id,expected_size_bytes,storage_key,multipart_upload_id&limit=200`,
   );
   for (const session of expired) {
-    await abortMultipart(env, session.storage_key ?? "", session.multipart_upload_id);
-    await deleteOwnedObject(env, session.user_id, session.storage_key);
-    await releaseReservedBytes(env, session.user_id, Number(session.expected_size_bytes));
-    await failClip(env, session.user_id, session.clip_id);
-    await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${session.clip_id}&user_id=eq.${session.user_id}`);
+    await expireUploadSession(env, session);
   }
+}
+
+async function expireUploadSession(
+  env: Env,
+  session: {
+    clip_id: string;
+    user_id: string;
+    expected_size_bytes: number;
+    storage_key: string | null;
+    multipart_upload_id: string | null;
+  },
+) {
+  const clips = await serviceRest<{ status: string; storage_key: string | null; file_size_bytes: number | null }[]>(
+    env,
+    "GET",
+    `/clips?id=eq.${session.clip_id}&user_id=eq.${session.user_id}&select=status,storage_key,file_size_bytes`,
+  );
+  const clip = clips[0];
+  const oldSize = Math.max(0, Number(clip?.file_size_bytes ?? 0));
+  const expected = Number(session.expected_size_bytes);
+  const replacing =
+    clip?.status === "ready" && !!session.storage_key && !!clip.storage_key && session.storage_key !== clip.storage_key;
+  await abortMultipart(env, session.storage_key ?? "", session.multipart_upload_id);
+  await deleteOwnedObject(env, session.user_id, session.storage_key);
+  if (replacing) {
+    await releaseReservedBytes(env, session.user_id, Math.max(0, expected - oldSize));
+  } else {
+    await releaseReservedBytes(env, session.user_id, expected);
+    await failClip(env, session.user_id, session.clip_id);
+  }
+  await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${session.clip_id}&user_id=eq.${session.user_id}&status=eq.uploading`);
 }
 
 async function reserveUploadBytes(env: Env, userId: string, bytes: number) {
@@ -1611,6 +1818,12 @@ function quotaHttpError(caught: unknown): HttpError | null {
     return new HttpError(403, "No storage plan is attached to this account.");
   }
   return null;
+}
+
+function roundedPositive(value: number | null | undefined): number | null {
+  const next = Number(value);
+  if (!Number.isFinite(next) || next <= 0) return null;
+  return Math.round(next);
 }
 
 function randomSlug() {

@@ -1,5 +1,4 @@
 import { Asset } from "expo-asset";
-import * as FileSystem from "expo-file-system/legacy";
 import {
   addExportProgressListener,
   cancelExport,
@@ -8,34 +7,15 @@ import {
 } from "replayr-export";
 import { buildExportRequest, type EditProject } from "./editProject";
 import { writeExportJob, type ExportJobRecord } from "./editProjectStore";
+import { cacheFile, ensureLocalSource } from "./editSource";
 
 const WATERMARK = require("../assets/images/replayr-watermark.png");
-
-function cacheFile(name: string) {
-  if (!FileSystem.cacheDirectory) throw new Error("This device has no cache directory.");
-  return `${FileSystem.cacheDirectory}${name}`;
-}
 
 async function watermarkFile(): Promise<string> {
   const asset = Asset.fromModule(WATERMARK);
   if (!asset.localUri) await asset.downloadAsync();
   if (!asset.localUri) throw new Error("Could not load the Replayr watermark.");
   return asset.localUri;
-}
-
-async function assertStorage(playbackUrl: string) {
-  let bytes = 0;
-  try {
-    const head = await fetch(playbackUrl, { method: "HEAD" });
-    bytes = Number(head.headers.get("content-length") || 0);
-  } catch {
-    bytes = 0;
-  }
-  const needed = (Number.isFinite(bytes) && bytes > 0 ? bytes * 2 : 512 * 1024 * 1024) + 256 * 1024 * 1024;
-  const free = await FileSystem.getFreeDiskStorageAsync();
-  if (free > 0 && free < needed) {
-    throw new Error("Not enough storage to export this clip.");
-  }
 }
 
 export async function renderEdit(options: {
@@ -47,7 +27,6 @@ export async function renderEdit(options: {
   const { project, playbackUrl, watermark, onProgress } = options;
   const jobId = `export-${Date.now()}`;
   const slug = project.source.slug.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80) || "clip";
-  const sourcePath = cacheFile(`edit-src-${slug}.mp4`);
   const outputPath = cacheFile(`edit-out-${slug}-${Date.now()}.mp4`);
   const write = (patch: Partial<ExportJobRecord> & Pick<ExportJobRecord, "status" | "progress">) =>
     writeExportJob({
@@ -65,12 +44,8 @@ export async function renderEdit(options: {
     onProgress({ status: "preparing", progress: 0 });
     await write({ status: "preparing", progress: 0 });
     const watermarkPath = watermark ? await watermarkFile() : null;
+    const sourcePath = await ensureLocalSource(project.source.slug, playbackUrl);
     const request = buildExportRequest(project, sourcePath, outputPath, watermark, watermarkPath);
-    await assertStorage(playbackUrl);
-    const downloaded = await FileSystem.downloadAsync(playbackUrl, sourcePath);
-    if (downloaded.status < 200 || downloaded.status >= 300) {
-      throw new Error("Could not prepare the clip.");
-    }
     subscription = addExportProgressListener((event) => {
       onProgress(event);
       void write({ status: "rendering", progress: event.progress, outputPath });
@@ -92,7 +67,6 @@ export async function renderEdit(options: {
     throw caught;
   } finally {
     subscription?.remove();
-    await FileSystem.deleteAsync(sourcePath, { idempotent: true }).catch(() => undefined);
   }
 }
 

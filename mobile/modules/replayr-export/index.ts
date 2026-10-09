@@ -78,3 +78,24 @@ export function addExportProgressListener(listener: (event: ExportProgress) => v
   if (!current) return { remove() {} };
   return current.addListener("onExportProgress", listener);
 }
+
+/** Reads normalized 0–1 peaks from a local file path or file:// URI. Returns null when unavailable. */
+export async function readAudioPeaks(localPath: string, buckets = 140): Promise<number[] | null> {
+  const current = moduleOrNull() as
+    | (NativeModule & { readAudioPeaks?: (source: string, count: number) => Promise<{ peaks?: number[] }> })
+    | null;
+  if (!current || typeof current.readAudioPeaks !== "function") return null;
+  if (/^https?:\/\//i.test(localPath)) return null;
+  try {
+    const result = await current.readAudioPeaks(localPath, buckets);
+    const peaks = Array.isArray(result?.peaks) ? result.peaks : [];
+    if (peaks.length === 0) return null;
+    return peaks.map((value) => {
+      const next = Number(value);
+      if (!Number.isFinite(next)) return 0;
+      return Math.max(0, Math.min(1, next));
+    });
+  } catch {
+    return null;
+  }
+}

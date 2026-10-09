@@ -6,6 +6,7 @@ public class ReplayrExportModule: Module {
   private var session: AVAssetExportSession?
   private var progressTimer: Timer?
   private let queue = DispatchQueue(label: "tv.elite.replay.export")
+  private let peaksQueue = DispatchQueue(label: "tv.elite.replay.peaks")
 
   public func definition() -> ModuleDefinition {
     Name("ReplayrExport")
@@ -32,6 +33,13 @@ public class ReplayrExportModule: Module {
 
     Function("cancelExport") {
       self.session?.cancelExport()
+    }
+
+    AsyncFunction("readAudioPeaks") { (source: String, buckets: Int, promise: Promise) in
+      let count = max(16, min(240, buckets))
+      self.peaksQueue.async {
+        promise.resolve(["peaks": Self.readPeaks(source: source, buckets: count)])
+      }
     }
   }
 
@@ -217,5 +225,62 @@ public class ReplayrExportModule: Module {
     guard let raw = value as? String, !raw.isEmpty else { return nil }
     if raw.hasPrefix("file://"), let url = URL(string: raw) { return url.path }
     return raw
+  }
+
+  /// AVAssetReader reads local files only, so callers download the clip first.
+  private static func readPeaks(source: String, buckets: Int) -> [Double] {
+    guard let path = filePath(source), FileManager.default.fileExists(atPath: path) else { return [] }
+    let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+    let semaphore = DispatchSemaphore(value: 0)
+    asset.loadValuesAsynchronously(forKeys: ["tracks", "duration"]) { semaphore.signal() }
+    if semaphore.wait(timeout: .now() + 20) == .timedOut { return [] }
+    guard asset.statusOfValue(forKey: "tracks", error: nil) == .loaded else { return [] }
+    guard let track = asset.tracks(withMediaType: .audio).first else { return [] }
+    let duration = CMTimeGetSeconds(asset.duration)
+    guard duration.isFinite, duration > 0 else { return [] }
+    let reader: AVAssetReader
+    do {
+      reader = try AVAssetReader(asset: asset)
+    } catch {
+      return []
+    }
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+      AVFormatIDKey: kAudioFormatLinearPCM,
+      AVLinearPCMBitDepthKey: 16,
+      AVLinearPCMIsFloatKey: false,
+      AVLinearPCMIsBigEndianKey: false,
+      AVLinearPCMIsNonInterleaved: false,
+    ])
+    guard reader.canAdd(output) else { return [] }
+    reader.add(output)
+    guard reader.startReading() else { return [] }
+    var peaks = [Double](repeating: 0, count: buckets)
+    while let sample = output.copyNextSampleBuffer() {
+      let time = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
+      let index = min(buckets - 1, max(0, Int((time / duration) * Double(buckets))))
+      guard let block = CMSampleBufferGetDataBuffer(sample) else { continue }
+      let length = CMBlockBufferGetDataLength(block)
+      if length < 2 { continue }
+      var bytes = Data(count: length)
+      let copied = bytes.withUnsafeMutableBytes { raw -> OSStatus in
+        guard let base = raw.baseAddress else { return -1 }
+        return CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: base)
+      }
+      if copied != noErr { continue }
+      var peak = 0
+      bytes.withUnsafeBytes { raw in
+        let samples = raw.bindMemory(to: Int16.self)
+        for value in samples {
+          let magnitude = value < 0 ? -Int(value) : Int(value)
+          if magnitude > peak { peak = magnitude }
+        }
+      }
+      let normalized = Double(peak) / 32768.0
+      if normalized > peaks[index] { peaks[index] = normalized }
+    }
+    if reader.status == .failed || reader.status == .cancelled { return [] }
+    let maxPeak = peaks.max() ?? 0
+    if maxPeak <= 0 { return peaks }
+    return peaks.map { min(1, $0 / maxPeak) }
   }
 }

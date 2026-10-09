@@ -1,7 +1,10 @@
 package tv.elite.replay.export
 
 import android.graphics.BitmapFactory
+import android.media.MediaCodec
 import android.media.MediaCodecList
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -62,6 +65,17 @@ class ReplayrExportModule : Module() {
 
     Function("cancelExport") {
       main.post { transformer?.cancel() }
+    }
+
+    AsyncFunction("readAudioPeaks") { url: String, buckets: Double, promise: Promise ->
+      Thread {
+        val peaks = try {
+          decodeAudioPeaks(url, buckets.toInt().coerceIn(16, 240))
+        } catch (_: Exception) {
+          emptyList()
+        }
+        promise.resolve(mapOf("peaks" to peaks))
+      }.start()
     }
   }
 
@@ -213,6 +227,95 @@ class ReplayrExportModule : Module() {
     val raw = value as? String ?: return null
     if (raw.isEmpty()) return null
     return if (raw.startsWith("file://")) android.net.Uri.parse(raw).path else raw
+  }
+
+  private fun decodeAudioPeaks(url: String, buckets: Int): List<Double> {
+    val path = filePath(url) ?: return emptyList()
+    if (!File(path).isFile) return emptyList()
+    val extractor = MediaExtractor()
+    var decoder: MediaCodec? = null
+    try {
+      extractor.setDataSource(path)
+      var track = -1
+      var format: MediaFormat? = null
+      for (index in 0 until extractor.trackCount) {
+        val candidate = extractor.getTrackFormat(index)
+        val mime = candidate.getString(MediaFormat.KEY_MIME) ?: continue
+        if (mime.startsWith("audio/")) {
+          track = index
+          format = candidate
+          break
+        }
+      }
+      val audio = format ?: return emptyList()
+      if (track < 0) return emptyList()
+      extractor.selectTrack(track)
+      val mime = audio.getString(MediaFormat.KEY_MIME) ?: return emptyList()
+      val durationUs = if (audio.containsKey(MediaFormat.KEY_DURATION)) audio.getLong(MediaFormat.KEY_DURATION) else 0L
+      if (durationUs <= 0L) return emptyList()
+      val active = MediaCodec.createDecoderByType(mime)
+      decoder = active
+      active.configure(audio, null, null, 0)
+      active.start()
+      val peaks = DoubleArray(buckets)
+      val info = MediaCodec.BufferInfo()
+      var inputDone = false
+      var outputDone = false
+      val deadline = System.nanoTime() + 20_000_000_000L
+      while (!outputDone && System.nanoTime() < deadline) {
+        if (!inputDone) {
+          val inIndex = active.dequeueInputBuffer(10_000)
+          if (inIndex >= 0) {
+            val input = active.getInputBuffer(inIndex) ?: continue
+            val size = extractor.readSampleData(input, 0)
+            if (size < 0) {
+              active.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+              inputDone = true
+            } else {
+              active.queueInputBuffer(inIndex, 0, size, extractor.sampleTime, 0)
+              extractor.advance()
+            }
+          }
+        }
+        when (val outIndex = active.dequeueOutputBuffer(info, 10_000)) {
+          MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
+          MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
+          else -> {
+            if (outIndex >= 0) {
+              val output = active.getOutputBuffer(outIndex)
+              if (output != null && info.size > 1) {
+                val bucket = ((info.presentationTimeUs.toDouble() / durationUs) * buckets).toInt().coerceIn(0, buckets - 1)
+                output.position(info.offset)
+                output.limit(info.offset + info.size)
+                var peak = 0
+                while (output.remaining() >= 2) {
+                  val sample = output.short.toInt()
+                  val magnitude = if (sample < 0) -sample else sample
+                  if (magnitude > peak) peak = magnitude
+                }
+                val normalized = peak / 32768.0
+                if (normalized > peaks[bucket]) peaks[bucket] = normalized
+              }
+              active.releaseOutputBuffer(outIndex, false)
+              if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+            }
+          }
+        }
+      }
+      val maxPeak = peaks.maxOrNull() ?: 0.0
+      if (maxPeak <= 0.0) return peaks.map { 0.0 }
+      return peaks.map { (it / maxPeak).coerceIn(0.0, 1.0) }
+    } finally {
+      try {
+        decoder?.stop()
+      } catch (_: Exception) {
+      }
+      try {
+        decoder?.release()
+      } catch (_: Exception) {
+      }
+      extractor.release()
+    }
   }
 
   private fun hasHardwareH264(): Boolean {

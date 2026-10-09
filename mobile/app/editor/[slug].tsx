@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useVideoPlayer, VideoView, type VideoThumbnail } from "expo-video";
 import * as MediaLibrary from "expo-media-library";
@@ -18,12 +18,15 @@ import {
 } from "@/lib/editProject";
 import { loadEditProject, readExportJob, saveEditProject } from "@/lib/editProjectStore";
 import { cancelRender, renderEdit } from "@/lib/editExport";
+import { ensureLocalSource, removeLocalSource } from "@/lib/editSource";
+import { cloudCopyFits, cloudFileBytes, localFileBytes, replaceCopyFits, uploadEditedClip } from "@/lib/editUpload";
 import { formatDurationMs } from "@/lib/format";
 import { EditorTimeline, formatEditorClock } from "@/components/editor/EditorTimeline";
-import { exportAvailable } from "replayr-export";
+import { exportAvailable, readAudioPeaks } from "replayr-export";
 import { colors } from "@/lib/theme";
 
 type Tool = "trim" | "frame" | "text" | "speed" | "effects" | "clip";
+type ExportPhase = "preparing" | "exporting" | "saving" | "saved" | "full";
 const STRIP_FRAMES = 20;
 const TOOLS: { id: Tool; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }[] = [
   { id: "trim", label: "Trim", icon: "crop" },
@@ -45,10 +48,13 @@ export default function EditorScreen() {
   const [error, setError] = useState<string | null>(null);
   const [tool, setTool] = useState<Tool>("trim");
   const [watermark, setWatermark] = useState<boolean | null>(null);
-  const [exporting, setExporting] = useState(false);
-  const [exportLabel, setExportLabel] = useState("Preparing clip…");
+  const [phase, setPhase] = useState<ExportPhase>("preparing");
+  const [percent, setPercent] = useState(0);
   const [outputPath, setOutputPath] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
+  const [replaceOriginal, setReplaceOriginal] = useState(false);
+  const [cloudNote, setCloudNote] = useState<string | null>(null);
+  const [peaks, setPeaks] = useState<number[] | null>(null);
   const [playing, setPlaying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [frameWidth, setFrameWidth] = useState(0);
@@ -56,6 +62,9 @@ export default function EditorScreen() {
   const [currentMs, setCurrentMs] = useState(0);
   const [fps, setFps] = useState<number | null>(null);
   const stripFor = useRef<string | null>(null);
+  const replaceRef = useRef(false);
+  const exportLock = useRef(false);
+  const exportedMeta = useRef({ durationMs: 0, width: 0, height: 0 });
 
   const player = useVideoPlayer(clip?.playbackUrl ?? null, (instance) => {
     instance.loop = false;
@@ -142,6 +151,33 @@ export default function EditorScreen() {
   }, [player, clip?.playbackUrl, project?.source.durationMs]);
 
   useEffect(() => {
+    const url = clip?.playbackUrl;
+    const clipSlug = clip?.slug;
+    if (!url || !clipSlug) return;
+    let cancelled = false;
+    setPeaks(null);
+    void ensureLocalSource(clipSlug, url)
+      .then((path) => readAudioPeaks(path, 140))
+      .then((next) => {
+        if (!cancelled) setPeaks(next);
+      })
+      .catch(() => {
+        if (!cancelled) setPeaks(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clip?.playbackUrl, clip?.slug]);
+
+  useEffect(() => {
+    const clipSlug = clip?.slug;
+    if (!clipSlug) return;
+    return () => {
+      void removeLocalSource(clipSlug);
+    };
+  }, [clip?.slug]);
+
+  useEffect(() => {
     if (!player || !project) return;
     const sub = player.addListener("timeUpdate", ({ currentTime }) => {
       const ms = currentTime * 1000;
@@ -184,10 +220,53 @@ export default function EditorScreen() {
 
   const previewAspect = frame ? frame.outWidth / frame.outHeight : 16 / 9;
 
+  const saveToCloud = async (path: string, exported: { durationMs: number; width: number; height: number }) => {
+    if (!clip?.id || !session?.access_token || !project) return;
+    setCloudNote(null);
+    try {
+      const [size, billing, currentBytes] = await Promise.all([
+        localFileBytes(path),
+        fetchBillingStatus(session.access_token),
+        cloudFileBytes(clip.playbackUrl),
+      ]);
+      const replace = replaceRef.current;
+      const fits = replace
+        ? replaceCopyFits(billing.storageUsedBytes, billing.storageLimitBytes, currentBytes, size)
+        : cloudCopyFits(billing.storageUsedBytes, billing.storageLimitBytes, size);
+      if (!fits && !(replace && currentBytes <= 0)) {
+        setPhase("full");
+        setPercent(100);
+        setCloudNote("Cloud storage is full.");
+        return;
+      }
+      setPhase("saving");
+      setPercent(96);
+      const frame = outputFrame(project);
+      await uploadEditedClip({
+        accessToken: session.access_token,
+        filePath: path,
+        size,
+        title: clip.title,
+        durationMs: exported.durationMs,
+        width: exported.width || frame.outWidth,
+        height: exported.height || frame.outHeight,
+        replacesClipId: replace ? clip.id : null,
+      });
+      setPercent(100);
+      setPhase("saved");
+      setCloudNote(null);
+    } catch (caught) {
+      setPhase("full");
+      setPercent(100);
+      setCloudNote(caught instanceof Error ? caught.message : "Could not save to Replayr.");
+    }
+  };
+
   const runExport = async () => {
-    if (!project || !clip?.playbackUrl || !session?.access_token) return;
+    if (!project || !clip?.playbackUrl || !session?.access_token || exportLock.current) return;
     if (!exportAvailable()) {
       Alert.alert("Export needs a development build", "This install does not include the on-device encoder.");
+      setSheet(false);
       return;
     }
     let burn = watermark;
@@ -197,30 +276,47 @@ export default function EditorScreen() {
         setWatermark(burn);
       } catch {
         Alert.alert("Could not verify your plan", "Export stays closed until Replayr can confirm whether this clip needs a watermark.");
+        setSheet(false);
         return;
       }
     }
-    setExporting(true);
-    setExportLabel("Preparing clip…");
+    exportLock.current = true;
+    setSheet(true);
+    setPhase("preparing");
+    setPercent(0);
+    setCloudNote(null);
     setOutputPath(null);
+    replaceRef.current = false;
+    setReplaceOriginal(false);
     try {
       const result = await renderEdit({
         project,
         playbackUrl: clip.playbackUrl,
         watermark: burn,
         onProgress: (event) => {
-          if (event.status === "preparing") setExportLabel("Preparing clip…");
-          else setExportLabel(`Exporting ${Math.round(event.progress * 100)}%`);
+          if (event.status === "preparing") {
+            setPhase("preparing");
+            setPercent(4);
+            return;
+          }
+          setPhase("exporting");
+          setPercent(Math.max(4, Math.min(92, Math.round(4 + event.progress * 88))));
         },
       });
       setOutputPath(result.path);
-      setExportLabel("Export ready");
+      const frame = outputFrame(project);
+      exportedMeta.current = {
+        durationMs: result.durationMs,
+        width: frame.outWidth,
+        height: frame.outHeight,
+      };
+      await saveToCloud(result.path, exportedMeta.current);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Export failed.";
       if (!/cancel/i.test(message)) Alert.alert("Export failed", message);
       setSheet(false);
     } finally {
-      setExporting(false);
+      exportLock.current = false;
     }
   };
 
@@ -232,7 +328,17 @@ export default function EditorScreen() {
       return;
     }
     await MediaLibrary.saveToLibraryAsync(outputPath);
-    Alert.alert("Saved to Photos", "The original cloud clip was not changed.");
+    Alert.alert("Saved to Photos");
+  };
+
+  const toggleReplace = (value: boolean) => {
+    replaceRef.current = value;
+    setReplaceOriginal(value);
+    if (!value || phase !== "full" || !outputPath || exportLock.current) return;
+    exportLock.current = true;
+    void saveToCloud(outputPath, exportedMeta.current).finally(() => {
+      exportLock.current = false;
+    });
   };
 
   const share = async () => {
@@ -271,7 +377,15 @@ export default function EditorScreen() {
             </Text>
           ) : null}
         </View>
-        <Pressable onPress={() => setSheet(true)} disabled={!project} style={styles.exportBtn}>
+        <Pressable
+          onPress={() => {
+            if (!project || exportLock.current) return;
+            setSheet(true);
+            void runExport();
+          }}
+          disabled={!project}
+          style={styles.exportBtn}
+        >
           <Text style={styles.exportText}>Export</Text>
         </Pressable>
       </View>
@@ -359,6 +473,7 @@ export default function EditorScreen() {
             rangeStartMs={range.startMs}
             rangeEndMs={range.endMs}
             frames={frames}
+            peaks={peaks}
             thumbnailUrl={clip.thumbnailUrl}
             trimEnabled={tool === "trim"}
             playing={playing}
@@ -412,35 +527,56 @@ export default function EditorScreen() {
       )}
       {sheet ? (
         <View style={styles.sheetWrap}>
-          <Pressable style={styles.dim} onPress={() => !exporting && setSheet(false)} />
+          <Pressable
+            style={styles.dim}
+            onPress={() => {
+              if (phase === "preparing" || phase === "exporting" || phase === "saving") return;
+              setSheet(false);
+            }}
+          />
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
-            <Text style={styles.sheetTitle}>Export</Text>
-            <Text style={styles.hint}>1080p H.264 on this phone. The cloud original is not replaced.</Text>
-            {watermark ? <Text style={styles.hint}>A Replayr watermark is included on this plan.</Text> : null}
-            <Text style={styles.exportLabel}>{exporting || outputPath ? exportLabel : "Ready"}</Text>
-            {exporting ? (
-              <Pressable
-                style={styles.secondary}
-                onPress={() => {
-                  cancelRender();
-                }}
-              >
-                <Text style={styles.secondaryText}>Cancel</Text>
-              </Pressable>
-            ) : outputPath ? (
-              <View style={styles.row}>
-                <Pressable style={styles.primary} onPress={() => void savePhotos()}>
-                  <Text style={styles.primaryText}>Save to Photos</Text>
-                </Pressable>
-                <Pressable style={styles.secondary} onPress={() => void share()}>
-                  <Text style={styles.secondaryText}>Share</Text>
-                </Pressable>
+            <View style={styles.meter}>
+              <View style={[styles.meterFill, { width: `${Math.max(0, Math.min(100, percent))}%` }]} />
+            </View>
+            <Text style={styles.percent}>{percent}%</Text>
+            {phase === "full" ? null : (
+              <Text style={styles.statusWord}>
+                {phase === "preparing" ? "Preparing" : phase === "exporting" ? "Exporting" : phase === "saving" ? "Saving" : "Saved"}
+              </Text>
+            )}
+            {watermark ? <Text style={styles.quietNote}>Includes a Replayr watermark.</Text> : null}
+            {phase !== "saved" ? (
+              <View style={styles.replaceRow}>
+                <View style={styles.replaceCopy}>
+                  <Text style={styles.replaceTitle}>Replace original</Text>
+                  <Text style={styles.quietNote}>Keeps the same link</Text>
+                </View>
+                <Switch
+                  value={replaceOriginal}
+                  disabled={phase === "saving"}
+                  onValueChange={toggleReplace}
+                  trackColor={{ false: "#243041", true: colors.accent }}
+                  thumbColor="#f4f7fb"
+                />
               </View>
             ) : (
-              <Pressable style={styles.primary} onPress={() => void runExport()}>
-                <Text style={styles.primaryText}>Export</Text>
-              </Pressable>
+              <Text style={styles.destination}>{replaceOriginal ? "Replaced on Replayr" : "Saved to Replayr"}</Text>
             )}
+            {cloudNote ? <Text style={styles.cloudNote}>{cloudNote}</Text> : null}
+            {phase === "preparing" || phase === "exporting" ? (
+              <Pressable style={styles.quiet} onPress={() => cancelRender()}>
+                <Text style={styles.quietText}>Cancel</Text>
+              </Pressable>
+            ) : outputPath && (phase === "saved" || phase === "full") ? (
+              <View style={styles.quietRow}>
+                <Pressable style={styles.quiet} onPress={() => void savePhotos()}>
+                  <Text style={styles.quietText}>Photos</Text>
+                </Pressable>
+                <Pressable style={styles.quiet} onPress={() => void share()}>
+                  <Text style={styles.quietText}>Share</Text>
+                </Pressable>
+              </View>
+            ) : null}
           </View>
         </View>
       ) : null}
@@ -541,7 +677,19 @@ const styles = StyleSheet.create({
   dim: { ...StyleSheet.absoluteFill, backgroundColor: "#00000088" },
   sheet: { backgroundColor: "#101820", borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16, gap: 10 },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "700" },
-  exportLabel: { color: colors.text, fontVariant: ["tabular-nums"] },
+  meter: { height: 3, borderRadius: 2, backgroundColor: "#243041", overflow: "hidden" },
+  meterFill: { height: 3, backgroundColor: colors.accent },
+  percent: { color: colors.text, fontSize: 56, fontWeight: "700", fontVariant: ["tabular-nums"], letterSpacing: -1 },
+  statusWord: { color: colors.text, fontSize: 15, fontWeight: "600" },
+  quietNote: { color: colors.muted, fontSize: 12 },
+  replaceRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  replaceCopy: { flex: 1, gap: 2 },
+  replaceTitle: { color: colors.text, fontSize: 15, fontWeight: "600" },
+  destination: { color: colors.text, fontSize: 15, fontWeight: "600" },
+  cloudNote: { color: colors.danger, fontSize: 13 },
+  quietRow: { flexDirection: "row", gap: 8 },
+  quiet: { paddingVertical: 8, paddingHorizontal: 4 },
+  quietText: { color: colors.muted, fontSize: 14, fontWeight: "600" },
   primary: { backgroundColor: colors.accent, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16 },
   primaryText: { color: "#041418", fontWeight: "700", textAlign: "center" },
   secondary: { borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: "#243041" },

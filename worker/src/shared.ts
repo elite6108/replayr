@@ -131,7 +131,7 @@ export function ownedObjectKey(userId: string, key: string | null | undefined): 
     key &&
       key.startsWith(`clips/${userId}/`) &&
       !key.includes("..") &&
-      /^clips\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/(original\.mp4|thumb)$/i.test(key),
+      /^clips\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/(original\.mp4|thumb|edit-[0-9]+\.mp4)$/i.test(key),
   );
 }
 

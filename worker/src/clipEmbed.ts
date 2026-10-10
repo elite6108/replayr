@@ -67,7 +67,7 @@ export function clipHeadTags(input: ClipOgInput): string {
   const title = clipEmbedTitle(input.found ? input.title : null);
   const description = input.found ? "Watch on Replayr." : "This clip is no longer available.";
   const bytes = Number(input.bytes);
-  const playable = input.found && (!Number.isFinite(bytes) || bytes <= 0 || bytes <= DISCORD_VIDEO_MAX_BYTES);
+  const playable = input.found && Number.isFinite(bytes) && bytes > 0 && bytes <= DISCORD_VIDEO_MAX_BYTES;
   const tags = [
     `<title>${escapeAttr(title)}</title>`,
     `<meta name="robots" content="noindex" />`,
@@ -109,6 +109,25 @@ export function clipHeadTags(input: ClipOgInput): string {
     tags.push(`<meta name="twitter:image" content="${escapeAttr(imageUrl)}" />`);
   }
   return tags.join("");
+}
+
+/** Stored size, or the object length when the row never recorded one. */
+export async function clipEmbedBytes(env: Env, clip: PlaybackRow): Promise<number | null> {
+  const stored = Number(clip.file_size_bytes);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  if (!ownedObjectKey(clip.user_id, clip.storage_key)) return null;
+  try {
+    requireR2(env);
+    const signed = await r2Client(env).sign(`${objectUrl(env, clip.storage_key)}?X-Amz-Expires=60`, {
+      method: "HEAD",
+      aws: { signQuery: true },
+    });
+    const head = await fetch(signed.url, { method: "HEAD" });
+    const length = Number(head.headers.get("content-length"));
+    return Number.isFinite(length) && length > 0 ? length : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Public and unlisted links unfurl. Private clips stay invisible to crawlers. */

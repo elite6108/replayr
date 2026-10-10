@@ -36,9 +36,9 @@ describe("clip embeds", () => {
       title: `"><script>alert(1)</script>`,
       width: null,
       height: null,
-      bytes: null,
-      hasPoster: false,
-      found: true,
+        bytes: 1_000_000,
+        hasPoster: false,
+        found: true,
     });
     expect(html).not.toContain("<script>");
     expect(html).toContain("&quot;&gt;&lt;script&gt;");
@@ -90,6 +90,17 @@ describe("clip embeds", () => {
     expect(html).toContain("Long capture · Replayr");
     expect(html).toContain('property="og:image"');
     expect(html).not.toContain("og:video");
+    const unknown = clipHeadTags({
+      origin: "https://replayr.tv",
+      slug: "jovtcwepr8",
+      title: "Long capture",
+      width: 1920,
+      height: 1080,
+      bytes: null,
+      hasPoster: true,
+      found: true,
+    });
+    expect(unknown).not.toContain("og:video");
   });
 });
 

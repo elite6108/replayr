@@ -65,7 +65,7 @@ import {
 import { androidAssetLinks, appleAppSiteAssociation } from "./appLinks";
 import { handleScreenshotApi, handleScreenshotShare, purgeUserScreenshots, sweepScreenshots } from "./screenshots";
 import { injectHead } from "./screenshotsCore";
-import { clipHeadTags, lookupShareClip, serveClipEmbedAsset } from "./clipEmbed";
+import { clipEmbedBytes, clipHeadTags, lookupShareClip, serveClipEmbedAsset } from "./clipEmbed";
 
 export type {
   AddMembersBody,
@@ -1636,7 +1636,7 @@ async function clipPlayerPage(request: Request, env: Env, slug: string): Promise
     title: clip?.title ?? null,
     width: clip?.width ?? null,
     height: clip?.height ?? null,
-    bytes: clip?.file_size_bytes ?? null,
+    bytes: clip ? await clipEmbedBytes(env, clip) : null,
     hasPoster: Boolean(clip && ownedObjectKey(clip.user_id, clip.thumbnail_key)),
     found: Boolean(clip),
   });

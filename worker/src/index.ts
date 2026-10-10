@@ -64,6 +64,8 @@ import {
 } from "./site-access";
 import { androidAssetLinks, appleAppSiteAssociation } from "./appLinks";
 import { handleScreenshotApi, handleScreenshotShare, purgeUserScreenshots, sweepScreenshots } from "./screenshots";
+import { injectHead } from "./screenshotsCore";
+import { clipHeadTags, lookupShareClip, serveClipEmbedAsset } from "./clipEmbed";
 
 export type {
   AddMembersBody,
@@ -362,8 +364,16 @@ async function route(
   if (url.pathname.startsWith("/v1/staff")) {
     return handleStaff(request, env, url, ctx);
   }
+  const clipVideo = url.pathname.match(/^\/c\/([^/]+)\/video\.mp4$/);
+  if ((request.method === "GET" || request.method === "HEAD") && clipVideo?.[1]) {
+    return serveClipEmbedAsset(request, env, clipVideo[1], "video");
+  }
+  const clipPoster = url.pathname.match(/^\/c\/([^/]+)\/poster$/);
+  if ((request.method === "GET" || request.method === "HEAD") && clipPoster?.[1]) {
+    return serveClipEmbedAsset(request, env, clipPoster[1], "poster");
+  }
   const share = url.pathname.match(/^\/c\/([^/]+)\/?$/);
-  if (request.method === "GET" && share?.[1]) {
+  if ((request.method === "GET" || request.method === "HEAD") && share?.[1]) {
     return clipPlayerPage(request, env, share[1]);
   }
   const clipAlias = url.pathname.match(/^\/clip\/([^/]+)\/?$/);
@@ -1612,12 +1622,34 @@ async function serveUpdaterManifest(request: Request, env: Env): Promise<Respons
 async function clipPlayerPage(request: Request, env: Env, slug: string): Promise<Response> {
   // Always serve the SPA for /c/:slug so unlisted share links open ClipPage
   // on both apex and www (gate still covers other marketing routes).
-  if (env.ASSETS) {
-    return serveMarketingSpa(request, env);
-  }
+  // Discord does not run JavaScript, so the clip title and video tags have to be in this HTML.
   const origin = publicShareOrigin(env) || new URL(request.url).origin;
+  let clip: Awaited<ReturnType<typeof lookupShareClip>> = null;
+  try {
+    clip = await lookupShareClip(env, slug);
+  } catch {
+    clip = null;
+  }
+  const tags = clipHeadTags({
+    origin,
+    slug: /^[a-z0-9]{6,16}$/.test(slug) ? slug : "clip",
+    title: clip?.title ?? null,
+    width: clip?.width ?? null,
+    height: clip?.height ?? null,
+    hasPoster: Boolean(clip && ownedObjectKey(clip.user_id, clip.thumbnail_key)),
+    found: Boolean(clip),
+  });
+  if (env.ASSETS) {
+    const html = injectHead(await fetchSpaShell(request, env), tags);
+    return withWebSecurityHeaders(
+      new Response(request.method === "HEAD" ? null : html, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+      }),
+    );
+  }
   const safeSlug = slug.replace(/[^a-z0-9]/g, "");
-  const html = `<!doctype html>
+  const html = injectHead(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -1655,8 +1687,8 @@ async function clipPlayerPage(request: Request, env: Env, slug: string): Promise
     });
   </script>
 </body>
-</html>`;
-  return new Response(html, {
+</html>`, tags);
+  return new Response(request.method === "HEAD" ? null : html, {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",

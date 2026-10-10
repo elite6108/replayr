@@ -1,4 +1,3 @@
-import { encode as encodeJpeg } from "jpeg-js";
 import { HttpError } from "./http";
 import { assertRateLimit } from "./rateLimit";
 import {
@@ -12,6 +11,8 @@ import {
 } from "./shared";
 
 const TITLE_MAX = 80;
+/** Discord's media proxy will not inline a larger MP4. Bigger clips still get a title and poster. */
+const DISCORD_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 
 export function clipVideoPath(slug: string): string {
   return `/c/${slug}/video.mp4`;
@@ -51,6 +52,7 @@ export type ClipOgInput = {
   title: string | null;
   width: number | null;
   height: number | null;
+  bytes: number | null;
   hasPoster: boolean;
   found: boolean;
 };
@@ -64,12 +66,14 @@ export function clipHeadTags(input: ClipOgInput): string {
   const pageUrl = `${origin}/c/${input.slug}`;
   const title = clipEmbedTitle(input.found ? input.title : null);
   const description = input.found ? "Watch on Replayr." : "This clip is no longer available.";
+  const bytes = Number(input.bytes);
+  const playable = input.found && (!Number.isFinite(bytes) || bytes <= 0 || bytes <= DISCORD_VIDEO_MAX_BYTES);
   const tags = [
     `<title>${escapeAttr(title)}</title>`,
     `<meta name="robots" content="noindex" />`,
     `<meta name="description" content="${escapeAttr(description)}" />`,
     `<meta property="og:site_name" content="Replayr" />`,
-    `<meta property="og:type" content="${input.found ? "video.other" : "website"}" />`,
+    `<meta property="og:type" content="${playable ? "video.other" : "website"}" />`,
     `<meta property="og:title" content="${escapeAttr(title)}" />`,
     `<meta property="og:description" content="${escapeAttr(description)}" />`,
     `<meta property="og:url" content="${escapeAttr(pageUrl)}" />`,
@@ -78,19 +82,24 @@ export function clipHeadTags(input: ClipOgInput): string {
   ];
   if (!input.found) return tags.join("");
   const videoUrl = `${origin}${clipVideoPath(input.slug)}`;
+  if (!playable && !input.hasPoster) return tags.join("");
   const width = frameSize(input.width);
   const height = frameSize(input.height);
-  tags.push(`<meta property="og:video" content="${escapeAttr(videoUrl)}" />`);
-  tags.push(`<meta property="og:video:url" content="${escapeAttr(videoUrl)}" />`);
-  tags.push(`<meta property="og:video:secure_url" content="${escapeAttr(videoUrl)}" />`);
-  tags.push(`<meta property="og:video:type" content="video/mp4" />`);
-  if (width) tags.push(`<meta property="og:video:width" content="${width}" />`);
-  if (height) tags.push(`<meta property="og:video:height" content="${height}" />`);
-  tags.push(`<meta name="twitter:card" content="player" />`);
-  tags.push(`<meta name="twitter:player:stream" content="${escapeAttr(videoUrl)}" />`);
-  tags.push(`<meta name="twitter:player:stream:content_type" content="video/mp4" />`);
-  if (width) tags.push(`<meta name="twitter:player:width" content="${width}" />`);
-  if (height) tags.push(`<meta name="twitter:player:height" content="${height}" />`);
+  if (playable) {
+    tags.push(`<meta property="og:video" content="${escapeAttr(videoUrl)}" />`);
+    tags.push(`<meta property="og:video:url" content="${escapeAttr(videoUrl)}" />`);
+    tags.push(`<meta property="og:video:secure_url" content="${escapeAttr(videoUrl)}" />`);
+    tags.push(`<meta property="og:video:type" content="video/mp4" />`);
+    if (width) tags.push(`<meta property="og:video:width" content="${width}" />`);
+    if (height) tags.push(`<meta property="og:video:height" content="${height}" />`);
+    tags.push(`<meta name="twitter:card" content="player" />`);
+    tags.push(`<meta name="twitter:player:stream" content="${escapeAttr(videoUrl)}" />`);
+    tags.push(`<meta name="twitter:player:stream:content_type" content="video/mp4" />`);
+    if (width) tags.push(`<meta name="twitter:player:width" content="${width}" />`);
+    if (height) tags.push(`<meta name="twitter:player:height" content="${height}" />`);
+  } else {
+    tags.push(`<meta name="twitter:card" content="summary_large_image" />`);
+  }
   if (input.hasPoster) {
     const imageUrl = `${origin}${clipPosterPath(input.slug)}`;
     tags.push(`<meta property="og:image" content="${escapeAttr(imageUrl)}" />`);
@@ -166,19 +175,73 @@ async function servePoster(request: Request, env: Env, key: string): Promise<Res
   });
   const upstream = await fetch(signed.url, { method: "GET" });
   if (!upstream.ok || !upstream.body) return new Response(null, { status: 404 });
-  const payload = posterPayload(new Uint8Array(await upstream.arrayBuffer()));
+  const payload = await posterPayload(new Uint8Array(await upstream.arrayBuffer()));
   if (!payload) return new Response(null, { status: 404 });
   return embedResponse(request, 200, payload.contentType, payload.body, upstream);
 }
 
 /** JPEG/PNG/WebP pass through. Desktop thumbs are 32-bit BMP, which Discord will not render, so those become JPEG. */
-export function posterPayload(bytes: Uint8Array): { contentType: string; body: Uint8Array } | null {
+export async function posterPayload(bytes: Uint8Array): Promise<{ contentType: string; body: Uint8Array } | null> {
   const sniffed = imageContentType(bytes);
   if (sniffed) return { contentType: sniffed, body: bytes };
   const frame = bmpToRgba(bytes);
   if (!frame) return null;
-  const jpeg = encodeJpeg({ data: frame.data, width: frame.width, height: frame.height }, 80);
-  return { contentType: "image/jpeg", body: new Uint8Array(jpeg.data) };
+  return { contentType: "image/png", body: await rgbaToPng(frame.width, frame.height, frame.data) };
+}
+
+async function rgbaToPng(width: number, height: number, rgba: Uint8Array): Promise<Uint8Array> {
+  const raw = new Uint8Array(height * (1 + width * 4));
+  for (let y = 0; y < height; y += 1) {
+    const dest = y * (1 + width * 4);
+    raw[dest] = 0;
+    raw.set(rgba.subarray(y * width * 4, (y + 1) * width * 4), dest + 1);
+  }
+  const stream = new CompressionStream("deflate");
+  const writer = stream.writable.getWriter();
+  await writer.write(raw);
+  await writer.close();
+  const compressed = new Uint8Array(await new Response(stream.readable).arrayBuffer());
+  const ihdr = new Uint8Array(13);
+  const view = new DataView(ihdr.buffer);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  const signature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const chunks = [chunk("IHDR", ihdr), chunk("IDAT", compressed), chunk("IEND", new Uint8Array())];
+  const size = signature.length + chunks.reduce((sum, part) => sum + part.length, 0);
+  const png = new Uint8Array(size);
+  png.set(signature, 0);
+  let offset = signature.length;
+  for (const part of chunks) {
+    png.set(part, offset);
+    offset += part.length;
+  }
+  return png;
+}
+
+function chunk(type: string, data: Uint8Array): Uint8Array {
+  const out = new Uint8Array(12 + data.length);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, data.length);
+  out[4] = type.charCodeAt(0);
+  out[5] = type.charCodeAt(1);
+  out[6] = type.charCodeAt(2);
+  out[7] = type.charCodeAt(3);
+  out.set(data, 8);
+  view.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function bmpToRgba(bytes: Uint8Array): { width: number; height: number; data: Uint8Array } | null {

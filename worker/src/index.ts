@@ -1636,6 +1636,7 @@ async function clipPlayerPage(request: Request, env: Env, slug: string): Promise
     title: clip?.title ?? null,
     width: clip?.width ?? null,
     height: clip?.height ?? null,
+    bytes: clip?.file_size_bytes ?? null,
     hasPoster: Boolean(clip && ownedObjectKey(clip.user_id, clip.thumbnail_key)),
     found: Boolean(clip),
   });

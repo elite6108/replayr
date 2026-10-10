@@ -44,6 +44,7 @@ export interface PlaybackRow {
   like_count?: number;
   comment_count?: number;
   watermark?: boolean;
+  file_size_bytes?: number | null;
 }
 
 interface ProfileRow {
@@ -335,7 +336,7 @@ export async function lookupPlaybackRaw(env: Env, slug: string): Promise<Playbac
   const rows = await serviceRest<PlaybackRow[]>(
     env,
     "GET",
-    `/clips?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,visibility,status,storage_key,thumbnail_key,like_count,comment_count,watermark`,
+    `/clips?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,file_size_bytes,visibility,status,storage_key,thumbnail_key,like_count,comment_count,watermark`,
   );
   const clip = rows[0];
   if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) return null;

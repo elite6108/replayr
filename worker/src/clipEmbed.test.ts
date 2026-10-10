@@ -14,6 +14,7 @@ describe("clip embeds", () => {
         title: "Clutch round",
         width: 1920,
         height: 1080,
+        bytes: 8_000_000,
         hasPoster: true,
         found: true,
       }),
@@ -35,6 +36,7 @@ describe("clip embeds", () => {
       title: `"><script>alert(1)</script>`,
       width: null,
       height: null,
+      bytes: null,
       hasPoster: false,
       found: true,
     });
@@ -52,6 +54,7 @@ describe("clip embeds", () => {
         title: "Secret",
         width: 1280,
         height: 720,
+        bytes: 1,
         hasPoster: true,
         found: false,
       }),
@@ -67,11 +70,26 @@ describe("clip embeds", () => {
     expect(clipEmbedTitle("a".repeat(200)).length).toBeLessThanOrEqual(" · Replayr".length + 80);
   });
 
-  it("turns a 32-bit BMP thumb into a JPEG Discord can show", () => {
-    const jpeg = posterPayload(sampleBmp(2, 1));
-    expect(jpeg?.contentType).toBe("image/jpeg");
-    expect(jpeg?.body[0]).toBe(0xff);
-    expect(jpeg?.body[1]).toBe(0xd8);
+  it("turns a 32-bit BMP thumb into a PNG Discord can show", async () => {
+    const png = await posterPayload(sampleBmp(2, 1));
+    expect(png?.contentType).toBe("image/png");
+    expect(Array.from(png?.body.subarray(0, 4) ?? [])).toEqual([137, 80, 78, 71]);
+  });
+
+  it("keeps a clip Discord cannot inline as an image card", () => {
+    const html = clipHeadTags({
+      origin: "https://replayr.tv",
+      slug: "jovtcwepr8",
+      title: "Long capture",
+      width: 1920,
+      height: 1080,
+      bytes: 600_000_000,
+      hasPoster: true,
+      found: true,
+    });
+    expect(html).toContain("Long capture · Replayr");
+    expect(html).toContain('property="og:image"');
+    expect(html).not.toContain("og:video");
   });
 });
 

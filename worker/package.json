@@ -12,8 +12,7 @@
     "bunny-spike": "node scripts/bunny-capability-spike.mjs"
   },
   "dependencies": {
-    "aws4fetch": "^1.0.20",
-    "jpeg-js": "0.4.4"
+    "aws4fetch": "^1.0.20"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",

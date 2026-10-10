@@ -168,7 +168,7 @@ export function NotificationsSheet({
       return;
     }
     if (item.kind === "folder_invite") {
-      router.push(foldersHref());
+      router.replace(foldersHref());
       return;
     }
     if (item.kind.startsWith("staff_task")) {

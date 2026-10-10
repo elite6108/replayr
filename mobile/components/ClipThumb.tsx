@@ -8,14 +8,22 @@ export function ClipThumb({
   square = false,
   wide = false,
   radius,
+  aspectRatio,
 }: {
   title: string;
   thumbnailUrl: string | null;
   square?: boolean;
   wide?: boolean;
   radius?: number;
+  aspectRatio?: number;
 }) {
-  const shape = [styles.thumb, square && styles.square, wide && styles.wide, radius != null && { borderRadius: radius }];
+  const shape = [
+    styles.thumb,
+    square && styles.square,
+    wide && styles.wide,
+    aspectRatio != null && { aspectRatio },
+    radius != null && { borderRadius: radius },
+  ];
   if (thumbnailUrl) {
     return <Image source={{ uri: thumbnailUrl }} style={shape} contentFit="cover" />;
   }

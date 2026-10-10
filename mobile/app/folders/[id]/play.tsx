@@ -5,7 +5,7 @@ import { useVideoPlayer, VideoView } from "expo-video";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ReplayrWatermark } from "@/components/ReplayrWatermark";
 import { folderStyles } from "@/components/folders/folderStyles";
-import { folderHref, playFolderMedia } from "@/lib/api.folders";
+import { folderHref, foldersHref, playFolderMedia } from "@/lib/api.folders";
 import { useAuth } from "@/lib/auth";
 import { colors } from "@/lib/theme";
 
@@ -59,7 +59,7 @@ export default function FolderPlayScreen() {
       router.replace(folderHref(folderId));
       return;
     }
-    router.replace("/folders");
+    router.replace(foldersHref());
   }
 
   return (

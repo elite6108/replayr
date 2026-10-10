@@ -45,7 +45,7 @@ export {
 } from "./social-types";
 
 export function foldersHref(): Href {
-  return { pathname: "/folders" } as unknown as Href;
+  return { pathname: "/library", params: { pane: "folders" } } as unknown as Href;
 }
 
 export function folderHref(folderId: string): Href {

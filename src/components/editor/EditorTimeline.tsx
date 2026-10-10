@@ -1,4 +1,4 @@
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import {
   ArrowsInLineHorizontal,
   Eye,
@@ -11,6 +11,7 @@ import {
   Trash,
 } from "@phosphor-icons/react";
 import { formatClock, formatDuration } from "../../utils/format";
+import { filmstripDensityForZoom, resampleFilmstripFrames } from "./filmstrip";
 import { EditorWaveform } from "./EditorWaveform";
 import {
   MAX_ZOOM,
@@ -144,6 +145,11 @@ export function EditorTimeline({
   const canDelete = selected !== null && segments.length > 1;
   const canJoin = selected !== null && selectedIndex < segments.length - 1;
   const zoomed = zoom > MIN_ZOOM + 0.001;
+  const visualFrameCount = filmstripDensityForZoom(zoom);
+  const visualFrames = useMemo(
+    () => resampleFilmstripFrames(frames, visualFrameCount),
+    [frames, visualFrameCount],
+  );
 
   // React registers wheel listeners as passive, so a native listener is needed to
   // stop the page from scrolling while zooming or panning the timeline.
@@ -207,6 +213,9 @@ export function EditorTimeline({
         <button type="button" className="editor-tl-icon" onClick={onSplit} title="Split at playhead (S)" aria-label="Split at playhead">
           <Scissors size={14} />
         </button>
+        <button type="button" className="editor-tl-icon" onClick={onPreviewSelection} title="Preview kept sections" aria-label="Preview kept sections">
+          <MagicWand size={14} />
+        </button>
         <button
           type="button"
           className="editor-tl-icon"
@@ -217,19 +226,17 @@ export function EditorTimeline({
         >
           <Trash size={14} />
         </button>
-        <button
-          type="button"
-          className="editor-tl-icon"
-          disabled={!canJoin}
-          onClick={onJoinSelected}
-          title={canJoin ? "Join with the next section" : "Select a section that has a neighbour to join"}
-          aria-label="Join with next section"
-        >
-          <ArrowsInLineHorizontal size={14} />
-        </button>
-        <button type="button" className="editor-tl-icon" onClick={onPreviewSelection} title="Preview kept sections" aria-label="Preview kept sections">
-          <MagicWand size={14} />
-        </button>
+        {canJoin ? (
+          <button
+            type="button"
+            className="editor-tl-icon"
+            onClick={onJoinSelected}
+            title="Join with the next section"
+            aria-label="Join with next section"
+          >
+            <ArrowsInLineHorizontal size={14} />
+          </button>
+        ) : null}
         <span className="editor-tl-chip" title="Coming soon">
           <Selection size={12} />
           Auto Reframe
@@ -260,6 +267,7 @@ export function EditorTimeline({
       </div>
       <div className="editor-timeline-grid" ref={gridRef}>
         <div className="editor-gutter" aria-hidden="true">
+          <span className="editor-gutter-markers" />
           <span className="editor-gutter-ruler" />
           <span className="editor-gutter-label">
             <Eye size={12} />
@@ -271,6 +279,7 @@ export function EditorTimeline({
           </span>
         </div>
         <div ref={timelineRef} className="editor-timeline" onPointerDown={onPointerDown}>
+          <div className="editor-marker-lane" aria-label="Clip event markers" />
           <div className="editor-ruler">
             {marks.map((mark, index) => (
               <span
@@ -304,9 +313,13 @@ export function EditorTimeline({
                         transform: `translateX(${durationMs > 0 ? -(piece.startMs / durationMs) * 100 : 0}%)`,
                       }}
                     >
-                      {frames.length > 0
-                        ? frames.map((frame) => <img key={frame} src={frame} alt="" draggable={false} />)
-                        : Array.from({ length: 12 }, (_, index) => <span key={index} className="editor-strip-empty" />)}
+                      {visualFrames.length > 0
+                        ? visualFrames.map((frame, index) => (
+                            <img key={`${frame}:${index}`} src={frame} alt="" draggable={false} />
+                          ))
+                        : Array.from({ length: visualFrameCount }, (_, index) => (
+                            <span key={index} className="editor-strip-empty" />
+                          ))}
                     </div>
                   </div>
                 );
@@ -396,7 +409,7 @@ export function EditorTimeline({
                 <button
                   key={`${segment.id}-${edge}`}
                   type="button"
-                  className={`editor-handle editor-handle-${edge}${onSeam ? " is-seam" : ""}`}
+                  className={`editor-handle editor-handle-${edge}${onSeam ? " is-seam" : ""}${segment.id === selectedSegmentId ? " on" : ""}`}
                   style={{ left: `${at}%` }}
                   data-handle={`${segment.id}:${edge}`}
                   aria-label={edge === "start" ? "Section start" : "Section end"}

@@ -1,5 +1,16 @@
 import { useEffect, useState } from "react";
-import { ArrowCounterClockwise, Crop, FrameCorners, Gauge, Info, Sparkle, SpeakerHigh, TextT, Selection } from "@phosphor-icons/react";
+import {
+  ArrowCounterClockwise,
+  CheckCircle,
+  Crop,
+  FrameCorners,
+  Gauge,
+  Info,
+  Selection,
+  Sparkle,
+  SpeakerHigh,
+  TextT,
+} from "@phosphor-icons/react";
 import type { ClipSourceLayout, LocalClip } from "../../types/clip";
 import type { WebcamPlacement, WebcamShape } from "../../types/settings";
 import { formatBytes, formatDuration } from "../../utils/format";
@@ -34,6 +45,7 @@ export function EditorInspector({
   onPersistPan,
   onResetPan,
   longSelection,
+  selectedDurationMs,
   webcam,
 }: {
   source: LocalClip;
@@ -48,6 +60,7 @@ export function EditorInspector({
   onPersistPan: () => void;
   onResetPan: () => void;
   longSelection: boolean;
+  selectedDurationMs: number;
   webcam: {
     layout: ClipSourceLayout;
     placements: { id: WebcamPlacement; label: string }[];
@@ -66,6 +79,11 @@ export function EditorInspector({
   const frame = sourceIs16x9 && !shortsMode ? "wide" : shortsMode ? "short" : "original";
   const helper =
     frame === "short" ? "Best for TikTok, Reels & Shorts" : frame === "wide" ? "Standard widescreen" : "Original clip dimensions";
+  const detailWidth = shortsMode ? 1080 : source.width;
+  const detailHeight = shortsMode ? 1920 : source.height;
+  const sourceDurationMs = source.durationMs ?? 0;
+  const selectedRatio = sourceDurationMs > 0 ? Math.min(1, selectedDurationMs / sourceDurationMs) : 1;
+  const estimatedBytes = source.fileSize ? Math.max(1, Math.round(source.fileSize * selectedRatio)) : 0;
   return (
     <aside className="editor-inspector">
       <div className="editor-tool-panel" role="tabpanel">
@@ -223,27 +241,27 @@ export function EditorInspector({
             <dl className="editor-details">
               <div>
                 <dt>Duration</dt>
-                <dd>{formatDuration(source.durationMs)}</dd>
+                <dd>{formatDuration(selectedDurationMs)}</dd>
               </div>
               <div>
                 <dt>Resolution</dt>
                 <dd>
-                  {source.width} × {source.height}
+                  {detailWidth} × {detailHeight}
                 </dd>
               </div>
               <div>
                 <dt>Aspect Ratio</dt>
-                <dd>{aspectLabel(source.width ?? 0, source.height ?? 0)}</dd>
+                <dd>{aspectLabel(detailWidth ?? 0, detailHeight ?? 0)}</dd>
               </div>
               <div>
-                <dt>FPS</dt>
-                <dd>{source.fps || "—"}</dd>
-              </div>
-              <div>
-                <dt>File size</dt>
-                <dd>{formatBytes(source.fileSize ?? 0)}</dd>
+                <dt>Estimated Size</dt>
+                <dd>{estimatedBytes > 0 ? `~${formatBytes(estimatedBytes)}` : "—"}</dd>
               </div>
             </dl>
+            <p className="editor-original-note">
+              <CheckCircle size={13} weight="fill" aria-hidden="true" />
+              Original recording stays unchanged.
+            </p>
           </>
         ) : (
           <p className="editor-later">Coming later</p>
@@ -260,6 +278,8 @@ export function EditorInspector({
               role="tab"
               aria-selected={active}
               className={active ? "on" : ""}
+              disabled={item.id !== "frame"}
+              title={item.id === "frame" ? undefined : `${item.label} tools are coming later`}
               onClick={() => setTool(item.id)}
             >
               <Icon size={18} weight={active ? "fill" : "regular"} />

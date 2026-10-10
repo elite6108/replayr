@@ -443,13 +443,14 @@ pub fn list_filmstrip(app: &AppHandle, local_id: &str, count: u32) -> AppResult<
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let count = count.clamp(8, 16);
+    let count = count.clamp(8, 192);
     let duration_ms = clip.duration_ms.unwrap_or(0).max(0) as u64;
     let dest = path
         .parent()
         .ok_or_else(|| AppError::Message("That clip has no folder.".into()))?
         .join(".thumbs")
-        .join(format!("{local_id}-strip"));
+        .join(format!("{local_id}-strip"))
+        .join(format!("density-{count}"));
     #[cfg(windows)]
     {
         match crate::thumb::filmstrip(&path, &dest, count, duration_ms) {

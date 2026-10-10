@@ -5,6 +5,7 @@ import { CaretDown, CornersOut, Pause, Play, SkipBack, SkipForward, SpeakerHigh,
 import { EditorHeader } from "../components/editor/EditorHeader";
 import { EditorInspector } from "../components/editor/EditorInspector";
 import { EditorTimeline } from "../components/editor/EditorTimeline";
+import { BASE_FILMSTRIP_TILES, filmstripDensityForZoom } from "../components/editor/filmstrip";
 import {
   clampSegmentEdge,
   clampViewStart,
@@ -52,8 +53,6 @@ import { clipWebcamSource, nearestWebcamPlacement, normalizeUploadStatus, parseS
 
 const MIN_TRIM_MS = 1000;
 const SHORTS_WARN_MS = 60_000;
-// Part of the on-disk filmstrip cache key, so keep it stable across resizes.
-const STRIP_TILES = 12;
 const WEBCAM_DRIFT_S = 0.05;
 /** Webcam vs gameplay offset (seconds). Positive = delay cam. */
 const WEBCAM_LAG_S = 0;
@@ -251,6 +250,7 @@ export function EditorPage() {
   const [webcamDragging, setWebcamDragging] = useState(false);
   const reframeDragRef = useRef(false);
   const panRef = useRef(0.5);
+  const stripDensityRef = useRef(0);
 
   const [videoMs, setVideoMs] = useState(0);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
@@ -276,6 +276,7 @@ export function EditorPage() {
   const [pan, setPan] = useState(0.5);
   const [shortsMode, setShortsMode] = useState(false);
   const [webcamLayout, setWebcamLayout] = useState<ClipSourceLayout>(() => parseSourceLayout(null));
+  const stripDensity = filmstripDensityForZoom(zoom);
 
   panRef.current = pan;
   // Edge drags read the latest segments without waiting for a re-render.
@@ -405,6 +406,7 @@ export function EditorPage() {
     setShortsMode(false);
     setPan(clampPan(source.editorCropX ?? 0.5));
     setFrameSize({ width: source.width ?? 0, height: source.height ?? 0 });
+    stripDensityRef.current = 0;
     setStripFrames([]);
     const video = videoRef.current;
     if (video) {
@@ -448,16 +450,35 @@ export function EditorPage() {
   useEffect(() => {
     if (!source || (folderSession && !localSource)) {
       setStripFrames([]);
+      stripDensityRef.current = 0;
+      return;
+    }
+    if (stripDensityRef.current >= stripDensity) return;
+    let cancelled = false;
+    const timer = window.setTimeout(
+      () => {
+        void (async () => {
+          const frames = await listClipFilmstrip(source.localId, stripDensity);
+          if (cancelled || frames.length === 0) return;
+          stripDensityRef.current = stripDensity;
+          setStripFrames(frames);
+        })();
+      },
+      stripDensity === BASE_FILMSTRIP_TILES ? 0 : 180,
+    );
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [folderSession?.editId, localSource?.localId, source?.localId, stripDensity]);
+
+  useEffect(() => {
+    if (!source || (folderSession && !localSource)) {
       setWavePeaks([]);
       return;
     }
     let cancelled = false;
-    setStripFrames([]);
     setWavePeaks(null);
-    void (async () => {
-      const frames = await listClipFilmstrip(source.localId, STRIP_TILES);
-      if (!cancelled) setStripFrames(frames);
-    })();
     void (async () => {
       const peaks = await getClipWaveform(source.localId);
       if (!cancelled) setWavePeaks(peaks);
@@ -465,7 +486,7 @@ export function EditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [folderSession, localSource, source?.localId]);
+  }, [folderSession?.editId, localSource?.localId, source?.localId]);
 
   const applyRange = useCallback(
     (nextStart: number, nextEnd: number) => {
@@ -949,6 +970,7 @@ export function EditorPage() {
   const frameHeight = frameSize.height || source.height || 0;
   const sourceIs16x9 =
     frameWidth > 0 && frameHeight > 0 && Math.abs(frameWidth / frameHeight - 16 / 9) / (16 / 9) < 0.03;
+  const selectedDurationMs = Math.max(0, multiSection ? totalMs(segments) : endMs - startMs);
   return (
     <div
       className="editor-studio"
@@ -1175,6 +1197,15 @@ export function EditorPage() {
             </label>
             <button
               type="button"
+              className="editor-pip"
+              aria-label="Picture in picture, coming later"
+              title="Picture in picture coming later"
+              disabled
+            >
+              <span aria-hidden="true" />
+            </button>
+            <button
+              type="button"
               aria-label="Fullscreen preview"
               title="Fullscreen"
               onClick={() => void previewRef.current?.requestFullscreen?.()}
@@ -1217,6 +1248,7 @@ export function EditorPage() {
           persistPan(0.5);
         }}
         longSelection={longShort && shortsMode}
+        selectedDurationMs={selectedDurationMs}
         webcam={
           webcamMedia
             ? {

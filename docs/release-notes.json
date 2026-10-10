@@ -1,4 +1,9 @@
 {
+  "0.1.63": [
+    "The desktop editor matches the Replayr studio layout, and the window controls stay available.",
+    "Timeline thumbnails stay readable while zooming, and the cyan highlight appears only on the selected section.",
+    "The mobile Messages inbox has search, unread filters, and conversation cards."
+  ],
   "0.1.62": [
     "The editor timeline zooms and pans so cuts can be placed precisely.",
     "Split a clip, delete a section, and the strip closes up into one continuous edit.",

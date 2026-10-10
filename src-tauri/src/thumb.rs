@@ -58,7 +58,7 @@ pub fn filmstrip(
     count: u32,
     duration_ms: u64,
 ) -> Result<Vec<(PathBuf, u64)>, String> {
-    let count = count.clamp(8, 16);
+    let count = count.clamp(8, 192);
     let mtime = source
         .metadata()
         .ok()

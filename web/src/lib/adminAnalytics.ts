@@ -1,4 +1,4 @@
-import { readApiJson } from "./http";
+import { readApiError, readApiJson } from "./http";
 import { apiUrl } from "./supabase";
 
 export type AnalyticsKpi = {
@@ -76,6 +76,24 @@ async function adminFetch<T>(path: string, token: string): Promise<T> {
   return readApiJson<T>(response, "Could not load analytics.");
 }
 
+async function adminPost<T>(
+  path: string,
+  token: string,
+  body: Record<string, unknown>,
+  extraHeaders: Record<string, string> = {},
+): Promise<T> {
+  const response = await fetch(apiUrl(path), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+      ...extraHeaders,
+    },
+    body: JSON.stringify(body),
+  });
+  return readApiJson<T>(response, "Could not load user analytics.");
+}
+
 export function fetchAnalyticsOverview(token: string, search: string) {
   return adminFetch<AnalyticsOverviewResponse>(`/v1/admin/analytics/overview${search}`, token);
 }
@@ -150,6 +168,96 @@ export function fetchAnalyticsRetention(token: string, search: string) {
 
 export function fetchAnalyticsAcquisition(token: string, search: string) {
   return adminFetch<AnalyticsAcquisitionResponse>(`/v1/admin/analytics/acquisition${search}`, token);
+}
+
+export type AnalyticsUserIdentity = {
+  userId: string;
+  email: string | null;
+  username: string | null;
+  displayName: string | null;
+  createdAt: string | null;
+};
+
+export type AnalyticsUserJourney = {
+  range: { from: string; to: string };
+  counts: {
+    cloudClips: number;
+    screenshots: number;
+    messagesSent: number;
+    conversations: number;
+    foldersOwned: number;
+    foldersShared: number;
+    following: number;
+    followers: number;
+    storageUsedBytes: number;
+    storageLimitBytes: number;
+    plan: string;
+    accountCreatedAt: string | null;
+  };
+  observedActivity: {
+    label: string;
+    localClipsSaved: number;
+    localClipsDeleted: number;
+    localScreenshotsCreated: number;
+    localScreenshotsDeleted: number;
+  };
+  events: Array<{
+    eventName: string;
+    occurredAt: string;
+    platform: string | null;
+    properties: Record<string, string | number | boolean | null>;
+  }>;
+  nextOffset: number | null;
+};
+
+export function searchAnalyticsUsers(token: string, query: string) {
+  return adminPost<{ users: AnalyticsUserIdentity[] }>(
+    "/v1/admin/analytics/users/search",
+    token,
+    { query },
+  );
+}
+
+export function revealAnalyticsUser(token: string, userId: string, reason: string) {
+  return adminPost<{
+    revealToken: string;
+    expiresAt: string;
+    user: AnalyticsUserIdentity;
+  }>("/v1/admin/analytics/users/reveal", token, { userId, reason });
+}
+
+export function fetchAnalyticsUserJourney(
+  token: string,
+  revealToken: string,
+  input: { userId: string; from?: string; to?: string; offset?: number; limit?: number },
+) {
+  return adminPost<AnalyticsUserJourney>(
+    "/v1/admin/analytics/users/journey",
+    token,
+    input,
+    { "x-analytics-reveal": revealToken },
+  );
+}
+
+export async function downloadAnalyticsUserJourney(
+  token: string,
+  revealToken: string,
+  format: "csv" | "pdf",
+  input: { userId: string; from: string; to: string },
+) {
+  const response = await fetch(apiUrl(`/v1/admin/analytics/users/export/${format}`), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      "x-analytics-reveal": revealToken,
+    },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, `Could not download the ${format.toUpperCase()} export.`));
+  }
+  return response.blob();
 }
 
 export type AnalyticsClipsResponse = {

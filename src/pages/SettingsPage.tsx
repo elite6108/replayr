@@ -45,6 +45,12 @@ import { planLabel } from "../utils/format";
 import { ThemePicker } from "../theme/ThemePicker";
 import { parseThemePreference } from "../theme/theme";
 import { formatBitrateEstimate } from "../utils/recordingBitrate";
+import {
+  getDesktopAnalyticsConsent,
+  setDesktopAnalyticsConsent,
+  trackDesktopEvent,
+  type AnalyticsConsent,
+} from "../services/analytics";
 
 const SECTIONS = [
   { id: "general", label: "General" },
@@ -94,6 +100,9 @@ export function SettingsPage() {
   async function onChange<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     try {
       await update(key, value);
+      if (key === "instantReplayEnabled") {
+        void trackDesktopEvent(value ? "replay.enabled" : "replay.disabled");
+      }
       showToast("Settings saved");
     } catch (caught) {
       showToast(caught instanceof Error ? caught.message : "Could not save that setting.");
@@ -190,10 +199,24 @@ function AccountPane({
   showToast: (message: string) => void;
 }) {
   const token = session?.access_token ?? "";
+  const [analyticsConsent, setAnalyticsConsent] = useState<AnalyticsConsent>("unset");
+  const [analyticsBusy, setAnalyticsBusy] = useState(false);
+
+  useEffect(() => {
+    if (!token) {
+      setAnalyticsConsent("unset");
+      return;
+    }
+    void getDesktopAnalyticsConsent()
+      .then(setAnalyticsConsent)
+      .catch(() => undefined);
+  }, [token]);
+
   return (
-    <div className="settings-group">
-      <div className="settings-group-label">Replayr Premium</div>
-      <div className="setting-row">
+    <>
+      <div className="settings-group">
+        <div className="settings-group-label">Replayr Premium</div>
+        <div className="setting-row">
         <span className="setting-copy">
           {billing ? planLabel(billing.plan) : "Free"}
           <small>
@@ -231,8 +254,8 @@ function AccountPane({
             Upgrade
           </button>
         )}
-      </div>
-      <div className="setting-row">
+        </div>
+        <div className="setting-row">
         <span className="setting-copy">
           Profile
           <small>Username, display name, and quota</small>
@@ -240,8 +263,34 @@ function AccountPane({
         <Link className="settings-link" to="/profile">
           Open
         </Link>
+        </div>
       </div>
-    </div>
+      <div className="settings-group">
+        <div className="settings-group-label">Privacy</div>
+        <label className="setting-row">
+          <span className="setting-copy">
+            Share product analytics
+            <small>Send count-only usage events. Never includes clips, messages, titles, paths, or filenames.</small>
+          </span>
+          <input
+            className="switch"
+            type="checkbox"
+            checked={analyticsConsent === "allowed"}
+            disabled={!token || analyticsBusy}
+            onChange={(event) => {
+              const next = event.target.checked ? "allowed" : "denied";
+              setAnalyticsBusy(true);
+              void setDesktopAnalyticsConsent(next)
+                .then(setAnalyticsConsent)
+                .catch((caught: unknown) =>
+                  showToast(caught instanceof Error ? caught.message : "Could not update analytics privacy."),
+                )
+                .finally(() => setAnalyticsBusy(false));
+            }}
+          />
+        </label>
+      </div>
+    </>
   );
 }
 

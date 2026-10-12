@@ -3,6 +3,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
 import { publicApiUrl } from "../branding";
 import { fetchScreenshotUsage, type ScreenshotUsage } from "../services/screenshots";
+import { trackLocalScreenshotCreated, trackLocalScreenshotDeleted } from "../services/analytics";
 import { getSupabase, supabaseConfigured } from "../services/supabase";
 import {
   copyScreenshot,
@@ -125,6 +126,7 @@ export const useScreenshotStore = create<ScreenshotState>((set, get) => ({
   remove: async (id, deleteFile, deleteCloud = false) => {
     try {
       await deleteScreenshot(id, deleteFile, deleteCloud);
+      if (deleteFile) trackLocalScreenshotDeleted();
       if (deleteFile || !deleteCloud) {
         set((state) => ({ items: state.items.filter((item) => item.id !== id) }));
       } else {
@@ -210,6 +212,7 @@ export async function attachScreenshotListeners(): Promise<void> {
   slot[LISTEN_KEY] = [
     await listen<Screenshot>("screenshot-saved", (event) => {
       useScreenshotStore.setState((state) => ({ items: upsert(state.items, event.payload) }));
+      trackLocalScreenshotCreated(event.payload.width, event.payload.height);
       void useScreenshotStore.getState().refreshUsage();
     }),
     await listen<Screenshot>("screenshot-updated", (event) => {

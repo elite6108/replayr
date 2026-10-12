@@ -24,7 +24,7 @@ export const ANALYTICS_METRIC_CATALOG: MetricCatalogEntry[] = [
   {
     key: "active_users",
     availability: "INCOMPLETE",
-    notes: "True DAU: unique authenticated users with a qualifying event that UTC day. Not last_sign_in_at. Desktop app.opened/clip.saved began 2026-08-31.",
+    notes: "Consented pseudonymous subjects with a qualifying event that UTC day. Legacy user-ID activity was removed at the privacy boundary; rollout is incomplete.",
     availableFrom: "2026-08-31",
   },
   {
@@ -367,6 +367,17 @@ export const ANALYTICS_METRIC_CATALOG: MetricCatalogEntry[] = [
     key: "storage_forecast",
     availability: "AVAILABLE_ESTIMATE",
     notes: "Average daily storage added × 30/90. Gross-growth because deletes are incomplete.",
+  },
+  {
+    key: "named_user_journey",
+    availability: "INCOMPLETE",
+    notes: "AAL2, permission, reason, short-lived reveal, and audit required. Raw journey coverage begins with the consent rollout and is retained for 30 days.",
+    availableFrom: "2026-10-10",
+  },
+  {
+    key: "offline_inventory",
+    availability: "NOT_INSTRUMENTED",
+    notes: "Device inventory is intentionally not collected. Only consented local create/delete activity is available.",
   },
 ];
 

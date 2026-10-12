@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::buffer::ReplayBuffer;
 use crate::database::AppState;
 use crate::error::{AppError, AppResult};
+use crate::library::CaptureKind;
 use crate::settings::{self, AppSettings};
 use crate::still::StillFrame;
 
@@ -648,6 +649,7 @@ mod windows_impl {
         fps: u32,
         game_id: Option<String>,
         title: String,
+        capture_kind: CaptureKind,
         webcam_layout: Option<crate::overlay::OverlayLayout>,
         burned: bool,
     ) -> AppResult<String> {
@@ -667,6 +669,7 @@ mod windows_impl {
             fps,
             game_id,
             title,
+            capture_kind,
             preview.as_ref(),
             webcam_layout,
         )
@@ -1139,6 +1142,7 @@ mod windows_impl {
                 fps,
                 game_id,
                 title.clone(),
+                CaptureKind::Recording,
                 webcam_layout,
                 false,
             )?;
@@ -1184,6 +1188,7 @@ mod windows_impl {
             session.fps,
             session.game_id,
             session.title.clone(),
+            CaptureKind::Recording,
             session.webcam_layout,
             false,
         )?;
@@ -1649,6 +1654,7 @@ mod windows_impl {
             staged.fps,
             staged.game_id,
             format!("{} clip", staged.title),
+            CaptureKind::Clip,
             webcam_layout,
             burned,
         )?;
@@ -1691,6 +1697,7 @@ mod windows_impl {
             0,
             game_id,
             format!("{title} screenshot"),
+            CaptureKind::Screenshot,
             None,
             false,
         )?;

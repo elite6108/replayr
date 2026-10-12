@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
@@ -41,8 +41,9 @@ function ScreenshotEvents() {
 }
 
 export function AppShell() {
+  const editorRoute = useLocation().pathname.startsWith("/editor");
   return (
-    <div className="app-shell">
+    <div className={editorRoute ? "app-shell is-editor" : "app-shell"}>
       <TrayNavigation />
       <ScreenshotEvents />
       <TopBar />

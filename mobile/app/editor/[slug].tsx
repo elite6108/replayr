@@ -24,6 +24,7 @@ import { formatDurationMs } from "@/lib/format";
 import { EditorTimeline, formatEditorClock } from "@/components/editor/EditorTimeline";
 import { exportAvailable, readAudioPeaks } from "replayr-export";
 import { colors } from "@/lib/theme";
+import { trackMobileEvent } from "@/lib/analytics";
 
 type Tool = "trim" | "frame" | "text" | "speed" | "effects" | "clip";
 type ExportPhase = "preparing" | "exporting" | "saving" | "saved" | "full";
@@ -97,6 +98,7 @@ export default function EditorScreen() {
         if (cancelled) return;
         setClip(next);
         setProject(saved ?? fresh);
+        trackMobileEvent(session.access_token, "clip.editor_opened", { editor_mode: "mobile_cloud" });
         setWatermark(billing ? billing.watermark : null);
         if (interrupted?.slug === next.slug && interrupted.status === "interrupted") {
           setNotice(interrupted.errorMessage);
@@ -242,6 +244,7 @@ export default function EditorScreen() {
       setPhase("saving");
       setPercent(96);
       const frame = outputFrame(project);
+      trackMobileEvent(session.access_token, "clip.upload_started", { source: "mobile_editor" });
       await uploadEditedClip({
         accessToken: session.access_token,
         filePath: path,
@@ -254,6 +257,7 @@ export default function EditorScreen() {
       });
       setPercent(100);
       setPhase("saved");
+      trackMobileEvent(session.access_token, "clip.edit_saved", { editor_mode: "mobile_cloud" });
       setCloudNote(null);
     } catch (caught) {
       setPhase("full");

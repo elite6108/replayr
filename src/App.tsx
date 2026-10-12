@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AuthCard } from "./components/common/AuthCard";
 import { AppShell } from "./components/layout/AppShell";
 import { HomePage } from "./pages/HomePage";
@@ -30,7 +30,7 @@ import { useCloudStore } from "./stores/cloudStore";
 import { useFolderStore } from "./stores/folderStore";
 import { useUpdateStore } from "./stores/updateStore";
 import { useSocialUnreadSync } from "./hooks/useSocialUnreadSync";
-import { associateDesktopAcquisition, trackAppOpenedOnce } from "./services/analytics";
+import { associateDesktopAcquisition, trackAppOpenedOnce, trackDesktopEvent } from "./services/analytics";
 import { ACCOUNT_SETUP_EVENT, accountSetupPending, clearAccountSetupPending } from "./utils/accountSetup";
 import { ThemeSync } from "./theme/ThemeSync";
 
@@ -114,6 +114,7 @@ export default function App() {
       </>
     ) : (
       <HashRouter useTransitions={false}>
+      <DesktopRouteAnalytics />
       <Routes>
         <Route element={<AppShell />}>
           <Route path="/" element={<HomePage />} />
@@ -154,4 +155,28 @@ export default function App() {
       ) : null}
     </>
   );
+}
+
+function DesktopRouteAnalytics() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    void trackDesktopEvent("screen.viewed", { screen: desktopScreen(pathname) });
+  }, [pathname]);
+  return null;
+}
+
+function desktopScreen(pathname: string): string {
+  if (pathname === "/") return "home";
+  if (pathname.startsWith("/library/folders")) return "folders";
+  if (pathname.startsWith("/library/screenshots")) return "screenshots";
+  if (pathname.startsWith("/library")) return "library";
+  if (pathname.startsWith("/editor")) return "editor";
+  if (pathname.startsWith("/messages")) return "messages";
+  if (pathname.startsWith("/games")) return "games";
+  if (pathname.startsWith("/record")) return "record";
+  if (pathname.startsWith("/friends")) return "friends";
+  if (pathname.startsWith("/settings")) return "settings";
+  if (pathname.startsWith("/profile") || pathname.startsWith("/u/")) return "profile";
+  if (pathname.startsWith("/admin")) return "admin";
+  return "other";
 }

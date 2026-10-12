@@ -5,7 +5,7 @@ function esc(text: string): string {
   return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").replace(/[^\x20-\x7E]/g, "?");
 }
 
-class PdfDoc {
+export class PdfDoc {
   private pages: string[] = [];
   private current: string[] = [];
   private page = 1;

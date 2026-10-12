@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
+import { observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
 import { assertRateLimit } from "./rateLimit";
 import {
   objectUrl,
@@ -288,6 +289,17 @@ async function createScreenshot(
     }
   }
 
+  observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.screenshotCreated, {
+    userId: user.id,
+    entityId: id,
+    properties: {
+      source: "cloud_upload",
+      width_bucket: dimensionBucket(finalized.width),
+      height_bucket: dimensionBucket(finalized.height),
+      replaced_oldest: finalized.evicted.length > 0,
+    },
+  });
+
   const origin = shareOrigin(env);
   return json(
     {
@@ -376,6 +388,11 @@ async function deleteOwnedScreenshot(
   const user = await requireUser(request, env);
   if (!UUID.test(id)) throw new HttpError(400, "That screenshot was not found.");
   const key = await rpc<string | null>(env, "delete_screenshot", { p_user_id: user.id, p_id: id });
+  observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.screenshotDeleted, {
+    userId: user.id,
+    entityId: id,
+    properties: { source: "cloud_library" },
+  });
   if (typeof key === "string" && ownedScreenshotKey(user.id, key)) {
     ctx.waitUntil(deleteScreenshotObject(env, key));
   }
@@ -609,6 +626,13 @@ function normalizeFinalize(value: FinalizeResult): FinalizeResult {
     limits: value.limits ?? { count: null, bytes: null },
     trimAfter: value.trimAfter ?? null,
   };
+}
+
+function dimensionBucket(value: number): string {
+  if (value <= 720) return "small";
+  if (value <= 1440) return "medium";
+  if (value <= 2160) return "large";
+  return "very_large";
 }
 
 function normalizeUsage(value: UsageResult): UsageResult {

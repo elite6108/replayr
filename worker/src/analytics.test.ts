@@ -31,17 +31,20 @@ function testEnv(overrides: Partial<Env> = {}): Env {
     R2_SECRET_ACCESS_KEY: "secret",
     R2_BUCKET_NAME: "clips",
     PUBLIC_APP_URL: "https://www.replayr.tv",
+    ANALYTICS_SUBJECT_KEY: "test-analytics-subject-key-at-least-32-characters",
+    ANALYTICS_SUBJECT_KEY_VERSION: "1",
     ...overrides,
   };
 }
 
-function ingestRequest(body: unknown, ip = "203.0.113.10"): Request {
+function ingestRequest(body: unknown, ip = "203.0.113.10", token?: string): Request {
   return new Request("https://www.replayr.tv/v1/analytics/events", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "cf-connecting-ip": ip,
       "cf-ipcountry": "US",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -88,12 +91,12 @@ describe("dictionary", () => {
 describe("parseClientAnalyticsEvents", () => {
   it("accepts a normal product event", () => {
     const [event] = parseClientAnalyticsEvents({
-      eventName: "app.opened",
+      eventName: "screen.viewed",
       platform: "windows",
       environment: "production",
       properties: { screen: "home" },
     });
-    expect(event.eventName).toBe("app.opened");
+    expect(event.eventName).toBe("screen.viewed");
     expect(event.properties).toEqual({ screen: "home" });
   });
 
@@ -101,6 +104,20 @@ describe("parseClientAnalyticsEvents", () => {
     expect(() => parseClientAnalyticsEvents(null)).toThrow(HttpError);
     expect(() => parseClientAnalyticsEvents({})).toThrow(/eventName/);
     expect(() => parseClientAnalyticsEvents({ eventName: "OPENED" })).toThrow(/invalid/);
+    expect(() => parseClientAnalyticsEvents({ eventName: "custom.user_secret" })).toThrow(/not allowed/);
+  });
+
+  it("keeps only allowlisted count-only properties", () => {
+    const [event] = parseClientAnalyticsEvents({
+      eventName: "clip.shared",
+      properties: { body: "private", recipient_id: USER_ID, channel: "dm" },
+    });
+    expect(event.properties).toEqual({ channel: "dm" });
+    const [screen] = parseClientAnalyticsEvents({
+      eventName: "screen.viewed",
+      properties: { screen: "library", path: "/c/private-slug" },
+    });
+    expect(screen.properties).toEqual({ screen: "library" });
   });
 
   it("rejects oversized properties", () => {
@@ -144,38 +161,47 @@ describe("parseClientAnalyticsEvents", () => {
 });
 
 describe("ingestClientAnalytics", () => {
-  it("accepts a normal analytics event", async () => {
-    const fetchMock = mockIngest(true);
+  it("accepts a consented authenticated analytics event without storing a user id", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/auth/v1/user")) {
+        return new Response(JSON.stringify({ id: USER_ID, email: "player@example.com" }), { status: 200 });
+      }
+      if (url.includes("/user_analytics_preferences")) {
+        return new Response(JSON.stringify([{ consent: "allowed" }]), { status: 200 });
+      }
+      return new Response(JSON.stringify([{ inserted: true, event_id: CLIP_ID }]), { status: 200 });
+    });
     vi.stubGlobal("fetch", fetchMock);
     const response = await ingestClientAnalytics(
-      ingestRequest({ eventName: "app.opened", platform: "web", environment: "production" }),
+      ingestRequest({ eventName: "app.opened", platform: "web", environment: "production" }, "203.0.113.10", "token"),
       testEnv(),
     );
     expect(response.status).toBe(202);
     const body = (await response.json()) as { accepted: number };
     expect(body.accepted).toBe(1);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const sent = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { p_event_name: string; p_environment: string };
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const sent = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as {
+      p_event_name: string;
+      p_environment: string;
+      p_user_id: string | null;
+      p_subject_id: string | null;
+    };
     expect(sent.p_event_name).toBe("app.opened");
     expect(sent.p_environment).toBe("production");
+    expect(sent.p_user_id).toBeNull();
+    expect(sent.p_subject_id).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("does not double-count a duplicate idempotency key", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify([{ inserted: true, event_id: CLIP_ID }]), { status: 200 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify([{ inserted: false, event_id: CLIP_ID }]), { status: 200 }),
-      );
+  it("does not ingest anonymous journey events", async () => {
+    const fetchMock = mockIngest(true);
     vi.stubGlobal("fetch", fetchMock);
-    const payload = { eventName: "app.opened", idempotencyKey: "app.opened:session-1" };
-    const first = await ingestClientAnalytics(ingestRequest(payload, "203.0.113.20"), testEnv());
-    const second = await ingestClientAnalytics(ingestRequest(payload, "203.0.113.20"), testEnv());
-    expect(first.status).toBe(202);
-    expect(second.status).toBe(202);
-    expect(((await second.json()) as { duplicates: number }).duplicates).toBe(1);
+    const response = await ingestClientAnalytics(
+      ingestRequest({ eventName: "app.opened", idempotencyKey: "app.opened:session-1" }),
+      testEnv(),
+    );
+    expect(((await response.json()) as { accepted: number }).accepted).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("rate limits anonymous ingest", async () => {
@@ -190,12 +216,15 @@ describe("ingestClientAnalytics", () => {
     });
   });
 
-  it("rejects client subscription events at the HTTP boundary", async () => {
+  it("drops anonymous payloads before inspecting restricted event names", async () => {
     const fetchMock = mockIngest(true);
     vi.stubGlobal("fetch", fetchMock);
-    await expect(
-      ingestClientAnalytics(ingestRequest({ eventName: "subscription.cancelled" }), testEnv()),
-    ).rejects.toMatchObject({ status: 403 });
+    const response = await ingestClientAnalytics(
+      ingestRequest({ eventName: "subscription.cancelled" }),
+      testEnv(),
+    );
+    expect(response.status).toBe(202);
+    expect(((await response.json()) as { accepted: number }).accepted).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -219,11 +248,12 @@ describe("server authoritative events", () => {
     const sent = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
       p_event_name: string;
       p_idempotency_key: string;
-      p_user_id: string;
+      p_user_id: string | null;
     };
     expect(sent.p_event_name).toBe("clip.upload_completed");
-    expect(sent.p_idempotency_key).toBe(`clip.upload_completed:${CLIP_ID}`);
-    expect(sent.p_user_id).toBe(USER_ID);
+    expect(sent.p_idempotency_key).toMatch(/^clip\.upload_completed:[0-9a-f]{64}$/);
+    expect(sent.p_idempotency_key).not.toContain(CLIP_ID);
+    expect(sent.p_user_id).toBeNull();
   });
 
   it("observes without throwing when ingest fails", async () => {
@@ -243,5 +273,38 @@ describe("server authoritative events", () => {
     });
     expect(coarseCountry(request)).toBe("CA");
     expect(coarseCountry(new Request("https://www.replayr.tv/"))).toBeNull();
+  });
+});
+
+describe("synthetic cross-platform journey", () => {
+  it("keeps one pseudonymous subject without direct identities or content", () => {
+    const subject = "a".repeat(64);
+    const platforms = ["windows", "web", "ios"] as const;
+    const occurredAt = new Date().toISOString();
+    const expectedTime = new Date(
+      Math.floor(Date.parse(occurredAt) / (5 * 60 * 1000)) * 5 * 60 * 1000,
+    ).toISOString();
+    const rows = platforms.map((platform) =>
+      toAnalyticsRow(
+        parseClientAnalyticsEvents({
+          eventName: "screen.viewed",
+          platform,
+          occurredAt,
+          properties: { screen: "library", path: `/private/${platform}` },
+        })[0],
+        {
+          userId: USER_ID,
+          subjectId: subject,
+          subjectKeyVersion: 1,
+          behavioralConsent: true,
+          environment: "production",
+        },
+      ),
+    );
+    expect(rows.map((row) => row.platform)).toEqual(platforms);
+    expect(rows.every((row) => row.subject_id === subject)).toBe(true);
+    expect(rows.every((row) => row.user_id === null && row.anonymous_id === null)).toBe(true);
+    expect(rows.every((row) => !("path" in row.properties))).toBe(true);
+    expect(rows.every((row) => row.occurred_at === expectedTime)).toBe(true);
   });
 });

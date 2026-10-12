@@ -1,12 +1,11 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import type { ComponentType, MouseEvent } from "react";
 import { useAuthStore } from "../../stores/authStore";
-import { useBillingStore } from "../../stores/billingStore";
 import { useDetectionStore } from "../../stores/detectionStore";
-import { useLibraryStore } from "../../stores/libraryStore";
 import { useRecordingStore } from "../../stores/recordingStore";
 import { APP_NAME } from "../../branding";
 import logoMark from "../../assets/replayr-mark.png";
+import { SocialAvatar } from "../common/SocialAvatar";
 import {
   IconAdmin,
   IconExplore,
@@ -20,7 +19,6 @@ import {
   type IconProps,
 } from "../icons";
 import { isAdminUser } from "../../utils/admin";
-import { formatBytes, initials } from "../../utils/format";
 import { useSocialUnreadStore } from "../../stores/socialUnreadStore";
 import { useUpdateStore } from "../../stores/updateStore";
 
@@ -40,19 +38,12 @@ export function NavRail() {
   const navigate = useNavigate();
   const detected = Boolean(useDetectionStore((state) => state.snapshot.name));
   const recording = useRecordingStore((state) => state.status.active);
-  const clips = useLibraryStore((state) => state.clips);
-  const storage = useAuthStore((state) => state.storage);
   const user = useAuthStore((state) => state.user);
   const profile = useAuthStore((state) => state.profile);
   const admin = isAdminUser(user, useAuthStore((state) => state.session?.access_token));
-  const used = storage?.storage_used_bytes ?? 0;
-  const limit = storage?.storage_limit_bytes ?? 0;
-  const premium = useBillingStore((state) => state.status?.premium);
   const updateReady = useUpdateStore((state) => state.status === "ready");
   const friendsUnread = useSocialUnreadStore((state) => state.friendsUnread);
   const messagesUnread = useSocialUnreadStore((state) => state.messagesUnread);
-  const accountName = profile?.display_name || profile?.username || (user ? "Online" : "Guest");
-  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
 
   function go(event: MouseEvent, to: string) {
     event.preventDefault();
@@ -134,24 +125,14 @@ export function NavRail() {
         title="Account"
         onClick={(event) => go(event, "/profile")}
       >
-        <span className="avatar">{initials(profile?.username || profile?.display_name || user?.email || "R")}</span>
-        <span className="nav-account-copy">
-          <strong>{accountName}</strong>
-          <span className={premium ? "" : "offline"}>{premium ? "PRO" : APP_NAME}</span>
-        </span>
-        <span className="nav-storage">
-          {storage ? (
-            <>
-              {formatBytes(used)} / {formatBytes(limit)}
-              {limit > 0 && used / limit >= 0.8 && !premium ? " · Upgrade" : ""}
-              <span className="meter" aria-hidden="true">
-                <span style={{ width: `${pct}%` }} />
-              </span>
-            </>
-          ) : (
-            `${clips.length} clips`
-          )}
-        </span>
+        <SocialAvatar
+          person={{
+            displayName: profile?.display_name || profile?.username || user?.email || "R",
+            username: profile?.username,
+            avatarUrl: profile?.avatar_url ?? null,
+          }}
+        />
+        <span className="nav-account-brand">{APP_NAME}</span>
       </NavLink>
     </nav>
   );

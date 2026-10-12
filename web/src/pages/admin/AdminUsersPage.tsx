@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   adminBillingAction,
   fetchAdminPlans,
@@ -8,6 +9,7 @@ import {
   type AdminUserRow,
 } from "../../lib/admin";
 import { useAuth } from "../../lib/auth";
+import { useStaffPermissions } from "../../lib/staff";
 import { CreateInternalTaskButton } from "../../components/CreateInternalTaskButton";
 import { formatBytes, formatClipDate, planLabel } from "../../lib/format";
 import { AdminPageHeader } from "./components/AdminPageHeader";
@@ -20,6 +22,8 @@ function isPaidPlan(slug: string) {
 
 export function AdminUsersPage() {
   const { session } = useAuth();
+  const { can } = useStaffPermissions();
+  const canViewJourney = can("analytics.users.view");
   const token = session?.access_token ?? "";
   const [query, setQuery] = useState("");
   const [plan, setPlan] = useState("");
@@ -190,16 +194,30 @@ export function AdminUsersPage() {
               return (
                 <tr key={user.id}>
                   <td>
-                    <strong>
-                      {user.displayName || user.username || "No name"}
-                      {you ? " · you" : ""}
-                    </strong>
+                    {canViewJourney ? (
+                      <Link className="admin-user-link" to={`/admin/people/users/${user.id}`}>
+                        <strong>
+                          {user.displayName || user.username || "No name"}
+                          {you ? " · you" : ""}
+                        </strong>
+                      </Link>
+                    ) : (
+                      <strong>
+                        {user.displayName || user.username || "No name"}
+                        {you ? " · you" : ""}
+                      </strong>
+                    )}
                     <span className="muted">
                       {user.email || "—"}
                       {user.username ? ` · @${user.username}` : ""}
                       {user.role === "admin" ? " · admin" : ""}
                       {user.isVerified ? " · verified" : ""}
                     </span>
+                    {canViewJourney ? (
+                      <Link className="admin-user-analytics-link" to={`/admin/people/users/${user.id}`}>
+                        View analytics
+                      </Link>
+                    ) : null}
                   </td>
                   <td>
                     <select

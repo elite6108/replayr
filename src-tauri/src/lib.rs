@@ -5,6 +5,7 @@ mod audio_channel;
 #[cfg(windows)]
 mod audio_capture;
 mod audio_resolve;
+mod analytics_outbox;
 #[cfg(windows)]
 mod audio_timeline;
 mod auth;
@@ -239,6 +240,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_all_settings,
+            analytics_outbox::analytics_outbox_enqueue,
+            analytics_outbox::analytics_outbox_list,
+            analytics_outbox::analytics_outbox_mark_attempt,
+            analytics_outbox::analytics_outbox_delete,
+            analytics_outbox::analytics_outbox_clear,
             commands::get_hotkey_failures,
             commands::set_setting,
             commands::set_settings,

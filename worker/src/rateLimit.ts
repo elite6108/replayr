@@ -36,3 +36,21 @@ export function assertRateLimit(
     throw new HttpError(429, "Slow down. Try again in a moment.");
   }
 }
+
+export async function assertDistributedRateLimit(
+  request: Request,
+  binding: { limit(input: { key: string }): Promise<{ success: boolean }> } | undefined,
+  suffix: string,
+  fallbackLimit: number,
+  userId?: string,
+): Promise<void> {
+  const key = clientKey(request, suffix, userId);
+  if (binding) {
+    const result = await binding.limit({ key });
+    if (!result.success) throw new HttpError(429, "Slow down. Try again in a moment.");
+    return;
+  }
+  if (!allowRateLimit(key, fallbackLimit)) {
+    throw new HttpError(429, "Slow down. Try again in a moment.");
+  }
+}

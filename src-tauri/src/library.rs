@@ -14,6 +14,23 @@ use crate::still::{scale_bgra, write_bgra_bmp, StillFrame};
 pub const SOURCE_GAMEPLAY: &str = "gameplay";
 pub const SOURCE_WEBCAM: &str = "webcam";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureKind {
+    Clip,
+    Recording,
+    Screenshot,
+}
+
+impl CaptureKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Clip => "clip",
+            Self::Recording => "recording",
+            Self::Screenshot => "screenshot",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipSourceDto {
@@ -55,6 +72,7 @@ pub struct LocalClipDto {
     pub source_start_ms: Option<i64>,
     pub source_end_ms: Option<i64>,
     pub editor_crop_x: f64,
+    pub capture_kind: String,
     #[serde(default)]
     pub sources: Vec<ClipSourceDto>,
 }
@@ -74,6 +92,7 @@ pub fn insert(
     fps: u32,
     game_id: Option<String>,
     title: String,
+    capture_kind: CaptureKind,
     preview: Option<&StillFrame>,
     webcam_layout: Option<OverlayLayout>,
 ) -> AppResult<String> {
@@ -102,6 +121,7 @@ pub fn insert(
         fps,
         file_size,
         title,
+        capture_kind,
         None,
         webcam_layout,
     )?;
@@ -145,6 +165,7 @@ pub fn insert_derived(
         fps,
         file_size,
         title,
+        CaptureKind::Clip,
         Some(&lineage),
         None,
     )?;
@@ -163,6 +184,7 @@ fn insert_row(
     fps: u32,
     file_size: i64,
     title: String,
+    capture_kind: CaptureKind,
     lineage: Option<&ClipLineage>,
     webcam_layout: Option<OverlayLayout>,
 ) -> AppResult<()> {
@@ -170,8 +192,8 @@ fn insert_row(
         "INSERT INTO local_clips (
             local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
             duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-            source_clip_id, source_start_ms, source_end_ms, editor_crop_x
-         ) VALUES (?1, NULL, ?2, ?3, ?4, datetime('now'), ?5, ?6, ?7, ?8, ?9, 'local', 0, ?10, NULL, ?11, ?12, ?13, 0.5)",
+            source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind
+         ) VALUES (?1, NULL, ?2, ?3, ?4, datetime('now'), ?5, ?6, ?7, ?8, ?9, 'local', 0, ?10, NULL, ?11, ?12, ?13, 0.5, ?14)",
         rusqlite::params![
             local_id,
             path.display().to_string(),
@@ -186,6 +208,7 @@ fn insert_row(
             lineage.map(|row| row.source_clip_id.as_str()),
             lineage.map(|row| row.source_start_ms),
             lineage.map(|row| row.source_end_ms),
+            capture_kind.as_str(),
         ],
     )?;
     attach_saved_sources(
@@ -430,7 +453,7 @@ pub fn list(conn: &Connection, limit: i64) -> AppResult<Vec<LocalClipDto>> {
     let mut stmt = conn.prepare(
         "SELECT local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
                 duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-                source_clip_id, source_start_ms, source_end_ms, editor_crop_x
+                source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind
          FROM local_clips
          ORDER BY created_at DESC
          LIMIT ?1",
@@ -684,7 +707,7 @@ pub fn get(conn: &Connection, local_id: &str) -> AppResult<LocalClipDto> {
     conn.query_row(
         "SELECT local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
                 duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-                source_clip_id, source_start_ms, source_end_ms, editor_crop_x
+                source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind
          FROM local_clips WHERE local_id = ?1",
         [local_id],
         map_clip,
@@ -757,6 +780,7 @@ fn map_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalClipDto> {
         source_start_ms: row.get(16)?,
         source_end_ms: row.get(17)?,
         editor_crop_x: row.get::<_, Option<f64>>(18)?.unwrap_or(0.5).clamp(0.0, 1.0),
+        capture_kind: row.get(19)?,
         sources: Vec::new(),
     })
 }
@@ -885,6 +909,28 @@ mod tests {
         .unwrap();
         let framed = get(&conn, "clip-3").unwrap();
         assert!((framed.editor_crop_x - 0.25).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn capture_kind_is_constrained_and_mapped() {
+        let dir = tempdir().unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+        seed(&conn, "clip-kind", "Session");
+
+        assert_eq!(get(&conn, "clip-kind").unwrap().capture_kind, "clip");
+        conn.execute(
+            "UPDATE local_clips SET capture_kind = 'recording' WHERE local_id = 'clip-kind'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(get(&conn, "clip-kind").unwrap().capture_kind, "recording");
+        assert!(conn
+            .execute(
+                "UPDATE local_clips SET capture_kind = 'other' WHERE local_id = 'clip-kind'",
+                [],
+            )
+            .is_err());
     }
 
     #[test]

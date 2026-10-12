@@ -10,6 +10,8 @@ export type LocalUploadStatus =
   | "failed"
   | "cancelled";
 
+export type CaptureKind = "clip" | "recording" | "screenshot";
+
 export interface CloudClip {
   id: string;
   title: string | null;
@@ -41,6 +43,7 @@ export interface LocalClip {
   favorite: boolean;
   title: string | null;
   description: string | null;
+  captureKind: CaptureKind;
   sourceClipId: string | null;
   sourceStartMs: number | null;
   sourceEndMs: number | null;

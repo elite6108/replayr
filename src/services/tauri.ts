@@ -197,7 +197,8 @@ export async function setLocalClipFavorite(localId: string, favorite: boolean): 
 }
 
 export async function deleteLocalClip(localId: string): Promise<void> {
-  return invoke("delete_local_clip", { localId });
+  await invoke("delete_local_clip", { localId });
+  void import("./analytics").then(({ trackLocalClipDeleted }) => trackLocalClipDeleted());
 }
 
 export async function revealLocalClip(filePath: string): Promise<void> {
@@ -272,22 +273,38 @@ export async function getDiscordPresenceStatus(): Promise<DiscordPresenceStatus 
 export async function startRecording(
   webcamLayout?: import("../types/clip").ClipSourceLayout | null,
 ): Promise<RecordingStatus> {
-  return invoke("start_recording", { webcamLayout: webcamLayout ?? null });
+  const status = await invoke<RecordingStatus>("start_recording", { webcamLayout: webcamLayout ?? null });
+  void import("./analytics").then(({ trackDesktopEvent }) =>
+    trackDesktopEvent("capture.started", { capture_type: "recording" }),
+  );
+  return status;
 }
 
 export async function stopRecording(): Promise<RecordingStatus> {
-  return invoke("stop_recording");
+  const status = await invoke<RecordingStatus>("stop_recording");
+  void import("./analytics").then(({ trackDesktopEvent }) =>
+    trackDesktopEvent("capture.stopped", { capture_type: "recording" }),
+  );
+  return status;
 }
 
 export async function startComposedRecording(
   payload: import("../recording/composition").RecordingComposition,
   webcamLayout?: import("../types/clip").ClipSourceLayout | null,
 ): Promise<RecordingStatus> {
-  return invoke("start_composed_recording", { payload, webcamLayout: webcamLayout ?? null });
+  const status = await invoke<RecordingStatus>("start_composed_recording", { payload, webcamLayout: webcamLayout ?? null });
+  void import("./analytics").then(({ trackDesktopEvent }) =>
+    trackDesktopEvent("capture.started", { capture_type: "composed_recording" }),
+  );
+  return status;
 }
 
 export async function stopComposedRecording(): Promise<RecordingStatus> {
-  return invoke("stop_composed_recording");
+  const status = await invoke<RecordingStatus>("stop_composed_recording");
+  void import("./analytics").then(({ trackDesktopEvent }) =>
+    trackDesktopEvent("capture.stopped", { capture_type: "composed_recording" }),
+  );
+  return status;
 }
 
 export async function getRecordingStatus(): Promise<RecordingStatus> {

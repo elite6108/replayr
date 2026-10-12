@@ -4,7 +4,6 @@ import { fetchAnalyticsLive, type LiveVisitor } from "../../../lib/adminAnalytic
 import { getAnonymousId } from "../../../lib/attribution";
 import { useAuth } from "../../../lib/auth";
 
-const BOT_UA = /bot|crawler|spider|curl|wget|python-requests|cf-ray/i;
 const SURFACES: Array<LiveVisitor["surface"] | "all"> = ["all", "web", "coming-soon", "desktop", "api", "admin"];
 
 function ago(iso: string, nowMs: number) {
@@ -15,7 +14,7 @@ function ago(iso: string, nowMs: number) {
 }
 
 function who(row: LiveVisitor) {
-  if (!row.user) return "Anonymous";
+  if (!row.user) return `Visitor ${row.visitorKey.slice(0, 8)}`;
   return row.user.handle ? `@${row.user.handle}` : row.user.displayName || row.user.email || row.user.id.slice(0, 8);
 }
 
@@ -26,9 +25,7 @@ export function AnalyticsLivePage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [surface, setSurface] = useState<(typeof SURFACES)[number]>("all");
-  const [signedInOnly, setSignedInOnly] = useState(false);
   const [hideSelf, setHideSelf] = useState(false);
-  const [includeBots, setIncludeBots] = useState(false);
   const [tick, setTick] = useState(Date.now());
 
   useEffect(() => {
@@ -62,9 +59,7 @@ export function AnalyticsLivePage() {
 
   const rows = (data?.visitors ?? []).filter((row) => {
     if (surface !== "all" && row.surface !== surface) return false;
-    if (signedInOnly && !row.user) return false;
     if (hideSelf && row.visitorKey === selfKey) return false;
-    if (!includeBots && row.userAgent && BOT_UA.test(row.userAgent)) return false;
     return true;
   });
 
@@ -74,7 +69,7 @@ export function AnalyticsLivePage() {
         <div>
           <p className="eyebrow">Analytics</p>
           <h2>Live visitors</h2>
-          <p className="muted">Staff-only. Raw IPs for people in the last two minutes. Historical uniques (no IPs) live on Traffic.</p>
+          <p className="muted">Privacy-safe activity from the last two minutes. Identifiers are HMAC-pseudonymous; IPs and exact routes are not stored.</p>
         </div>
       </header>
       {error ? (
@@ -99,16 +94,8 @@ export function AnalyticsLivePage() {
               </select>
             </label>
             <label className="live-check">
-              <input type="checkbox" checked={signedInOnly} onChange={(event) => setSignedInOnly(event.target.checked)} />
-              Signed-in only
-            </label>
-            <label className="live-check">
               <input type="checkbox" checked={hideSelf} onChange={(event) => setHideSelf(event.target.checked)} />
               Hide this browser
-            </label>
-            <label className="live-check">
-              <input type="checkbox" checked={includeBots} onChange={(event) => setIncludeBots(event.target.checked)} />
-              Include bots
             </label>
           </div>
           {rows.length === 0 ? (
@@ -120,8 +107,7 @@ export function AnalyticsLivePage() {
                   <tr>
                     <th>Seen</th>
                     <th>Who</th>
-                    <th>IP</th>
-                    <th>Geo</th>
+                    <th>Country</th>
                     <th>Path</th>
                     <th>Surface</th>
                     <th>Client</th>
@@ -135,10 +121,7 @@ export function AnalyticsLivePage() {
                         <div>{who(row)}</div>
                         {row.user?.email ? <div className="muted">{row.user.email}</div> : null}
                       </td>
-                      <td className="live-mono">{row.ip || "—"}</td>
-                      <td>
-                        {[row.city, row.country, row.colo].filter(Boolean).join(" · ") || "—"}
-                      </td>
+                      <td>{row.country || "—"}</td>
                       <td className="live-path">{row.path || "—"}</td>
                       <td>{row.surface}</td>
                       <td className="live-ua" title={row.userAgent || ""}>

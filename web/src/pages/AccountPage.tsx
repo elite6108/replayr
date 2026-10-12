@@ -10,6 +10,11 @@ import { useAuth } from "../lib/auth";
 import { formatBytes, planLabel } from "../lib/format";
 import { getSupabase } from "../lib/supabase";
 import { usernameTakenMessage, validateUsername } from "../lib/username";
+import {
+  getWebAnalyticsConsent,
+  setWebAnalyticsConsent,
+  type AnalyticsConsent,
+} from "../lib/analytics";
 
 interface ProfileRow {
   username: string | null;
@@ -27,15 +32,17 @@ export function AccountPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [usernameDraft, setUsernameDraft] = useState("");
+  const [analyticsConsent, setAnalyticsConsent] = useState<AnalyticsConsent>("unset");
 
   useEffect(() => {
     if (!userId || !session?.access_token) return;
     let cancelled = false;
     void (async () => {
       const supabase = getSupabase();
-      const [profileResult, billingResult] = await Promise.all([
+      const [profileResult, billingResult, consentResult] = await Promise.all([
         supabase.from("profiles").select("username, display_name, avatar_url, is_private").eq("id", userId).maybeSingle(),
         fetchBillingStatus(session.access_token).catch(() => null),
+        getWebAnalyticsConsent(session.access_token).catch(() => "unset" as const),
       ]);
       if (cancelled) return;
       if (profileResult.error) setError(profileResult.error.message);
@@ -45,6 +52,7 @@ export function AccountPage() {
         setUsernameDraft(row?.username ?? "");
       }
       if (billingResult) setBilling(billingResult);
+      setAnalyticsConsent(consentResult);
     })();
     return () => {
       cancelled = true;
@@ -217,6 +225,29 @@ export function AccountPage() {
           {billing ? planLabel(billing.plan) : "—"}
           {billing?.status && billing.status !== "none" ? ` · ${billing.status}` : ""}
           {billing?.cancelAtPeriodEnd ? " · cancels at period end" : ""}
+        </dd>
+        <dt>Product analytics</dt>
+        <dd>
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={analyticsConsent === "allowed"}
+              disabled={busy || !session?.access_token}
+              onChange={(event) => {
+                if (!session?.access_token) return;
+                const next = event.target.checked ? "allowed" : "denied";
+                setBusy(true);
+                setError(null);
+                void setWebAnalyticsConsent(session.access_token, next)
+                  .then(setAnalyticsConsent)
+                  .catch((caught: unknown) =>
+                    setError(caught instanceof Error ? caught.message : "Could not update analytics privacy."),
+                  )
+                  .finally(() => setBusy(false));
+              }}
+            />
+            Share count-only usage events. Never includes clips, messages, titles, paths, or filenames.
+          </label>
         </dd>
       </dl>
       {billing ? (

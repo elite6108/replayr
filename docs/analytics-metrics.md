@@ -6,7 +6,7 @@ Timestamps are stored in UTC. The Admin week is **Monday–Sunday**. Query range
 
 ## Environment
 
-- Worker events: `resolveAnalyticsEnvironment` from `PUBLIC_APP_URL` (`localhost` / `127.0.0.1` → `development`, otherwise `production`). Clients may send an explicit `production` | `development`. Never infer environment from user-controlled Auth metadata.
+- Worker events: `resolveAnalyticsEnvironment` from `PUBLIC_APP_URL` (`localhost` / `127.0.0.1` → `development`, otherwise `production`). Client-supplied environment values are ignored. Never infer environment from user-controlled Auth metadata.
 - Signup trigger: `public.analytics_environment()` = `replayr.analytics_environment` GUC, else `app_settings.analytics_environment`, else `production`.
 - This production database holds production business records (`auth.users`, `clips`, billing, storage). DB-derived rollups write those counts onto `environment = public.analytics_environment()` (production here). Do not add an environment column to domain tables.
 - Development analytics events stay on `environment = development` rows and are excluded from production event rollups.
@@ -49,7 +49,7 @@ Cron: existing Worker `15 * * * *`. Each run upserts **today + previous 2 UTC da
 
 ## Active users (Phase D)
 
-A user is **active** on a UTC day when they perform at least one qualifying **authenticated** production event:
+A consented pseudonymous subject is **active** on a UTC day when it performs at least one qualifying production event:
 
 `app.opened`, `clip.saved`, `clip.upload_completed`, `clip.played`, `clip.editor_opened`, `clip.rendered`, `folder.created`, `folder.clip_added`.
 
@@ -61,7 +61,17 @@ Do not count: `last_sign_in_at`, marketing clicks, `auth.signup_*`, `capture.sta
 
 **WAU KPI** = unique users in the selected 7-day period when the range is a week. **Chart** = rolling 7-day unique users. Same idea for MAU / 30 days.
 
-Acquisition is first-party `anonymous_id` + first-touch UTM. Direct ≠ Unknown. Desktop install → account is not bridged yet.
+Anonymous acquisition remains aggregate-only. Anonymous history is never bridged into an account journey. Direct ≠ Unknown.
+
+## Privacy-controlled user journeys
+
+- Behavioral events require authenticated `allowed` consent.
+- Raw events store only a versioned Worker-HMAC subject. Auth UUIDs, anonymous IDs, message/media IDs, content, titles, paths, filenames, storage keys, search text, recipient IDs, tokens, and raw IPs are forbidden.
+- Event names and properties use explicit allowlists. Timestamps are rounded to five-minute boundaries and raw events expire after 30 days.
+- Current cloud totals come from canonical domain tables. Offline clips and screenshots are observed create/delete activity only, never a device inventory.
+- Named access requires `analytics.users.view`, AAL2 MFA, a typed reason, a ten-minute target-scoped reveal, and audit entries for reveal and each fetch.
+- Named journey endpoints have no exports. The web client keeps resolved identity and the reveal token in page memory only.
+- Live analytics stores an HMAC visitor key, country, coarse route section, surface, and coarse client class. It does not store raw IP, city, exact route, Auth UUID, email, or full user agent.
 
 ## Product intelligence (Phase E)
 

@@ -3,6 +3,7 @@ import type { Env } from "./env";
 import { json } from "./http";
 import { assertRateLimit } from "./rateLimit";
 import { optionalUser, serviceRest } from "./shared";
+import { hashAnonymousAnalyticsId } from "./analyticsPrivacy";
 
 export const LIVE_SURFACES = ["web", "coming-soon", "desktop", "api", "admin"] as const;
 export type LiveSurface = (typeof LIVE_SURFACES)[number];
@@ -83,19 +84,11 @@ export async function hashVisitorKey(ip: string, userAgent: string): Promise<str
   return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function cfGeo(request: Request): { city: string | null; colo: string | null } {
-  const cf = request.cf as IncomingRequestCfProperties | undefined;
-  const city = typeof cf?.city === "string" ? cf.city.trim().slice(0, 80) : "";
-  const colo = typeof cf?.colo === "string" ? cf.colo.trim().slice(0, 16) : "";
-  return { city: city || null, colo: colo || null };
-}
-
 export async function resolveVisitorKey(request: Request, hinted?: string | null): Promise<string> {
   const fromHint = sanitizeVisitorKey(hinted);
-  if (fromHint) return fromHint;
   const ip = clientIp(request) || "0.0.0.0";
   const ua = (request.headers.get("user-agent") || "unknown").slice(0, 180);
-  return hashVisitorKey(ip, ua);
+  return fromHint || hashVisitorKey(ip, ua);
 }
 
 export async function touchLiveVisitor(
@@ -104,23 +97,57 @@ export async function touchLiveVisitor(
   input: { path: string; surface?: string | null; visitorKey?: string | null; userId?: string | null },
 ): Promise<void> {
   if (!env.SUPABASE_SERVICE_ROLE_KEY) return;
-  const path = sanitizePath(input.path) || "/";
+  const path = coarsePresencePath(sanitizePath(input.path) || "/");
   const surface = inferLiveSurface(path, input.surface);
-  const userId = input.userId ?? null;
-  const visitorKey = await resolveVisitorKey(request, input.visitorKey);
-  const geo = cfGeo(request);
-  const ua = (request.headers.get("user-agent") || "").trim().slice(0, 180) || null;
+  const rawKey = await resolveVisitorKey(request, input.visitorKey);
+  const visitorKey =
+    (await hashAnonymousAnalyticsId(env, rawKey)) ||
+    (await hashVisitorKey(rawKey, "replayr-presence"));
+  const ua = coarseUserAgent(request.headers.get("user-agent"));
   await serviceRest(env, "POST", "/rpc/upsert_live_visitor", {
     p_visitor_key: visitorKey,
-    p_ip: clientIp(request),
+    p_ip: null,
     p_country: coarseCountry(request),
-    p_city: geo.city,
-    p_colo: geo.colo,
+    p_city: null,
+    p_colo: null,
     p_path: path,
     p_surface: surface,
-    p_user_id: userId,
+    p_user_id: null,
     p_user_agent: ua,
   });
+}
+
+export function coarsePresencePath(path: string): string {
+  if (path === "/") return "/";
+  if (path.startsWith("/v1/")) return "/v1";
+  const section = path.split("/").filter(Boolean)[0];
+  return section ? `/${section}` : "/";
+}
+
+function coarseUserAgent(value: string | null): string | null {
+  const ua = (value || "").toLowerCase();
+  if (!ua) return null;
+  const browser = ua.includes("edg/")
+    ? "edge"
+    : ua.includes("firefox/")
+      ? "firefox"
+      : ua.includes("chrome/")
+        ? "chrome"
+        : ua.includes("safari/")
+          ? "safari"
+          : "other";
+  const os = ua.includes("windows")
+    ? "windows"
+    : ua.includes("android")
+      ? "android"
+      : ua.includes("iphone") || ua.includes("ipad")
+        ? "ios"
+        : ua.includes("mac os")
+          ? "macos"
+          : ua.includes("linux")
+            ? "linux"
+            : "other";
+  return `${browser}/${os}`;
 }
 
 export async function handlePresence(request: Request, env: Env, url: URL): Promise<Response | null> {

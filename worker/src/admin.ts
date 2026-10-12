@@ -26,6 +26,7 @@ import { HttpError, json } from "./http";
 import { deleteBunnyAssetForClip } from "./watermark";
 import { assertPermission, requireStaffActor, type StaffActor } from "./staffAuth";
 import { permissionForAdminRoute } from "./staffPermissions";
+import { handleAnalyticsUserAdmin } from "./analyticsUserAdmin";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PLAN_SLUGS = new Set(["free", "pro", "pro_plus"]);
@@ -123,6 +124,8 @@ export async function handleAdmin(
   if (announcements) return announcements;
   const reports = await handleAnalyticsReports(request, env, url, actor);
   if (reports) return reports;
+  const analyticsUsers = await handleAnalyticsUserAdmin(request, env, url, staff);
+  if (analyticsUsers) return analyticsUsers;
   const path = url.pathname;
 
   if (request.method === "GET" && path === "/v1/admin/overview") {

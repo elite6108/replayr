@@ -133,7 +133,6 @@ export function recordClipDownloadEvent(
     {
       userId: input.viewerId ?? null,
       properties: {
-        clip_id: input.clipId,
         authenticated,
       },
     },
@@ -146,8 +145,6 @@ export function recordFolderPublicDownloadEvent(
 ): void {
   observeCountedAnalytics(env, SERVER_ANALYTICS_EVENTS.folderPublicDownloaded, {
     properties: {
-      folder_id: input.folderId,
-      clip_id: input.clipId,
       authenticated: false,
     },
   });

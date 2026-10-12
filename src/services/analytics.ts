@@ -1,15 +1,61 @@
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { publicApiUrl } from "../branding";
 import { useAuthStore } from "../stores/authStore";
 import type { LocalClip } from "../types/clip";
 import { clipWebcamSource } from "../utils/clips";
 
 const CLIP_SAVE_KINDS = new Set(["clip", "recording", "trim", "short"]);
+const DESKTOP_EVENT_PROPERTIES = {
+  "app.opened": [],
+  "screen.viewed": ["screen"],
+  "capture.started": ["capture_type"],
+  "capture.stopped": ["capture_type", "duration_bucket"],
+  "replay.enabled": [],
+  "replay.disabled": [],
+  "clip.saved": [
+    "duration_bucket",
+    "instant_replay",
+    "webcam_enabled",
+    "cloud",
+    "cloud_uploaded",
+    "save_kind",
+    "capture_type",
+    "quality_preset",
+    "source",
+    "filter_id",
+  ],
+  "clip.local_deleted": ["source"],
+  "clip.save_failed": ["failure_category"],
+  "clip.upload_started": ["source"],
+  "clip.shared": ["channel", "filter_id"],
+  "clip.editor_opened": ["editor_mode", "duration_bucket", "webcam_enabled"],
+  "clip.edit_saved": ["editor_mode"],
+  "clip.rendered": ["render_kind", "folder", "filter_id"],
+  "clip.render_failed": ["render_type", "error_category"],
+  "screenshot.local_created": ["source", "width_bucket", "height_bucket"],
+  "screenshot.local_deleted": ["source"],
+  "visual.filter_selected": ["filter_id"],
+  "visual.filter_applied": ["filter_id"],
+  "visual.filter_rendered": ["filter_id", "source"],
+} as const;
+
+export type AnalyticsConsent = "unset" | "allowed" | "denied";
+
+type OutboxItem = {
+  id: string;
+  eventName: string;
+  payloadJson: string;
+  occurredAt: string;
+  attempts: number;
+};
 
 let sessionId = crypto.randomUUID();
 let appOpenedSent = false;
 let listenersStarted = false;
 let lastSaveFailureKey = "";
+let flushing = false;
+const consentByUser = new Map<string, AnalyticsConsent>();
 
 export function analyticsSessionId() {
   return sessionId;
@@ -47,34 +93,137 @@ export async function trackDesktopEvent(
   properties: Record<string, string | number | boolean | undefined> = {},
   extras: { idempotencyKey?: string } = {},
 ) {
+  if (!(eventName in DESKTOP_EVENT_PROPERTIES)) return;
+  const identity = desktopIdentity();
+  if (!identity || consentByUser.get(identity.userId) !== "allowed") return;
+  const allowed = new Set(
+    DESKTOP_EVENT_PROPERTIES[eventName as keyof typeof DESKTOP_EVENT_PROPERTIES] as readonly string[],
+  );
   const clean: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(properties)) {
     if (value == null) continue;
-    if (key === "path" || key === "filePath" || key === "filename") continue;
-    clean[key] = typeof value === "string" ? value.slice(0, 200) : value;
+    if (!allowed.has(key)) continue;
+    clean[key] = typeof value === "string" ? value.slice(0, 80) : value;
   }
-  const token = useAuthStore.getState().session?.access_token;
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (token) headers.authorization = `Bearer ${token}`;
   const version = await appVersion();
-  await fetch(`${publicApiUrl()}/v1/analytics/events`, {
-    method: "POST",
-    headers,
-    keepalive: true,
-    body: JSON.stringify({
+  const occurredAt = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const payloadJson = JSON.stringify({
+    eventName,
+    sessionId,
+    idempotencyKey: extras.idempotencyKey || `desktop:${id}`,
+    occurredAt,
+    platform: "windows",
+    os: "windows",
+    appVersion: version,
+    properties: clean,
+  });
+  try {
+    await invoke("analytics_outbox_enqueue", {
+      id,
+      userId: identity.userId,
       eventName,
-      sessionId,
-      idempotencyKey: extras.idempotencyKey,
-      platform: "windows",
-      os: "windows",
-      appVersion: version,
-      properties: clean,
-    }),
+      payloadJson,
+      occurredAt,
+    });
+    await flushDesktopAnalyticsOutbox();
+  } catch {
+    await sendAnalyticsPayload(identity.token, payloadJson).catch(() => undefined);
+  }
+}
+
+export async function getDesktopAnalyticsConsent(force = false): Promise<AnalyticsConsent> {
+  const identity = desktopIdentity();
+  if (!identity) return "unset";
+  const cached = consentByUser.get(identity.userId);
+  if (cached && !force) return cached;
+  const response = await fetch(`${publicApiUrl()}/v1/analytics/consent`, {
+    headers: { authorization: `Bearer ${identity.token}` },
+  });
+  if (!response.ok) throw new Error("Could not load analytics privacy.");
+  const body = (await response.json()) as { consent?: AnalyticsConsent };
+  const consent = body.consent === "allowed" || body.consent === "denied" ? body.consent : "unset";
+  consentByUser.set(identity.userId, consent);
+  if (consent === "allowed") {
+    trackAppOpenedOnce();
+    void flushDesktopAnalyticsOutbox();
+  }
+  return consent;
+}
+
+export async function setDesktopAnalyticsConsent(consent: "allowed" | "denied"): Promise<AnalyticsConsent> {
+  const identity = desktopIdentity();
+  if (!identity) throw new Error("Sign in to change analytics privacy.");
+  const response = await fetch(`${publicApiUrl()}/v1/analytics/consent`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${identity.token}`,
+    },
+    body: JSON.stringify({ consent }),
+  });
+  if (!response.ok) throw new Error("Could not update analytics privacy.");
+  consentByUser.set(identity.userId, consent);
+  if (consent === "denied") {
+    await invoke("analytics_outbox_clear", { userId: identity.userId }).catch(() => undefined);
+  } else {
+    appOpenedSent = false;
+    trackAppOpenedOnce();
+    void flushDesktopAnalyticsOutbox();
+  }
+  return consent;
+}
+
+export async function flushDesktopAnalyticsOutbox(): Promise<void> {
+  if (flushing) return;
+  const identity = desktopIdentity();
+  if (!identity || consentByUser.get(identity.userId) !== "allowed") return;
+  flushing = true;
+  try {
+    const items = await invoke<OutboxItem[]>("analytics_outbox_list", {
+      userId: identity.userId,
+      limit: 50,
+    });
+    for (const item of items) {
+      let response: Response;
+      try {
+        response = await sendAnalyticsPayload(identity.token, item.payloadJson);
+      } catch {
+        await invoke("analytics_outbox_mark_attempt", { id: item.id, userId: identity.userId }).catch(() => undefined);
+        break;
+      }
+      if (response.ok || (response.status >= 400 && response.status < 500)) {
+        await invoke("analytics_outbox_delete", { id: item.id, userId: identity.userId });
+      } else {
+        await invoke("analytics_outbox_mark_attempt", { id: item.id, userId: identity.userId }).catch(() => undefined);
+        break;
+      }
+    }
+  } finally {
+    flushing = false;
+  }
+}
+
+function desktopIdentity(): { userId: string; token: string } | null {
+  const session = useAuthStore.getState().session;
+  return session?.user.id && session.access_token
+    ? { userId: session.user.id, token: session.access_token }
+    : null;
+}
+
+function sendAnalyticsPayload(token: string, payloadJson: string): Promise<Response> {
+  return fetch(`${publicApiUrl()}/v1/analytics/events`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    keepalive: true,
+    body: payloadJson,
   });
 }
 
 export function trackAppOpenedOnce() {
   if (appOpenedSent) return;
+  const identity = desktopIdentity();
+  if (!identity || consentByUser.get(identity.userId) !== "allowed") return;
   appOpenedSent = true;
   void trackDesktopEvent("app.opened", {}, { idempotencyKey: `app.opened:${sessionId}` }).catch(() => undefined);
 }
@@ -84,25 +233,16 @@ export function trackClipSaved(input: { localId: string; kind: string; clip?: Lo
   void import("../stores/settingsStore").then(({ useSettingsStore }) => {
     const settings = useSettingsStore.getState().settings;
     const filterId = settings.recordingVisuals.filter;
-    const durationSeconds =
-      input.clip?.durationMs != null && Number.isFinite(input.clip.durationMs)
-        ? Math.round(input.clip.durationMs / 1000)
-        : undefined;
     void trackDesktopEvent(
       "clip.saved",
       {
         duration_bucket: durationBucket(input.clip?.durationMs),
-        clip_duration_seconds: durationSeconds,
-        game_slug: input.clip?.gameId || undefined,
         instant_replay: input.kind === "clip",
         webcam_enabled: Boolean(clipWebcamSource(input.clip)),
         cloud: false,
         cloud_uploaded: false,
         save_kind: input.kind,
         capture_type: input.kind === "clip" ? "instant_replay" : "manual_clip",
-        resolution_width: input.clip?.width ?? undefined,
-        resolution_height: input.clip?.height ?? undefined,
-        fps: input.clip?.fps ?? undefined,
         quality_preset: settings.bitrate,
         source: "desktop",
         filter_id: filterId,
@@ -192,10 +332,46 @@ export function trackClipShared(input: { channel: "dm" | "copy_link"; slug?: str
   });
 }
 
+export function trackLocalClipDeleted() {
+  void trackDesktopEvent("clip.local_deleted", { source: "desktop_library" }).catch(() => undefined);
+}
+
+export function trackLocalScreenshotCreated(width: number, height: number) {
+  void trackDesktopEvent("screenshot.local_created", {
+    source: "desktop_capture",
+    width_bucket: dimensionBucket(width),
+    height_bucket: dimensionBucket(height),
+  }).catch(() => undefined);
+}
+
+export function trackLocalScreenshotDeleted() {
+  void trackDesktopEvent("screenshot.local_deleted", { source: "desktop_library" }).catch(() => undefined);
+}
+
+function dimensionBucket(value: number): string {
+  if (value <= 720) return "small";
+  if (value <= 1440) return "medium";
+  if (value <= 2160) return "large";
+  return "very_large";
+}
+
 export async function installDesktopAnalytics() {
   if (listenersStarted) return;
   listenersStarted = true;
   installDesktopPresence();
+  let activeUserId = desktopIdentity()?.userId ?? null;
+  const syncIdentity = () => {
+    const identity = desktopIdentity();
+    if (!identity) return;
+    if (identity.userId !== activeUserId) {
+      activeUserId = identity.userId;
+      sessionId = crypto.randomUUID();
+      appOpenedSent = false;
+    }
+    void getDesktopAnalyticsConsent().catch(() => undefined);
+  };
+  syncIdentity();
+  useAuthStore.subscribe(syncIdentity);
   try {
     await listen<{ phase?: string; message?: string }>("clip-save", (event) => {
       if (event.payload.phase === "failed" && event.payload.message) {

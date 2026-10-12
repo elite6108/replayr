@@ -438,6 +438,7 @@ fn stop_windows(
                     done.fps,
                     done.game_id,
                     done.title.clone(),
+                    crate::library::CaptureKind::Recording,
                     None,
                     session.webcam_layout,
                 )?;

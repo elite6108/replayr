@@ -21,6 +21,8 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (8, include_str!("../migrations/008_upload_resume.sql")),
     (9, include_str!("../migrations/009_screenshots.sql")),
     (10, include_str!("../migrations/010_wow_forever.sql")),
+    (11, include_str!("../migrations/011_analytics_outbox.sql")),
+    (12, include_str!("../migrations/012_clip_capture_kind.sql")),
 ];
 
 pub fn database_path(app: &AppHandle) -> AppResult<PathBuf> {
@@ -106,5 +108,6 @@ mod tests {
         assert!(tables.contains(&"upload_queue".to_string()));
         assert!(tables.contains(&"games".to_string()));
         assert!(tables.contains(&"clip_sources".to_string()));
+        assert!(tables.contains(&"analytics_outbox".to_string()));
     }
 }

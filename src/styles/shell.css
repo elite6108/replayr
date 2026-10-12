@@ -8,13 +8,13 @@
 }
 
 .app-shell .topbar {
-  grid-column: 1 / -1;
+  grid-column: 2;
   grid-row: 1;
 }
 
 .app-shell .nav-rail {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 1 / -1;
 }
 
 .app-shell .workspace {

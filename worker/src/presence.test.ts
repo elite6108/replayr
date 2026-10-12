@@ -114,10 +114,11 @@ describe("presence ping", () => {
     expect(calls.some((call) => call.url.includes("/rpc/upsert_live_visitor"))).toBe(true);
     const upsert = calls.find((call) => call.url.includes("/rpc/upsert_live_visitor"));
     expect(upsert?.body).toMatchObject({
-      p_visitor_key: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      p_visitor_key: expect.stringMatching(/^[0-9a-f]{64}$/),
       p_path: "/coming-soon",
       p_surface: "coming-soon",
-      p_ip: "203.0.113.9",
+      p_ip: null,
+      p_user_id: null,
     });
   });
 
@@ -163,8 +164,8 @@ describe("traffic granularity", () => {
 });
 
 describe("admin live permission", () => {
-  it("maps the live list to analytics.view", () => {
-    expect(permissionForAdminRoute("GET", "/v1/admin/analytics/live")).toBe("analytics.view");
+  it("maps the live list to its restricted permission", () => {
+    expect(permissionForAdminRoute("GET", "/v1/admin/analytics/live")).toBe("analytics.live");
     expect(permissionForAdminRoute("GET", "/v1/admin/analytics/traffic")).toBe("analytics.view");
   });
 });

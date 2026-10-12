@@ -11,6 +11,7 @@ import {
   type PublicClipRow,
 } from "./shared";
 import { HttpError, json } from "./http";
+import { observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
 import {
   acceptIncomingFollow,
   blockTargetById,
@@ -708,7 +709,7 @@ async function listMessages(request: Request, env: Env, url: URL, conversationId
 
 async function postMessage(request: Request, env: Env, conversationId: string): Promise<Response> {
   const user = await requireUser(request, env);
-  await loadVisibleConversation(request, env, conversationId);
+  const conversation = await loadVisibleConversation(request, env, conversationId);
   const body = await readJson(request);
   const text = typeof body.body === "string" ? body.body.trim() : "";
   const clipId = typeof body.clipId === "string" ? body.clipId : "";
@@ -748,6 +749,15 @@ async function postMessage(request: Request, env: Env, conversationId: string): 
         message_id: messageId,
       })),
   );
+  observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.messageSent, {
+    userId: user.id,
+    entityId: messageId,
+    properties: {
+      has_text: Boolean(text),
+      has_clip: Boolean(clip),
+      conversation_type: conversation.type,
+    },
+  });
   return json({ message });
 }
 
@@ -756,7 +766,7 @@ async function sendClip(request: Request, env: Env, slug: string): Promise<Respo
   const body = await readJson(request);
   const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
   requireUuid(conversationId);
-  await loadVisibleConversation(request, env, conversationId);
+  const conversation = await loadVisibleConversation(request, env, conversationId);
   const clip = await lookupPlaybackRaw(env, slug);
   if (!clip) throw new HttpError(404, "That clip is not available.");
   const sendable = await loadSendableClip(env, clip.id, user.id);
@@ -789,6 +799,15 @@ async function sendClip(request: Request, env: Env, slug: string): Promise<Respo
         message_id: messageId,
       })),
   );
+  observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.messageSent, {
+    userId: user.id,
+    entityId: messageId,
+    properties: {
+      has_text: false,
+      has_clip: true,
+      conversation_type: conversation.type,
+    },
+  });
   return json({ message, conversationId });
 }
 

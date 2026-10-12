@@ -5,9 +5,9 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding: 12px 8px 16px;
-  border-right: 1px solid var(--chrome-border);
-  background: #060a10;
+  padding: 8px 6px 12px;
+  border-right: 0;
+  background: var(--sidebar-bg);
   user-select: none;
   font-family: var(--font-chrome);
 }
@@ -15,8 +15,8 @@
 .nav-logo {
   display: grid;
   place-items: center;
-  flex: 0 0 50px;
-  margin-bottom: 6px;
+  flex: 0 0 42px;
+  margin-bottom: 30px;
   color: inherit;
   text-decoration: none;
   cursor: pointer;
@@ -39,11 +39,11 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  flex: 0 0 52px;
+  flex: 0 0 50px;
   gap: 3px;
   padding: 5px 4px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-muted);
   text-decoration: none;
@@ -62,8 +62,8 @@
 
 .nav-item.active {
   color: var(--text);
-  background: #0f1722;
-  box-shadow: inset 0 0 0 1px rgba(86, 228, 238, 0.16);
+  background: #191d22;
+  box-shadow: inset 0 0 0 1px rgba(86, 228, 238, 0.14);
 }
 
 .nav-item.active::before {
@@ -122,23 +122,23 @@
 
 .nav-divider {
   height: 1px;
-  margin: 8px 10px;
+  margin: 6px 8px;
   background: rgba(255, 255, 255, 0.06);
 }
 
 .nav-spacer {
   flex: 1 1 auto;
-  min-height: 8px;
+  min-height: 58px;
 }
 
 .nav-account {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   margin-top: 4px;
-  padding: 8px 4px 2px;
-  border-radius: 12px;
+  padding: 6px 3px 2px;
+  border-radius: 10px;
   text-decoration: none;
   color: inherit;
 }
@@ -158,43 +158,15 @@
   font-size: 10px;
 }
 
-.nav-account-copy {
-  display: grid;
-  gap: 1px;
-  width: 100%;
-  min-width: 0;
-  text-align: center;
-}
-
-.nav-account-copy strong {
+.nav-account-brand {
+  max-width: 100%;
   overflow: hidden;
-  font-size: 10px;
+  color: rgba(220, 230, 245, 0.48);
+  font-size: 8px;
   font-weight: 650;
+  letter-spacing: 0.12em;
+  line-height: 1;
   text-overflow: ellipsis;
+  text-transform: uppercase;
   white-space: nowrap;
-}
-
-.nav-account-copy span {
-  font-size: 9px;
-  color: var(--ok);
-}
-
-.nav-account-copy span.offline {
-  color: var(--text-muted);
-}
-
-.nav-storage {
-  display: grid;
-  gap: 4px;
-  width: 100%;
-  font-size: 9px;
-  line-height: 1.25;
-  color: var(--text-muted);
-  text-align: center;
-}
-
-.nav-account .meter {
-  height: 2px;
-  border: 0;
-  background: var(--meter-track);
 }

@@ -1,6 +1,21 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { IconFit } from "../icons";
-import { displayHotkey, formatDuration } from "../../utils/format";
+import {
+  IconCamera,
+  IconCheck,
+  IconClock,
+  IconFolder,
+  IconLightning,
+  IconLock,
+  IconMic,
+  IconMicOff,
+  IconMonitor,
+  IconRecordCircle,
+  IconSliders,
+  IconSpeaker,
+  IconSpeakerOff,
+} from "../icons";
+import { displayHotkey } from "../../utils/format";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { useRecordingStore } from "../../stores/recordingStore";
 import { useScreenshotStore } from "../../stores/screenshotStore";
@@ -26,8 +41,31 @@ function clock(ms: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function sessionClock(ms: number) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
 function replayShort(seconds: number) {
-  return seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds}s`;
+  return seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds} sec`;
+}
+
+function friendlySavePlace(value: string) {
+  const parts = value
+    .trim()
+    .split(/[\\/]+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "Videos / Replayr";
+  return parts.slice(-2).join(" / ");
+}
+
+function resolutionLabel(value: AppSettings["resolution"]) {
+  if (value === "auto") return "Auto";
+  if (value === "native") return "Native";
+  return value.toUpperCase();
 }
 
 function axisLabel(seconds: number) {
@@ -40,6 +78,7 @@ function axisLabel(seconds: number) {
 
 export function HeroCapturePanel() {
   const snapshot = useDetectionStore((state) => state.snapshot);
+  const sessionStartedAt = useDetectionStore((state) => state.sessionStartedAt);
   const catalog = useDetectionStore((state) => state.catalog);
   const settings = useSettingsStore((state) => state.settings);
   const updateSettings = useSettingsStore((state) => state.update);
@@ -59,9 +98,19 @@ export function HeroCapturePanel() {
   const bufferPct = durationMs > 0 ? Math.min(100, ((replay.active ? replay.bufferedMs : 0) / durationMs) * 100) : 0;
   const ticks = 36;
   const filled = Math.round((bufferPct / 100) * ticks);
-  const savePlace = settings.saveLocation?.trim() || "This PC";
+  const savePlace = friendlySavePlace(settings.saveLocation || "");
   const captureLabel = replay.saving ? "Saving…" : `Capture last ${replayShort(settings.replayDurationSeconds)}`;
   const span = Math.max(15, settings.replayDurationSeconds);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!sessionStartedAt) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [sessionStartedAt]);
+
+  const sessionElapsedMs = sessionStartedAt ? Math.max(0, now - sessionStartedAt) : 0;
 
   async function saveSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     try {
@@ -82,12 +131,20 @@ export function HeroCapturePanel() {
             <span className={`pip ${detected || replay.active || status.active ? "on" : ""}`} />
             Live Session
           </p>
-          {detected || status.active || replay.active ? (
-            <span className="hero-session-clock">{clock(status.active ? status.durationMs : replay.bufferedMs)}</span>
+          {detected && sessionStartedAt ? (
+            <span className="hero-session-clock">
+              <IconClock size={13} />
+              {sessionClock(sessionElapsedMs)}
+            </span>
           ) : null}
         </div>
         <div className="hero-session-copy">
-          {detected ? <span className="hero-session-flag">Game detected</span> : null}
+          {detected ? (
+            <span className="hero-session-flag">
+              <IconCheck size={11} weight="bold" />
+              Game detected
+            </span>
+          ) : null}
           <h2>{detected ? snapshot.name : "Ready when you are."}</h2>
           <p className="hero-session-lead">
             {detected
@@ -95,14 +152,26 @@ export function HeroCapturePanel() {
               : "Launch a supported game and Replayr will start buffering automatically."}
           </p>
           <div className="hero-session-meta">
-            {settings.resolution !== "auto" && settings.resolution !== "native" ? <span>{settings.resolution}</span> : null}
-            <span>{settings.fps} FPS</span>
-            <span>{settings.gameAudioEnabled ? "Game audio" : "Game audio off"}</span>
-            <span>{settings.micEnabled ? "Mic on" : "Mic off"}</span>
+            <span>
+              <IconMonitor size={13} />
+              {resolutionLabel(settings.resolution)}
+            </span>
+            <span>
+              <IconClock size={13} />
+              {settings.fps} FPS
+            </span>
+            <span>
+              {settings.gameAudioEnabled ? <IconSpeaker size={13} /> : <IconSpeakerOff size={13} />}
+              {settings.gameAudioEnabled ? "Game audio" : "Game audio off"}
+            </span>
+            <span>
+              {settings.micEnabled ? <IconMic size={13} /> : <IconMicOff size={13} />}
+              {settings.micEnabled ? "Mic on" : "Mic off"}
+            </span>
           </div>
         </div>
         <Link className="hero-session-orb" to="/record" title="Open Capture" aria-label="Open Capture">
-          <IconFit size={12} />
+          <IconSliders size={12} />
         </Link>
       </article>
 
@@ -111,7 +180,7 @@ export function HeroCapturePanel() {
           <h2>Instant Replay</h2>
           <span className={`hero-replay-state ${replay.active ? "on" : ""}`}>
             <span className="pip" />
-            {replay.active ? "Buffer ready" : "Standby"}
+            {bufferReady ? "Buffer ready" : replay.active ? "Filling…" : "Standby"}
           </span>
         </div>
         <div className="hero-replay-clock">
@@ -147,18 +216,24 @@ export function HeroCapturePanel() {
         </div>
         <button
           type="button"
-          className="btn primary lg hero-replay-cta"
+          className="btn primary hero-replay-cta"
           disabled={saving || !bufferReady}
           title={bufferReady ? "Save Instant Replay" : "Instant Replay is still filling"}
           onClick={() => void saveClip()}
         >
-          {captureLabel}
+          <span className="hero-replay-cta-copy">
+            <IconLightning size={15} weight="fill" />
+            {captureLabel}
+          </span>
           <kbd>{displayHotkey(settings.hotkeys.saveReplay)}</kbd>
         </button>
         <div className="hero-replay-secondary">
           <button type="button" className="hero-replay-ghost" disabled={saving} onClick={() => void (status.active ? stop() : start())}>
-            {status.active ? "Stop" : "Record"}
-            <span>{displayHotkey(settings.hotkeys.toggleRecording)}</span>
+            <span className="hero-replay-ghost-copy">
+              <IconRecordCircle size={13} weight="fill" />
+              {status.active ? "Stop" : "Record"}
+            </span>
+            <kbd>{displayHotkey(settings.hotkeys.toggleRecording)}</kbd>
           </button>
           <button
             type="button"
@@ -166,15 +241,23 @@ export function HeroCapturePanel() {
             title="Drag to capture any part of your screen"
             onClick={() => void takeScreenshot()}
           >
-            Screenshot
-            <span>{displayHotkey(settings.hotkeys.regionScreenshot)}</span>
+            <span className="hero-replay-ghost-copy">
+              <IconCamera size={13} />
+              Screenshot
+            </span>
+            <kbd>{displayHotkey(settings.hotkeys.regionScreenshot)}</kbd>
           </button>
         </div>
-        <p className="hero-replay-help muted">
-          {status.active
-            ? `Recording ${formatDuration(status.durationMs)} · Saving to ${savePlace}`
-            : `Saving to ${savePlace} · Private by default`}
-        </p>
+        <div className="hero-replay-help">
+          <span title={savePlace}>
+            <IconFolder size={13} weight="fill" />
+            Saving to {savePlace}
+          </span>
+          <span>
+            <IconLock size={13} weight="fill" />
+            Private by default
+          </span>
+        </div>
       </aside>
     </section>
   );

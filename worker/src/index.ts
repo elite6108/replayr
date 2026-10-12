@@ -6,6 +6,8 @@ import { handleAnalytics, observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from
 import { cleanupLiveVisitors, handlePresence, observeLiveVisitor } from "./presence";
 import { installerArtifact, recordClipDownloadEvent, serveInstallerDownload } from "./analyticsDownloads";
 import { runRecentAnalyticsRollup } from "./analyticsRollup";
+import { eraseAnalyticsForUser, purgeExpiredAnalyticsEvents } from "./analyticsPrivacy";
+import { AUDIT_ACTIONS, writeAuditLog } from "./audit";
 import { handlePublicAnnouncements } from "./announcements";
 import { handlePush } from "./pushRoutes";
 import type { Env } from "./env";
@@ -205,6 +207,21 @@ export default {
         } catch (caught) {
           console.error(
             "analytics_scheduled_rollup_failed",
+            caught instanceof Error ? caught.message : "unknown",
+          );
+        }
+        try {
+          const purged = await purgeExpiredAnalyticsEvents(env);
+          console.log("analytics_retention_purge_ok", JSON.stringify({ purged }));
+          await writeAuditLog(env, {
+            actorType: "system",
+            action: AUDIT_ACTIONS.analyticsRetentionPurged,
+            targetType: "analytics_events",
+            metadata: { purged },
+          });
+        } catch (caught) {
+          console.error(
+            "analytics_retention_purge_failed",
             caught instanceof Error ? caught.message : "unknown",
           );
         }
@@ -985,7 +1002,7 @@ async function completeUpload(
   observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadCompleted, {
     userId: user.id,
     entityId: clipId,
-    properties: { bytes: size },
+    properties: { bytes_bucket: byteSizeBucket(size) },
   });
   if (typeof body.composeMs === "number" && Number.isFinite(body.composeMs) && body.composeMs >= 0) {
     void recordProductEvent(env, "compose_ms", Math.min(body.composeMs, 3_600_000), { clipId });
@@ -1063,6 +1080,11 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
     watermark_variant_status: "none",
   });
   await serviceRest(env, "DELETE", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}`);
+  observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.clipDeleted, {
+    userId: user.id,
+    entityId: clipId,
+    properties: { source: "cloud_library" },
+  });
 
   return json({ clipId, status: "deleted" });
 }
@@ -1105,6 +1127,14 @@ async function deleteAccount(request: Request, env: Env): Promise<Response> {
   }
 
   await purgeUserScreenshots(env, user.id);
+  await eraseAnalyticsForUser(env, user.id);
+  await writeAuditLog(env, {
+    actorUserId: user.id,
+    actorType: "user",
+    action: AUDIT_ACTIONS.analyticsUserErased,
+    targetType: "user",
+    targetId: user.id,
+  });
 
   const response = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${user.id}`, {
     method: "DELETE",
@@ -1822,6 +1852,14 @@ async function reserveUploadBytes(env: Env, userId: string, bytes: number) {
 async function releaseReservedBytes(env: Env, userId: string, bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return;
   await serviceRest(env, "POST", "/rpc/release_storage_used_for", { p_user_id: userId, p_bytes: bytes });
+}
+
+function byteSizeBucket(bytes: number): string {
+  const mib = bytes / (1024 * 1024);
+  if (mib < 25) return "under_25mb";
+  if (mib < 100) return "25_100mb";
+  if (mib < 500) return "100_500mb";
+  return "500mb_plus";
 }
 
 async function failClip(env: Env, userId: string, clipId: string) {

@@ -3,11 +3,16 @@ import {
   ArrowCounterClockwise,
   ArrowsOut,
   Bell,
+  Camera,
+  CaretRight,
   CaretDown,
   Check,
+  Clock,
   Cloud,
+  CloudCheck,
   Compass,
   Crosshair,
+  Desktop,
   DotsSixVertical,
   DotsThreeVertical,
   Eye,
@@ -16,15 +21,21 @@ import {
   Folder,
   Gear,
   Headphones,
+  ImageSquare,
+  Lightning,
   Lock,
   LockOpen,
   MagnifyingGlass,
+  Microphone,
+  MicrophoneSlash,
   PencilSimple,
   Play,
   Plus,
+  Record as RecordCircle,
   Selection,
   ShareNetwork,
   ShieldCheck,
+  SlidersHorizontal,
   SpeakerHigh,
   SpeakerSlash,
   Star,
@@ -257,6 +268,50 @@ export function IconChevron(props: IconProps) {
 
 export function IconCheck(props: IconProps) {
   return phosphor(Check, props);
+}
+
+export function IconCamera(props: IconProps) {
+  return phosphor(Camera, props);
+}
+
+export function IconCaretRight(props: IconProps) {
+  return phosphor(CaretRight, props);
+}
+
+export function IconClock(props: IconProps) {
+  return phosphor(Clock, props);
+}
+
+export function IconCloudCheck(props: IconProps) {
+  return phosphor(CloudCheck, props);
+}
+
+export function IconImage(props: IconProps) {
+  return phosphor(ImageSquare, props);
+}
+
+export function IconLightning(props: IconProps) {
+  return phosphor(Lightning, props);
+}
+
+export function IconMic(props: IconProps) {
+  return phosphor(Microphone, props);
+}
+
+export function IconMicOff(props: IconProps) {
+  return phosphor(MicrophoneSlash, props);
+}
+
+export function IconMonitor(props: IconProps) {
+  return phosphor(Desktop, props);
+}
+
+export function IconRecordCircle(props: IconProps) {
+  return phosphor(RecordCircle, props);
+}
+
+export function IconSliders(props: IconProps) {
+  return phosphor(SlidersHorizontal, props);
 }
 
 export function IconGoogle({ size = 18, className, ...props }: IconProps) {

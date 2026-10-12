@@ -8,6 +8,13 @@ export async function recordProductEvent(
 ): Promise<void> {
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) return;
+  const safeDims: Record<string, string | number | boolean> = {};
+  for (const [dimension, item] of Object.entries(dims)) {
+    if (!["action", "route"].includes(dimension)) continue;
+    if (typeof item === "string" && /^[a-zA-Z0-9_.:-]{1,80}$/.test(item)) safeDims[dimension] = item;
+    else if (typeof item === "number" && Number.isFinite(item)) safeDims[dimension] = item;
+    else if (typeof item === "boolean") safeDims[dimension] = item;
+  }
   try {
     const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/ingest_product_event`, {
       method: "POST",
@@ -19,7 +26,7 @@ export async function recordProductEvent(
       body: JSON.stringify({
         p_name: name,
         p_value: value ?? null,
-        p_dims: dims,
+        p_dims: safeDims,
       }),
     });
     if (!response.ok) {

@@ -13,6 +13,11 @@ import { publicShareUrl } from "@/lib/supabase";
 import { useSocialUnread } from "@/lib/socialUnread";
 import { getSupabase } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
+import {
+  getMobileAnalyticsConsent,
+  setMobileAnalyticsConsent,
+  type AnalyticsConsent,
+} from "@/lib/analytics";
 
 interface ProfileRow {
   username: string | null;
@@ -39,6 +44,7 @@ export default function SettingsScreen() {
   const [friendCount, setFriendCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [analyticsConsent, setAnalyticsConsent] = useState<AnalyticsConsent>("unset");
 
   useEffect(() => {
     if (!userId) return;
@@ -66,6 +72,16 @@ export default function SettingsScreen() {
       cancelled = true;
     };
   }, [userId, session?.access_token]);
+
+  useEffect(() => {
+    if (!token) {
+      setAnalyticsConsent("unset");
+      return;
+    }
+    void getMobileAnalyticsConsent(token)
+      .then(setAnalyticsConsent)
+      .catch(() => undefined);
+  }, [token]);
 
   useFocusEffect(
     useCallback(() => {
@@ -246,6 +262,31 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.card}>
+        <View style={styles.row}>
+          <View style={styles.iconWrap}>
+            <Ionicons name="analytics-outline" size={18} color={colors.text} />
+          </View>
+          <View style={styles.copy}>
+            <Text style={styles.rowTitle}>Share product analytics</Text>
+            <Text style={styles.muted}>Count-only events. Never clips, messages, titles, paths, or filenames.</Text>
+          </View>
+          <Switch
+            value={analyticsConsent === "allowed"}
+            disabled={busy || !token}
+            onValueChange={(next) => {
+              if (!token) return;
+              setBusy(true);
+              setError(null);
+              void setMobileAnalyticsConsent(token, next ? "allowed" : "denied")
+                .then(setAnalyticsConsent)
+                .catch((caught: unknown) =>
+                  setError(caught instanceof Error ? caught.message : "Could not update analytics privacy."),
+                )
+                .finally(() => setBusy(false));
+            }}
+            trackColor={{ false: colors.raised, true: colors.accent }}
+          />
+        </View>
         <SettingsRow
           icon="shield-outline"
           title="Privacy"

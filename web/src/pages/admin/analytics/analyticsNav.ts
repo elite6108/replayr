@@ -3,6 +3,7 @@ export type AnalyticsTab = {
   label: string;
   path: string;
   end?: boolean;
+  permission?: string;
 };
 
 export type AnalyticsSection = {
@@ -56,7 +57,7 @@ export const analyticsSections: AnalyticsSection[] = [
     path: "/admin/analytics/health",
     tabs: [
       { id: "product-health", label: "Product Health", path: "/admin/analytics/health", end: true },
-      { id: "live", label: "Live", path: "/admin/analytics/health/live" },
+      { id: "live", label: "Live", path: "/admin/analytics/health/live", permission: "analytics.live" },
       { id: "traffic", label: "Traffic", path: "/admin/analytics/health/traffic" },
     ],
   },

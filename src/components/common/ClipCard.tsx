@@ -2,7 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { useState } from "react";
 import type { LocalClip } from "../../types/clip";
 import { useCloudStore } from "../../stores/cloudStore";
-import { IconCloud, IconMore, IconPencil, IconPlay, IconShare, IconStar } from "../icons";
+import { IconCloud, IconMonitor, IconMore, IconPencil, IconPlay, IconShare, IconStar } from "../icons";
 import { findLinkedCloudClip, normalizeUploadStatus } from "../../utils/clips";
 import { formatDuration, formatRelativeTime, isVideoPath } from "../../utils/format";
 import { useDetectionStore } from "../../stores/detectionStore";
@@ -38,6 +38,7 @@ export function ClipCard({
   onDownload,
   onCopyLink,
   onEdit,
+  variant = "default",
 }: {
   clip: LocalClip;
   selected?: boolean;
@@ -51,6 +52,7 @@ export function ClipCard({
   onDownload?: (clip: LocalClip) => void;
   onCopyLink?: (clip: LocalClip) => void;
   onEdit?: (clip: LocalClip) => void;
+  variant?: "default" | "home";
 }) {
   const catalog = useDetectionStore((state) => state.catalog);
   const cloudClips = useCloudStore((state) => state.clips);
@@ -61,7 +63,13 @@ export function ClipCard({
   const inCloud = status === "completed" || Boolean(clip.cloudClipId || linkedCloud);
   const canUpload = Boolean(onUpload) && isVideoPath(clip.filePath) && !inCloud && !uploading;
   const badge = cloudBadge(clip, Boolean(linkedCloud));
-  const date = formatRelativeTime(clip.createdAt);
+  const relativeDate = formatRelativeTime(clip.createdAt);
+  const date =
+    variant === "home"
+      ? relativeDate
+          .replace(/\bminutes?\b/, "min")
+          .replace(/\bhours?\b/, "hr")
+      : relativeDate;
   const gameName = catalog.find((game) => game.slug === clip.gameId || game.cloudId === clip.gameId)?.name;
   const onPc = Boolean(clip.filePath);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -76,7 +84,7 @@ export function ClipCard({
 
   return (
     <article
-      className={`clip-card live ${clip.favorite ? "fav" : ""} ${selected ? "selected" : ""}`}
+      className={`clip-card live ${variant === "home" ? "clip-card-home" : ""} ${clip.favorite ? "fav" : ""} ${selected ? "selected" : ""}`}
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -101,6 +109,11 @@ export function ClipCard({
               <IconPlay size={18} />
             </span>
           </span>
+          {variant === "home" ? (
+            <span className="clip-type-badge">
+              {clip.captureKind === "recording" ? "Recording" : clip.captureKind === "screenshot" ? "Screenshot" : "Clip"}
+            </span>
+          ) : null}
           {clip.durationMs ? <span className="clip-duration">{formatDuration(clip.durationMs)}</span> : null}
           {(clip.width ?? 0) > 0 && (clip.height ?? 0) > (clip.width ?? 0) ? (
             <span className="clip-aspect-badge" title="Vertical 9:16">
@@ -146,8 +159,18 @@ export function ClipCard({
           {gameName ? `${gameName} · ${date}` : date}
         </div>
         <div className="clip-tags">
-          {onPc ? <span>This PC</span> : null}
-          {inCloud ? <span>Cloud</span> : null}
+          {onPc ? (
+            <span>
+              {variant === "home" ? <IconMonitor size={12} /> : null}
+              This PC
+            </span>
+          ) : null}
+          {inCloud ? (
+            <span>
+              {variant === "home" ? <IconCloud size={12} /> : null}
+              Cloud
+            </span>
+          ) : null}
         </div>
         <div className="clip-footer-actions">
           {onEdit && isVideoPath(clip.filePath) ? (
@@ -191,7 +214,7 @@ export function ClipCard({
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            { label: selected ? "Deselect" : "Select", onClick: () => onSelect?.(clip) },
+            ...(onSelect ? [{ label: selected ? "Deselect" : "Select", onClick: () => onSelect(clip) }] : []),
             ...(onEdit && isVideoPath(clip.filePath)
               ? [{ label: "Edit", onClick: () => onEdit(clip) }]
               : []),

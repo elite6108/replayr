@@ -1,9 +1,11 @@
 import { NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import { analyticsSectionById, type AnalyticsSection } from "./analyticsNav";
+import { useStaffPermissions } from "../../../lib/staff";
 
 export function AnalyticsSectionShell({ sectionId }: { sectionId: AnalyticsSection["id"] }) {
   const section = analyticsSectionById(sectionId);
   const location = useLocation();
+  const { can } = useStaffPermissions();
   return (
     <div className="admin-dash analytics-section">
       <header className="admin-page-header">
@@ -14,7 +16,7 @@ export function AnalyticsSectionShell({ sectionId }: { sectionId: AnalyticsSecti
         </div>
       </header>
       <nav className="analytics-section-tabs" aria-label={`${section.label} sections`}>
-        {section.tabs.map((tab) => (
+        {section.tabs.filter((tab) => !tab.permission || can(tab.permission)).map((tab) => (
           <NavLink key={tab.id} to={`${tab.path}${location.search}`} end={tab.end}>
             {tab.label}
           </NavLink>

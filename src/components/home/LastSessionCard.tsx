@@ -3,6 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { LocalClip } from "../../types/clip";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { formatClipDate, formatDuration } from "../../utils/format";
+import { IconClips, IconCloudCheck, IconImage, IconMonitor, IconRecordCircle } from "../icons";
 
 function playedLabel(ms: number | null | undefined) {
   if (!ms) return null;
@@ -16,13 +17,24 @@ function playedLabel(ms: number | null | undefined) {
   return formatDuration(ms);
 }
 
-export function LastSessionCard({ clip }: { clip: LocalClip | null }) {
+export function LastSessionCard({
+  clip,
+  clipCount,
+  screenshotCount,
+  recordingCount,
+  playedMs,
+}: {
+  clip: LocalClip | null;
+  clipCount: number;
+  screenshotCount: number;
+  recordingCount: number;
+  playedMs: number;
+}) {
   const catalog = useDetectionStore((state) => state.catalog);
   const game = clip ? catalog.find((item) => item.slug === clip.gameId || item.cloudId === clip.gameId) : undefined;
   const thumb = clip?.thumbnailPath;
   const title = game?.name || clip?.title || "Last session";
-  const played = clip ? playedLabel(clip.durationMs) : null;
-  const detail = clip && clip.title && clip.title !== title ? clip.title : null;
+  const played = playedLabel(playedMs);
 
   return (
     <article className="home-dash-card last-session-card">
@@ -36,13 +48,30 @@ export function LastSessionCard({ clip }: { clip: LocalClip | null }) {
           <div className="last-session-copy">
             <strong>{title}</strong>
             <p className="muted">
-              {[played ? `${played} played` : null, detail].filter(Boolean).join(" · ") || "Saved on this PC"}
+              {played ? `${played} played · Nothing left behind.` : "Nothing left behind."}
+            </p>
+            <p className="last-session-stats">
+              <span>
+                <IconClips size={12} />
+                {clipCount} {clipCount === 1 ? "clip" : "clips"}
+              </span>
+              <span>
+                <IconImage size={12} />
+                {screenshotCount} {screenshotCount === 1 ? "screenshot" : "screenshots"}
+              </span>
+              <span>
+                <IconRecordCircle size={12} />
+                {recordingCount} {recordingCount === 1 ? "recording" : "recordings"}
+              </span>
             </p>
           </div>
-          <span className={`last-session-sync ${clip.cloudClipId ? "ok" : ""}`}>
-            <span className="pip on" />
-            {clip.cloudClipId ? "Cloud sync complete" : "This PC"}
-          </span>
+          <div className="last-session-actions">
+            <span className={`last-session-sync ${clip.cloudClipId ? "ok" : ""}`}>
+              {clip.cloudClipId ? <IconCloudCheck size={13} /> : <IconMonitor size={13} />}
+              {clip.cloudClipId ? "Cloud sync complete" : "Saved on this PC"}
+            </span>
+            <span className="last-session-open">Open session →</span>
+          </div>
         </Link>
       ) : (
         <div className="home-dash-inner">

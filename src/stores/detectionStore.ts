@@ -7,6 +7,7 @@ import { EMPTY_DETECTION, type DetectedGameSnapshot, type GameCatalogEntry } fro
 interface DetectionState {
   ready: boolean;
   snapshot: DetectedGameSnapshot;
+  sessionStartedAt: number | null;
   catalog: GameCatalogEntry[];
   error: string | null;
   initialize: () => Promise<void>;
@@ -30,6 +31,7 @@ let listening = false;
 export const useDetectionStore = create<DetectionState>((set) => ({
   ready: false,
   snapshot: EMPTY_DETECTION,
+  sessionStartedAt: null,
   catalog: [],
   error: null,
   initialize: async () => {
@@ -50,7 +52,11 @@ export const useDetectionStore = create<DetectionState>((set) => ({
         }
       }
       const snapshot = await getDetectedGame();
-      set({ snapshot, ready: true });
+      set({
+        snapshot,
+        sessionStartedAt: snapshot.name ? Date.now() : null,
+        ready: true,
+      });
     } catch (caught) {
       set({
         ready: true,
@@ -61,7 +67,21 @@ export const useDetectionStore = create<DetectionState>((set) => ({
     if (!listening) {
       listening = true;
       await listen<DetectedGameSnapshot>("detected-game", (event) => {
-        set({ snapshot: event.payload });
+        set((state) => {
+          const next = event.payload;
+          const sameSession =
+            Boolean(next.name) &&
+            state.snapshot.slug === next.slug &&
+            state.snapshot.pid === next.pid;
+          return {
+            snapshot: next,
+            sessionStartedAt: next.name
+              ? sameSession
+                ? state.sessionStartedAt ?? Date.now()
+                : Date.now()
+              : null,
+          };
+        });
       });
     }
   },

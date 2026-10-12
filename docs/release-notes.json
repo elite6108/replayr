@@ -1,4 +1,11 @@
 {
+  "0.1.64": [
+    "Home matches the premium Replayr layout, with a live session hero, recent moments, last session, and game profiles.",
+    "Last session counts clips, screenshots, and recordings from the capture itself.",
+    "Privacy-first usage analytics now honor your analytics preference and never include clip, screenshot, or message content.",
+    "Signed-in activity delivery is more reliable, including events recorded while the app is temporarily offline.",
+    "Account analytics data can be erased without affecting your clips, screenshots, folders, or messages."
+  ],
   "0.1.63": [
     "The desktop editor matches the Replayr studio layout, and the window controls stay available.",
     "Timeline thumbnails stay readable while zooming, and the cyan highlight appears only on the selected section.",

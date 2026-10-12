@@ -1,6 +1,8 @@
 export interface Env {
   CLIPS?: R2Bucket;
   ASSETS?: { fetch: (request: Request) => Promise<Response> };
+  ANALYTICS_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  ANALYTICS_REVEAL_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
@@ -37,6 +39,12 @@ export interface Env {
   RESEND_REPLY_TO?: string;
   /** OpenAI key for waitlist campaign rewrite. Worker secret only. */
   OPENAI_API_KEY?: string;
+  /** HMAC key for pseudonymous analytics subjects. Worker secret only. */
+  ANALYTICS_SUBJECT_KEY?: string;
+  /** Previous HMAC key accepted during key rotation. Worker secret only. */
+  ANALYTICS_SUBJECT_PREVIOUS_KEY?: string;
+  /** Positive integer identifying ANALYTICS_SUBJECT_KEY. */
+  ANALYTICS_SUBJECT_KEY_VERSION?: string;
   /** Apple Developer Team ID for Universal Links (AASA). Optional until configured. */
   APPLE_TEAM_ID?: string;
   /** iOS bundle id override; defaults to tv.elite.replay. */

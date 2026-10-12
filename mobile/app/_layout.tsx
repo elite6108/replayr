@@ -2,7 +2,7 @@ import { Stack, usePathname, useRouter, type Href } from "expo-router";
 import * as Linking from "expo-linking";
 import { useEffect } from "react";
 import { View } from "react-native";
-import { AuthProvider } from "@/lib/auth";
+import { AuthProvider, useAuth } from "@/lib/auth";
 import { SocialUnreadProvider } from "@/lib/socialUnread";
 import { StaffPermissionsProvider } from "@/lib/staffPermissions";
 import { AnnouncementHost } from "@/components/AnnouncementHost";
@@ -15,11 +15,34 @@ import { targetFromPushData } from "@/lib/registerStaffPush";
 import * as Notifications from "expo-notifications";
 import { installMobileTelemetry } from "@/lib/telemetry";
 import { colors } from "@/lib/theme";
+import {
+  getMobileAnalyticsConsent,
+  normalizedMobileScreen,
+  trackMobileEvent,
+} from "@/lib/analytics";
 
 export { ErrorBoundary } from "expo-router";
 
 function RootShell() {
   const pathname = usePathname();
+  const { session } = useAuth();
+  const token = session?.access_token;
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    void getMobileAnalyticsConsent(token)
+      .then((consent) => {
+        if (!cancelled && consent === "allowed") {
+          trackMobileEvent(token, "screen.viewed", { screen: normalizedMobileScreen(pathname) });
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, token]);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={{ flex: 1 }}>

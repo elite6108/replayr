@@ -1,16 +1,26 @@
-import { captureAnonymousFromEvent, handleAnalyticsIdentify } from "./analyticsAcquisition";
+import { handleAnalyticsIdentify } from "./analyticsAcquisition";
 import {
   ANALYTICS_ENVIRONMENTS,
   ANALYTICS_PLATFORMS,
+  clientAnalyticsPropertyKeys,
+  isClientAllowedAnalyticsEvent,
   isServerAuthoritativeEvent,
+  serverAnalyticsPropertyKeys,
   SERVER_ANALYTICS_EVENTS,
   serverIdempotencyKey,
   type AnalyticsEnvironment,
 } from "./analyticsDictionary";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
-import { assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit } from "./rateLimit";
 import { optionalUser } from "./shared";
+import {
+  analyticsConsentForUser,
+  analyticsSubjectForUser,
+  handleAnalyticsConsent,
+  hashAnonymousAnalyticsId,
+  roundedAnalyticsTime,
+} from "./analyticsPrivacy";
 
 export { METRIC_DEFINITIONS, SERVER_ANALYTICS_EVENTS, serverIdempotencyKey } from "./analyticsDictionary";
 
@@ -23,6 +33,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EVENT_NAME = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
 const SHORT = 80;
 const MEDIUM = 160;
+const COUNT_ONLY_STRING = /^[a-zA-Z0-9][a-zA-Z0-9_.:+-]{0,79}$/;
 
 const BLOCKED_PROPERTY_KEYS = new Set([
   "password",
@@ -36,6 +47,22 @@ const BLOCKED_PROPERTY_KEYS = new Set([
   "apikey",
   "service_role",
   "private_key",
+  "body",
+  "title",
+  "path",
+  "file_path",
+  "filepath",
+  "filename",
+  "slug",
+  "query",
+  "search",
+  "recipient_id",
+  "conversation_id",
+  "message_id",
+  "clip_id",
+  "screenshot_id",
+  "storage_key",
+  "user_id",
 ]);
 
 export type AnalyticsEventInput = {
@@ -64,6 +91,9 @@ export type AnalyticsRow = {
   id: string | null;
   idempotency_key: string | null;
   user_id: string | null;
+  subject_id: string | null;
+  subject_key_version: number | null;
+  behavioral_consent: boolean;
   anonymous_id: string | null;
   session_id: string | null;
   event_name: string;
@@ -95,7 +125,7 @@ export function resolveAnalyticsEnvironment(env: Env, explicit?: string | null):
   return "production";
 }
 
-export function sanitizeAnalyticsProperties(value: unknown): Record<string, unknown> {
+export function sanitizeAnalyticsProperties(value: unknown, eventName?: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new HttpError(400, "properties must be an object.");
   }
@@ -105,11 +135,15 @@ export function sanitizeAnalyticsProperties(value: unknown): Record<string, unkn
   const input = value as Record<string, unknown>;
   const keys = Object.keys(input);
   if (keys.length > 24) throw new HttpError(400, "Too many event properties.");
+  const allowed = eventName ? clientAnalyticsPropertyKeys(eventName) : null;
   const next: Record<string, unknown> = {};
   for (const key of keys) {
     if (BLOCKED_PROPERTY_KEYS.has(key.toLowerCase())) continue;
+    if (allowed && !allowed.has(key)) continue;
     if (!/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/.test(key)) continue;
     const item = input[key];
+    if (allowed && typeof item === "string" && !COUNT_ONLY_STRING.test(item)) continue;
+    if (typeof item === "number" && !Number.isFinite(item)) continue;
     if (item == null || typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
       if (typeof item === "string" && item.length > 200) {
         next[key] = item.slice(0, 200);
@@ -121,6 +155,21 @@ export function sanitizeAnalyticsProperties(value: unknown): Record<string, unkn
   const encoded = JSON.stringify(next);
   if (encoded.length > ANALYTICS_MAX_PROPERTIES_BYTES) {
     throw new HttpError(400, "Event properties are too large.");
+  }
+  return next;
+}
+
+export function sanitizeServerAnalyticsProperties(
+  eventName: string,
+  value: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const allowed = serverAnalyticsPropertyKeys(eventName);
+  const next: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value ?? {})) {
+    if (!allowed.has(key) || BLOCKED_PROPERTY_KEYS.has(key.toLowerCase())) continue;
+    if (typeof item === "string" && COUNT_ONLY_STRING.test(item)) next[key] = item;
+    else if (typeof item === "boolean") next[key] = item;
+    else if (typeof item === "number" && Number.isFinite(item)) next[key] = item;
   }
   return next;
 }
@@ -151,6 +200,9 @@ function parseOneClientEvent(value: unknown, index: number): AnalyticsEventInput
   if (isServerAuthoritativeEvent(eventName)) {
     throw new HttpError(403, "That event can only be recorded by Replayr servers.");
   }
+  if (!isClientAllowedAnalyticsEvent(eventName)) {
+    throw new HttpError(403, "That analytics event is not allowed.");
+  }
   if (raw.environment != null && !ANALYTICS_ENVIRONMENTS.includes(raw.environment as AnalyticsEnvironment)) {
     throw new HttpError(400, "environment must be production or development.");
   }
@@ -165,7 +217,7 @@ function parseOneClientEvent(value: unknown, index: number): AnalyticsEventInput
     throw new HttpError(403, "That idempotency key is reserved.");
   }
   return {
-    id: optionalUuid(raw.id),
+    id: undefined,
     idempotencyKey: optionalText(raw.idempotencyKey ?? raw.idempotency_key, MEDIUM),
     anonymousId: optionalText(raw.anonymousId ?? raw.anonymous_id, MEDIUM),
     sessionId: optionalText(raw.sessionId ?? raw.session_id, MEDIUM),
@@ -176,7 +228,7 @@ function parseOneClientEvent(value: unknown, index: number): AnalyticsEventInput
     os: optionalText(raw.os, 40),
     deviceType: optionalText(raw.deviceType ?? raw.device_type, 40),
     environment: optionalText(raw.environment, 24),
-    properties: raw.properties === undefined ? {} : sanitizeAnalyticsProperties(raw.properties),
+    properties: raw.properties === undefined ? {} : sanitizeAnalyticsProperties(raw.properties, eventName),
     acquisitionSource: optionalText(raw.acquisitionSource ?? raw.acquisition_source, SHORT),
     utmSource: optionalText(raw.utmSource ?? raw.utm_source, SHORT),
     utmMedium: optionalText(raw.utmMedium ?? raw.utm_medium, SHORT),
@@ -191,6 +243,9 @@ export function toAnalyticsRow(
   event: AnalyticsEventInput,
   extras: {
     userId?: string | null;
+    subjectId?: string | null;
+    subjectKeyVersion?: number | null;
+    behavioralConsent?: boolean;
     environment: AnalyticsEnvironment;
     countryCode?: string | null;
   },
@@ -198,8 +253,13 @@ export function toAnalyticsRow(
   return {
     id: event.id ?? null,
     idempotency_key: event.idempotencyKey ?? null,
-    user_id: extras.userId ?? null,
-    anonymous_id: event.anonymousId ?? null,
+    // Direct account and anonymous identifiers never enter raw analytics.
+    // Named journeys resolve the versioned HMAC subject just in time.
+    user_id: null,
+    subject_id: extras.subjectId ?? null,
+    subject_key_version: extras.subjectKeyVersion ?? null,
+    behavioral_consent: extras.behavioralConsent ?? false,
+    anonymous_id: null,
     session_id: event.sessionId ?? null,
     event_name: event.eventName,
     event_version: event.eventVersion ?? 1,
@@ -216,7 +276,7 @@ export function toAnalyticsRow(
     utm_content: event.utmContent ?? null,
     utm_term: event.utmTerm ?? null,
     country_code: extras.countryCode ?? null,
-    occurred_at: event.occurredAt ?? new Date().toISOString(),
+    occurred_at: roundedAnalyticsTime(event.occurredAt),
   };
 }
 
@@ -233,6 +293,9 @@ export async function handleAnalytics(request: Request, env: Env, url: URL): Pro
   if (url.pathname === "/v1/analytics/identify" && request.method === "POST") {
     return handleAnalyticsIdentify(request, env);
   }
+  if (url.pathname === "/v1/analytics/consent" && (request.method === "GET" || request.method === "PATCH")) {
+    return handleAnalyticsConsent(request, env);
+  }
   return null;
 }
 
@@ -241,7 +304,20 @@ export async function ingestClientAnalytics(request: Request, env: Env): Promise
     throw new HttpError(503, "Analytics ingest is not configured.");
   }
   const user = await optionalUser(request, env);
-  assertRateLimit(request, "analytics", user ? ANALYTICS_AUTH_LIMIT : ANALYTICS_ANON_LIMIT, user?.id);
+  await assertDistributedRateLimit(
+    request,
+    env.ANALYTICS_RATE_LIMITER,
+    "analytics",
+    user ? ANALYTICS_AUTH_LIMIT : ANALYTICS_ANON_LIMIT,
+    user?.id,
+  );
+  if (!user) return json({ ok: true, accepted: 0, duplicates: 0, dropped: "authentication_required" }, 202);
+  const consent = await analyticsConsentForUser(env, user.id);
+  if (consent !== "allowed") {
+    return json({ ok: true, accepted: 0, duplicates: 0, dropped: "consent_required" }, 202);
+  }
+  const subject = await analyticsSubjectForUser(env, user.id);
+  if (!subject) throw new HttpError(503, "Secure analytics identity is not configured.");
   const payload = (await request.json().catch(() => null)) as unknown;
   const events = parseClientAnalyticsEvents(payload);
   const environmentDefault = resolveAnalyticsEnvironment(env);
@@ -249,24 +325,26 @@ export async function ingestClientAnalytics(request: Request, env: Env): Promise
   let accepted = 0;
   let duplicates = 0;
   for (const event of events) {
-    const row = toAnalyticsRow(event, {
-      userId: user?.id ?? null,
-      environment: resolveAnalyticsEnvironment(env, event.environment) || environmentDefault,
+    const row = toAnalyticsRow({
+      ...event,
+      anonymousId: undefined,
+      acquisitionSource: undefined,
+      utmSource: undefined,
+      utmMedium: undefined,
+      utmCampaign: undefined,
+      utmContent: undefined,
+      utmTerm: undefined,
+    }, {
+      userId: user.id,
+      subjectId: subject.id,
+      subjectKeyVersion: subject.keyVersion,
+      behavioralConsent: true,
+      environment: environmentDefault,
       countryCode: country,
     });
     const result = await insertAnalyticsEvent(env, row);
     if (result.inserted) accepted += 1;
     else duplicates += 1;
-    if (row.anonymous_id) {
-      captureAnonymousFromEvent(env, {
-        anonymousId: row.anonymous_id,
-        source: row.utm_source,
-        medium: row.utm_medium,
-        campaign: row.utm_campaign,
-        content: row.utm_content,
-        term: row.utm_term,
-      });
-    }
   }
   return json({ ok: true, accepted, duplicates }, 202);
 }
@@ -282,24 +360,32 @@ export function observeCountedAnalytics(
     occurredAt?: string;
   } = {},
 ): void {
-  try {
-    const row = toAnalyticsRow(
+  void (async () => {
+    try {
+      const consent = input.userId ? await analyticsConsentForUser(env, input.userId) : "unset";
+      const subject = input.userId && consent === "allowed" ? await analyticsSubjectForUser(env, input.userId) : null;
+      const anonymousId = await hashAnonymousAnalyticsId(env, input.anonymousId);
+      const row = toAnalyticsRow(
       {
         eventName,
-        anonymousId: input.anonymousId ?? undefined,
+        anonymousId: anonymousId ?? undefined,
         platform: input.platform ?? "server",
-        properties: input.properties ?? {},
+        properties: sanitizeServerAnalyticsProperties(eventName, input.properties),
         occurredAt: input.occurredAt,
       },
       {
         userId: input.userId ?? null,
+        subjectId: subject?.id ?? null,
+        subjectKeyVersion: subject?.keyVersion ?? null,
+        behavioralConsent: consent === "allowed",
         environment: resolveAnalyticsEnvironment(env),
       },
     );
-    void insertAnalyticsEvent(env, row).catch(() => undefined);
-  } catch {
-    /* observational */
-  }
+      await insertAnalyticsEvent(env, row);
+    } catch {
+      /* observational */
+    }
+  })();
 }
 
 export function observeServerAnalytics(
@@ -313,25 +399,32 @@ export function observeServerAnalytics(
     occurredAt?: string;
   },
 ): void {
-  try {
-    if (!input.idempotencyKey && !UUID.test(input.entityId)) return;
-    const row = toAnalyticsRow(
+  void (async () => {
+    try {
+      if (!input.idempotencyKey && !UUID.test(input.entityId)) return;
+      const consent = input.userId ? await analyticsConsentForUser(env, input.userId) : "unset";
+      const subject = input.userId && consent === "allowed" ? await analyticsSubjectForUser(env, input.userId) : null;
+      const row = toAnalyticsRow(
       {
         eventName,
         idempotencyKey: input.idempotencyKey ?? serverIdempotencyKey(eventName, input.entityId),
         platform: "server",
-        properties: input.properties ?? {},
+        properties: sanitizeServerAnalyticsProperties(eventName, input.properties),
         occurredAt: input.occurredAt,
       },
       {
         userId: input.userId ?? null,
+        subjectId: subject?.id ?? null,
+        subjectKeyVersion: subject?.keyVersion ?? null,
+        behavioralConsent: consent === "allowed",
         environment: resolveAnalyticsEnvironment(env),
       },
     );
-    void insertAnalyticsEvent(env, row).catch(() => undefined);
-  } catch {
-    /* observational — never change caller success or failure */
-  }
+      await insertAnalyticsEvent(env, row);
+    } catch {
+      /* observational — never change caller success or failure */
+    }
+  })();
 }
 
 export async function insertAnalyticsEvent(
@@ -340,6 +433,12 @@ export async function insertAnalyticsEvent(
 ): Promise<{ inserted: boolean; eventId: string | null }> {
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) return { inserted: false, eventId: null };
+  const idempotencyHash = row.idempotency_key
+    ? await hashAnonymousAnalyticsId(env, `idempotency:${row.event_name}:${row.idempotency_key}`)
+    : null;
+  const sessionHash = row.session_id
+    ? await hashAnonymousAnalyticsId(env, `session:${row.session_id}`)
+    : null;
   const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/ingest_analytics_event`, {
     method: "POST",
     headers: {
@@ -349,10 +448,13 @@ export async function insertAnalyticsEvent(
     },
     body: JSON.stringify({
       p_id: row.id,
-      p_idempotency_key: row.idempotency_key,
+      p_idempotency_key: idempotencyHash ? `${row.event_name}:${idempotencyHash}` : null,
       p_user_id: row.user_id,
+      p_subject_id: row.subject_id,
+      p_subject_key_version: row.subject_key_version,
+      p_behavioral_consent: row.behavioral_consent,
       p_anonymous_id: row.anonymous_id,
-      p_session_id: row.session_id,
+      p_session_id: sessionHash,
       p_event_name: row.event_name,
       p_event_version: row.event_version,
       p_platform: row.platform,
@@ -400,10 +502,6 @@ function optionalText(value: unknown, max: number): string | undefined {
   const next = value.trim();
   if (!next) return undefined;
   return next.slice(0, max);
-}
-
-function optionalUuid(value: unknown): string | undefined {
-  return typeof value === "string" && UUID.test(value) ? value : undefined;
 }
 
 function optionalIso(value: unknown): string | undefined {

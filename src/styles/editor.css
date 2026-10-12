@@ -11,6 +11,7 @@
 
 .app-shell.is-editor .topbar {
   display: flex;
+  grid-column: 1 / -1;
   height: var(--titlebar);
   padding-left: 0;
 }

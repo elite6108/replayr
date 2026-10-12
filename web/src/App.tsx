@@ -5,7 +5,7 @@ import { SiteHeader } from "./components/SiteHeader";
 import { RequireAuth } from "./components/RequireAuth";
 import { RequireAdmin } from "./components/RequireAdmin";
 import { RequireStaff } from "./components/RequireStaff";
-import { AuthProvider } from "./lib/auth";
+import { AuthProvider, useAuth } from "./lib/auth";
 import { noteWebPresencePath } from "./lib/presence";
 import { StaffPermissionsProvider } from "./lib/staff";
 import { SocialUnreadProvider } from "./lib/socialUnread";
@@ -42,6 +42,7 @@ import { AdminErrorsPage } from "./pages/admin/AdminErrorsPage";
 import { AdminAnnouncementsPage } from "./pages/admin/AdminAnnouncementsPage";
 import { AdminStoragePage } from "./pages/admin/AdminStoragePage";
 import { AdminWaitlistPage } from "./pages/admin/AdminWaitlistPage";
+import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { LibraryHome, LibraryShell } from "./pages/admin/LibraryShell";
 import { PeopleHome, PeopleShell } from "./pages/admin/PeopleShell";
 import { AnalyticsOverviewPage } from "./pages/admin/analytics/AnalyticsOverviewPage";
@@ -59,6 +60,7 @@ import { AnalyticsInfrastructurePage } from "./pages/admin/analytics/AnalyticsIn
 import { AnalyticsHealthPage } from "./pages/admin/analytics/AnalyticsHealthPage";
 import { AnalyticsLivePage } from "./pages/admin/analytics/AnalyticsLivePage";
 import { AnalyticsTrafficPage } from "./pages/admin/analytics/AnalyticsTrafficPage";
+import { AnalyticsUsersPage } from "./pages/admin/analytics/AnalyticsUsersPage";
 import { AnalyticsReportsPage } from "./pages/admin/analytics/AnalyticsReportsPage";
 import { AnalyticsReportDetailPage } from "./pages/admin/analytics/AnalyticsReportDetailPage";
 import { AnalyticsHub } from "./pages/admin/analytics/AnalyticsHub";
@@ -71,6 +73,11 @@ import { StaffLayout } from "./pages/staff/StaffLayout";
 import { StaffBoardPage } from "./pages/staff/StaffBoardPage";
 import { StaffTasksPage } from "./pages/staff/StaffTasksPage";
 import { AnnouncementHost } from "./components/AnnouncementHost";
+import {
+  getWebAnalyticsConsent,
+  trackWebAppOpened,
+  trackWebEvent,
+} from "./lib/analytics";
 
 export function App() {
   return (
@@ -86,11 +93,27 @@ export function App() {
 
 function AppShell() {
   const location = useLocation();
+  const { session } = useAuth();
+  const token = session?.access_token;
   const admin = location.pathname.startsWith("/admin") || location.pathname.startsWith("/staff");
   const messages = location.pathname.startsWith("/messages");
   useEffect(() => {
     noteWebPresencePath();
   }, [location.pathname, location.search]);
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    void getWebAnalyticsConsent(token)
+      .then((consent) => {
+        if (cancelled || consent !== "allowed") return;
+        trackWebAppOpened(token);
+        trackWebEvent("screen.viewed", { screen: webScreen(location.pathname) }, token);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname, token]);
   const oauthCode =
     new URLSearchParams(location.search).get("code") ||
     new URLSearchParams(location.hash.replace(/^#/, "")).get("code");
@@ -202,6 +225,8 @@ function AppShell() {
             <Route index element={<AdminOverviewPage />} />
             <Route path="people" element={<PeopleShell />}>
               <Route index element={<PeopleHome />} />
+              <Route path="users" element={<AdminUsersPage />} />
+              <Route path="users/:userId" element={<AnalyticsUsersPage />} />
               <Route path="waitlist" element={<AdminWaitlistPage />} />
               <Route path="creators" element={<AdminCreatorsPage />} />
             </Route>
@@ -209,7 +234,7 @@ function AppShell() {
               <Route index element={<LibraryHome />} />
               <Route path="storage" element={<AdminStoragePage />} />
             </Route>
-            <Route path="users" element={<AnalyticsRedirect to="/admin/people" />} />
+            <Route path="users" element={<AnalyticsRedirect to="/admin/people/users" />} />
             <Route path="waitlist" element={<AnalyticsRedirect to="/admin/people/waitlist" />} />
             <Route path="creators" element={<AnalyticsRedirect to="/admin/people/creators" />} />
             <Route path="clips" element={<AnalyticsRedirect to="/admin/library" />} />
@@ -234,6 +259,7 @@ function AppShell() {
                 <Route path="features" element={<AnalyticsFeaturesPage />} />
                 <Route path="folders" element={<AnalyticsFoldersPage />} />
                 <Route path="sharing" element={<AnalyticsSharingPage />} />
+                <Route path="users" element={<AnalyticsRedirect to="/admin/people/users" />} />
               </Route>
               <Route path="business" element={<AnalyticsSectionShell sectionId="business" />}>
                 <Route index element={<AnalyticsRedirect to="/admin/analytics/business/revenue" />} />
@@ -272,6 +298,24 @@ function AppShell() {
         {admin || messages ? null : <SiteFooter />}
       </div>
   );
+}
+
+function webScreen(pathname: string): string {
+  if (pathname === "/") return "home";
+  if (pathname.startsWith("/library/screenshots")) return "screenshots";
+  if (pathname.startsWith("/library/folders") || pathname.startsWith("/folders/")) return "folders";
+  if (pathname.startsWith("/library")) return "library";
+  if (pathname.startsWith("/messages")) return "messages";
+  if (pathname.startsWith("/c/")) return "clip";
+  if (pathname.startsWith("/s/")) return "screenshot";
+  if (pathname.startsWith("/u/")) return "profile";
+  if (pathname.startsWith("/games")) return "games";
+  if (pathname.startsWith("/pricing")) return "pricing";
+  if (pathname.startsWith("/admin")) return "admin";
+  if (pathname.startsWith("/staff")) return "staff";
+  if (pathname.startsWith("/account")) return "account";
+  if (pathname.startsWith("/signin") || pathname.startsWith("/auth/")) return "auth";
+  return "other";
 }
 
 function WaitlistToComingSoon() {

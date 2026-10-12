@@ -36,6 +36,8 @@ export const STAFF_PERMISSIONS = [
   "analytics.config",
   "analytics.reports",
   "analytics.backfill",
+  "analytics.users.view",
+  "analytics.live",
   "audit.view",
   "board.view",
   "board.create",
@@ -64,7 +66,7 @@ export const SUPER_ADMIN_ROLE_ID = "00000000-0000-4000-8000-000000000001";
 export const ADMIN_ROLE_ID = "00000000-0000-4000-8000-000000000002";
 export const STAFF_ROLE_ID = "00000000-0000-4000-8000-000000000003";
 
-const PROTECTED = new Set<StaffPermission>(["staff.roles.manage_all"]);
+const PROTECTED = new Set<StaffPermission>(["staff.roles.manage_all", "analytics.users.view"]);
 
 export function isStaffPermission(value: string): value is StaffPermission {
   return (STAFF_PERMISSIONS as readonly string[]).includes(value);
@@ -129,6 +131,8 @@ export function permissionForAdminRoute(method: string, path: string): StaffPerm
   if (path === "/v1/admin/analytics/backfill" && method === "POST") return "analytics.backfill";
   if (path.startsWith("/v1/admin/analytics/reports") && method === "GET") return "analytics.reports";
   if (path.startsWith("/v1/admin/analytics/reports") && method !== "GET") return "analytics.reports";
+  if (path.startsWith("/v1/admin/analytics/users")) return "analytics.users.view";
+  if (path === "/v1/admin/analytics/live") return "analytics.live";
   if (path.startsWith("/v1/admin/analytics")) return "analytics.view";
   return "admin.access";
 }

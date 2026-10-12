@@ -341,8 +341,8 @@ html[data-theme="light"] .btn.danger {
 }
 
 .badge.pro {
-  color: var(--on-accent);
-  background: var(--accent);
+  color: #ffffff;
+  background: linear-gradient(135deg, #8b5cf6, #d946ef);
   border-color: transparent;
   font-weight: 750;
   letter-spacing: 0.04em;

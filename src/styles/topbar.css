@@ -5,8 +5,8 @@
   gap: 16px;
   height: var(--topbar);
   padding: 0 0 0 16px;
-  border-bottom: 1px solid var(--chrome-border);
-  background: #060a10;
+  border-bottom: 0;
+  background: var(--topbar-bg);
   font-family: var(--font-chrome);
   letter-spacing: 0.01em;
   overflow: visible;
@@ -57,7 +57,7 @@
 .topbar-brand {
   flex: 0 0 auto;
   color: #f5f7fa;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: -0.03em;
 }
@@ -66,7 +66,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 8px;
+  gap: 7px;
   color: rgba(220, 230, 245, 0.65);
 }
 
@@ -87,12 +87,12 @@
 
 .topbar-status .topbar-title {
   color: #f5f7fa;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
 }
 
 .topbar-kicker {
-  font-size: 12px;
+  font-size: 10px;
   line-height: 1.15;
   color: rgba(220, 230, 245, 0.65);
 }
@@ -118,10 +118,10 @@
   position: relative;
   display: flex;
   align-items: stretch;
-  height: 32px;
+  height: 28px;
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 999px;
-  background: #0f1722;
+  background: #111820;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -165,14 +165,14 @@
   background: transparent;
   color: rgba(220, 230, 245, 0.55);
   font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 600;
   letter-spacing: 0;
   text-align: left;
 }
 
 .hotkey-chip .chip-copy {
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 650;
   line-height: 1;
   white-space: nowrap;
@@ -239,11 +239,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
+  height: 28px;
   padding: 0 10px 0 6px;
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 999px;
-  background: #0f1722;
+  background: #111820;
   color: #f5f7fa;
   text-decoration: none;
   -webkit-app-region: no-drag;
@@ -251,9 +251,9 @@
 }
 
 .topbar-user .avatar {
-  width: 20px;
-  height: 20px;
-  font-size: 9px;
+  width: 22px;
+  height: 22px;
+  font-size: 8px;
 }
 
 .topbar-spacer {
@@ -264,7 +264,7 @@
   max-width: 140px;
   overflow: hidden;
   font-weight: 500;
-  font-size: 12px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -279,7 +279,7 @@
   width: 44px;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
   .topbar-kicker,
   .topbar-sep {
     display: none;

@@ -1,6 +1,7 @@
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { requireUser } from "./shared";
+import { analyticsConsentForUser, hashAnonymousAnalyticsId } from "./analyticsPrivacy";
 
 const MAX_ATTR = 80;
 
@@ -172,16 +173,19 @@ export function isSafeAnonymousId(value: string | null | undefined): value is st
 
 export async function handleAnalyticsIdentify(request: Request, env: Env) {
   const user = await requireUser(request, env);
+  if ((await analyticsConsentForUser(env, user.id)) !== "allowed") {
+    return json({ ok: true, dropped: "consent_required" }, 202);
+  }
   const body = (await request.json().catch(() => ({}))) as {
     anonymousId?: unknown;
     firstTouch?: AttributionTouch;
     lastTouch?: AttributionTouch;
   };
-  const anonymousId = isSafeAnonymousId(typeof body.anonymousId === "string" ? body.anonymousId : null)
+  const rawAnonymousId = isSafeAnonymousId(typeof body.anonymousId === "string" ? body.anonymousId : null)
     ? body.anonymousId
     : null;
+  const anonymousId = await hashAnonymousAnalyticsId(env, rawAnonymousId);
   const first = body.firstTouch ?? {};
-  const last = body.lastTouch ?? {};
   const normalized = normalizeAcquisitionSource({
     source: sanitizeAttributionValue(first.source),
     medium: sanitizeAttributionValue(first.medium),
@@ -209,27 +213,7 @@ export async function handleAnalyticsIdentify(request: Request, env: Env) {
       }),
     }).catch(() => undefined);
   }
-  await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/upsert_user_acquisition`, {
-    method: "POST",
-    headers: { apikey: key, authorization: `Bearer ${key}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      p_user_id: user.id,
-      p_anonymous_id: anonymousId,
-      p_source: sanitizeAttributionValue(first.source),
-      p_medium: sanitizeAttributionValue(first.medium),
-      p_campaign: sanitizeAttributionValue(first.campaign),
-      p_content: sanitizeAttributionValue(first.content),
-      p_term: sanitizeAttributionValue(first.term),
-      p_referrer: sanitizeAttributionValue(first.referrer, 160),
-      p_landing_page: sanitizeAttributionValue(first.landingPage, 160),
-      p_normalized_source: normalized === "unknown" ? null : normalized,
-      p_first_touch_at: sanitizeAttributionValue(first.at, 40),
-      p_last_source: sanitizeAttributionValue(last.source),
-      p_last_campaign: sanitizeAttributionValue(last.campaign),
-      p_last_touch_at: sanitizeAttributionValue(last.at, 40),
-    }),
-  }).catch(() => undefined);
-  return json({ ok: true }, 202);
+  return json({ ok: true, associated: false }, 202);
 }
 
 export function captureAnonymousFromEvent(
@@ -244,24 +228,28 @@ export function captureAnonymousFromEvent(
     installer?: boolean;
   },
 ) {
-  const key = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key || !isSafeAnonymousId(input.anonymousId)) return;
-  const normalized = normalizeAcquisitionSource({
-    source: input.source,
-    medium: input.medium,
-  });
-  void fetch(`${env.SUPABASE_URL}/rest/v1/rpc/capture_anonymous_first_touch`, {
-    method: "POST",
-    headers: { apikey: key, authorization: `Bearer ${key}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      p_anonymous_id: input.anonymousId,
-      p_source: sanitizeAttributionValue(input.source),
-      p_medium: sanitizeAttributionValue(input.medium),
-      p_campaign: sanitizeAttributionValue(input.campaign),
-      p_content: sanitizeAttributionValue(input.content),
-      p_term: sanitizeAttributionValue(input.term),
-      p_normalized_source: normalized === "unknown" ? null : normalized,
-      p_installer_downloaded: Boolean(input.installer),
-    }),
-  }).catch(() => undefined);
+  void (async () => {
+    const key = env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!key || !isSafeAnonymousId(input.anonymousId)) return;
+    const anonymousId = await hashAnonymousAnalyticsId(env, input.anonymousId);
+    if (!anonymousId) return;
+    const normalized = normalizeAcquisitionSource({
+      source: input.source,
+      medium: input.medium,
+    });
+    await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/capture_anonymous_first_touch`, {
+      method: "POST",
+      headers: { apikey: key, authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        p_anonymous_id: anonymousId,
+        p_source: sanitizeAttributionValue(input.source),
+        p_medium: sanitizeAttributionValue(input.medium),
+        p_campaign: sanitizeAttributionValue(input.campaign),
+        p_content: sanitizeAttributionValue(input.content),
+        p_term: sanitizeAttributionValue(input.term),
+        p_normalized_source: normalized === "unknown" ? null : normalized,
+        p_installer_downloaded: Boolean(input.installer),
+      }),
+    });
+  })().catch(() => undefined);
 }

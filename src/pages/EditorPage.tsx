@@ -228,6 +228,7 @@ export function EditorPage() {
           favorite: false,
           title: folderSession.sourceTitle,
           description: null,
+          captureKind: "clip",
           sourceClipId: folderSession.sourceClipId,
           sourceStartMs: folderSession.editData.trim?.startMs ?? null,
           sourceEndMs: folderSession.editData.trim?.endMs ?? null,

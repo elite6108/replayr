@@ -1,8 +1,8 @@
 :root,
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #090b10;
-  --bg-workspace: #0c0f15;
+  --bg: #090d12;
+  --bg-workspace: #090d12;
   --bg-raised: #141820;
   --bg-hover: #1c232e;
   --bg-input: #10141b;
@@ -24,8 +24,8 @@ html[data-theme="dark"] {
   --ok: #6fd08a;
   --warn: #e0b36a;
   --focus: #5eecff;
-  --sidebar-bg: #060a10;
-  --topbar-bg: #060a10;
+  --sidebar-bg: #090d12;
+  --topbar-bg: #090d12;
   --chrome-border: rgba(255, 255, 255, 0.05);
   --chip-surface: rgba(16, 20, 28, 0.92);
   --keycap-bg: #0a0d12;
@@ -79,9 +79,8 @@ html[data-theme="dark"] {
     radial-gradient(circle at 78% 18%, rgba(0, 216, 240, 0.26), transparent 36%), #121821;
   --hero-bg-idle: linear-gradient(180deg, rgba(9, 11, 16, 0.24), rgba(9, 11, 16, 0.78) 76%),
     radial-gradient(circle at 80% 12%, rgba(0, 216, 240, 0.12), transparent 38%), #12161d;
-  --workspace-glow: radial-gradient(900px 420px at 8% -18%, rgba(0, 216, 240, 0.1), transparent 58%),
-    radial-gradient(640px 280px at 92% 0%, rgba(0, 216, 240, 0.05), transparent 48%);
-  --rail: 76px;
+  --workspace-glow: none;
+  --rail: 64px;
   --titlebar: 40px;
   --topbar: 48px;
   --shell-header: var(--topbar);

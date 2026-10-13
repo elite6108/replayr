@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { fetchGames, supabaseConfigured } from "../services/supabase";
+import { maybeReportLearnedGame } from "../services/gameObservations";
 import { getDetectedGame, listGames, syncGames } from "../services/tauri";
 import { EMPTY_DETECTION, type DetectedGameSnapshot, type GameCatalogEntry } from "../types/game";
 
@@ -57,6 +58,7 @@ export const useDetectionStore = create<DetectionState>((set) => ({
         sessionStartedAt: snapshot.name ? Date.now() : null,
         ready: true,
       });
+      maybeReportLearnedGame(snapshot);
     } catch (caught) {
       set({
         ready: true,
@@ -67,8 +69,8 @@ export const useDetectionStore = create<DetectionState>((set) => ({
     if (!listening) {
       listening = true;
       await listen<DetectedGameSnapshot>("detected-game", (event) => {
+        const next = event.payload;
         set((state) => {
-          const next = event.payload;
           const sameSession =
             Boolean(next.name) &&
             state.snapshot.slug === next.slug &&
@@ -82,6 +84,7 @@ export const useDetectionStore = create<DetectionState>((set) => ({
               : null,
           };
         });
+        maybeReportLearnedGame(next);
       });
     }
   },

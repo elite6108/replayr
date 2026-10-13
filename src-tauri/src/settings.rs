@@ -182,6 +182,10 @@ pub struct AppSettings {
     /// Show Replayr status on Discord via Rich Presence. Default on.
     #[serde(default = "default_true")]
     pub discord_rich_presence: bool,
+    /// Download a signed update and restart. Off until the user opts in.
+    /// Absent from `CAPTURE_KEYS`: this never restarts Instant Replay.
+    #[serde(default)]
+    pub auto_install_updates: bool,
     /// Optional webcam as a separate recording source. Off until the user opts in.
     #[serde(default)]
     pub webcam: WebcamSettings,
@@ -631,6 +635,7 @@ impl Default for AppSettings {
             watermark_exports: true,
             clip_saved_notification: true,
             discord_rich_presence: true,
+            auto_install_updates: false,
             webcam: WebcamSettings::default(),
             recording_visuals: RecordingVisualSettings::default(),
             clip_studio: ClipStudioSettings::default(),
@@ -1286,6 +1291,15 @@ mod tests {
         object.remove("discordRichPresence");
         let loaded: AppSettings = serde_json::from_value(value).unwrap();
         assert!(loaded.discord_rich_presence);
+    }
+
+    #[test]
+    fn auto_install_updates_defaults_off_when_missing() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("autoInstallUpdates");
+        let loaded: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(!loaded.auto_install_updates);
     }
 
     #[test]

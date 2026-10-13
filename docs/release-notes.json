@@ -1,4 +1,12 @@
 {
+  "0.1.66": [
+    "A new game is named from its window after it stays in front for about 30 seconds.",
+    "Browsers, launchers, Discord, and Replayr itself stay off the game list."
+  ],
+  "0.1.65": [
+    "Settings can install a signed update and restart Replayr automatically.",
+    "Automatic updates stay off until you turn them on, and they wait until a recording or clip save finishes."
+  ],
   "0.1.64": [
     "Home matches the premium Replayr layout, with a live session hero, recent moments, last session, and game profiles.",
     "Last session counts clips, screenshots, and recordings from the capture itself.",

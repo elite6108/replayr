@@ -419,6 +419,18 @@ function GeneralPane({
 
       <div className="settings-group">
         <div className="settings-group-label">Updates</div>
+        <label className="setting-row">
+          <span className="setting-copy">
+            Install updates automatically
+            <small>A signed update downloads and Replayr restarts.</small>
+          </span>
+          <input
+            className="switch"
+            type="checkbox"
+            checked={settings.autoInstallUpdates}
+            onChange={(event) => void onChange("autoInstallUpdates", event.target.checked)}
+          />
+        </label>
         <div className="setting-row">
           <span className="setting-copy">
             Installed version

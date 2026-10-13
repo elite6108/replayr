@@ -76,6 +76,15 @@ export function IconAnnouncements(props: IconProps) {
   );
 }
 
+export function IconGames(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3.5" y="8" width="17" height="9" rx="4.5" />
+      <path d="M8 12.5h3M9.5 11v3M15.5 11.5h.01M17.5 14h.01" />
+    </Icon>
+  );
+}
+
 export function IconErrors(props: IconProps) {
   return (
     <Icon {...props}>

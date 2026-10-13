@@ -211,6 +211,8 @@ export interface AppSettings {
   watermarkExports: boolean;
   clipSavedNotification: boolean;
   discordRichPresence: boolean;
+  /** Download a signed update and restart. Off until the user opts in. */
+  autoInstallUpdates: boolean;
   webcam: WebcamSettings;
   recordingVisuals: RecordingVisualSettings;
   /** Clip studio scene library. Layout and burn layers only — never changes what IR captures. */
@@ -269,6 +271,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   watermarkExports: true,
   clipSavedNotification: true,
   discordRichPresence: true,
+  autoInstallUpdates: false,
   webcam: { ...DEFAULT_WEBCAM_SETTINGS },
   recordingVisuals: { ...DEFAULT_RECORDING_VISUALS, overlays: { ...DEFAULT_RECORDING_VISUALS.overlays } },
   clipStudio: { ...DEFAULT_CLIP_STUDIO, scenes: [] },

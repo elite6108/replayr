@@ -47,6 +47,7 @@ mod settings;
 mod share;
 mod shortcut;
 mod snip;
+mod unknown_game;
 mod still;
 mod system;
 #[cfg(windows)]
@@ -291,6 +292,7 @@ pub fn run() {
             commands::list_games,
             commands::sync_games,
             commands::get_detected_game,
+            commands::game_observation_hash,
             commands::start_recording,
             commands::stop_recording,
             commands::start_composed_recording,

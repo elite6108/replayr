@@ -39,6 +39,7 @@ import { AdminOverviewPage } from "./pages/admin/AdminOverviewPage";
 import { AdminBillingPage } from "./pages/admin/AdminBillingPage";
 import { AdminCreatorsPage } from "./pages/admin/AdminCreatorsPage";
 import { AdminErrorsPage } from "./pages/admin/AdminErrorsPage";
+import { AdminGamesPage } from "./pages/admin/AdminGamesPage";
 import { AdminAnnouncementsPage } from "./pages/admin/AdminAnnouncementsPage";
 import { AdminStoragePage } from "./pages/admin/AdminStoragePage";
 import { AdminWaitlistPage } from "./pages/admin/AdminWaitlistPage";
@@ -242,6 +243,7 @@ function AppShell() {
             <Route path="billing" element={<AdminBillingPage />} />
             <Route path="announcements" element={<AdminAnnouncementsPage />} />
             <Route path="errors" element={<AdminErrorsPage />} />
+            <Route path="games" element={<AdminGamesPage />} />
             <Route path="analytics" element={<AnalyticsHub />}>
               <Route index element={<AnalyticsOverviewPage />} />
               <Route path="reports" element={<AnalyticsReportsPage />} />

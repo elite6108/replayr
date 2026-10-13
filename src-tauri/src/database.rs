@@ -23,6 +23,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (10, include_str!("../migrations/010_wow_forever.sql")),
     (11, include_str!("../migrations/011_analytics_outbox.sql")),
     (12, include_str!("../migrations/012_clip_capture_kind.sql")),
+    (13, include_str!("../migrations/013_learned_games.sql")),
 ];
 
 pub fn database_path(app: &AppHandle) -> AppResult<PathBuf> {

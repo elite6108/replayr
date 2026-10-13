@@ -3,10 +3,34 @@ import { check as checkUpdate, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { create } from "zustand";
 import { invokeErrorMessage } from "../utils/format";
+import { useRecordingStore } from "./recordingStore";
+import { useSettingsStore } from "./settingsStore";
 
 export type UpdateStatus = "idle" | "checking" | "up-to-date" | "ready" | "downloading" | "error";
 
+const AUTO_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
 let pending: Update | null = null;
+let installInFlight = false;
+let autoCheckTimer: number | null = null;
+
+export function shouldAutoInstall(input: {
+  enabled: boolean;
+  settingsLoaded: boolean;
+  updateReady: boolean;
+  recordingActive: boolean;
+  savingClip: boolean;
+  installInFlight: boolean;
+}): boolean {
+  return (
+    input.enabled &&
+    input.settingsLoaded &&
+    input.updateReady &&
+    !input.recordingActive &&
+    !input.savingClip &&
+    !input.installInFlight
+  );
+}
 
 interface UpdateState {
   version: string;
@@ -38,6 +62,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     }, 1500);
   },
   check: async () => {
+    if (get().status === "checking" || get().status === "downloading" || installInFlight) return;
     set({ status: "checking", error: null, downloadPercent: null });
     try {
       const update = await checkUpdate();
@@ -49,6 +74,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
           notes: update.body ?? null,
           error: null,
         });
+        queueAutoInstall();
         return;
       }
       pending = null;
@@ -59,11 +85,13 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     }
   },
   installAndRelaunch: async () => {
+    if (installInFlight) return;
     const update = pending;
     if (!update) {
       set({ status: "error", error: "No update is ready to install." });
       return;
     }
+    installInFlight = true;
     set({ status: "downloading", downloadPercent: 0, error: null });
     try {
       let downloaded = 0;
@@ -84,6 +112,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       });
       await relaunch();
     } catch (caught) {
+      installInFlight = false;
       set({
         status: "error",
         error: invokeErrorMessage(caught, "Could not install the update."),
@@ -92,3 +121,52 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     }
   },
 }));
+
+function queueAutoInstall() {
+  const settingsState = useSettingsStore.getState();
+  const recording = useRecordingStore.getState();
+  const updateState = useUpdateStore.getState();
+  if (
+    !shouldAutoInstall({
+      enabled: settingsState.settings.autoInstallUpdates,
+      settingsLoaded: settingsState.loaded,
+      updateReady: updateState.status === "ready" && pending != null,
+      recordingActive: recording.status.active,
+      savingClip: recording.replay.saving,
+      installInFlight,
+    })
+  ) {
+    return;
+  }
+  void updateState.installAndRelaunch();
+}
+
+function syncAutoCheckTimer() {
+  const { loaded, settings } = useSettingsStore.getState();
+  if (!loaded || !settings.autoInstallUpdates) {
+    if (autoCheckTimer != null) {
+      window.clearInterval(autoCheckTimer);
+      autoCheckTimer = null;
+    }
+    return;
+  }
+  if (autoCheckTimer != null) return;
+  autoCheckTimer = window.setInterval(() => {
+    const status = useUpdateStore.getState().status;
+    if (status === "checking" || status === "downloading" || installInFlight) return;
+    void useUpdateStore.getState().check();
+  }, AUTO_CHECK_INTERVAL_MS);
+}
+
+useSettingsStore.subscribe((state, previous) => {
+  syncAutoCheckTimer();
+  const enabledNow = state.loaded && state.settings.autoInstallUpdates;
+  const enabledBefore = previous.loaded && previous.settings.autoInstallUpdates;
+  if (enabledNow && !enabledBefore) queueAutoInstall();
+});
+
+useRecordingStore.subscribe((state, previous) => {
+  const wasBlocked = previous.status.active || previous.replay.saving;
+  const blocked = state.status.active || state.replay.saving;
+  if (wasBlocked && !blocked) queueAutoInstall();
+});

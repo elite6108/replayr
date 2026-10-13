@@ -17,6 +17,7 @@ import { listAdminAudit } from "./auditAdmin";
 import { AUDIT_ACTIONS, writeAuditLog } from "./audit";
 import { rebuildAnalyticsDaily } from "./analyticsRollup";
 import { handleAdminAnnouncements } from "./announcements";
+import { handleGameCatalogAdmin } from "./gameCatalogAdmin";
 import { handleWaitlistAdmin } from "./waitlistAdmin";
 import { applyPlan, stripeForm } from "./billing";
 import { listAdminErrors, openErrorCount, resolveAdminError } from "./errors";
@@ -122,6 +123,8 @@ export async function handleAdmin(
   if (waitlist) return waitlist;
   const announcements = await handleAdminAnnouncements(request, env, url, actor);
   if (announcements) return announcements;
+  const games = await handleGameCatalogAdmin(request, env, url, { id: actor.id, requestId: actor.requestId });
+  if (games) return games;
   const reports = await handleAnalyticsReports(request, env, url, actor);
   if (reports) return reports;
   const analyticsUsers = await handleAnalyticsUserAdmin(request, env, url, staff);

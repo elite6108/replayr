@@ -38,6 +38,7 @@ export const STAFF_PERMISSIONS = [
   "analytics.backfill",
   "analytics.users.view",
   "analytics.live",
+  "games.manage",
   "audit.view",
   "board.view",
   "board.create",
@@ -134,5 +135,6 @@ export function permissionForAdminRoute(method: string, path: string): StaffPerm
   if (path.startsWith("/v1/admin/analytics/users")) return "analytics.users.view";
   if (path === "/v1/admin/analytics/live") return "analytics.live";
   if (path.startsWith("/v1/admin/analytics")) return "analytics.view";
+  if (path === "/v1/admin/games" || path.startsWith("/v1/admin/games/")) return "games.manage";
   return "admin.access";
 }

@@ -6,12 +6,14 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::database::AppState;
 use crate::games::{detect_games, load_catalog, DetectedGameSnapshot};
-use crate::process::{foreground_pid, list_processes};
+use crate::process::{foreground_window, list_processes};
+use crate::unknown_game::{learn_unknown_foreground, remember_learned_game, snapshot_from_sighting};
 
 pub struct DetectionState {
     pub current: Mutex<DetectedGameSnapshot>,
     empty_polls: Mutex<u8>,
     last_foreground_pid: Mutex<Option<u32>>,
+    unknown: Mutex<Option<crate::unknown_game::UnknownWatch>>,
 }
 
 impl Default for DetectionState {
@@ -20,6 +22,7 @@ impl Default for DetectionState {
             current: Mutex::new(DetectedGameSnapshot::empty()),
             empty_polls: Mutex::new(0),
             last_foreground_pid: Mutex::new(None),
+            unknown: Mutex::new(None),
         }
     }
 }
@@ -52,9 +55,41 @@ fn poll_once(app: &AppHandle) {
         catalog
     };
 
-    let fg = foreground_pid();
-    let observed = detect_games(&list_processes(), fg, &catalog);
+    let window = foreground_window();
+    let fg = window.as_ref().map(|item| item.pid);
+    let processes = list_processes();
+    let catalog_hit = detect_games(&processes, fg, &catalog);
     let detection = app.state::<DetectionState>();
+    let observed = if catalog_hit.focused {
+        catalog_hit
+    } else if let Some(pid) = fg {
+        let process_name = processes
+            .iter()
+            .find(|process| process.pid == pid)
+            .map(|process| process.name.as_str())
+            .unwrap_or("");
+        let title = window.as_ref().map(|item| item.title.as_str()).unwrap_or("");
+        let sighting = {
+            let mut watch = match detection.unknown.lock() {
+                Ok(guard) => guard,
+                Err(_) => return,
+            };
+            learn_unknown_foreground(false, &mut watch, pid, process_name, title)
+        };
+        if let Some(sighting) = sighting {
+            if sighting.just_learned {
+                remember_sighting(app, &sighting.process, &sighting.title);
+                tracing::info!(process = %sighting.process, "learned foreground game");
+            }
+            snapshot_from_sighting(&sighting)
+        } else if learned_session(&detection) {
+            DetectedGameSnapshot::empty()
+        } else {
+            catalog_hit
+        }
+    } else {
+        catalog_hit
+    };
     let mut empty_polls = match detection.empty_polls.lock() {
         Ok(guard) => guard,
         Err(_) => return,
@@ -64,7 +99,7 @@ fn poll_once(app: &AppHandle) {
         Err(_) => return,
     };
 
-    let next = if observed.slug.is_none() && current.slug.is_some() {
+    let next = if observed.name.is_none() && current.name.is_some() {
         *empty_polls = empty_polls.saturating_add(1);
         if *empty_polls < 2 {
             current.clone()
@@ -114,6 +149,22 @@ fn poll_once(app: &AppHandle) {
     let _ = app.emit("detected-game", &next);
     update_tray_tooltip(app, next.name.as_deref());
     crate::discord_presence::refresh(app);
+}
+
+fn remember_sighting(app: &AppHandle, process: &str, title: &str) {
+    let db_state = app.state::<AppState>();
+    let Ok(conn) = db_state.db.lock() else {
+        return;
+    };
+    let _ = remember_learned_game(&conn, process, title);
+}
+
+fn learned_session(detection: &DetectionState) -> bool {
+    detection
+        .current
+        .lock()
+        .map(|current| current.slug.is_none() && current.name.is_some())
+        .unwrap_or(false)
 }
 
 fn log_foreground_vs_capture(app: &AppHandle, detection: &DetectionState, fg: Option<u32>) {

@@ -772,6 +772,12 @@ pub fn get_detected_game(state: State<DetectionState>) -> DetectedGameSnapshot {
 }
 
 #[tauri::command]
+pub fn game_observation_hash(state: State<AppState>, process_name: String) -> AppResult<String> {
+    let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    crate::unknown_game::hash_for_process(&conn, &process_name)
+}
+
+#[tauri::command]
 pub fn get_discord_presence_status(app: AppHandle) -> crate::discord_presence::DiscordPresenceStatus {
     crate::discord_presence::status(&app)
 }

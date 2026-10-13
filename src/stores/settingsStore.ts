@@ -106,6 +106,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     watermarkExports: settings.watermarkExports ?? DEFAULT_SETTINGS.watermarkExports,
     clipSavedNotification: settings.clipSavedNotification ?? DEFAULT_SETTINGS.clipSavedNotification,
     discordRichPresence: settings.discordRichPresence ?? DEFAULT_SETTINGS.discordRichPresence,
+    autoInstallUpdates: settings.autoInstallUpdates === true,
     webcam: {
       ...DEFAULT_SETTINGS.webcam,
       ...(settings.webcam ?? {}),

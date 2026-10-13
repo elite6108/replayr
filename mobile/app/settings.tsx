@@ -180,7 +180,7 @@ export default function SettingsScreen() {
       <View style={styles.card}>
         <SettingsRow
           icon="card-outline"
-          title={billing?.premium ? "Manage Premium" : "Replayr Premium — $4.99/mo"}
+          title={billing?.premium ? "Manage Premium" : "Replayr Premium — $6.99/mo"}
           subtitle={billing?.premium ? "Open billing on replayr.tv" : "100 GB, original uploads, no watermark"}
           onPress={() => void Linking.openURL(`${publicShareUrl()}/account`)}
           last

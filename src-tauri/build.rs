@@ -1,4 +1,25 @@
+fn emit_path_remaps() {
+    println!("cargo:rerun-if-env-changed=USERPROFILE");
+    println!("cargo:rerun-if-env-changed=HOME");
+    println!("cargo:rerun-if-env-changed=CARGO_HOME");
+    let mut prefixes = vec!["C:\\Users\\gordo".to_string(), "C:/Users/gordo".to_string()];
+    for key in ["USERPROFILE", "HOME", "CARGO_HOME"] {
+        if let Ok(value) = std::env::var(key) {
+            if !value.is_empty() {
+                prefixes.push(value);
+            }
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for from in prefixes {
+        if seen.insert(from.clone()) {
+            println!("cargo:rustc-remap-path-prefix={from}=");
+        }
+    }
+}
+
 fn main() {
+    emit_path_remaps();
     // Windows: supply the application manifest ourselves rather than letting tauri_build embed
     // one, and hand it to every linked target.
     //

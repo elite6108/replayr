@@ -182,7 +182,7 @@ export function ProfilePage() {
                       .catch((caught: unknown) => showToast(caught instanceof Error ? caught.message : "Could not start checkout."));
                   }}
                 >
-                  Upgrade to Premium — $4.99/mo
+                  Upgrade to Premium — $6.99/mo
                 </button>
               )}
             </div>

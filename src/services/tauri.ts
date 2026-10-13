@@ -209,8 +209,8 @@ export async function deleteLocalClip(localId: string): Promise<void> {
   void import("./analytics").then(({ trackLocalClipDeleted }) => trackLocalClipDeleted());
 }
 
-export async function revealLocalClip(filePath: string): Promise<void> {
-  return invoke("reveal_local_clip", { filePath });
+export async function revealLocalClip(localId: string): Promise<void> {
+  return invoke("reveal_local_clip", { localId });
 }
 
 export async function exportLocalClip(options: {

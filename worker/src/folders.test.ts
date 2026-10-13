@@ -6,6 +6,7 @@ import {
   canRemoveMember,
   generatePublicFolderToken,
   hashPublicFolderToken,
+  publicFolderClipVisible,
   mapFolderTransferError,
   OWNER_LEAVE_MESSAGE,
   permissionsFromRole,
@@ -136,6 +137,15 @@ describe("folder collaborative edits", () => {
       extra: "keep",
     });
     expect(() => sanitizeEditDocument({ version: 2 })).toThrow();
+  });
+});
+
+describe("public folder clip visibility", () => {
+  it("plays public and unlisted clips and hides private ones", () => {
+    expect(publicFolderClipVisible("public")).toBe(true);
+    expect(publicFolderClipVisible("unlisted")).toBe(true);
+    expect(publicFolderClipVisible("private")).toBe(false);
+    expect(publicFolderClipVisible("friends")).toBe(false);
   });
 });
 

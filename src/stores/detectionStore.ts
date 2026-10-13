@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { fetchGames, supabaseConfigured } from "../services/supabase";
-import { maybeReportLearnedGame } from "../services/gameObservations";
+import { attachSteamMatch, maybeReportLearnedGame } from "../services/gameObservations";
 import { getDetectedGame, listGames, syncGames } from "../services/tauri";
 import { EMPTY_DETECTION, type DetectedGameSnapshot, type GameCatalogEntry } from "../types/game";
 
@@ -59,6 +59,9 @@ export const useDetectionStore = create<DetectionState>((set) => ({
         ready: true,
       });
       maybeReportLearnedGame(snapshot);
+      void attachSteamMatch(snapshot).then((catalog) => {
+        if (catalog) set({ catalog });
+      });
     } catch (caught) {
       set({
         ready: true,
@@ -85,6 +88,9 @@ export const useDetectionStore = create<DetectionState>((set) => ({
           };
         });
         maybeReportLearnedGame(next);
+        void attachSteamMatch(next).then((catalog) => {
+          if (catalog) set({ catalog });
+        });
       });
     }
   },

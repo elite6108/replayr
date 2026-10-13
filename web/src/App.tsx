@@ -1,10 +1,8 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { SiteFooter } from "./components/SiteFooter";
 import { SiteHeader } from "./components/SiteHeader";
 import { RequireAuth } from "./components/RequireAuth";
-import { RequireAdmin } from "./components/RequireAdmin";
-import { RequireStaff } from "./components/RequireStaff";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { noteWebPresencePath } from "./lib/presence";
 import { StaffPermissionsProvider } from "./lib/staff";
@@ -34,51 +32,19 @@ import { AuthDesktopPage } from "./pages/AuthDesktopPage";
 import { AuthMobilePage } from "./pages/AuthMobilePage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { SignInPage } from "./pages/SignInPage";
-import { AdminLayout } from "./pages/admin/AdminLayout";
-import { AdminOverviewPage } from "./pages/admin/AdminOverviewPage";
-import { AdminBillingPage } from "./pages/admin/AdminBillingPage";
-import { AdminCreatorsPage } from "./pages/admin/AdminCreatorsPage";
-import { AdminErrorsPage } from "./pages/admin/AdminErrorsPage";
-import { AdminGamesPage } from "./pages/admin/AdminGamesPage";
-import { AdminAnnouncementsPage } from "./pages/admin/AdminAnnouncementsPage";
-import { AdminStoragePage } from "./pages/admin/AdminStoragePage";
-import { AdminWaitlistPage } from "./pages/admin/AdminWaitlistPage";
-import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
-import { LibraryHome, LibraryShell } from "./pages/admin/LibraryShell";
-import { PeopleHome, PeopleShell } from "./pages/admin/PeopleShell";
-import { AnalyticsOverviewPage } from "./pages/admin/analytics/AnalyticsOverviewPage";
-import { AnalyticsDownloadsPage } from "./pages/admin/analytics/AnalyticsDownloadsPage";
-import { AnalyticsGrowthPage } from "./pages/admin/analytics/AnalyticsGrowthPage";
-import { AnalyticsRetentionPage } from "./pages/admin/analytics/AnalyticsRetentionPage";
-import { AnalyticsAcquisitionPage } from "./pages/admin/analytics/AnalyticsAcquisitionPage";
-import { AnalyticsClipsPage } from "./pages/admin/analytics/AnalyticsClipsPage";
-import { AnalyticsGamesPage } from "./pages/admin/analytics/AnalyticsGamesPage";
-import { AnalyticsFeaturesPage } from "./pages/admin/analytics/AnalyticsFeaturesPage";
-import { AnalyticsFoldersPage } from "./pages/admin/analytics/AnalyticsFoldersPage";
-import { AnalyticsSharingPage } from "./pages/admin/analytics/AnalyticsSharingPage";
-import { AnalyticsRevenuePage } from "./pages/admin/analytics/AnalyticsRevenuePage";
-import { AnalyticsInfrastructurePage } from "./pages/admin/analytics/AnalyticsInfrastructurePage";
-import { AnalyticsHealthPage } from "./pages/admin/analytics/AnalyticsHealthPage";
-import { AnalyticsLivePage } from "./pages/admin/analytics/AnalyticsLivePage";
-import { AnalyticsTrafficPage } from "./pages/admin/analytics/AnalyticsTrafficPage";
-import { AnalyticsUsersPage } from "./pages/admin/analytics/AnalyticsUsersPage";
-import { AnalyticsReportsPage } from "./pages/admin/analytics/AnalyticsReportsPage";
-import { AnalyticsReportDetailPage } from "./pages/admin/analytics/AnalyticsReportDetailPage";
-import { AnalyticsHub } from "./pages/admin/analytics/AnalyticsHub";
-import { AnalyticsRedirect, AnalyticsSectionShell } from "./pages/admin/analytics/AnalyticsSectionShell";
-import { analyticsLegacyRedirects } from "./pages/admin/analytics/analyticsNav";
-import { AdminAuditPage } from "./pages/admin/AdminAuditPage";
-import { AdminStaffPage } from "./pages/admin/AdminStaffPage";
-import { AdminRolesPage } from "./pages/admin/AdminRolesPage";
-import { StaffLayout } from "./pages/staff/StaffLayout";
-import { StaffBoardPage } from "./pages/staff/StaffBoardPage";
-import { StaffTasksPage } from "./pages/staff/StaffTasksPage";
 import { AnnouncementHost } from "./components/AnnouncementHost";
 import {
   getWebAnalyticsConsent,
   trackWebAppOpened,
   trackWebEvent,
 } from "./lib/analytics";
+
+const AdminApp = lazy(() => import("./pages/admin/AdminApp").then((mod) => ({ default: mod.AdminApp })));
+const StaffApp = lazy(() => import("./pages/staff/StaffApp").then((mod) => ({ default: mod.StaffApp })));
+
+function RouteFallback() {
+  return <p className="muted">Loading…</p>;
+}
 
 export function App() {
   return (
@@ -216,85 +182,21 @@ function AppShell() {
           <Route path="/s/:slug" element={<ScreenshotPage />} />
           <Route path="/f/:token" element={<PublicFolderPage />} />
           <Route
-            path="/admin"
+            path="/admin/*"
             element={
-              <RequireAdmin>
-                <AdminLayout />
-              </RequireAdmin>
+              <Suspense fallback={<RouteFallback />}>
+                <AdminApp />
+              </Suspense>
             }
-          >
-            <Route index element={<AdminOverviewPage />} />
-            <Route path="people" element={<PeopleShell />}>
-              <Route index element={<PeopleHome />} />
-              <Route path="users" element={<AdminUsersPage />} />
-              <Route path="users/:userId" element={<AnalyticsUsersPage />} />
-              <Route path="waitlist" element={<AdminWaitlistPage />} />
-              <Route path="creators" element={<AdminCreatorsPage />} />
-            </Route>
-            <Route path="library" element={<LibraryShell />}>
-              <Route index element={<LibraryHome />} />
-              <Route path="storage" element={<AdminStoragePage />} />
-            </Route>
-            <Route path="users" element={<AnalyticsRedirect to="/admin/people/users" />} />
-            <Route path="waitlist" element={<AnalyticsRedirect to="/admin/people/waitlist" />} />
-            <Route path="creators" element={<AnalyticsRedirect to="/admin/people/creators" />} />
-            <Route path="clips" element={<AnalyticsRedirect to="/admin/library" />} />
-            <Route path="storage" element={<AnalyticsRedirect to="/admin/library/storage" />} />
-            <Route path="billing" element={<AdminBillingPage />} />
-            <Route path="announcements" element={<AdminAnnouncementsPage />} />
-            <Route path="errors" element={<AdminErrorsPage />} />
-            <Route path="games" element={<AdminGamesPage />} />
-            <Route path="analytics" element={<AnalyticsHub />}>
-              <Route index element={<AnalyticsOverviewPage />} />
-              <Route path="reports" element={<AnalyticsReportsPage />} />
-              <Route path="reports/:id" element={<AnalyticsReportDetailPage />} />
-              <Route path="growth" element={<AnalyticsSectionShell sectionId="growth" />}>
-                <Route index element={<AnalyticsGrowthPage />} />
-                <Route path="acquisition" element={<AnalyticsAcquisitionPage />} />
-                <Route path="retention" element={<AnalyticsRetentionPage />} />
-                <Route path="downloads" element={<AnalyticsDownloadsPage />} />
-              </Route>
-              <Route path="product" element={<AnalyticsSectionShell sectionId="product" />}>
-                <Route index element={<AnalyticsRedirect to="/admin/analytics/product/clips" />} />
-                <Route path="clips" element={<AnalyticsClipsPage />} />
-                <Route path="games" element={<AnalyticsGamesPage />} />
-                <Route path="features" element={<AnalyticsFeaturesPage />} />
-                <Route path="folders" element={<AnalyticsFoldersPage />} />
-                <Route path="sharing" element={<AnalyticsSharingPage />} />
-                <Route path="users" element={<AnalyticsRedirect to="/admin/people/users" />} />
-              </Route>
-              <Route path="business" element={<AnalyticsSectionShell sectionId="business" />}>
-                <Route index element={<AnalyticsRedirect to="/admin/analytics/business/revenue" />} />
-                <Route path="revenue" element={<AnalyticsRevenuePage />} />
-                <Route path="infrastructure" element={<AnalyticsInfrastructurePage />} />
-              </Route>
-              <Route path="health" element={<AnalyticsSectionShell sectionId="health" />}>
-                <Route index element={<AnalyticsHealthPage />} />
-                <Route path="live" element={<AnalyticsLivePage />} />
-                <Route path="traffic" element={<AnalyticsTrafficPage />} />
-              </Route>
-              <Route path="health/errors" element={<AnalyticsRedirect to="/admin/errors" />} />
-            </Route>
-            {analyticsLegacyRedirects.map((item) => (
-              <Route key={item.from} path={item.from} element={<AnalyticsRedirect to={item.to} />} />
-            ))}
-            <Route path="staff" element={<AdminStaffPage />} />
-            <Route path="roles" element={<AdminRolesPage />} />
-            <Route path="audit" element={<AdminAuditPage />} />
-          </Route>
+          />
           <Route
-            path="/staff"
+            path="/staff/*"
             element={
-              <RequireStaff>
-                <StaffLayout />
-              </RequireStaff>
+              <Suspense fallback={<RouteFallback />}>
+                <StaffApp />
+              </Suspense>
             }
-          >
-            <Route index element={<Navigate to="/staff/board" replace />} />
-            <Route path="board" element={<StaffBoardPage />} />
-            <Route path="board/:boardId" element={<StaffBoardPage />} />
-            <Route path="tasks" element={<StaffTasksPage />} />
-          </Route>
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         {admin || messages ? null : <SiteFooter />}

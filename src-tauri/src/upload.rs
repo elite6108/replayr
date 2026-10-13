@@ -79,7 +79,7 @@ pub fn upload_local_clip(
     api_base: &str,
 ) -> AppResult<LocalClipDto> {
     let api_base = api_base.trim_end_matches('/');
-    if api_base.is_empty() || api_base.contains("replay.example") {
+    if !crate::snip::cloud::api_base_allowed(api_base) {
         return Err(AppError::Message(
             "Cloud API URL is not set. Deploy the Worker and set VITE_PUBLIC_APP_URL.".into(),
         ));
@@ -805,7 +805,7 @@ pub fn delete_cloud_clip(
     api_base: &str,
 ) -> AppResult<()> {
     let api_base = api_base.trim_end_matches('/');
-    if api_base.is_empty() || api_base.contains("replay.example") {
+    if !crate::snip::cloud::api_base_allowed(api_base) {
         return Err(AppError::Message(
             "Cloud API URL is not set. Deploy the Worker and set VITE_PUBLIC_APP_URL.".into(),
         ));
@@ -884,6 +884,7 @@ pub fn download_url_to_file(
     if let Some(token) = authorization
         .map(str::trim)
         .filter(|value| !value.is_empty())
+        .filter(|_| crate::snip::cloud::api_base_allowed(url))
     {
         request = request.header("authorization", format!("Bearer {token}"));
     }

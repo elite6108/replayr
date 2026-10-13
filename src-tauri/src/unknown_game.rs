@@ -90,7 +90,8 @@ pub fn clean_window_title(title: &str) -> Option<String> {
     if title.chars().any(|ch| ch.is_control()) {
         return None;
     }
-    let collapsed = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let without_marks = title.replace(['™', '®', '©'], "");
+    let collapsed = without_marks.split_whitespace().collect::<Vec<_>>().join(" ");
     if collapsed.chars().count() < 2 {
         return None;
     }

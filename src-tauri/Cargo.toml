@@ -1,6 +1,6 @@
 [package]
 name = "replay"
-version = "0.1.66"
+version = "0.1.68"
 description = "Project Replay desktop application"
 authors = ["Project Replay"]
 edition = "2021"
@@ -92,3 +92,6 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[profile.release]
+strip = "symbols"

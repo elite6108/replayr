@@ -12,7 +12,7 @@ import { handlePublicAnnouncements } from "./announcements";
 import { handlePush } from "./pushRoutes";
 import type { Env } from "./env";
 import { ingestClientError, recordWorkerError } from "./errors";
-import { ingestGameObservation } from "./gameCatalogAdmin";
+import { ingestGameObservation, matchSteamGame } from "./gameCatalogAdmin";
 import { cors, HttpError, json } from "./http";
 import { recordProductEvent } from "./metrics";
 import { assertRateLimit } from "./rateLimit";
@@ -375,6 +375,9 @@ async function route(
   }
   if (request.method === "POST" && url.pathname === "/v1/games/observations") {
     return ingestGameObservation(request, env);
+  }
+  if (request.method === "POST" && url.pathname === "/v1/games/steam/match") {
+    return matchSteamGame(request, env);
   }
   if (url.pathname.startsWith("/v1/admin")) {
     return handleAdmin(request, env, url, ctx);

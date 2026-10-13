@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { APP_NAME, SUPPORT_EMAIL } from "../lib/branding";
 
-const UPDATED = "August 24, 2026";
+const UPDATED = "October 12, 2026";
 
 export function LegalPage({ kind }: { kind: "privacy" | "terms" }) {
   const privacy = kind === "privacy";
@@ -13,7 +13,7 @@ export function LegalPage({ kind }: { kind: "privacy" | "terms" }) {
         description={
           privacy
             ? `How ${APP_NAME} handles accounts, local capture, cloud clips, friends, and messages.`
-            : `Terms for using the ${APP_NAME} Windows app, website, and companion apps.`
+            : `Terms for using the ${APP_NAME} Windows app and replayr.tv.`
         }
       />
       <p className="eyebrow">Legal</p>
@@ -22,7 +22,7 @@ export function LegalPage({ kind }: { kind: "privacy" | "terms" }) {
       <p className="lede">
         {privacy
           ? `${APP_NAME} captures gameplay on your Windows PC. Cloud copies, friends, and messages exist only after you create an account and choose to use those features.`
-          : `These terms govern the ${APP_NAME} Windows app, replayr.tv, and the companion apps that sign into the same account.`}
+          : `These terms govern the ${APP_NAME} Windows app and replayr.tv.`}
       </p>
       {privacy ? <PrivacyBody /> : <TermsBody />}
       <p className="legal-switch">
@@ -45,15 +45,15 @@ function PrivacyBody() {
     <div className="legal-doc">
       <h2>1. Who we are</h2>
       <p>
-        Replayr (“we”, “us”) operates replayr.tv and the Replayr Windows, iOS, and Android apps. Contact{" "}
+        Replayr (“we”, “us”) operates replayr.tv and the Replayr Windows app. Contact{" "}
         <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> for privacy questions, access requests, or deletion
         help.
       </p>
 
       <h2>2. What this policy covers</h2>
       <p>
-        It covers the website, the Windows clipper, and the phone apps that watch the same cloud library. Capture and
-        Instant Replay run on your PC. We do not receive a clip unless you upload it.
+        It covers replayr.tv and the Windows clipper. Capture and Instant Replay run on your PC. We do not receive a
+        clip unless you upload it.
       </p>
 
       <h2>3. Information we collect</h2>
@@ -82,17 +82,21 @@ function PrivacyBody() {
       <h3>Technical data</h3>
       <p>
         When you use the site or API we see ordinary request metadata (IP address, user agent, timestamps) in
-        Cloudflare and host logs, used to run the service and debug failures. Replayr does not embed advertising or
-        analytics SDKs.
+        Cloudflare and host logs, used to run the service and debug failures. Replayr does not embed advertising SDKs
+        or third-party analytics scripts. While a replayr.tv tab is visible, including the waitlist page, the site
+        sends a first-party presence ping about every 25 seconds. The ping includes an anonymous browser id, the page
+        path, and your account when you are signed in. Staff use those pings for the admin live view. They are not
+        sold and they are not an advertising identifier.
       </p>
 
       <h2>4. How we use it</h2>
       <ul>
-        <li>Sign you in and keep the same account on Windows, the web, and phones.</li>
+        <li>Sign you in and keep the same account on the Windows app and replayr.tv.</li>
         <li>Store and play cloud copies you upload, at the visibility you set.</li>
         <li>Show public clips on Explore and game pages; keep unlisted clips off those lists.</li>
         <li>Deliver friends and messages.</li>
         <li>Enforce storage limits, moderate abuse, and keep the service working.</li>
+        <li>Show staff who is on the site, using the presence ping described above.</li>
         <li>Email you about the account when needed (for example a confirmation link).</li>
       </ul>
 
@@ -183,7 +187,7 @@ function TermsBody() {
 
       <h2>2. The service</h2>
       <p>
-        Replayr is a Windows gameplay clipper with an optional cloud library, website, and companion apps. Instant
+        Replayr is a Windows gameplay clipper with an optional cloud library and website. Instant
         Replay and recording happen on your PC. Cloud storage, sharing, friends, and messages need an account. Features
         can change as we ship.
       </p>
@@ -198,13 +202,13 @@ function TermsBody() {
       <p>
         Keep your password and sign-in methods to yourself. Usernames must not impersonate others or use hateful or
         illegal material. We may reclaim a username or suspend an account that breaks these terms. You can delete the
-        account from the website or phone app; that removes cloud data, not files already on your PC.
+        account from the website; that removes cloud data, not files already on your PC.
       </p>
 
       <h2>5. License to use Replayr</h2>
       <p>
         We grant you a personal, non-exclusive, non-transferable license to install the Windows app and use the site
-        and companion apps for lawful gameplay clipping and sharing. You may not reverse engineer, scrape at scale,
+        for lawful gameplay clipping and sharing. You may not reverse engineer, scrape at scale,
         resell, or wrap Replayr as someone else’s product.
       </p>
 

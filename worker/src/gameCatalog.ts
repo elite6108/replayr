@@ -129,9 +129,19 @@ export function isReportableProcess(processName: string): boolean {
   return PROCESS_PATTERN.test(normalizeProcessName(processName));
 }
 
+const STEAM_DIRECTORY_SKIP =
+  /\b(?:soundtrack|downloadable content|dlc|demo|dedicated server|playtest|sdk|trailer|benchmark|wallpaper|artbook|original soundtrack|ost|bonus content)\b/i;
+
+export function steamDirectoryName(value: string): string | null {
+  const cleaned = value.replace(/[™®©]/g, "").replace(/\s+/g, " ").trim();
+  if (cleaned.length < 2 || cleaned.length > 200) return null;
+  if (!/[a-z]/i.test(cleaned) || STEAM_DIRECTORY_SKIP.test(cleaned)) return null;
+  return cleaned;
+}
+
 export function cleanWindowTitle(value: string): string | null {
   if (/[\u0000-\u001f]/.test(value)) return null;
-  const collapsed = value.replace(/\s+/g, " ").trim();
+  const collapsed = value.replace(/[™®©]/g, "").replace(/\s+/g, " ").trim();
   const shortened = [...collapsed].slice(0, 80).join("").trim();
   if ([...shortened].length < 2) return null;
   const lower = shortened.toLowerCase();
@@ -159,7 +169,7 @@ export function slugifyGameName(name: string): string {
 }
 
 export function steamHeaderUrl(appId: number): string | null {
-  if (!Number.isInteger(appId) || appId < 1 || appId > 2_000_000_000) return null;
+  if (!Number.isInteger(appId) || appId < 1 || appId > 2_147_483_647) return null;
   return `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`;
 }
 

@@ -241,8 +241,13 @@ mod tests {
     fn allowlist_accepts_replayr_https_only() {
         assert!(api_base_allowed("https://www.replayr.tv"));
         assert!(api_base_allowed("https://replayr.tv"));
+        assert!(api_base_allowed("https://www.replayr.tv/v1/clips/example/download"));
         assert!(!api_base_allowed("http://www.replayr.tv"));
         assert!(!api_base_allowed("https://evil.example"));
+        assert!(!api_base_allowed("https://www.replayr.tv.evil.example/v1/clips"));
+        assert!(!api_base_allowed(
+            "https://account.r2.cloudflarestorage.com/bucket/object"
+        ));
     }
 
     #[test]

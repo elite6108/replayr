@@ -9,6 +9,7 @@ import {
   shouldPromote,
   slugifyGameName,
   staffCoverUrl,
+  steamDirectoryName,
   steamHeaderUrl,
 } from "./gameCatalog";
 import { permissionForAdminRoute } from "./staffPermissions";
@@ -18,6 +19,10 @@ const HASH = "a".repeat(64);
 describe("game catalog", () => {
   it("keeps a known title and rejects launchers, browsers, and one sighting", () => {
     expect(cleanWindowTitle("  Hood   Warfare  ")).toBe("Hood Warfare");
+    expect(cleanWindowTitle("ELDEN RING™")).toBe("ELDEN RING");
+    expect(steamDirectoryName("Hades II")).toBe("Hades II");
+    expect(steamDirectoryName("Hades II Soundtrack")).toBeNull();
+    expect(steamDirectoryName("Lost Ark")).toBe("Lost Ark");
     expect(isDeniedProcess("C:\\Program Files\\Google\\Chrome.exe")).toBe(true);
     expect(isDeniedProcess("hoodwarfare.exe")).toBe(false);
     expect(shouldPromote({

@@ -275,6 +275,11 @@ export function publicFolderUrl(origin: string, token: string): string {
   return `${origin.replace(/\/$/, "")}/f/${token}`;
 }
 
+/** A public folder link may play public and unlisted clips. Private stays owner-only. */
+export function publicFolderClipVisible(visibility: string): boolean {
+  return visibility === "public" || visibility === "unlisted";
+}
+
 export function folderAccessLabel(folder: { visibility: Folder["visibility"]; publicEnabled?: boolean }, memberCount: number): "public" | "shared" | "private" {
   if (folder.visibility === "public_link" || folder.publicEnabled) return "public";
   if (memberCount > 0) return "shared";
@@ -402,6 +407,9 @@ async function addFolderClips(request: Request, env: Env, folderId: string): Pro
   );
   if (clips.length !== clipIds.length) {
     throw new HttpError(400, "Only your ready cloud clips can be added to a folder.");
+  }
+  if (access.folder.public_enabled && clips.some((clip) => !publicFolderClipVisible(clip.visibility))) {
+    throw new HttpError(400, "A private clip cannot be added while this folder has a public link. Set the clip to unlisted or public first.");
   }
   try {
     await serviceRest(

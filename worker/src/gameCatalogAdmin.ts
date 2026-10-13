@@ -11,6 +11,7 @@ import {
   draftCatalogGame,
   listCatalogGames,
   listLearnedProcesses,
+  matchSteamTitle,
   promoteLearnedProcess,
   recordPlayObservation,
   saveCatalogGame,
@@ -91,6 +92,35 @@ export async function handleGameCatalogAdmin(
   }
 
   throw new HttpError(404, "Not found.");
+}
+
+export async function matchSteamGame(request: Request, env: Env): Promise<Response> {
+  assertRateLimit(request, "steam-match", 30);
+  const raw = await request.text();
+  if (raw.length > 2_000) throw new HttpError(400, "That game title was not usable.");
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    throw new HttpError(400, "That game title was not usable.");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new HttpError(400, "That game title was not usable.");
+  }
+  const record = body as Record<string, unknown>;
+  const processName = typeof record.processName === "string" ? record.processName : "";
+  const windowTitle = typeof record.windowTitle === "string" ? record.windowTitle : "";
+  if (!isReportableProcess(processName) || !windowTitle.trim()) {
+    return json({ game: null });
+  }
+  try {
+    const game = await matchSteamTitle(env, processName, windowTitle);
+    return json({ game });
+  } catch (caught) {
+    if (caught instanceof HttpError && caught.status < 500) throw caught;
+    console.error("steam_match_failed");
+    throw new HttpError(500, "Could not match that game.");
+  }
 }
 
 export async function ingestGameObservation(request: Request, env: Env): Promise<Response> {

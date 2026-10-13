@@ -43,18 +43,17 @@ function expectWaitlistConversionCopy(html: string) {
 }
 
 describe("isSiteGatedPath", () => {
-  it("keeps desktop OAuth return paths open", () => {
+  it("keeps OAuth return paths open and gates sign-in, staff, and marketing", () => {
     expect(isSiteGatedPath("/auth/desktop")).toBe(false);
     expect(isSiteGatedPath("/auth/callback")).toBe(false);
     expect(isSiteGatedPath("/auth/reset")).toBe(false);
-  });
-
-  it("keeps staff invitation entry routes open while gating marketing", () => {
     expect(isSiteGatedPath("/")).toBe(true);
     expect(isSiteGatedPath("/pricing")).toBe(true);
-    expect(isSiteGatedPath("/signin")).toBe(false);
-    expect(isSiteGatedPath("/staff")).toBe(false);
-    expect(isSiteGatedPath("/staff/boards")).toBe(false);
+    expect(isSiteGatedPath("/signin")).toBe(true);
+    expect(isSiteGatedPath("/staff")).toBe(true);
+    expect(isSiteGatedPath("/staff/boards")).toBe(true);
+    expect(isSiteGatedPath("/releases/Replayr.exe")).toBe(false);
+    expect(isSiteGatedPath("/releases/latest.json")).toBe(false);
   });
 
   it("keeps screenshot share links open", () => {

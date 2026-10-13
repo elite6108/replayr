@@ -37,43 +37,36 @@ fn outgoing_media(
     file_path: Option<&str>,
     dest: Option<&Path>,
 ) -> AppResult<PathBuf> {
-    let clip = if let Some(id) = local_id {
-        let db = app.state::<crate::database::AppState>();
-        let conn = db
-            .db
-            .lock()
-            .map_err(|err| AppError::Message(err.to_string()))?;
-        Some(library::get(&conn, id)?)
-    } else {
-        None
+    let Some(id) = local_id.map(str::trim).filter(|id| !id.is_empty()) else {
+        return Err(AppError::Message("Choose a clip to share.".into()));
     };
-    let gameplay = clip
-        .as_ref()
-        .map(|item| PathBuf::from(&item.file_path))
-        .or_else(|| file_path.map(PathBuf::from))
-        .ok_or_else(|| AppError::Message("Choose a clip to share.".into()))?;
+    let _ = file_path;
+    let db = app.state::<crate::database::AppState>();
+    let conn = db
+        .db
+        .lock()
+        .map_err(|err| AppError::Message(err.to_string()))?;
+    let clip = library::get(&conn, id)?;
+    drop(conn);
+    crate::paths::assert_reveal_allowed(app, &clip.file_path)?;
+    let gameplay = PathBuf::from(&clip.file_path);
     if !gameplay.exists() {
         return Err(AppError::Message("That file is no longer on disk.".into()));
     }
 
     #[cfg(windows)]
     {
-        let fps = clip
-            .as_ref()
-            .and_then(|item| item.fps)
-            .unwrap_or(60)
-            .clamp(24, 60) as u32;
+        let fps = clip.fps.unwrap_or(60).clamp(24, 60) as u32;
         let watermark = crate::export::should_watermark_exports(app) && is_mp4(&gameplay);
-        if let Some(webcam) = clip.as_ref().and_then(library::valid_webcam_source) {
+        if let Some(webcam) = library::valid_webcam_source(&clip) {
+            if crate::paths::assert_reveal_allowed(app, &webcam.file_path).is_err() {
+                return Err(AppError::Message("That path is outside the clip library.".into()));
+            }
             let layout = OverlayLayout::from_json(webcam.layout_json.as_deref());
             let output = dest
                 .map(|path| path.to_path_buf())
                 .unwrap_or_else(|| composed_temp_path(&gameplay, &layout, watermark));
-            let duration_hns = clip
-                .as_ref()
-                .and_then(|item| item.duration_ms)
-                .unwrap_or(0)
-                .saturating_mul(10_000);
+            let duration_hns = clip.duration_ms.unwrap_or(0).saturating_mul(10_000);
             match crate::export::compose_webcam_mp4_timed(
                 &gameplay,
                 Path::new(&webcam.file_path),
@@ -83,7 +76,7 @@ fn outgoing_media(
                 duration_hns,
                 fps,
                 watermark,
-                compose_timeout(clip.as_ref().and_then(|item| item.duration_ms)),
+                compose_timeout(clip.duration_ms),
                 crate::export::WebcamComposeOpts::native(),
             ) {
                 Ok(_) => return Ok(output),

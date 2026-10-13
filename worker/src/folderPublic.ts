@@ -13,6 +13,7 @@ import {
   loadProfileCards,
   originFromEnv,
   PUBLIC_FOLDER_TOKEN,
+  publicFolderClipVisible,
   publicFolderUrl,
   requireFolderPermission,
   type FolderClipRow,
@@ -214,8 +215,11 @@ async function signPublicFolderMedia(
     `/clips?id=eq.${clipId}&status=eq.ready&select=${CLIP_MEDIA_SELECT}`,
   );
   const clip = clips[0];
+  if (!clip || !publicFolderClipVisible(clip.visibility)) {
+    throw new HttpError(404, "That clip was not found in this folder.");
+  }
   requireR2(env);
-  const url = clip ? await signedOwnedUrl(env, clip.user_id, clip.storage_key, "GET", undefined, expires) : null;
+  const url = await signedOwnedUrl(env, clip.user_id, clip.storage_key, "GET", undefined, expires);
   if (!url) throw new HttpError(404, "That clip was not found in this folder.");
   return url;
 }
@@ -310,7 +314,7 @@ async function presentPublicFolder(env: Env, folder: FolderRow, memberships: Fol
   const presented: PublicFolderClip[] = [];
   for (const membership of mine) {
     const clip = byId.get(membership.clip_id);
-    if (!clip) continue;
+    if (!clip || !publicFolderClipVisible(clip.visibility)) continue;
     presented.push({
       id: clip.id,
       title: clip.title,

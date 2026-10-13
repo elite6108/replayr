@@ -1,4 +1,13 @@
 {
+  "0.1.68": [
+    "Uploads and downloads send your sign-in only to Replayr.",
+    "Share and export use the clip saved in your library.",
+    "A public folder link no longer plays a clip you marked private."
+  ],
+  "0.1.67": [
+    "A game is recognized from its window title when that title matches a Steam game.",
+    "The executable from that session is saved, so the next time it is in front Replayr already knows the game."
+  ],
   "0.1.66": [
     "A new game is named from its window after it stays in front for about 30 seconds.",
     "Browsers, launchers, Discord, and Replayr itself stay off the game list."

@@ -181,11 +181,16 @@ mod tests {
             .with_max_level(tracing::Level::INFO)
             .with_test_writer()
             .try_init();
-        let gameplay =
-            std::path::PathBuf::from(r"C:\Users\gordo\Videos\Project Replay\clip-1787970963.mp4");
-        let webcam = std::path::PathBuf::from(
-            r"C:\Users\gordo\Videos\Project Replay\clip-1787970963-webcam.mp4",
-        );
+        let Some(gameplay) = std::env::var_os("REPLAYR_VERIFY_GAMEPLAY") else {
+            eprintln!("set REPLAYR_VERIFY_GAMEPLAY and REPLAYR_VERIFY_WEBCAM to run this check");
+            return;
+        };
+        let Some(webcam) = std::env::var_os("REPLAYR_VERIFY_WEBCAM") else {
+            eprintln!("set REPLAYR_VERIFY_GAMEPLAY and REPLAYR_VERIFY_WEBCAM to run this check");
+            return;
+        };
+        let gameplay = std::path::PathBuf::from(gameplay);
+        let webcam = std::path::PathBuf::from(webcam);
         assert!(
             gameplay.is_file(),
             "gameplay clip missing: {}",

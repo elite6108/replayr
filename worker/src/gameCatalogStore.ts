@@ -10,6 +10,7 @@ import {
   searchTerm,
   shouldPromote,
   slugifyGameName,
+  steamDirectoryName,
   steamHeaderUrl,
   titleIsExecutable,
   cleanWindowTitle,
@@ -299,6 +300,47 @@ export async function recordPlayObservation(env: Env, input: ObservationInput): 
     console.error("game_promote_failed", caught instanceof Error ? caught.name : "unknown");
     return { stored: true, promotedSlug: null };
   }
+}
+
+export async function matchSteamTitle(env: Env, processName: string, windowTitle: string): Promise<CatalogGame | null> {
+  const process = processName.trim().toLowerCase();
+  if (isDeniedProcess(process) || !isReportableProcess(process)) return null;
+  const title = cleanWindowTitle(windowTitle);
+  if (!title || titleIsExecutable(title, process)) return null;
+  const matches = await serviceRest<Array<{ app_id: number; name: string; cover_url: string | null }>>(
+    env,
+    "POST",
+    "/rpc/match_steam_app",
+    { p_title: title },
+  );
+  if (matches.length !== 1) return null;
+  const official = steamDirectoryName(matches[0].name);
+  if (!official || official.toLowerCase() !== title.toLowerCase()) return null;
+  const byProcess = await findGameByProcess(env, process);
+  if (byProcess) {
+    return byProcess.name.toLowerCase() === official.toLowerCase() ? toCatalogGame(byProcess) : null;
+  }
+  const slug = slugifyGameName(official);
+  const existing = await gameBySlug(env, slug);
+  if (existing && existing.name.toLowerCase() !== official.toLowerCase()) return null;
+  const cover = steamHeaderUrl(matches[0].app_id) ?? null;
+  if (existing) {
+    const patch: Record<string, unknown> = {
+      process_names: mergeProcessNames(existing.process_names ?? [], [process]),
+    };
+    if (!existing.cover_url && cover) patch.cover_url = cover;
+    return toCatalogGame(await updateGame(env, existing.slug, patch));
+  }
+  return toCatalogGame(
+    await insertGame(env, {
+      slug,
+      name: official,
+      publisher: null,
+      cover_url: cover,
+      process_names: [process],
+      catalog_source: "steam",
+    }),
+  );
 }
 
 async function upsertDetectedProcess(

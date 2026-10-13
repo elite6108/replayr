@@ -74,6 +74,8 @@ pub struct LocalClipDto {
     pub editor_crop_x: f64,
     pub capture_kind: String,
     #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
     pub sources: Vec<ClipSourceDto>,
 }
 
@@ -453,7 +455,7 @@ pub fn list(conn: &Connection, limit: i64) -> AppResult<Vec<LocalClipDto>> {
     let mut stmt = conn.prepare(
         "SELECT local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
                 duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-                source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind
+                source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind, tags
          FROM local_clips
          ORDER BY created_at DESC
          LIMIT ?1",
@@ -495,6 +497,69 @@ pub fn rename(conn: &Connection, local_id: &str, title: &str) -> AppResult<Local
         return Err(AppError::Message("Clip not found.".into()));
     }
     get(conn, local_id)
+}
+
+pub fn set_description(conn: &Connection, local_id: &str, description: &str) -> AppResult<LocalClipDto> {
+    let trimmed = description.trim();
+    if trimmed.chars().count() > 500 {
+        return Err(AppError::Message("Description can be up to 500 characters.".into()));
+    }
+    let value: Option<&str> = if trimmed.is_empty() { None } else { Some(trimmed) };
+    let changed = conn.execute(
+        "UPDATE local_clips SET description = ?1 WHERE local_id = ?2",
+        rusqlite::params![value, local_id],
+    )?;
+    if changed == 0 {
+        return Err(AppError::Message("Clip not found.".into()));
+    }
+    get(conn, local_id)
+}
+
+pub fn set_tags(conn: &Connection, local_id: &str, tags: &[String]) -> AppResult<LocalClipDto> {
+    let tags = normalize_tags(tags)?;
+    let encoded = serde_json::to_string(&tags).map_err(|err| AppError::Message(err.to_string()))?;
+    let changed = conn.execute(
+        "UPDATE local_clips SET tags = ?1 WHERE local_id = ?2",
+        rusqlite::params![encoded, local_id],
+    )?;
+    if changed == 0 {
+        return Err(AppError::Message("Clip not found.".into()));
+    }
+    get(conn, local_id)
+}
+
+fn normalize_tags(tags: &[String]) -> AppResult<Vec<String>> {
+    let mut out = Vec::new();
+    for tag in tags {
+        let cleaned = tag.split_whitespace().collect::<Vec<_>>().join(" ");
+        if cleaned.is_empty() {
+            continue;
+        }
+        if cleaned.chars().count() > 24 {
+            return Err(AppError::Message("Tags can be up to 24 characters.".into()));
+        }
+        if out.iter().any(|existing: &String| existing.eq_ignore_ascii_case(&cleaned)) {
+            continue;
+        }
+        out.push(cleaned);
+        if out.len() >= 12 {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+fn parse_tags(raw: Option<String>) -> Vec<String> {
+    let Some(raw) = raw.filter(|value| !value.trim().is_empty()) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Vec<String>>(&raw)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|tag| tag.trim().to_string())
+        .filter(|tag| !tag.is_empty())
+        .take(12)
+        .collect()
 }
 
 pub fn set_favorite(conn: &Connection, local_id: &str, favorite: bool) -> AppResult<LocalClipDto> {
@@ -707,7 +772,7 @@ pub fn get(conn: &Connection, local_id: &str) -> AppResult<LocalClipDto> {
     conn.query_row(
         "SELECT local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
                 duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-                source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind
+                source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind, tags
          FROM local_clips WHERE local_id = ?1",
         [local_id],
         map_clip,
@@ -781,6 +846,7 @@ fn map_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalClipDto> {
         source_end_ms: row.get(17)?,
         editor_crop_x: row.get::<_, Option<f64>>(18)?.unwrap_or(0.5).clamp(0.0, 1.0),
         capture_kind: row.get(19)?,
+        tags: parse_tags(row.get(20)?),
         sources: Vec::new(),
     })
 }
@@ -852,6 +918,31 @@ mod tests {
         assert!(fav.favorite);
         delete(&conn, "clip-1").unwrap();
         assert!(get(&conn, "clip-1").is_err());
+    }
+
+    #[test]
+    fn description_and_tags_round_trip() {
+        let dir = tempdir().unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+        seed(&conn, "clip-notes", "Notes");
+        let described = set_description(&conn, "clip-notes", "  Late save  ").unwrap();
+        assert_eq!(described.description.as_deref(), Some("Late save"));
+        let cleared = set_description(&conn, "clip-notes", "   ").unwrap();
+        assert_eq!(cleared.description, None);
+        let tagged = set_tags(
+            &conn,
+            "clip-notes",
+            &[
+                " racing ".into(),
+                "Racing".into(),
+                "overtake".into(),
+                "this tag is definitely longer than twenty four".into(),
+            ],
+        );
+        assert!(tagged.is_err());
+        let tagged = set_tags(&conn, "clip-notes", &[" racing ".into(), "Racing".into(), "gta v".into()]).unwrap();
+        assert_eq!(tagged.tags, vec!["racing".to_string(), "gta v".to_string()]);
     }
 
     #[test]

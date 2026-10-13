@@ -9,6 +9,8 @@ import {
   exportLocalClip,
   listLocalClips,
   renameLocalClip,
+  setLocalClipDescription,
+  setLocalClipTags,
   resetStaleUploads,
   revealLocalClip,
   setLocalClipFavorite,
@@ -43,6 +45,8 @@ interface LibraryState {
   selectAll: (localIds: string[]) => void;
   clearSelection: () => void;
   rename: (localId: string, title: string) => Promise<void>;
+  setDescription: (localId: string, description: string) => Promise<void>;
+  setTags: (localId: string, tags: string[]) => Promise<void>;
   favorite: (localId: string, value: boolean) => Promise<void>;
   remove: (localId: string) => Promise<void>;
   removeMany: (localIds: string[]) => Promise<void>;
@@ -372,6 +376,22 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       useToastStore.getState().show("Clip renamed");
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not rename clip"));
+    }
+  },
+  setDescription: async (localId, description) => {
+    try {
+      const next = await setLocalClipDescription(localId, description);
+      set({ clips: patchClip(get().clips, next) });
+    } catch (caught) {
+      useToastStore.getState().show(invokeErrorMessage(caught, "Could not save the description"));
+    }
+  },
+  setTags: async (localId, tags) => {
+    try {
+      const next = await setLocalClipTags(localId, tags);
+      set({ clips: patchClip(get().clips, next) });
+    } catch (caught) {
+      useToastStore.getState().show(invokeErrorMessage(caught, "Could not save tags"));
     }
   },
   favorite: async (localId, value) => {

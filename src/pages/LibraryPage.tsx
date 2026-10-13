@@ -1,38 +1,122 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { AuthCard } from "../components/common/AuthCard";
 import { ClipCard } from "../components/common/ClipCard";
 import { ClipGrid } from "../components/common/ClipGrid";
 import { CloudClipCard } from "../components/common/CloudClipCard";
 import { DeleteClipDialog, type DeleteClipScope } from "../components/common/DeleteClipDialog";
-import { PageHeader } from "../components/common/PageHeader";
 import { SelectionBar } from "../components/common/SelectionBar";
-import { LibraryTabs } from "../components/library/LibraryTabs";
+import { LibraryChrome } from "../components/library/LibraryChrome";
+import { LibraryInfoPane, type LibraryInfoModel } from "../components/library/LibraryInfoPane";
+import { LibraryToolbar } from "../components/library/LibraryToolbar";
 import { ScreenshotCard } from "../components/library/ScreenshotCard";
 import { ScreenshotViewer } from "../components/library/ScreenshotViewer";
 import { ScreenshotDowngradeBanner, ScreenshotUsageBar } from "../components/library/ScreenshotUsage";
-import { SearchToolbar } from "../components/ui/SearchToolbar";
+import {
+  clipCountLabel,
+  filterLibraryRows,
+  gameOf,
+  groupLibraryRows,
+  libraryRows,
+  sortLibraryRows,
+  type DateFilter,
+  type DurationFilter,
+  type LibraryInfoTarget,
+  type LibraryLayout,
+  type LibraryRow,
+  type LibrarySort,
+  type LibraryView,
+} from "../library/libraryBrowse";
 import { useAuthStore } from "../stores/authStore";
 import { useCloudStore } from "../stores/cloudStore";
+import { useDetectionStore } from "../stores/detectionStore";
 import { useLibraryStore } from "../stores/libraryStore";
 import { useScreenshotStore } from "../stores/screenshotStore";
-import { formatBytes } from "../utils/format";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { formatBytes, formatDuration, formatLibraryWhen, formatSpokenDuration, isVideoPath } from "../utils/format";
+
+function resolutionLabel(width: number | null | undefined, height: number | null | undefined) {
+  if (!width || !height) return "—";
+  return `${width} × ${height}`;
+}
+
+function buildInfoModel(
+  info: LibraryInfoTarget,
+  clips: ReturnType<typeof useLibraryStore.getState>["clips"],
+  cloudClips: ReturnType<typeof useCloudStore.getState>["clips"],
+  catalog: ReturnType<typeof useDetectionStore.getState>["catalog"],
+): LibraryInfoModel | null {
+  if (info.kind === "local") {
+    const clip = clips.find((item) => item.localId === info.id);
+    if (!clip) return null;
+    const game = gameOf(catalog, clip.gameId);
+    const related = clips
+      .filter((item) => item.localId !== clip.localId && clip.gameId && item.gameId === clip.gameId && item.captureKind !== "screenshot")
+      .slice(0, 2)
+      .map((item) => ({
+        id: item.localId,
+        title: item.title || "Untitled clip",
+        thumbUrl: item.thumbnailPath ? convertFileSrc(item.thumbnailPath) : null,
+        gameName: game?.name ?? null,
+        whenLabel: formatLibraryWhen(item.createdAt),
+        durationLabel: item.durationMs ? formatDuration(item.durationMs) : "",
+      }));
+    return {
+      key: `local:${clip.localId}`,
+      title: clip.title || "Untitled clip",
+      thumbUrl: clip.thumbnailPath ? convertFileSrc(clip.thumbnailPath) : null,
+      gameName: game?.name ?? null,
+      gameArt: game?.iconUrl || game?.coverUrl || null,
+      whenLabel: formatLibraryWhen(clip.createdAt),
+      clockLabel: clip.durationMs ? formatDuration(clip.durationMs) : "",
+      durationLabel: formatSpokenDuration(clip.durationMs),
+      resolutionLabel: resolutionLabel(clip.width, clip.height),
+      sizeLabel: clip.fileSize ? formatBytes(clip.fileSize) : "—",
+      description: clip.description ?? "",
+      tags: clip.tags ?? [],
+      canEditMeta: true,
+      canEdit: isVideoPath(clip.filePath),
+      canShare: true,
+      related,
+    };
+  }
+  const clip = cloudClips.find((item) => item.id === info.id);
+  if (!clip) return null;
+  return {
+    key: `cloud:${clip.id}`,
+    title: clip.title || "Untitled clip",
+    thumbUrl: clip.thumbnailUrl,
+    gameName: null,
+    gameArt: null,
+    whenLabel: formatLibraryWhen(clip.createdAt),
+    clockLabel: clip.durationMs ? formatDuration(clip.durationMs) : "",
+    durationLabel: formatSpokenDuration(clip.durationMs),
+    resolutionLabel: resolutionLabel(clip.width, clip.height),
+    sizeLabel: clip.fileSizeBytes ? formatBytes(clip.fileSizeBytes) : "—",
+    description: "",
+    tags: [],
+    canEditMeta: false,
+    canEdit: false,
+    canShare: clip.status === "ready" && clip.visibility !== "private",
+    related: [],
+  };
+}
 
 type PendingDelete =
   | { source: "local"; localIds: string[]; linkedCloud: boolean }
   | { source: "cloud"; cloudIds: string[]; allHaveLocal: boolean; anyHaveLocal: boolean };
 
-export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "screenshots" }) {
+export function LibraryPage({ view = "local" }: { view?: LibraryView }) {
   const navigate = useNavigate();
   const clips = useLibraryStore((state) => state.clips);
   const localError = useLibraryStore((state) => state.error);
   const refreshLocal = useLibraryStore((state) => state.refresh);
-  const favoritesOnly = useLibraryStore((state) => state.favoritesOnly);
-  const setFavoritesOnly = useLibraryStore((state) => state.setFavoritesOnly);
   const play = useLibraryStore((state) => state.play);
   const favorite = useLibraryStore((state) => state.favorite);
   const upload = useLibraryStore((state) => state.upload);
   const renameLocal = useLibraryStore((state) => state.rename);
+  const setDescription = useLibraryStore((state) => state.setDescription);
+  const setTags = useLibraryStore((state) => state.setTags);
   const removeBoth = useLibraryStore((state) => state.remove);
   const removeBothMany = useLibraryStore((state) => state.removeMany);
   const removeLocalOnly = useLibraryStore((state) => state.removeLocal);
@@ -67,7 +151,14 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "sc
   const selectAllCloud = useCloudStore((state) => state.selectAll);
   const clearCloudSelection = useCloudStore((state) => state.clearSelection);
   const selectedCloud = useCloudStore((state) => state.selectedIds);
+  const catalog = useDetectionStore((state) => state.catalog);
   const [query, setQuery] = useState("");
+  const [gameId, setGameId] = useState("all");
+  const [dateFilter, setDateFilter] = useState<DateFilter>("any");
+  const [durationFilter, setDurationFilter] = useState<DurationFilter>("any");
+  const [layout, setLayout] = useState<LibraryLayout>("grid");
+  const [sort, setSort] = useState<LibrarySort>("newest");
+  const [info, setInfo] = useState<LibraryInfoTarget | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const screenshots = useScreenshotStore((state) => state.items);
   const screenshotsLoaded = useScreenshotStore((state) => state.loaded);
@@ -85,21 +176,31 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "sc
   const [selectedShots, setSelectedShots] = useState<string[]>([]);
   const [pendingShotDelete, setPendingShotDelete] = useState<string[] | null>(null);
   const [openShotId, setOpenShotId] = useState<string | null>(null);
-  const visible = useMemo(() => {
-    const list = favoritesOnly ? clips.filter((clip) => clip.favorite) : clips;
-    const needle = query.trim().toLowerCase();
-    if (!needle) return list;
-    return list.filter((clip) => (clip.title || "untitled clip").toLowerCase().includes(needle));
-  }, [clips, favoritesOnly, query]);
-  const visibleCloud = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return cloudClips;
-    return cloudClips.filter((clip) => (clip.title || "untitled clip").toLowerCase().includes(needle));
-  }, [cloudClips, query]);
+  const browsed = useMemo(() => {
+    if (view === "screenshots") return [] as LibraryRow[];
+    const filtered = filterLibraryRows(libraryRows({ view, clips, cloudClips }), {
+      query,
+      gameId,
+      date: dateFilter,
+      duration: durationFilter,
+      catalog,
+    });
+    return sortLibraryRows(filtered, sort);
+  }, [catalog, clips, cloudClips, dateFilter, durationFilter, gameId, query, sort, view]);
+  const groups = useMemo(() => groupLibraryRows(browsed, sort), [browsed, sort]);
+  const gameOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const clip of clips) {
+      const game = gameOf(catalog, clip.gameId);
+      if (!game) continue;
+      seen.set(game.slug, game.name);
+    }
+    return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [catalog, clips]);
   const used = storage?.storage_used_bytes ?? 0;
   const limit = storage?.storage_limit_bytes ?? 0;
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
-  const selectedLocalClips = visible.filter((clip) => selectedLocal.includes(clip.localId));
+  const selectedLocalClips = browsed.flatMap((row) => (row.kind === "local" && selectedLocal.includes(row.id) ? [row.clip] : []));
   const selectedCloudLinked = selectedLocalClips.filter((clip) => clip.cloudClipId).length;
   const userId = user?.id;
 
@@ -197,34 +298,121 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "sc
     setSelectedShots([]);
   }
 
+  useEffect(() => {
+    setInfo(null);
+  }, [view]);
+
+  useEffect(() => {
+    if (!info) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setInfo(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [info]);
+
+  const infoModel = info ? buildInfoModel(info, clips, cloudClips, catalog) : null;
+  const infoIndex = info ? browsed.findIndex((row) => row.kind === info.kind && row.id === info.id) : -1;
+
+  function toggleInfo(next: LibraryInfoTarget) {
+    setInfo((current) => (current?.kind === next.kind && current.id === next.id ? null : next));
+  }
+
+  function onStageMouseDown(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (target.closest(".clip-card, .library-info, .ctx-menu, .selection-bar, button, a, input, textarea, select, label")) return;
+    setInfo(null);
+  }
+
+  function renderRow(row: LibraryRow) {
+    const open = info?.kind === row.kind && info.id === row.id;
+    if (row.kind === "local") {
+      const clip = row.clip;
+      return (
+        <ClipCard
+          key={clip.localId}
+          variant="library"
+          clip={clip}
+          infoOpen={open}
+          selected={selectedLocal.includes(clip.localId)}
+          onPlay={(item) => play(item.localId)}
+          onFavorite={(item) => void favorite(item.localId, !item.favorite)}
+          onUpload={user ? (item) => void upload(item.localId) : undefined}
+          onSelect={(item) => toggleLocalSelect(item.localId)}
+          onRename={(item, title) => void renameLocal(item.localId, title)}
+          onDelete={(item) => openLocalDelete([item.localId])}
+          onRemoveFromCloud={(item) => {
+            if (window.confirm("Remove this cloud copy? The file on this PC stays. The share link will stop working.")) {
+              void removeLocalFromCloud(item.localId);
+            }
+          }}
+          onDownload={(item) => void downloadLocal(item.localId)}
+          onCopyLink={(item) => void copyLocalLink(item.localId)}
+          onEdit={(item) => navigate(`/editor/${item.localId}`)}
+          onInfo={(item) => toggleInfo({ kind: "local", id: item.localId })}
+        />
+      );
+    }
+    const clip = row.clip;
+    return (
+      <CloudClipCard
+        key={clip.id}
+        presentation="library"
+        clip={clip}
+        infoOpen={open}
+        selected={selectedCloud.includes(clip.id)}
+        onSelect={(item) => toggleCloudSelect(item.id)}
+        onPlay={(item) => void playCloud(item.id)}
+        onRename={(item, title) => void renameCloud(item.id, title)}
+        onDelete={(item) => openCloudDelete([item.id])}
+        onDownload={(item) => void downloadCloud(item.id)}
+        onCopyLink={(item) => void copyCloudLink(item.id)}
+        onVisibility={(item, visibility) => void setCloudVisibility(item.id, visibility)}
+        onInfo={(item) => toggleInfo({ kind: "cloud", id: item.id })}
+      />
+    );
+  }
+
+  const cloudNeedsAccount = view === "cloud" && configured && !user;
+  const emptyTitle = view === "favorites" ? "No favorites yet" : view === "cloud" ? "No cloud clips yet" : "Nothing saved yet";
+  const emptyBody =
+    view === "favorites"
+      ? "Star a clip from the right-click menu to keep it here."
+      : view === "cloud"
+        ? "Open a local clip and choose Upload, or turn on automatic upload in Settings."
+        : "Save an Instant Replay or stop a recording. Cloud copies from other PCs are under Cloud.";
+
   return (
     <>
-      <PageHeader
-        title="My Library"
-        subtitle={view === "screenshots" ? "Region screenshots on this PC and in the cloud." : "Your clips across this PC and cloud."}
-      >
-        <LibraryTabs />
-        {view === "local" ? (
-          <button
-            type="button"
-            className={`btn ${favoritesOnly ? "primary" : ""}`}
-            onClick={() => setFavoritesOnly(!favoritesOnly)}
-          >
-            {favoritesOnly ? "All clips" : "Favorites"}
-          </button>
-        ) : null}
-        {view === "screenshots" ? (
-          <button type="button" className="btn primary" onClick={() => void takeScreenshot()}>
-            Take screenshot
-          </button>
-        ) : null}
-      </PageHeader>
+      <LibraryChrome
+        trailing={
+          view === "screenshots" ? (
+            <button type="button" className="btn primary" onClick={() => void takeScreenshot()}>
+              Take screenshot
+            </button>
+          ) : null
+        }
+      />
+      <LibraryToolbar
+        query={query}
+        onQuery={setQuery}
+        games={gameOptions}
+        gameId={gameId}
+        onGame={setGameId}
+        date={dateFilter}
+        onDate={setDateFilter}
+        duration={durationFilter}
+        onDuration={setDurationFilter}
+        showGame={view !== "screenshots" && view !== "cloud"}
+        showDuration={view !== "screenshots"}
+        layout={layout}
+        onLayout={setLayout}
+        sort={sort}
+        onSort={setSort}
+      />
 
       {view === "screenshots" ? (
         <>
-          <SearchToolbar value={query} onChange={setQuery} placeholder="Search screenshots">
-            <span className="muted">Newest first</span>
-          </SearchToolbar>
           <ScreenshotDowngradeBanner usage={screenshotUsage} />
           {user ? <ScreenshotUsageBar usage={screenshotUsage} /> : null}
           {!screenshotsLoaded ? (
@@ -235,12 +423,8 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "sc
               body="Press the screenshot shortcut or Take screenshot. Drag a rectangle on the frozen screen."
             />
           ) : (
-            <section className="panel flush">
-              <div className="panel-head">
-                <h2>Screenshots</h2>
-                <span className="badge">{visibleShots.length}</span>
-              </div>
-              <div className="clip-grid">
+            <section className="library-results">
+              <div className={`library-grid ${layout}`}>
                 {visibleShots.map((shot) => (
                   <ScreenshotCard
                     key={shot.id}
@@ -275,168 +459,157 @@ export function LibraryPage({ view = "local" }: { view?: "local" | "cloud" | "sc
             </section>
           )}
         </>
-      ) : (
-        <>
-      <SearchToolbar value={query} onChange={setQuery} placeholder="Search clips">
-        <span className="muted">Newest first</span>
-      </SearchToolbar>
-
-      {view === "local" ? (
-        <>
-          {localError ? <div className="error-text">{localError}</div> : null}
-          {visible.length === 0 ? (
-          <ClipGrid
-            title={favoritesOnly ? "No favorites yet" : "Nothing saved yet"}
-            body={
-              favoritesOnly
-                ? "Star a clip from the library or player to keep it here."
-                : "Save an Instant Replay or stop a recording. Cloud copies from other PCs are under Cloud."
-            }
-          />
-        ) : (
-          <section className="panel flush">
-            <div className="panel-head">
-              <h2>On this PC</h2>
-              <span className="badge">{visible.length}</span>
-            </div>
-            <div className="clip-grid">
-              {visible.map((clip) => (
-                <ClipCard
-                  key={clip.localId}
-                  clip={clip}
-                  selected={selectedLocal.includes(clip.localId)}
-                  onPlay={(item) => play(item.localId)}
-                  onFavorite={(item) => void favorite(item.localId, !item.favorite)}
-                  onUpload={user ? (item) => void upload(item.localId) : undefined}
-                  onSelect={(item) => toggleLocalSelect(item.localId)}
-                  onRename={(item, title) => void renameLocal(item.localId, title)}
-                  onDelete={(item) => openLocalDelete([item.localId])}
-                  onRemoveFromCloud={(item) => {
-                    if (
-                      window.confirm(
-                        "Remove this cloud copy? The file on this PC stays. The share link will stop working.",
-                      )
-                    ) {
-                      void removeLocalFromCloud(item.localId);
-                    }
-                  }}
-                  onDownload={(item) => void downloadLocal(item.localId)}
-                  onCopyLink={(item) => void copyLocalLink(item.localId)}
-                  onEdit={(item) => navigate(`/editor/${item.localId}`)}
-                />
-              ))}
-            </div>
-            <SelectionBar
-              count={selectedLocalClips.length}
-              onClear={clearLocalSelection}
-              onSelectAll={() => selectAllLocal(visible.map((clip) => clip.localId))}
-            >
-              <button type="button" className="btn" onClick={() => void downloadLocalMany(selectedLocalClips.map((clip) => clip.localId))}>
-                Download
-              </button>
-              {selectedCloudLinked > 0 ? (
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `Remove ${selectedCloudLinked} cloud ${selectedCloudLinked === 1 ? "copy" : "copies"}? Files on this PC stay.`,
-                      )
-                    ) {
-                      void removeLocalFromCloudMany(selectedLocalClips.map((clip) => clip.localId));
-                    }
-                  }}
-                >
-                  Remove from cloud
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="btn danger"
-                onClick={() => openLocalDelete(selectedLocalClips.map((clip) => clip.localId))}
-              >
-                Delete
-              </button>
-            </SelectionBar>
-          </section>
-          )}
-        </>
-      ) : !configured ? (
+            ) : !configured && view === "cloud" ? (
         <section className="panel">
           <p>
             Copy <code>.env.example</code> to <code>.env</code> and set <code>VITE_SUPABASE_URL</code> and{" "}
             <code>VITE_SUPABASE_ANON_KEY</code>.
           </p>
         </section>
-      ) : !user ? (
+      ) : cloudNeedsAccount ? (
         <AuthCard />
       ) : (
-        <div className="stack">
-          {storage ? (
-            <section className="panel">
-              <div className="panel-head">
-                <h2>Cloud storage</h2>
-                <span className="badge">
+        <div className={`library-stage ${infoModel ? "open" : ""}`} onMouseDown={onStageMouseDown}>
+          <div className="library-results">
+            {view === "cloud" && storage ? (
+              <div className="library-storage">
+                <span>Cloud storage</span>
+                <strong>
                   {formatBytes(used)} / {formatBytes(limit)}
-                </span>
+                </strong>
+                <div className="meter" aria-label="Cloud storage used">
+                  <span style={{ width: `${pct}%` }} />
+                </div>
               </div>
-              <div className="meter" aria-label="Cloud storage used">
-                <span style={{ width: `${pct}%` }} />
-              </div>
-            </section>
-          ) : null}
-          {cloudError ? <div className="error-text">{cloudError}</div> : null}
-          {cloudLoading && visibleCloud.length === 0 ? (
-            <p className="muted">Loading cloud clips…</p>
-          ) : visibleCloud.length === 0 ? (
-            <ClipGrid
-              title="No cloud clips yet"
-              body="Open a local clip and choose Upload, or turn on automatic upload in Settings. Bytes go to R2; this list is the metadata copy."
-            />
-          ) : (
-            <section className="panel flush">
-              <div className="panel-head">
-                <h2>Uploaded</h2>
-                <span className="badge">{visibleCloud.length}</span>
-              </div>
-            <div className="clip-grid">
-              {visibleCloud.map((clip) => (
-                  <CloudClipCard
-                    key={clip.id}
-                    clip={clip}
-                    selected={selectedCloud.includes(clip.id)}
-                    onSelect={(item) => toggleCloudSelect(item.id)}
-                    onPlay={(item) => void playCloud(item.id)}
-                    onRename={(item, title) => void renameCloud(item.id, title)}
-                    onDelete={(item) => openCloudDelete([item.id])}
-                    onDownload={(item) => void downloadCloud(item.id)}
-                    onCopyLink={(item) => void copyCloudLink(item.id)}
-                    onVisibility={(item, visibility) => void setCloudVisibility(item.id, visibility)}
-                  />
-                ))}
-              </div>
+            ) : null}
+            {localError && view !== "cloud" ? <div className="error-text">{localError}</div> : null}
+            {cloudError && (view === "cloud" || view === "all") ? <div className="error-text">{cloudError}</div> : null}
+            {view === "cloud" && cloudLoading && browsed.length === 0 ? (
+              <p className="muted">Loading cloud clips…</p>
+            ) : browsed.length === 0 ? (
+              <ClipGrid title={emptyTitle} body={emptyBody} />
+            ) : (
+              groups.map((group) => (
+                <section key={group.id} className="library-section">
+                  <div className="library-section-head">
+                    <h2>{group.label}</h2>
+                    <span className="library-count">{clipCountLabel(group.rows.length)}</span>
+                  </div>
+                  <div className={`library-grid ${layout}`}>{group.rows.map((row) => renderRow(row))}</div>
+                </section>
+              ))
+            )}
+            {selectedLocalClips.length > 0 ? (
               <SelectionBar
-                count={selectedCloud.length}
-                onClear={clearCloudSelection}
-                onSelectAll={() => selectAllCloud(visibleCloud.map((clip) => clip.id))}
+                count={selectedLocalClips.length}
+                onClear={clearLocalSelection}
+                onSelectAll={() => selectAllLocal(browsed.flatMap((row) => (row.kind === "local" ? [row.id] : [])))}
               >
-                <button type="button" className="btn" onClick={() => void downloadCloudMany(selectedCloud)}>
+                <button type="button" className="btn" onClick={() => void downloadLocalMany(selectedLocalClips.map((clip) => clip.localId))}>
+                  Download
+                </button>
+                {selectedCloudLinked > 0 ? (
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Remove ${selectedCloudLinked} cloud ${selectedCloudLinked === 1 ? "copy" : "copies"}? Files on this PC stay.`,
+                        )
+                      ) {
+                        void removeLocalFromCloudMany(selectedLocalClips.map((clip) => clip.localId));
+                      }
+                    }}
+                  >
+                    Remove from cloud
+                  </button>
+                ) : null}
+                <button type="button" className="btn danger" onClick={() => openLocalDelete(selectedLocalClips.map((clip) => clip.localId))}>
+                  Delete
+                </button>
+              </SelectionBar>
+            ) : null}
+            {browsed.some((row) => row.kind === "cloud" && selectedCloud.includes(row.id)) ? (
+              <SelectionBar
+                count={browsed.filter((row) => row.kind === "cloud" && selectedCloud.includes(row.id)).length}
+                onClear={clearCloudSelection}
+                onSelectAll={() => selectAllCloud(browsed.flatMap((row) => (row.kind === "cloud" ? [row.id] : [])))}
+              >
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() =>
+                    void downloadCloudMany(browsed.flatMap((row) => (row.kind === "cloud" && selectedCloud.includes(row.id) ? [row.id] : [])))
+                  }
+                >
                   Download
                 </button>
                 <button
                   type="button"
                   className="btn danger"
-                  onClick={() => openCloudDelete(selectedCloud)}
+                  onClick={() => openCloudDelete(browsed.flatMap((row) => (row.kind === "cloud" && selectedCloud.includes(row.id) ? [row.id] : [])))}
                 >
                   Delete
                 </button>
               </SelectionBar>
-            </section>
-          )}
+            ) : null}
+          </div>
+          {info && infoModel ? (
+            <LibraryInfoPane
+              model={infoModel}
+              hasPrev={infoIndex > 0}
+              hasNext={infoIndex >= 0 && infoIndex < browsed.length - 1}
+              onPrev={() => {
+                const next = browsed[infoIndex - 1];
+                if (next) setInfo({ kind: next.kind, id: next.id });
+              }}
+              onNext={() => {
+                const next = browsed[infoIndex + 1];
+                if (next) setInfo({ kind: next.kind, id: next.id });
+              }}
+              onPlay={() => {
+                if (info.kind === "local") play(info.id);
+                else void playCloud(info.id);
+              }}
+              onEdit={() => {
+                if (info.kind === "local") navigate(`/editor/${info.id}`);
+              }}
+              onShare={() => {
+                if (info.kind === "local") void copyLocalLink(info.id);
+                else void copyCloudLink(info.id);
+              }}
+              onRename={(title) => {
+                if (info.kind === "local") void renameLocal(info.id, title);
+                else void renameCloud(info.id, title);
+              }}
+              onDescription={(description) => {
+                if (info.kind === "local") void setDescription(info.id, description);
+              }}
+              onTags={(tags) => {
+                if (info.kind === "local") void setTags(info.id, tags);
+              }}
+              onRelated={(id) => setInfo({ kind: "local", id })}
+              onSeeAll={() => {
+                if (info.kind !== "local") return;
+                const clip = clips.find((item) => item.localId === info.id);
+                const game = gameOf(catalog, clip?.gameId);
+                if (game) setGameId(game.slug);
+              }}
+              moreItems={
+                info.kind === "local"
+                  ? [
+                      { label: "Download", onClick: () => void downloadLocal(info.id) },
+                      { label: "Delete", danger: true, onClick: () => openLocalDelete([info.id]) },
+                    ]
+                  : [
+                      { label: "Download", onClick: () => void downloadCloud(info.id) },
+                      { label: "Delete", danger: true, onClick: () => openCloudDelete([info.id]) },
+                    ]
+              }
+            />
+          ) : null}
         </div>
-      )}
-        </>
       )}
       {pendingDelete ? (
         <DeleteClipDialog

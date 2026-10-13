@@ -4,7 +4,7 @@ import type { LocalClip } from "../../types/clip";
 import { useCloudStore } from "../../stores/cloudStore";
 import { IconCloud, IconMonitor, IconMore, IconPencil, IconPlay, IconShare, IconStar } from "../icons";
 import { findLinkedCloudClip, normalizeUploadStatus } from "../../utils/clips";
-import { formatDuration, formatRelativeTime, isVideoPath } from "../../utils/format";
+import { formatDuration, formatLibraryWhen, formatRelativeTime, isVideoPath } from "../../utils/format";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { ContextMenu } from "./ContextMenu";
 
@@ -38,6 +38,8 @@ export function ClipCard({
   onDownload,
   onCopyLink,
   onEdit,
+  onInfo,
+  infoOpen = false,
   variant = "default",
 }: {
   clip: LocalClip;
@@ -52,7 +54,9 @@ export function ClipCard({
   onDownload?: (clip: LocalClip) => void;
   onCopyLink?: (clip: LocalClip) => void;
   onEdit?: (clip: LocalClip) => void;
-  variant?: "default" | "home";
+  onInfo?: (clip: LocalClip) => void;
+  infoOpen?: boolean;
+  variant?: "default" | "home" | "library";
 }) {
   const catalog = useDetectionStore((state) => state.catalog);
   const cloudClips = useCloudStore((state) => state.clips);
@@ -70,7 +74,10 @@ export function ClipCard({
           .replace(/\bminutes?\b/, "min")
           .replace(/\bhours?\b/, "hr")
       : relativeDate;
-  const gameName = catalog.find((game) => game.slug === clip.gameId || game.cloudId === clip.gameId)?.name;
+  const game = catalog.find((entry) => entry.slug === clip.gameId || entry.cloudId === clip.gameId);
+  const gameName = game?.name;
+  const gameArt = game?.iconUrl || game?.coverUrl || null;
+  const library = variant === "library";
   const onPc = Boolean(clip.filePath);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -84,14 +91,14 @@ export function ClipCard({
 
   return (
     <article
-      className={`clip-card live ${variant === "home" ? "clip-card-home" : ""} ${clip.favorite ? "fav" : ""} ${selected ? "selected" : ""}`}
+      className={`clip-card live ${variant === "home" ? "clip-card-home" : ""} ${library ? "clip-card-library" : ""} ${clip.favorite ? "fav" : ""} ${selected ? "selected" : ""} ${infoOpen ? "info-open" : ""}`}
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
         setMenu({ x: event.clientX, y: event.clientY });
       }}
     >
-      {onSelect ? (
+      {onSelect && !library ? (
         <label className="clip-check">
           <input
             type="checkbox"
@@ -104,7 +111,7 @@ export function ClipCard({
       <button type="button" className="clip-open" onClick={() => onPlay(clip)}>
         <div className="clip-thumb">
           {thumb ? <img src={convertFileSrc(thumb)} alt="" loading="lazy" /> : <IconPlay size={22} />}
-          <span className="clip-play" aria-hidden="true">
+          <span className={`clip-play ${infoOpen ? "is-visible" : ""}`} aria-hidden="true">
             <span>
               <IconPlay size={18} />
             </span>
@@ -120,7 +127,7 @@ export function ClipCard({
               9:16
             </span>
           ) : null}
-          {badge ? (
+          {badge && !library ? (
             <span className={`clip-cloud-badge ${badge.state}`} title={badge.title}>
               <IconCloud size={14} fill={badge.state === "ready" ? "currentColor" : "none"} />
               <span>{badge.state === "failed" ? "Failed" : badge.state === "busy" ? "Uploading" : "Cloud"}</span>
@@ -142,6 +149,8 @@ export function ClipCard({
               if (event.key === "Escape") setRenaming(false);
             }}
           />
+        ) : library ? (
+          <h3 className="clip-title">{clip.title || "Untitled clip"}</h3>
         ) : (
           <button
             type="button"
@@ -155,10 +164,16 @@ export function ClipCard({
             {clip.title || "Untitled clip"}
           </button>
         )}
+        {library && gameName ? (
+          <div className="clip-game-row">
+            {gameArt ? <img src={gameArt} alt="" /> : <span className="clip-game-fallback" />}
+            <span>{gameName}</span>
+          </div>
+        ) : null}
         <div className="clip-date">
-          {gameName ? `${gameName} · ${date}` : date}
+          {library ? formatLibraryWhen(clip.createdAt) : gameName ? `${gameName} · ${date}` : date}
         </div>
-        <div className="clip-tags">
+        {library ? null : <div className="clip-tags">
           {onPc ? (
             <span>
               {variant === "home" ? <IconMonitor size={12} /> : null}
@@ -171,8 +186,8 @@ export function ClipCard({
               Cloud
             </span>
           ) : null}
-        </div>
-        <div className="clip-footer-actions">
+        </div>}
+        {library ? null : <div className="clip-footer-actions">
           {onEdit && isVideoPath(clip.filePath) ? (
             <button type="button" title="Edit" onClick={() => onEdit(clip)}>
               <IconPencil size={14} />
@@ -193,13 +208,14 @@ export function ClipCard({
           >
             <IconMore size={16} />
           </button>
-        </div>
+        </div>}
       </div>
-      {canUpload ? (
+      {canUpload && !library ? (
         <button type="button" className="clip-upload" title="Upload to cloud" onClick={() => onUpload?.(clip)}>
           <IconCloud size={14} />
         </button>
       ) : null}
+      {library ? null : (
       <button
         type="button"
         className={`clip-star ${clip.favorite ? "on" : ""}`}
@@ -208,12 +224,16 @@ export function ClipCard({
       >
         <IconStar size={14} fill={clip.favorite ? "currentColor" : "none"} />
       </button>
+      )}
       {menu ? (
         <ContextMenu
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            ...(onInfo ? [{ label: "Info", onClick: () => onInfo(clip) }] : []),
+            ...(library ? [{ label: clip.favorite ? "Unfavorite" : "Favorite", onClick: () => onFavorite(clip) }] : []),
+            ...(library && canUpload ? [{ label: "Upload", onClick: () => onUpload?.(clip) }] : []),
             ...(onSelect ? [{ label: selected ? "Deselect" : "Select", onClick: () => onSelect(clip) }] : []),
             ...(onEdit && isVideoPath(clip.filePath)
               ? [{ label: "Edit", onClick: () => onEdit(clip) }]

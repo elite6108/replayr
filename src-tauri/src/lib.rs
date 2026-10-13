@@ -279,6 +279,8 @@ pub fn run() {
             commands::set_clip_editor_crop,
             commands::set_clip_source_layout,
             commands::rename_local_clip,
+            commands::set_local_clip_description,
+            commands::set_local_clip_tags,
             commands::set_local_clip_favorite,
             commands::delete_local_clip,
             commands::reveal_local_clip,

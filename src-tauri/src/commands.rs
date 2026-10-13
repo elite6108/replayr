@@ -633,6 +633,22 @@ pub fn rename_local_clip(state: State<AppState>, local_id: String, title: String
 }
 
 #[tauri::command]
+pub fn set_local_clip_description(
+    state: State<AppState>,
+    local_id: String,
+    description: String,
+) -> AppResult<LocalClipDto> {
+    let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    library::set_description(&conn, &local_id, &description)
+}
+
+#[tauri::command]
+pub fn set_local_clip_tags(state: State<AppState>, local_id: String, tags: Vec<String>) -> AppResult<LocalClipDto> {
+    let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    library::set_tags(&conn, &local_id, &tags)
+}
+
+#[tauri::command]
 pub fn set_local_clip_favorite(state: State<AppState>, local_id: String, favorite: bool) -> AppResult<LocalClipDto> {
     let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
     library::set_favorite(&conn, &local_id, favorite)

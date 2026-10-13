@@ -152,6 +152,50 @@ export function parseClipDate(value: string | number | null | undefined): Date |
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+export function formatLibraryWhen(value: string | number | null | undefined): string {
+  const date = parseClipDate(value);
+  if (!date) return "Unknown";
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const dayMs = 24 * 60 * 60 * 1000;
+  const deltaDays = Math.round((startToday.getTime() - startDate.getTime()) / dayMs);
+  if (deltaDays === 0) return `Today at ${time}`;
+  if (deltaDays === 1) return `Yesterday at ${time}`;
+  const delta = Date.now() - date.getTime();
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (delta < hour) {
+    const minutes = Math.max(1, Math.floor(delta / minute));
+    return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  }
+  if (delta < day) {
+    const hours = Math.floor(delta / hour);
+    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  }
+  if (delta < 7 * day) {
+    const days = Math.floor(delta / day);
+    return `${days} day${days === 1 ? "" : "s"} ago`;
+  }
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+}
+
+export function formatSpokenDuration(ms: number | null | undefined): string {
+  if (ms == null || ms <= 0) return "—";
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) return `${total} second${total === 1 ? "" : "s"}`;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (seconds === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  return `${minutes}m ${seconds}s`;
+}
+
 export function formatClipDate(value: string | number | null | undefined): string {
   const date = parseClipDate(value);
   if (!date) {

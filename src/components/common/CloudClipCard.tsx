@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { CloudClip } from "../../types/clip";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { IconCloud, IconPlay } from "../icons";
-import { formatClipDate, formatDuration, joinMeta } from "../../utils/format";
+import { formatDuration, formatLibraryWhen, joinMeta } from "../../utils/format";
 import { ContextMenu } from "./ContextMenu";
 
 function CloudThumb({ clip }: { clip: CloudClip }) {
@@ -40,6 +40,9 @@ export function CloudClipCard({
   onDownload,
   onCopyLink,
   onVisibility,
+  onInfo,
+  infoOpen = false,
+  presentation = "default",
 }: {
   clip: CloudClip;
   selected?: boolean;
@@ -50,12 +53,16 @@ export function CloudClipCard({
   onDownload?: (clip: CloudClip) => void;
   onCopyLink?: (clip: CloudClip) => void;
   onVisibility?: (clip: CloudClip, visibility: CloudClip["visibility"]) => void;
+  onInfo?: (clip: CloudClip) => void;
+  infoOpen?: boolean;
+  presentation?: "default" | "library";
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(clip.title || "");
-  const date = formatClipDate(clip.createdAt);
+  const date = formatLibraryWhen(clip.createdAt);
   const ready = clip.status === "ready";
+  const library = presentation === "library";
   const meta = joinMeta([date, clip.durationMs ? formatDuration(clip.durationMs) : null, "Cloud"]);
 
   function commitRename() {
@@ -71,14 +78,14 @@ export function CloudClipCard({
 
   return (
     <article
-      className={`clip-card live ${selected ? "selected" : ""}`}
+      className={`clip-card live ${library ? "clip-card-library" : ""} ${selected ? "selected" : ""} ${infoOpen ? "info-open" : ""}`}
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
         setMenu({ x: event.clientX, y: event.clientY });
       }}
     >
-      {onSelect ? (
+      {onSelect && !library ? (
         <label className="clip-check">
           <input
             type="checkbox"
@@ -108,10 +115,10 @@ export function CloudClipCard({
               9:16
             </span>
           ) : null}
-          <span className={`clip-cloud-badge ${ready ? "ready" : "busy"}`} title="In the cloud">
+          {!library ? <span className={`clip-cloud-badge ${ready ? "ready" : "busy"}`} title="In the cloud">
             <IconCloud size={14} fill={ready ? "currentColor" : "none"} />
             <span>{ready ? "Cloud" : "Uploading"}</span>
-          </span>
+          </span> : null}
         </div>
       </button>
       <div className="clip-meta">
@@ -128,6 +135,8 @@ export function CloudClipCard({
               if (event.key === "Escape") setRenaming(false);
             }}
           />
+        ) : library ? (
+          <h3 className="clip-title">{clip.title || "Untitled clip"}</h3>
         ) : (
           <button
             type="button"
@@ -141,8 +150,8 @@ export function CloudClipCard({
             {clip.title || "Untitled clip"}
           </button>
         )}
-        <div className="clip-date">{meta}</div>
-        {onVisibility && ready ? (
+        <div className="clip-date">{library ? date : meta}</div>
+        {library ? null : onVisibility && ready ? (
           <label className="clip-visibility">
             <select
               value={clip.visibility}
@@ -167,6 +176,7 @@ export function CloudClipCard({
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            ...(onInfo ? [{ label: "Info", onClick: () => onInfo(clip) }] : []),
             {
               label: "Play",
               disabled: !ready,

@@ -2,12 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AuthCard } from "../components/common/AuthCard";
 import { ClipGrid } from "../components/common/ClipGrid";
-import { PageHeader } from "../components/common/PageHeader";
 import { AddClipsSheet } from "../components/library/AddClipsSheet";
 import { FolderActivitySheet } from "../components/library/FolderActivitySheet";
 import { FolderEditsSheet } from "../components/library/FolderEditsSheet";
 import { FolderShareSheet } from "../components/library/FolderShareSheet";
-import { LibraryTabs } from "../components/library/LibraryTabs";
+import { LibraryChrome } from "../components/library/LibraryChrome";
 import { folderAccessLabel, folderRoleLabel } from "../services/api.folders";
 import type { FolderClip } from "../services/social-types";
 import { useAuthStore } from "../stores/authStore";
@@ -106,9 +105,7 @@ export function FolderPage() {
 
   return (
     <>
-      <PageHeader title="Library" subtitle="Folders organize cloud clips. They are not folders on this PC.">
-        <LibraryTabs />
-      </PageHeader>
+      <LibraryChrome />
       {!configured ? (
         <section className="panel">
           <p>Sign-in is not configured on this build.</p>

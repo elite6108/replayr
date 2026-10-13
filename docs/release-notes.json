@@ -1,4 +1,8 @@
 {
+  "0.1.69": [
+    "Library groups your clips by day, with search, filters, and a quieter card.",
+    "Right-click a clip and choose Info for the preview, description, tags, and related clips."
+  ],
   "0.1.68": [
     "Uploads and downloads send your sign-in only to Replayr.",
     "Share and export use the clip saved in your library.",

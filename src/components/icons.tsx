@@ -4,6 +4,8 @@ import {
   ArrowsOut,
   Bell,
   Camera,
+  CalendarBlank,
+  CaretLeft,
   CaretRight,
   CaretDown,
   Check,
@@ -18,6 +20,8 @@ import {
   Eye,
   EyeSlash,
   FilmStrip,
+  GameController,
+  HardDrives,
   Folder,
   Gear,
   Headphones,
@@ -32,6 +36,8 @@ import {
   Play,
   Plus,
   Record as RecordCircle,
+  Rows,
+  SquaresFour,
   Selection,
   ShareNetwork,
   ShieldCheck,
@@ -264,6 +270,30 @@ export function IconSafeArea(props: IconProps) {
 
 export function IconChevron(props: IconProps) {
   return phosphor(CaretDown, props);
+}
+
+export function IconCaretLeft(props: IconProps) {
+  return phosphor(CaretLeft, props);
+}
+
+export function IconCalendar(props: IconProps) {
+  return phosphor(CalendarBlank, props);
+}
+
+export function IconGamesFilter(props: IconProps) {
+  return phosphor(GameController, props);
+}
+
+export function IconDrive(props: IconProps) {
+  return phosphor(HardDrives, props);
+}
+
+export function IconGrid(props: IconProps) {
+  return phosphor(SquaresFour, props);
+}
+
+export function IconList(props: IconProps) {
+  return phosphor(Rows, props);
 }
 
 export function IconCheck(props: IconProps) {

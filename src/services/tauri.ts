@@ -192,6 +192,14 @@ export async function renameLocalClip(localId: string, title: string): Promise<L
   return invoke("rename_local_clip", { localId, title });
 }
 
+export async function setLocalClipDescription(localId: string, description: string): Promise<LocalClip> {
+  return invoke("set_local_clip_description", { localId, description });
+}
+
+export async function setLocalClipTags(localId: string, tags: string[]): Promise<LocalClip> {
+  return invoke("set_local_clip_tags", { localId, tags });
+}
+
 export async function setLocalClipFavorite(localId: string, favorite: boolean): Promise<LocalClip> {
   return invoke("set_local_clip_favorite", { localId, favorite });
 }

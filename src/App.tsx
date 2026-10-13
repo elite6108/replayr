@@ -119,6 +119,8 @@ export default function App() {
         <Route element={<AppShell />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/library" element={<LibraryPage view="local" />} />
+          <Route path="/library/all" element={<LibraryPage view="all" />} />
+          <Route path="/library/favorites" element={<LibraryPage view="favorites" />} />
           <Route path="/library/cloud" element={<LibraryPage view="cloud" />} />
           <Route path="/library/screenshots" element={<LibraryPage view="screenshots" />} />
           <Route path="/library/folders" element={<FoldersPage />} />

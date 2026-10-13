@@ -2,9 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthCard } from "../components/common/AuthCard";
 import { ClipGrid } from "../components/common/ClipGrid";
-import { PageHeader } from "../components/common/PageHeader";
 import { FolderCard } from "../components/library/FolderCard";
-import { LibraryTabs } from "../components/library/LibraryTabs";
+import { LibraryChrome } from "../components/library/LibraryChrome";
 import { useAuthStore } from "../stores/authStore";
 import { folderRoleLabel } from "../services/api.folders";
 import { useFolderStore } from "../stores/folderStore";
@@ -48,14 +47,16 @@ export function FoldersPage() {
 
   return (
     <>
-      <PageHeader title="My Library" subtitle="Folders organize cloud clips. They are not folders on this PC.">
-        <LibraryTabs />
-        {user ? (
-          <button type="button" className="btn primary" onClick={() => setCreating(true)}>
-            + New Folder
-          </button>
-        ) : null}
-      </PageHeader>
+      <LibraryChrome
+        trailing={
+          user ? (
+            <button type="button" className="btn primary" onClick={() => setCreating(true)}>
+              + New Folder
+            </button>
+          ) : null
+        }
+      />
+      <p className="library-note">Folders organize cloud clips. They are not folders on this PC.</p>
       {!configured ? (
         <section className="panel">
           <p>

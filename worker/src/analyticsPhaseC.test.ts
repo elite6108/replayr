@@ -20,6 +20,7 @@ import {
   isInstallerPayload,
   MAC_DMG_RELEASE_URL,
   macDmgReleaseAvailable,
+  installerAssetRequest,
   serveInstallerDownload,
   shouldCountInstallerDownload,
 } from "./analyticsDownloads";
@@ -91,6 +92,30 @@ describe("download instrumentation", () => {
     expect(response?.status).toBe(404);
     expect(await macDmgReleaseAvailable(async () => new Response(null, { status: 404 }))).toBe(false);
     expect(await macDmgReleaseAvailable(async () => new Response(null, { status: 200 }))).toBe(true);
+  });
+
+  it("serves a versioned installer from the unversioned asset without caching it", async () => {
+    let fetched = "";
+    const response = await serveInstallerDownload(
+      new Request("https://www.replayr.tv/releases/Replayr.exe?v=0.1.68", { method: "HEAD" }),
+      {} as never,
+      "/releases/Replayr.exe",
+      async (assetRequest) => {
+        fetched = assetRequest.url;
+        return new Response("MZ", {
+          status: 200,
+          headers: {
+            "content-type": "application/octet-stream",
+            "cache-control": "public, max-age=3600",
+          },
+        });
+      },
+      (value) => value,
+    );
+    expect(fetched).toBe("https://www.replayr.tv/releases/Replayr.exe");
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("cache-control")).toBe("no-cache, must-revalidate");
+    expect(installerAssetRequest(req("GET")).url).toBe("https://www.replayr.tv/releases/Replayr.exe");
   });
 
   it("redirects to the GitHub DMG when Workers Assets has no binary", async () => {

@@ -2,7 +2,7 @@
   Content-Type: application/octet-stream
   Content-Disposition: attachment; filename="Replayr.exe"
   X-Content-Type-Options: nosniff
-  Cache-Control: public, max-age=3600
+  Cache-Control: no-cache, must-revalidate
 
 /releases/latest.json
   Content-Type: application/json

@@ -43,6 +43,7 @@ export interface LocalClip {
   favorite: boolean;
   title: string | null;
   description: string | null;
+  tags: string[];
   captureKind: CaptureKind;
   sourceClipId: string | null;
   sourceStartMs: number | null;

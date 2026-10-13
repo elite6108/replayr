@@ -86,6 +86,26 @@ function installerMissing() {
   });
 }
 
+/** Version query strings bust browser caches. Assets are stored without one. */
+export function installerAssetRequest(request: Request): Request {
+  const url = new URL(request.url);
+  if (!url.search) return request;
+  url.search = "";
+  return new Request(url, request);
+}
+
+const INSTALLER_CACHE_CONTROL = "no-cache, must-revalidate";
+
+function withInstallerCache(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("cache-control", INSTALLER_CACHE_CONTROL);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export async function serveInstallerDownload(
   request: Request,
   env: Env,
@@ -96,9 +116,9 @@ export async function serveInstallerDownload(
 ): Promise<Response | null> {
   const artifact = installerArtifact(pathname);
   if (!artifact) return null;
-  const asset = await fetchAsset(request);
+  const asset = await fetchAsset(installerAssetRequest(request));
   if (isInstallerPayload(asset)) {
-    const response = wrap(asset);
+    const response = wrap(withInstallerCache(asset));
     if (shouldCountInstallerDownload(request, response)) {
       countInstaller(request, env, artifact);
     }

@@ -273,7 +273,7 @@ export function AccountPage() {
           </button>
         ) : (
           <button className="btn primary" type="button" disabled={busy} onClick={() => void onCheckout()}>
-            Upgrade to Premium — $4.99/mo
+            Upgrade to Premium — $6.99/mo
           </button>
         )}
         {isAdminSession(session) ? (

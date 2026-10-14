@@ -6,11 +6,15 @@ import type { Env } from "./env";
 import {
   comingSoonFallbackHtml,
   COMING_SOON_PUBLIC_PATHS,
+  handlePublicTextFiles,
   handleWaitlistPages,
   isComingSoonPath,
   isOAuthHandoff,
+  isPublicAppPath,
   isSiteGatedPath,
+  isStaffUiAssetPath,
   isWaitlistAliasPath,
+  looksLikeSpaShell,
 } from "./site-access";
 
 const comingSoonPage = readFileSync(
@@ -38,27 +42,51 @@ function expectWaitlistConversionCopy(html: string) {
   expect(html).toContain('id="waitlist-cta"');
   expect(html).toContain('id="waitConfirm"');
   expect(html).toContain("Already have access?");
+  expect(html).toContain('href="/terms"');
+  expect(html).toContain('href="/privacy"');
   expect(html).not.toContain("4.99");
   expect(html).not.toContain("47.88");
 }
 
 describe("isSiteGatedPath", () => {
-  it("keeps OAuth return paths open and gates sign-in, staff, and marketing", () => {
+  it("keeps OAuth, sign-in, and legal paths open and gates staff and marketing", () => {
     expect(isSiteGatedPath("/auth/desktop")).toBe(false);
     expect(isSiteGatedPath("/auth/callback")).toBe(false);
     expect(isSiteGatedPath("/auth/reset")).toBe(false);
     expect(isSiteGatedPath("/")).toBe(true);
     expect(isSiteGatedPath("/pricing")).toBe(true);
-    expect(isSiteGatedPath("/signin")).toBe(true);
+    expect(isSiteGatedPath("/signin")).toBe(false);
+    expect(isSiteGatedPath("/terms")).toBe(false);
+    expect(isSiteGatedPath("/privacy")).toBe(false);
+    expect(isSiteGatedPath("/auth/mobile")).toBe(false);
     expect(isSiteGatedPath("/staff")).toBe(true);
     expect(isSiteGatedPath("/staff/boards")).toBe(true);
+    expect(isSiteGatedPath("/admin")).toBe(true);
     expect(isSiteGatedPath("/releases/Replayr.exe")).toBe(false);
     expect(isSiteGatedPath("/releases/latest.json")).toBe(false);
+    expect(isSiteGatedPath("/robots.txt")).toBe(false);
+    expect(isSiteGatedPath("/sitemap.xml")).toBe(false);
+    expect(isSiteGatedPath("/foo.txt")).toBe(true);
+    expect(isSiteGatedPath("/no-such.json")).toBe(true);
+    expect(isSiteGatedPath("/assets/index-D5n4TYz1.js")).toBe(false);
+    expect(isSiteGatedPath("/assets/AdminApp-BJuTdEvc.js")).toBe(true);
+    expect(isSiteGatedPath("/assets/StaffApp-BUvTwDhc.js")).toBe(true);
   });
 
   it("keeps screenshot share links open", () => {
     expect(isSiteGatedPath("/s/abcdefghijk2")).toBe(false);
     expect(isSiteGatedPath("/s/abcdefghijk2.png")).toBe(false);
+  });
+
+  it("treats operator console chunks as gated and other hashed assets as public", () => {
+    expect(isStaffUiAssetPath("/assets/AdminApp-BJuTdEvc.js")).toBe(true);
+    expect(isStaffUiAssetPath("/assets/StaffApp-BUvTwDhc.js")).toBe(true);
+    expect(isStaffUiAssetPath("/assets/index-D5n4TYz1.js")).toBe(false);
+    expect(isPublicAppPath("/signin")).toBe(true);
+    expect(isPublicAppPath("/terms")).toBe(true);
+    expect(isPublicAppPath("/privacy")).toBe(true);
+    expect(isPublicAppPath("/auth/reset")).toBe(true);
+    expect(isPublicAppPath("/pricing")).toBe(false);
   });
 
   it("keeps coming-soon marketing assets on the public allowlist", () => {
@@ -127,6 +155,34 @@ describe("coming-soon conversion copy", () => {
     expect(comingSoonJs).toContain('querySelectorAll("form.waitlist")');
     expect(comingSoonJs).toContain("/v1/waitlist");
     expect(comingSoonJs).toContain("/v1/site-access");
+  });
+});
+
+describe("public text files", () => {
+  it("serves robots.txt and sitemap.xml without the SPA shell", async () => {
+    const robots = handlePublicTextFiles(new Request("https://replayr.tv/robots.txt"));
+    expect(robots?.status).toBe(200);
+    expect(robots?.headers.get("content-type")).toMatch(/text\/plain/);
+    const robotsBody = await robots!.text();
+    expect(robotsBody).toContain("Allow: /signin");
+    expect(robotsBody).toContain("Disallow: /admin");
+    expect(looksLikeSpaShell(robotsBody)).toBe(false);
+
+    const sitemap = handlePublicTextFiles(new Request("https://replayr.tv/sitemap.xml"));
+    expect(sitemap?.status).toBe(200);
+    expect(sitemap?.headers.get("content-type")).toMatch(/xml/);
+    const mapBody = await sitemap!.text();
+    expect(mapBody).toContain("https://www.replayr.tv/terms");
+    expect(looksLikeSpaShell(mapBody)).toBe(false);
+
+    const head = handlePublicTextFiles(new Request("https://replayr.tv/robots.txt", { method: "HEAD" }));
+    expect(head?.status).toBe(200);
+    expect(await head!.text()).toBe("");
+  });
+
+  it("does not treat the Vite shell as a real static file", () => {
+    expect(looksLikeSpaShell('<div id="root"></div><script src="/assets/index-abc.js"></script>')).toBe(true);
+    expect(looksLikeSpaShell("<!doctype html><title>Replayr — Beta waitlist</title>")).toBe(false);
   });
 });
 

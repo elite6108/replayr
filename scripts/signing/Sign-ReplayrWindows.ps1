@@ -140,7 +140,7 @@ function Get-ShippedInnerBinaries {
   # Product PE files that go into the NSIS payload. Bench/dev exes stay unsigned.
   $files = New-Object System.Collections.Generic.List[string]
   foreach ($root in Get-ReleaseRoots) {
-    foreach ($name in @("replay.exe", "Replayr.exe")) {
+    foreach ($name in @("replay.exe", "Replayr.exe", "compose_nv12.exe")) {
       $path = Join-Path $root $name
       if (Test-Path -LiteralPath $path) { $files.Add((Resolve-Path $path).Path) | Out-Null }
     }
@@ -321,7 +321,7 @@ function Show-Prereqs {
   $setups = @(Get-InstallerBinaries)
   if ($setups.Count -eq 0) { Write-Host "  (none found)" }
   else { $setups | ForEach-Object { Write-Host "  $_" } }
-  Write-Host "Not shipped (do not sign for release): compose_nv12.exe, preview_encode_bench.exe, replay_lib.dll, *.pdb"
+  Write-Host "Not shipped (do not sign for release): preview_encode_bench.exe, replay_lib.dll, *.pdb"
 
   return [pscustomobject]@{
     SignTool = $signtool

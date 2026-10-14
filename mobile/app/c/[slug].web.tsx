@@ -99,7 +99,7 @@ export default function ClipScreen() {
       </PlayerVideoFrame>
       {showAd ? (
         <Pressable style={styles.houseAd} onPress={() => router.push("/account")}>
-          <Text style={styles.houseAdTitle}>Replayr Premium — $4.99/mo</Text>
+          <Text style={styles.houseAdTitle}>Replayr Premium — $6.99/mo</Text>
           <Text style={styles.houseAdCopy}>Remove the watermark · original quality</Text>
         </Pressable>
       ) : null}

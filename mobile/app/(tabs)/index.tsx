@@ -163,7 +163,7 @@ export default function HomeScreen() {
       >
         {showAd ? (
           <Pressable style={styles.houseAd} onPress={() => router.push("/account")}>
-            <Text style={styles.houseAdTitle}>Replayr Premium — $4.99/mo</Text>
+            <Text style={styles.houseAdTitle}>Replayr Premium — $6.99/mo</Text>
             <Text style={styles.houseAdCopy}>100 GB, original uploads, and no Replayr.tv watermark.</Text>
           </Pressable>
         ) : null}

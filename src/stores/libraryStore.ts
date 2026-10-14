@@ -54,7 +54,7 @@ interface LibraryState {
   removeLocalMany: (localIds: string[]) => Promise<void>;
   removeFromCloud: (localId: string) => Promise<void>;
   removeFromCloudMany: (localIds: string[]) => Promise<void>;
-  reveal: (filePath: string) => Promise<void>;
+  reveal: (localId: string) => Promise<void>;
   uploadQueue: UploadQueueItem[];
   activeUploadId: string | null;
   upload: (localId: string) => Promise<void>;
@@ -518,9 +518,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     await get().refresh();
     get().clearSelection();
   },
-  reveal: async (filePath) => {
+  reveal: async (localId) => {
     try {
-      await revealLocalClip(filePath);
+      await revealLocalClip(localId);
     } catch (caught) {
       useToastStore.getState().show(invokeErrorMessage(caught, "Could not open that file"));
     }

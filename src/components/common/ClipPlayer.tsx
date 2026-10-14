@@ -288,7 +288,7 @@ export function ClipPlayer() {
             <button type="button" className="btn" onClick={() => void favorite(clip.localId, !clip.favorite)}>
               {clip.favorite ? "Unfavorite" : "Favorite"}
             </button>
-            <button type="button" className="btn" onClick={() => void reveal(clip.filePath)}>
+            <button type="button" className="btn" onClick={() => void reveal(clip.localId)}>
               Show in folder
             </button>
           </div>

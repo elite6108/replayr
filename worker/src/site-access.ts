@@ -14,10 +14,12 @@ const ALWAYS_OPEN_PREFIXES = [
   "/clip/",
   "/f/",
   "/s/",
-  "/assets/",
   "/auth/",
   "/.well-known/",
 ];
+
+/** Marketing SPA routes that must work without the coming-soon cookie. */
+export const PUBLIC_APP_PATHS = new Set(["/signin", "/terms", "/privacy"]);
 
 /** Desktop/web OAuth returns must stay reachable without the site-access cookie. */
 export function isOAuthHandoff(url: URL): boolean {
@@ -71,16 +73,73 @@ export function waitlistAliasRedirect(url: URL): Response {
   });
 }
 
-/** Paths that may be served without the site-access cookie (static coming-soon). */
+/** Vite lazy chunks for the operator consoles. Not public waitlist assets. */
+export function isStaffUiAssetPath(pathname: string): boolean {
+  return /^\/assets\/(?:AdminApp|StaffApp)-[^/]+\.js$/i.test(pathname);
+}
+
+export function isPublicAppPath(pathname: string): boolean {
+  const path = normalizePublicPath(pathname);
+  return PUBLIC_APP_PATHS.has(path) || path === "/auth" || path.startsWith("/auth/");
+}
+
+export function isPublicTextFilePath(pathname: string): boolean {
+  const path = normalizePublicPath(pathname);
+  return path === "/robots.txt" || path === "/sitemap.xml";
+}
+
+/** True when Workers Assets SPA-fallback returned the Vite shell instead of a real file. */
+export function looksLikeSpaShell(html: string): boolean {
+  return html.includes('id="root"') && html.includes("/assets/");
+}
+
+/** Paths that may be served without the site-access cookie. */
 export function isSiteGatedPath(pathname: string): boolean {
+  if (isStaffUiAssetPath(pathname)) return true;
   if (ALWAYS_OPEN_PREFIXES.some((prefix) => pathname === prefix.slice(0, -1) || pathname.startsWith(prefix))) {
     return false;
   }
+  if (pathname.startsWith("/assets/")) return false;
+  if (isPublicAppPath(pathname) || isPublicTextFilePath(pathname)) return false;
   if (COMING_SOON_PUBLIC_PATHS.has(pathname)) return false;
-  if (/\.(js|css|map|png|jpe?g|webp|svg|ico|woff2?|ttf|txt|json)$/i.test(pathname)) {
-    return false;
-  }
   return true;
+}
+
+export function handlePublicTextFiles(request: Request): Response | null {
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const path = normalizePublicPath(new URL(request.url).pathname);
+  if (path === "/robots.txt") {
+    const body = [
+      "User-agent: *",
+      "Allow: /coming-soon",
+      "Allow: /signin",
+      "Allow: /terms",
+      "Allow: /privacy",
+      "Disallow: /admin",
+      "Disallow: /staff",
+      "Sitemap: https://www.replayr.tv/sitemap.xml",
+      "",
+    ].join("\n");
+    return new Response(request.method === "HEAD" ? null : body, {
+      status: 200,
+      headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+    });
+  }
+  if (path === "/sitemap.xml") {
+    const body = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://www.replayr.tv/coming-soon</loc></url>
+  <url><loc>https://www.replayr.tv/signin</loc></url>
+  <url><loc>https://www.replayr.tv/terms</loc></url>
+  <url><loc>https://www.replayr.tv/privacy</loc></url>
+</urlset>
+`;
+    return new Response(request.method === "HEAD" ? null : body, {
+      status: 200,
+      headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "no-store" },
+    });
+  }
+  return null;
 }
 
 export async function hasValidSiteAccess(request: Request, env: Env): Promise<boolean> {
@@ -446,6 +505,8 @@ export function comingSoonFallbackHtml(): string {
       </section>
       <footer>
         <span>© Replayr</span>
+        <a href="/terms">Terms</a>
+        <a href="/privacy">Privacy</a>
         <button type="button" class="access-link" id="unlockToggle">Already have access?</button>
         <form class="gate" id="gate" hidden autocomplete="current-password">
           <input type="password" name="password" required placeholder="Access password" aria-label="Access password" />

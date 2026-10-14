@@ -57,12 +57,16 @@ import { bunnyConfigured } from "./bunny";
 import {
   COMING_SOON_PUBLIC_PATHS,
   comingSoonSecurityHeaders,
+  handlePublicTextFiles,
   handleSiteAccess,
   handleWaitlist,
   handleWaitlistPages,
   hasValidSiteAccess,
   isOAuthHandoff,
+  isPublicAppPath,
   isSiteGatedPath,
+  isStaffUiAssetPath,
+  looksLikeSpaShell,
   serveComingSoon,
 } from "./site-access";
 import { androidAssetLinks, appleAppSiteAssociation } from "./appLinks";
@@ -249,6 +253,8 @@ async function route(
   if (waitlist) return waitlist;
   const waitlistPage = await handleWaitlistPages(request, env);
   if (waitlistPage) return waitlistPage;
+  const publicText = handlePublicTextFiles(request);
+  if (publicText) return publicText;
 
   // Locked landing assets must bypass the gate (and avoid ASSETS↔worker recursion).
   if (
@@ -416,7 +422,7 @@ async function route(
   if ((request.method === "GET" || request.method === "HEAD") && folderShare?.[1] && env.ASSETS) {
     return serveMarketingSpa(request, env);
   }
-  if (request.method === "GET" && url.pathname === "/releases/latest.json") {
+  if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/releases/latest.json") {
     return serveUpdaterManifest(request, env);
   }
   if (env.ASSETS && installerArtifact(url.pathname)) {
@@ -428,6 +434,14 @@ async function route(
       withWebSecurityHeaders,
     );
     if (installer) return installer;
+  }
+
+  if (
+    (request.method === "GET" || request.method === "HEAD") &&
+    isStaffUiAssetPath(url.pathname) &&
+    !(await hasValidSiteAccess(request, env))
+  ) {
+    return json({ error: "Not found." }, 404);
   }
 
   // Coming-soon gate: marketing SPA stays hidden until the site-access cookie is set.
@@ -445,12 +459,10 @@ async function route(
     return siteLanding(env);
   }
   if (
-    request.method === "GET" &&
-    (url.pathname === "/library" ||
+    (request.method === "GET" || request.method === "HEAD") &&
+    (isPublicAppPath(url.pathname) ||
+      url.pathname === "/library" ||
       url.pathname === "/explore" ||
-      url.pathname === "/signin" ||
-      url.pathname === "/auth/callback" ||
-      url.pathname === "/auth/desktop" ||
       url.pathname === "/admin" ||
       url.pathname.startsWith("/admin/") ||
       url.pathname === "/staff" ||
@@ -461,8 +473,8 @@ async function route(
   if (url.pathname.startsWith("/v1/")) {
     return json({ error: "Not found." }, 404);
   }
-  if (env.ASSETS && request.method === "GET") {
-    return withWebSecurityHeaders(await env.ASSETS.fetch(request));
+  if (env.ASSETS && (request.method === "GET" || request.method === "HEAD")) {
+    return serveExactAsset(request, env);
   }
   return json({ error: "Not found." }, 404);
 }
@@ -490,7 +502,28 @@ async function serveMarketingSpa(request: Request, env: Env): Promise<Response> 
     "content-type": "text/html; charset=utf-8",
     "cache-control": "no-store",
   });
-  return withWebSecurityHeaders(new Response(html, { status: 200, statusText: "OK", headers }));
+  return withWebSecurityHeaders(
+    new Response(request.method === "HEAD" ? null : html, { status: 200, statusText: "OK", headers }),
+  );
+}
+
+/** Serve a real static file. Reject the Vite SPA fallback so unknown /assets and .txt paths 404. */
+async function serveExactAsset(request: Request, env: Env): Promise<Response> {
+  const asset = await env.ASSETS!.fetch(request);
+  const type = asset.headers.get("content-type") || "";
+  if (type.includes("text/html")) {
+    const text = await asset.text();
+    if (looksLikeSpaShell(text) || text.includes("coming-soon.js")) {
+      return json({ error: "Not found." }, 404);
+    }
+    return withWebSecurityHeaders(
+      new Response(request.method === "HEAD" ? null : text, {
+        status: asset.status,
+        headers: asset.headers,
+      }),
+    );
+  }
+  return withWebSecurityHeaders(asset);
 }
 
 function withWebSecurityHeaders(response: Response): Response {
@@ -1635,7 +1668,9 @@ async function serveUpdaterManifest(request: Request, env: Env): Promise<Respons
   if (!env.ASSETS) {
     return json({ error: "Updater manifest is not published." }, 404);
   }
-  const asset = await env.ASSETS.fetch(request);
+  const assetRequest =
+    request.method === "HEAD" ? new Request(request.url, { method: "GET", headers: request.headers }) : request;
+  const asset = await env.ASSETS.fetch(assetRequest);
   const text = await asset.text();
   const trimmed = text.trimStart();
   if (!asset.ok || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
@@ -1646,7 +1681,7 @@ async function serveUpdaterManifest(request: Request, env: Env): Promise<Respons
   } catch {
     return json({ error: "Updater manifest is not published." }, 404);
   }
-  return new Response(text, {
+  return new Response(request.method === "HEAD" ? null : text, {
     status: 200,
     headers: {
       "content-type": "application/json; charset=utf-8",

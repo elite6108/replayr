@@ -1023,7 +1023,7 @@ export function EditorPage() {
                 <button type="button" role="menuitem" onClick={() => play(savedClip.localId)}>
                   Watch saved clip
                 </button>
-                <button type="button" role="menuitem" onClick={() => void revealLocalClip(savedClip.filePath)}>
+                <button type="button" role="menuitem" onClick={() => void revealLocalClip(savedClip.localId)}>
                   Show in folder
                 </button>
                 <button type="button" role="menuitem" onClick={() => void download(savedClip.localId)}>
@@ -1350,7 +1350,7 @@ export function EditorPage() {
             <button type="button" className="btn" onClick={() => play(savedClip.localId)}>
               Watch
             </button>
-            <button type="button" className="btn" onClick={() => void revealLocalClip(savedClip.filePath)}>
+            <button type="button" className="btn" onClick={() => void revealLocalClip(savedClip.localId)}>
               Show in folder
             </button>
             <button type="button" className="btn" onClick={() => void download(savedClip.localId)}>

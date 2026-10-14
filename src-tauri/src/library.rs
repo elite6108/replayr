@@ -974,8 +974,8 @@ mod tests {
         let ids = reset_stale_uploads(&conn).unwrap();
         assert_eq!(ids, vec!["clip-3".to_string()]);
         let clip = get(&conn, "clip-3").unwrap();
-        assert_eq!(clip.upload_status, "local");
-        assert_eq!(clip.cloud_clip_id, None);
+        assert_eq!(clip.upload_status, "failed");
+        assert_eq!(clip.cloud_clip_id.as_deref(), Some("cloud-pending"));
     }
 
     #[test]

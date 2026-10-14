@@ -32,12 +32,10 @@ fn strip_verbatim(path: PathBuf) -> PathBuf {
     }
 }
 
-/// Roots where Reveal may open Explorer (clip library + save location + app data).
+/// Roots where Reveal may open Explorer (clip library + save location).
+/// App data is excluded so session files cannot be revealed through this check.
 pub fn reveal_roots(app: &AppHandle) -> AppResult<Vec<PathBuf>> {
     let mut roots = Vec::new();
-    if let Ok(dir) = app.path().app_data_dir() {
-        roots.push(dir);
-    }
     if let Ok(dir) = app.path().video_dir() {
         roots.push(dir.join("Project Replay"));
         roots.push(dir);

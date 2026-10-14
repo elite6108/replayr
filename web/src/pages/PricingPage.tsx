@@ -20,7 +20,6 @@ export function PricingPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
   const [plans, setPlans] = useState<PlanRow[]>([]);
-  const [interval, setInterval] = useState<"month" | "year">("month");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [billing, setBilling] = useState<BillingStatus | null>(null);
@@ -64,7 +63,7 @@ export function PricingPage() {
     setBusy(true);
     setError(null);
     try {
-      window.location.href = await startCheckout(session.access_token, interval);
+      window.location.href = await startCheckout(session.access_token, "month");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not start checkout.");
       setBusy(false);
@@ -75,7 +74,7 @@ export function PricingPage() {
     <main className="page marketing">
       <Seo
         title="Pricing — Replayr"
-        description="Replayr is free to capture on Windows. Premium is $4.99 a month for 100 GB, original-quality uploads, and no watermark."
+        description="Replayr is free to capture on Windows. Premium is $6.99 a month for 100 GB, original-quality uploads, and no watermark."
       />
       <p className="eyebrow">Cloud storage</p>
       <h1>Free to clip. Premium when the library grows.</h1>
@@ -100,27 +99,8 @@ export function PricingPage() {
         </article>
         <article className="card pricing-card featured">
           <h2>Premium</h2>
-          <p className="price">{interval === "year" ? "$47.88" : "$4.99"}</p>
-          <p className="muted pricing-cadence">{interval === "year" ? "per year · $3.99/mo" : "per month"}</p>
-          <div className="pricing-interval" role="group" aria-label="Billing period">
-            <button
-              className={interval === "month" ? "active" : ""}
-              type="button"
-              aria-pressed={interval === "month"}
-              onClick={() => setInterval("month")}
-            >
-              Monthly
-            </button>
-            <button
-              className={interval === "year" ? "active" : ""}
-              type="button"
-              aria-pressed={interval === "year"}
-              onClick={() => setInterval("year")}
-            >
-              Yearly
-              <span>Save 20%</span>
-            </button>
-          </div>
+          <p className="price">$6.99</p>
+          <p className="muted pricing-cadence">per month</p>
           <ul>
             <li>{premium ? formatBytes(premium.storage_limit_bytes) : "100 GB"} cloud storage</li>
             <li>No cloud length cap</li>
@@ -135,7 +115,7 @@ export function PricingPage() {
             </Link>
           ) : (
             <button className="btn primary" type="button" disabled={busy} onClick={() => void onUpgrade()}>
-              {busy ? "Redirecting…" : interval === "year" ? "Upgrade yearly" : "Upgrade monthly"}
+              {busy ? "Redirecting…" : "Upgrade monthly"}
             </button>
           )}
         </article>

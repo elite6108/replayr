@@ -365,6 +365,9 @@ impl MixSink {
     /// wherever no source wrote, and advances the cursor. The length always
     /// matches the request, which is what keeps the audio clock locked to video.
     pub fn read_upto(&self, end_frame: i64) -> Vec<u8> {
+        if !self.active.load(Ordering::SeqCst) {
+            return Vec::new();
+        }
         let Ok(mut state) = self.state.lock() else {
             return Vec::new();
         };

@@ -1,0 +1,13 @@
+# Strip developer machine paths from panic/debug strings in release binaries.
+# Extra prefixes that do not match a given build are ignored by rustc.
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "--remap-path-prefix=C:\\Users\\gordo=",
+  "--remap-path-prefix=C:/Users/gordo=",
+]
+
+[target.aarch64-apple-darwin]
+rustflags = [
+  "--remap-path-prefix=C:\\Users\\gordo=",
+  "--remap-path-prefix=C:/Users/gordo=",
+]

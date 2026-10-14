@@ -67,7 +67,7 @@ export function ExplorePage() {
       <p className="muted">Public clips only. Unlisted links never show up here, and share URLs stay /c/…</p>
       {showAd ? (
         <aside className="house-ad">
-          <strong>Replayr Premium — $4.99/mo</strong>
+          <strong>Replayr Premium — $6.99/mo</strong>
           <p className="muted">100 GB, original-quality uploads, and no Replayr.tv watermark.</p>
           <Link className="btn primary" to="/pricing">
             See Premium

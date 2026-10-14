@@ -229,7 +229,8 @@ mod tests {
         assert_eq!(rect.x, 1440);
         assert_eq!(rect.y, 778);
         assert_eq!(rect.w, 422);
-        assert_eq!(rect.h, 260);
+        // 0.24 * 1080 rounds to 259, then even pixel alignment floors to 258.
+        assert_eq!(rect.h, 258);
     }
 
     #[test]

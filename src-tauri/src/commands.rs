@@ -661,9 +661,18 @@ pub fn delete_local_clip(state: State<AppState>, local_id: String) -> AppResult<
 }
 
 #[tauri::command]
-pub fn reveal_local_clip(app: AppHandle, file_path: String) -> AppResult<()> {
-    crate::paths::assert_reveal_allowed(&app, &file_path)?;
-    library::reveal(&file_path)
+pub fn reveal_local_clip(app: AppHandle, local_id: String) -> AppResult<()> {
+    let id = local_id.trim();
+    if id.is_empty() {
+        return Err(AppError::Message("Choose a clip to show.".into()));
+    }
+    let db = app.state::<AppState>();
+    let clip = {
+        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        library::get(&conn, id)?
+    };
+    crate::paths::assert_reveal_allowed(&app, &clip.file_path)?;
+    library::reveal(&clip.file_path)
 }
 
 #[tauri::command]

@@ -136,7 +136,7 @@ export function ExplorePage() {
       <SearchToolbar value={query} onChange={setQuery} placeholder="Search creators or clips" />
       {showAd ? (
         <aside className="house-ad">
-          <strong>Replayr Premium — $4.99/mo</strong>
+          <strong>Replayr Premium — $6.99/mo</strong>
           <p className="muted">100 GB, original-quality uploads, and no Replayr.tv watermark.</p>
           <Link className="btn primary" to="/profile">
             Upgrade

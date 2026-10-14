@@ -19,7 +19,8 @@ pub struct FilmstripFrame {
 }
 
 pub fn validate_range(start_ms: u64, end_ms: u64, duration_ms: u64) -> Result<(u64, u64), String> {
-    let duration_ms = duration_ms.max(end_ms);
+    // A missing duration still accepts the requested end. A known duration clamps to the clip.
+    let duration_ms = if duration_ms == 0 { end_ms } else { duration_ms };
     let start = start_ms.min(duration_ms);
     let end = end_ms.min(duration_ms).max(start);
     if end.saturating_sub(start) < MIN_TRIM_MS {

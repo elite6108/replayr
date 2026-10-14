@@ -298,16 +298,21 @@ mod tests {
     fn prune_keeps_replay_window_and_locked_files() {
         let dir = tempfile::tempdir().unwrap();
         let mut ring = WebcamBuffer::new(4_000);
-        for index in 0..6 {
+        // Keep window is the replay length plus one webcam file, so the first
+        // segment only drops once the ring is longer than that.
+        for index in 0..8 {
             let path = dir.path().join(format!("cam-{index}.mp4"));
             std::fs::write(&path, b"seg").unwrap();
             ring.push(valid(index, path.to_str().unwrap()));
         }
         assert!(!dir.path().join("cam-0.mp4").exists());
-        assert!(dir.path().join("cam-5.mp4").exists());
+        assert!(dir.path().join("cam-7.mp4").exists());
         ring.lock_range(SEGMENT_HNS * 4, SEGMENT_HNS * 6);
-        ring.push(valid(6, "cam-6.mp4"));
-        ring.push(valid(7, "cam-7.mp4"));
+        for index in 8..12 {
+            let path = dir.path().join(format!("cam-{index}.mp4"));
+            std::fs::write(&path, b"seg").unwrap();
+            ring.push(valid(index, path.to_str().unwrap()));
+        }
         assert!(dir.path().join("cam-4.mp4").exists());
         ring.unlock_all();
         assert!(!dir.path().join("cam-4.mp4").exists());

@@ -1,4 +1,7 @@
 {
+  "0.1.71": [
+    "Click a title in Recent moments to rename that clip."
+  ],
   "0.1.70": [
     "Show in folder opens the clip saved in your library.",
     "A trim stays inside the clip when its length is known.",

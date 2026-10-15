@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { LocalClip } from "../../types/clip";
 import { useCloudStore } from "../../stores/cloudStore";
 import { IconCloud, IconMonitor, IconMore, IconPencil, IconPlay, IconShare, IconStar } from "../icons";
@@ -82,6 +82,20 @@ export function ClipCard({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(clip.title || "");
+  const renameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!renaming) return;
+    const input = renameRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, [renaming]);
+
+  function beginRename() {
+    setDraft(clip.title || "");
+    setRenaming(true);
+  }
 
   function commitRename() {
     const title = draft.trim();
@@ -138,9 +152,9 @@ export function ClipCard({
       <div className="clip-meta">
         {renaming ? (
           <input
+            ref={renameRef}
             className="clip-rename"
             value={draft}
-            autoFocus
             aria-label="Clip name"
             onChange={(event) => setDraft(event.target.value)}
             onBlur={commitRename}
@@ -156,10 +170,8 @@ export function ClipCard({
             type="button"
             className="clip-title-btn"
             title="Rename"
-            onClick={() => {
-              setDraft(clip.title || "");
-              setRenaming(true);
-            }}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={beginRename}
           >
             {clip.title || "Untitled clip"}
           </button>
@@ -240,10 +252,7 @@ export function ClipCard({
               : []),
             {
               label: "Rename",
-              onClick: () => {
-                setDraft(clip.title || "");
-                setRenaming(true);
-              },
+              onClick: beginRename,
             },
             { label: "Download", onClick: () => onDownload?.(clip) },
             { label: "Copy link", onClick: () => onCopyLink?.(clip) },

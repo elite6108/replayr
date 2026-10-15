@@ -797,8 +797,11 @@
 
 .home-moments .clip-title-btn,
 .home-moments .clip-rename {
+  position: relative;
+  z-index: 2;
   font-size: 12px;
   font-weight: 550;
+  cursor: text;
 }
 
 .home-moments .clip-date {

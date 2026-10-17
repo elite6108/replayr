@@ -1,51 +1,25 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { APP_NAME, SUPPORT_EMAIL } from "../lib/branding";
 
 export function SiteFooter() {
-  const home = useLocation().pathname === "/";
-  if (home) {
-    return (
-      <footer className="site-footer site-footer-home">
-        <div className="site-footer-home-inner">
-          <Link className="brand" to="/">
-            <img className="brand-logo" src="/replayr-logo.png" alt={APP_NAME} />
-          </Link>
-          <p>© {new Date().getFullYear()} Replayr. Clipping happens on Windows.</p>
-          <div className="site-footer-home-links">
-            <Link to="/privacy">Privacy</Link>
-            <Link to="/terms">Terms</Link>
-            <a href={`mailto:${SUPPORT_EMAIL}`}>Help</a>
-            <a className="home-social" href="https://x.com/Replayr_TV" target="_blank" rel="noreferrer" aria-label="Replayr on X">
-              <XIcon />
-            </a>
-            <span className="home-social" aria-hidden="true">
-              <DiscordIcon />
-            </span>
-          </div>
-        </div>
-      </footer>
-    );
-  }
-
   return (
-    <footer className="site-footer">
-      <div className="site-footer-inner">
-        <nav className="footer-nav" aria-label="Footer">
-          <Link to="/features">Features</Link>
-          <Link to="/games">Games</Link>
-          <Link to="/pricing">Pricing</Link>
-          <Link to="/creators">Creators</Link>
-          <Link to="/releases">Release notes</Link>
-          <Link to="/privacy">Privacy</Link>
-          <Link to="/terms">Terms</Link>
-          <a href={`mailto:${SUPPORT_EMAIL}`}>Help</a>
-        </nav>
-      </div>
-      <div className="site-footer-bar">
+    <footer className="site-footer site-footer-home">
+      <div className="site-footer-home-inner">
         <Link className="brand" to="/">
           <img className="brand-logo" src="/replayr-logo.png" alt={APP_NAME} />
         </Link>
         <p>© {new Date().getFullYear()} Replayr. Clipping happens on Windows.</p>
+        <div className="site-footer-home-links">
+          <Link to="/privacy">Privacy</Link>
+          <Link to="/terms">Terms</Link>
+          <a href={`mailto:${SUPPORT_EMAIL}`}>Help</a>
+          <a className="home-social" href="https://x.com/Replayr_TV" target="_blank" rel="noreferrer" aria-label="Replayr on X">
+            <XIcon />
+          </a>
+          <span className="home-social" aria-hidden="true">
+            <DiscordIcon />
+          </span>
+        </div>
       </div>
     </footer>
   );

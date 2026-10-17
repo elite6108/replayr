@@ -28,11 +28,7 @@ body,
 }
 
 body {
-  background:
-    radial-gradient(900px 520px at 8% -10%, rgba(79, 184, 224, 0.22), transparent 55%),
-    radial-gradient(720px 480px at 100% 8%, rgba(255, 138, 184, 0.12), transparent 50%),
-    radial-gradient(640px 420px at 70% 100%, rgba(126, 217, 164, 0.1), transparent 55%),
-    var(--bg);
+  background: #05070c;
 }
 
 a {
@@ -50,7 +46,10 @@ a {
   position: sticky;
   top: 0;
   z-index: 20;
-  padding: 14px 16px 0;
+  padding: 0;
+  background: rgba(5, 8, 14, 0.78);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(18px);
 }
 
 .site-header-inner,
@@ -67,11 +66,13 @@ a {
 
 .site-header-inner {
   position: relative;
-  background: rgba(10, 12, 18, 0.72);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  backdrop-filter: blur(18px);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  max-width: 1440px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 12px 28px;
+  backdrop-filter: none;
 }
 
 .site-header-menu {
@@ -175,9 +176,12 @@ a {
 }
 
 .site-nav a {
-  color: var(--muted);
+  color: rgba(236, 242, 248, 0.82);
   padding: 8px 12px;
-  border-radius: 999px;
+  background: transparent;
+  border-radius: 0;
+  font-size: 14px;
+  font-weight: 550;
 }
 
 .nav-with-pip {
@@ -188,8 +192,8 @@ a {
 
 .site-nav a.active,
 .site-nav a:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  background: transparent;
 }
 
 .site-nav a.nav-staff.active {
@@ -1732,36 +1736,6 @@ code {
 .landing-cta h2 {
   margin: 0 0 18px;
   font-size: clamp(1.6rem, 3vw, 2.3rem);
-}
-
-.site-header-home {
-  padding: 0;
-  background: rgba(5, 8, 14, 0.78);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(18px);
-}
-
-.site-header-home .site-header-inner {
-  max-width: 1440px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 12px 28px;
-}
-
-.site-header-home .site-nav a {
-  color: rgba(236, 242, 248, 0.82);
-  padding: 8px 12px;
-  background: transparent;
-  font-size: 14px;
-  font-weight: 550;
-}
-
-.site-header-home .site-nav a.active,
-.site-header-home .site-nav a:hover {
-  color: #fff;
-  background: transparent;
 }
 
 .home-search {

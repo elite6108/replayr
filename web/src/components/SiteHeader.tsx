@@ -17,7 +17,6 @@ export function SiteHeader() {
   const { can } = useStaffPermissions();
   const staff = can("staff.access");
   const location = useLocation();
-  const home = location.pathname === "/";
   const [open, setOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
@@ -54,7 +53,7 @@ export function SiteHeader() {
   }, [open, downloadOpen]);
 
   return (
-    <header className={`site-header${home ? " site-header-home" : ""}${open ? " is-open" : ""}`} ref={headerRef}>
+    <header className={`site-header${open ? " is-open" : ""}`} ref={headerRef}>
       <div className="site-header-inner">
         <NavLink className="brand" to="/" end>
           <img className="brand-logo" src="/replayr-logo.png" alt={APP_NAME} />
@@ -71,16 +70,12 @@ export function SiteHeader() {
         </button>
         <div className="site-header-menu" id={menuId}>
           <nav className="site-nav" aria-label="Primary">
-            {home ? <NavLink to="/" end>Home</NavLink> : null}
-            <NavLink to="/features">{home ? "How it works" : "Features"}</NavLink>
-            {home ? null : <NavLink to="/explore">Explore</NavLink>}
-            {home ? null : <NavLink to="/games">Games</NavLink>}
-            {home ? <NavLink to="/library">Library</NavLink> : null}
+            <NavLink to="/" end>Home</NavLink>
+            <NavLink to="/features">How it works</NavLink>
+            <NavLink to="/library">Library</NavLink>
             <NavLink to="/pricing">Pricing</NavLink>
-            {home ? null : <NavLink to="/creators">Creators</NavLink>}
             {signedIn ? (
               <>
-                {home ? null : <NavLink to="/library">Library</NavLink>}
                 <NavLink className="nav-with-pip" to="/friends">
                   Friends
                   {friendsUnread ? <span className="unread-pip" aria-label="Unread" /> : null}
@@ -101,17 +96,15 @@ export function SiteHeader() {
                   </NavLink>
                 ) : null}
               </>
-            ) : home ? null : (
-              <NavLink to="/signin">Sign in</NavLink>
-            )}
+            ) : null}
           </nav>
           <div className="header-actions">
-            <HeaderSearch pill={home} />
+            <HeaderSearch pill />
             <NotificationBell />
-            {home && !signedIn ? <NavLink className="home-signin" to="/signin">Sign in</NavLink> : null}
+            {signedIn ? null : <NavLink className="home-signin" to="/signin">Sign in</NavLink>}
             <div className={`download-menu${downloadOpen ? " is-open" : ""}`}>
               <button
-                className={home ? "btn home-download" : "btn outline"}
+                className="btn home-download"
                 type="button"
                 aria-expanded={downloadOpen}
                 aria-controls={downloadMenuId}
@@ -128,16 +121,12 @@ export function SiteHeader() {
                 </AppDownloadLink>
               </div>
             </div>
-            {home ? (
-              <a className="home-social" href="https://x.com/Replayr_TV" target="_blank" rel="noreferrer" aria-label="Replayr on X">
-                <XIcon />
-              </a>
-            ) : null}
-            {home ? (
-              <a className="home-social" href="https://discord.com/app" target="_blank" rel="noreferrer" aria-label="Replayr on Discord">
-                <DiscordIcon />
-              </a>
-            ) : null}
+            <a className="home-social" href="https://x.com/Replayr_TV" target="_blank" rel="noreferrer" aria-label="Replayr on X">
+              <XIcon />
+            </a>
+            <a className="home-social" href="https://discord.com/app" target="_blank" rel="noreferrer" aria-label="Replayr on Discord">
+              <DiscordIcon />
+            </a>
           </div>
         </div>
       </div>

@@ -6,7 +6,7 @@ import { useAuth } from "../lib/auth";
 
 type SearchHit = SocialUser & { relationship: Relationship };
 
-export function HeaderSearch() {
+export function HeaderSearch({ pill = false }: { pill?: boolean }) {
   const { session } = useAuth();
   const token = session?.access_token;
   const navigate = useNavigate();
@@ -62,14 +62,15 @@ export function HeaderSearch() {
   return (
     <div className="header-popover-wrap" ref={wrapRef}>
       <button
-        className="header-icon-btn"
+        className={pill ? "home-search" : "header-icon-btn"}
         type="button"
-        aria-label="Search people"
+        aria-label="Search"
         aria-expanded={open}
         aria-controls={menuId}
         onClick={toggle}
       >
         <SearchIcon />
+        {pill ? <span>Search...</span> : null}
       </button>
       {open ? (
         <div className="header-popover header-search-popover" id={menuId} role="dialog" aria-label="Search people">

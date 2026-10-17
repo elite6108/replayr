@@ -1,280 +1,278 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ClipThumb } from "../components/ClipThumb";
+import { AppDownloadLink } from "../components/analytics/AppDownloadLink";
 import { GameCover } from "../components/GameCover";
 import { Seo } from "../components/Seo";
-import { useAuth } from "../lib/auth";
-import { AppDownloadLink } from "../components/analytics/AppDownloadLink";
-import { MAC_DOWNLOAD_PATH, WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
-import { formatCount, formatDurationMs, formatHandle } from "../lib/format";
-import { fetchGames, fetchPublicClips, type CatalogGame, type PublicClipCard } from "../lib/games";
-import { fetchLatestReleaseNote, formatReleaseNotes } from "../lib/releaseNotes";
+import { WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
+import { fetchGames, type CatalogGame } from "../lib/games";
+
+const moments = [
+  { src: "/marketing/record-preview.png", title: "Instant Replay", detail: "Saved on this PC", meta: "00:30" },
+  { src: "/marketing/local-library.png", title: "Library", detail: "This PC", meta: "Local" },
+  { src: "/marketing/clip-editor.jpg", title: "Editor", detail: "Trim the take", meta: "Edit" },
+  { src: "/marketing/share-privacy.png", title: "Share", detail: "Unlisted link", meta: "Cloud" },
+];
+
+const steps = [
+  {
+    title: "It happens",
+    body: "The play is already in the rolling buffer. You do not start a recording after the moment.",
+  },
+  {
+    title: "You hit the hotkey",
+    body: "F9 saves the recent gameplay. One key turns the buffer into a clip.",
+  },
+  {
+    title: "Replayr saves it",
+    body: "The file lands in the library on this PC. Local clips stay unmarked.",
+  },
+  {
+    title: "You keep, trim, or share it",
+    body: "Trim in the editor, or upload an unlisted link when you want a copy off this machine.",
+  },
+];
+
+const questions = [
+  {
+    q: "Does Replayr run on Windows?",
+    a: "Yes. Capture and the library are the Windows app. You do not clip from the browser.",
+  },
+  {
+    q: "What does the hotkey do?",
+    a: "F9 saves the recent buffer. You do not have to start a take after the play. Recording sessions are there when you want a longer file.",
+  },
+  {
+    q: "What stays on this PC, and what is cloud?",
+    a: "Local files stay on the machine and are unmarked. Cloud copies are optional. Deleting or renaming a cloud row does not wipe the local MP4.",
+  },
+  {
+    q: "Which games does Replayr see?",
+    a: "Replayr watches the running Windows process and matches it to the game catalog. Titles are data, including wildcards.",
+  },
+  {
+    q: "Do I need an account?",
+    a: "You can capture on this PC without uploading. An account is for cloud copies and for sharing an unlisted link like /c/H7ks92L.",
+  },
+  {
+    q: "What does Replayr+ cost?",
+    a: "Replayr+ is $6.99 a month, with a 7-day trial that requires a card. Free includes 5 GB, 20-minute 1080p uploads, a watermark on shared and uploaded copies, and house ads. Replayr+ includes 100 GB, original quality including 4K, no watermark, and no ads. Local files are not billed against cloud storage.",
+  },
+];
 
 export function HomePage() {
-  const { session } = useAuth();
-  const [games, setGames] = useState<CatalogGame[]>([]);
-  const [clips, setClips] = useState<PublicClipCard[]>([]);
-  const [latestRelease, setLatestRelease] = useState<{ version: string; notes: string } | null>(null);
-
-  useEffect(() => {
-    void fetchGames()
-      .then((next) => setGames(next.filter((game) => game.coverUrl).slice(0, 8)))
-      .catch(() => undefined);
-    void fetchPublicClips(session?.access_token)
-      .then(setClips)
-      .catch(() => undefined);
-  }, [session?.access_token]);
+  const [open, setOpen] = useState(0);
+  const [games, setGames] = useState<CatalogGame[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void fetchLatestReleaseNote()
-      .then((entry) => {
-        if (!cancelled && entry) {
-          setLatestRelease({ version: entry.version, notes: formatReleaseNotes(entry.items) });
-        }
+    void fetchGames()
+      .then((next) => {
+        if (!cancelled) setGames(next.slice(0, 16));
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setGames([]);
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
   return (
-    <main className="landing">
+    <main className="home-stage">
       <Seo
-        title="Replayr — gameplay clipper"
-        description="The play already happened. Replayr keeps Instant Replay rolling, saves the clip on this PC, and shares a quiet unlisted link — no username in the URL."
+        title="Replayr — Instant replay. Real moments."
+        description="Great plays don't wait for Record. Replayr keeps your recent gameplay ready. One hotkey, F9, makes it yours."
       />
-
-      <section className="landing-hero">
-        <div className="landing-wrap landing-hero-grid">
-          <div className="landing-hero-copy">
-            <h1>Record and share your best gaming moments.</h1>
-            <p className="lede">
-              The play is already in the buffer. One hotkey saves it to this PC. Share only when you want — an unlisted
-              link, no name attached.
-            </p>
-            <div className="download-actions">
-              <AppDownloadLink className="btn glow" href={WINDOWS_DOWNLOAD_PATH} platform="windows" surface="homepage">
-                Download for Windows
-              </AppDownloadLink>
-              <AppDownloadLink className="btn outline" href={MAC_DOWNLOAD_PATH} platform="macos" surface="homepage">
-                Download for macOS
-              </AppDownloadLink>
-            </div>
-            <p className="hero-note">
-              Windows Instant Replay · macOS app for library &amp; sharing
-            </p>
-            {latestRelease ? (
-              <aside className="release-notes-card" aria-label="Latest release notes">
-                <strong>Latest desktop release: v{latestRelease.version}</strong>
-                <pre>{latestRelease.notes}</pre>
-                <Link className="release-notes-link" to="/releases">
-                  View all release notes
-                </Link>
-              </aside>
-            ) : null}
-          </div>
-          <DesktopPreview />
+      <section className="home-hero">
+        <img className="home-hero-scene" src="/marketing/home-hero.jpg" alt="" />
+        <div className="home-hero-shade" />
+        <div className="home-hero-copy">
+          <p className="home-kicker">Instant replay. Real moments.</p>
+          <h1>
+            That just
+            <br />
+            happened!
+            <br />
+            <span>Keep it.</span>
+          </h1>
+          <p className="home-lede">
+            Great plays don&apos;t wait for Record. Replayr keeps your recent gameplay ready. One hotkey{" "}
+            <span className="home-hotkey">F9</span> makes it yours.
+          </p>
         </div>
       </section>
 
-      <section className="landing-stats">
-        <div className="landing-wrap landing-stats-row">
-          <div>
-            <StatIcon kind="clip" />
-            <div>
-              <strong>Instant Replay</strong>
-              <span>Last seconds, already captured</span>
-            </div>
-          </div>
-          <div>
-            <StatIcon kind="users" />
-            <div>
-              <strong>Local first</strong>
-              <span>Library on this PC</span>
-            </div>
-          </div>
-          <div>
-            <StatIcon kind="pad" />
-            <div>
-              <strong>Game catalog</strong>
-              <span>Titles Replayr can detect</span>
-            </div>
-          </div>
+      <section className="home-section home-center" id="keep">
+        <p className="home-kicker">The moment happens once.</p>
+        <h2>
+          Keep it <span>forever.</span>
+        </h2>
+        <div className="home-moments-row">
+          {moments.map((moment) => (
+            <article className="home-moment-card" key={moment.title}>
+              <img src={moment.src} alt="" />
+              <div>
+                <strong>{moment.title}</strong>
+                <span>{moment.detail}</span>
+                <span>{moment.meta}</span>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
 
-      <section className="landing-section">
-        <div className="landing-wrap">
-          <h2 className="landing-heading">Features</h2>
-          <div className="feature-cards">
-            <article className="feature-card">
-              <span className="feature-icon" aria-hidden="true">
-                <StatIcon kind="clock" />
-              </span>
-              <h3>Always ready</h3>
-              <p>Instant Replay keeps a rolling buffer. One hotkey saves the play that already happened.</p>
-              <div className="feature-shot buffer">
-                <em>Buffer</em>
-                <b>00:28</b>
-                <span />
-              </div>
+      <section className="home-section" id="flow">
+        <div className="home-center">
+          <p className="home-kicker">From gameplay to clip.</p>
+          <h2>
+            Without losing <span>momentum.</span>
+          </h2>
+        </div>
+        <div className="home-steps">
+          {steps.slice(0, 2).map((step, index) => (
+            <article className="home-step" key={step.title}>
+              <b>{index + 1}</b>
+              <strong>{step.title}</strong>
+              <p>{step.body}</p>
             </article>
-            <article className="feature-card">
-              <span className="feature-icon" aria-hidden="true">
-                <StatIcon kind="rocket" />
-              </span>
-              <h3>On the desktop</h3>
-              <p>Capture, encoding, and Instant Replay run in the Windows app — not in this browser.</p>
-              <div className="feature-shot session">
-                <em>Capture</em>
-                <b>Standby</b>
-                <span />
-              </div>
+          ))}
+          <img className="home-steps-still" src="/marketing/record-preview.png" alt="" />
+          {steps.slice(2).map((step, index) => (
+            <article className="home-step" key={step.title}>
+              <b>{index + 3}</b>
+              <strong>{step.title}</strong>
+              <p>{step.body}</p>
             </article>
-            <article className="feature-card">
-              <span className="feature-icon" aria-hidden="true">
-                <StatIcon kind="share" />
-              </span>
-              <h3>Quiet sharing</h3>
-              <p>Upload an unlisted copy and send `/c/…`. Public clips can appear on Games. Private stays owner-only.</p>
-              <div className="feature-shot share">
-                <em>Share</em>
-                <b>/c/H7ks92L</b>
-                <span />
-              </div>
-            </article>
-          </div>
+          ))}
         </div>
       </section>
 
-      <section className="landing-section">
-        <div className="landing-wrap">
-          <div className="landing-row">
-            <h2 className="landing-heading flush">For You</h2>
-            <Link className="btn" to="/explore">
-              See all
+      <section className="home-section" id="pc">
+        <div className="home-center">
+          <p className="home-kicker">On your PC.</p>
+          <h2>
+            On your <span>terms.</span>
+          </h2>
+        </div>
+        <div className="home-split">
+          <article className="home-panel">
+            <img src="/marketing/local-library.png" alt="" />
+            <div>
+              <h3>This PC</h3>
+              <p>
+                Files stay on this machine. Local clips are unmarked and are not billed against cloud storage.
+                Deleting a cloud copy does not wipe the local MP4.
+              </p>
+            </div>
+          </article>
+          <article className="home-panel">
+            <img src="/marketing/share-privacy.png" alt="" />
+            <div>
+              <h3>Cloud</h3>
+              <p>
+                Upload when you want a copy off this PC. Shares look like <code>/c/H7ks92L</code>. Unlisted is the
+                default, so the link is not a public listing.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section className="home-section" id="games">
+        <div className="home-center">
+          <p className="home-kicker">Your game.</p>
+          <h2>
+            Your <span>moment.</span>
+          </h2>
+        </div>
+        {games === null ? <p className="home-lede home-center">Loading games…</p> : null}
+        <div className="home-games">
+          {(games ?? []).map((game) => (
+            <Link className="home-game" key={game.id} to={`/games/${game.slug}`}>
+              <GameCover name={game.name} coverUrl={game.coverUrl} />
+              <strong>{game.name}</strong>
             </Link>
-          </div>
-          {clips.length === 0 ? (
-            <div className="empty-bubble">
-              <h3>Nothing public yet</h3>
-              <p className="muted">When someone uploads a clip and sets it to Public, it shows up here. Unlisted links never appear.</p>
-            </div>
-          ) : (
-            <ul className="trending-rail">
-              {clips.map((clip) => (
-                <li key={clip.id}>
-                  <Link className="trend-card" to={`/c/${clip.slug}`}>
-                    <div className="clip-thumb">
-                      <ClipThumb title={clip.title || "Clip"} thumbnailUrl={clip.thumbnailUrl} playbackUrl={null} />
-                      {clip.durationMs ? <span className="clip-duration">{formatDurationMs(clip.durationMs)}</span> : null}
-                    </div>
-                    <strong>{clip.title || "Untitled clip"}</strong>
-                    <span className="muted">{formatHandle(clip.author)}</span>
-                    <span className="muted">
-                      {formatCount(clip.likeCount)} likes · {formatCount(clip.commentCount)} comments
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+          ))}
         </div>
       </section>
 
-      {games.length > 0 ? (
-        <section className="landing-section titles">
-          <div className="landing-wrap">
-            <ul className="title-strip">
-              {games.map((game) => (
-                <li key={game.id}>
-                  <Link to={`/games/${game.slug}`} title={game.name}>
-                    <GameCover name={game.name} coverUrl={game.coverUrl} />
-                  </Link>
-                </li>
-              ))}
+      <section className="home-section" id="plans">
+        <div className="home-center">
+          <p className="home-kicker">Start free.</p>
+          <h2>
+            Upgrade for <span>more.</span>
+          </h2>
+        </div>
+        <div className="home-prices">
+          <article className="home-price">
+            <h3>Free</h3>
+            <p className="home-price-figure">
+              $0 <span>/ mo</span>
+            </p>
+            <ul>
+              <li>5 GB cloud storage</li>
+              <li>20-minute 1080p uploads</li>
+              <li>Watermark on share, export, and cloud</li>
+              <li>House ads on web and mobile</li>
+              <li>Local library unlimited and unmarked</li>
             </ul>
-            <p className="title-caption">Supported titles from the Replayr catalog</p>
-          </div>
-        </section>
-      ) : null}
-
-      <section className="landing-cta">
-        <div className="landing-wrap">
-          <h2>Clip on the PC. Share a link when you want.</h2>
-          <div className="download-actions">
-            <AppDownloadLink className="btn glow" href={WINDOWS_DOWNLOAD_PATH} platform="windows" surface="homepage">
+            <AppDownloadLink className="home-cta" href={WINDOWS_DOWNLOAD_PATH} platform="windows" surface="homepage">
               Download for Windows
             </AppDownloadLink>
-            <AppDownloadLink className="btn outline" href={MAC_DOWNLOAD_PATH} platform="macos" surface="homepage">
-              Download for macOS
-            </AppDownloadLink>
-          </div>
+          </article>
+          <article className="home-price home-price-plus">
+            <h3>Replayr+</h3>
+            <p className="home-price-figure">
+              $6.99 <span>/ mo</span>
+            </p>
+            <ul>
+              <li>100 GB cloud storage</li>
+              <li>No cloud length cap</li>
+              <li>Original quality, including 4K</li>
+              <li>No watermark</li>
+              <li>No ads</li>
+              <li>7-day trial with a card</li>
+            </ul>
+            <Link className="home-cta" to="/pricing">
+              Get Replayr+
+            </Link>
+          </article>
         </div>
       </section>
-    </main>
-  );
-}
 
-function DesktopPreview() {
-  return (
-    <div className="app-preview" role="img" aria-label="Replayr desktop layout">
-      <div className="app-preview-chrome">
-        <span />
-        <span />
-        <span />
-        <em>Replayr</em>
-      </div>
-      <div className="app-preview-body">
-        <aside>
-          <b>Home</b>
-          <span>Library</span>
-          <span>Games</span>
-          <span>Record</span>
-        </aside>
-        <div>
-          <p className="eyebrow">In session</p>
-          <h3>Instant Replay is on</h3>
-          <div className="preview-clips">
-            <span />
-            <span />
-            <span />
-          </div>
+      <section className="home-section" id="questions">
+        <div className="home-center">
+          <p className="home-kicker">Before you hit download.</p>
+          <h2>Questions</h2>
         </div>
-      </div>
-    </div>
-  );
-}
+        <div className="home-faq">
+          {questions.map((item, index) => {
+            const expanded = open === index;
+            return (
+              <div className="home-faq-item" key={item.q}>
+                <button type="button" aria-expanded={expanded} onClick={() => setOpen(expanded ? -1 : index)}>
+                  {item.q}
+                  <span aria-hidden="true">{expanded ? "–" : "+"}</span>
+                </button>
+                {expanded ? <p>{item.a}</p> : null}
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
-function StatIcon({ kind }: { kind: "clip" | "users" | "pad" | "clock" | "rocket" | "share" }) {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-      {kind === "clip" ? (
-        <>
-          <rect x="3" y="6" width="18" height="12" rx="2" />
-          <path d="m10 10 5 2.5L10 15z" />
-        </>
-      ) : null}
-      {kind === "users" ? (
-        <>
-          <circle cx="9" cy="8" r="3" />
-          <path d="M4 19a5 5 0 0 1 10 0" />
-          <circle cx="17" cy="9" r="2.2" />
-        </>
-      ) : null}
-      {kind === "pad" ? (
-        <path d="M6.5 16c-2 0-3.5-1.4-3.5-3.2C3 10.5 5 9 7.2 9.3c.6-2 2.4-3.3 4.8-3.3s4.2 1.3 4.8 3.3c2.2-.3 4.2 1.2 4.2 3.5 0 1.8-1.5 3.2-3.5 3.2z" />
-      ) : null}
-      {kind === "clock" ? (
-        <>
-          <circle cx="12" cy="12" r="8" />
-          <path d="M12 8v4l3 2" />
-        </>
-      ) : null}
-      {kind === "rocket" ? <path d="M14 4c3 1 6 5 6 9-4 0-8-3-9-6 0-1 .4-2.2 3-3zM8 14l2 2M5 19l3-1 4-4" /> : null}
-      {kind === "share" ? <path d="M12 5v10M8 9l4-4 4 4M6 19h12" /> : null}
-    </svg>
+      <section className="home-close" id="again">
+        <div>
+          <p className="home-kicker">Next time it happens.</p>
+          <h2>
+            Keep <span>it.</span>
+          </h2>
+          <AppDownloadLink className="home-cta" href={WINDOWS_DOWNLOAD_PATH} platform="windows" surface="homepage">
+            Download for Windows
+          </AppDownloadLink>
+        </div>
+        <img src="/marketing/local-library.png" alt="" />
+      </section>
+    </main>
   );
 }

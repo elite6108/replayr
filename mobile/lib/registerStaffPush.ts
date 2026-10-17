@@ -1,17 +1,39 @@
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { registerPushToken, unregisterPushToken } from "./api.staff";
 
 let lastExpoToken: string | null = null;
+let foregroundConversationId: string | null = null;
+
+export function setForegroundConversationId(id: string | null) {
+  foregroundConversationId = id;
+}
+
+export function getForegroundConversationId() {
+  return foregroundConversationId;
+}
+
+export function shouldSuppressMessagePush(
+  data: unknown,
+  appState: string = AppState.currentState,
+  activeConversationId: string | null = foregroundConversationId,
+) {
+  if (appState !== "active") return false;
+  const target = targetFromPushData(data);
+  return Boolean(target?.kind === "message" && activeConversationId && target.conversationId === activeConversationId);
+}
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
+  handleNotification: async (notification) => {
+    const suppress = shouldSuppressMessagePush(notification.request.content.data);
+    return {
+      shouldShowBanner: !suppress,
+      shouldShowList: !suppress,
+      shouldPlaySound: !suppress,
+      shouldSetBadge: !suppress,
+    };
+  },
 });
 
 export type PushOpenTarget =

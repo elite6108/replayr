@@ -91,14 +91,13 @@ export default function ThreadScreen() {
       setConversation(nextConversation);
       setMessages((current) => mergeThreadMessages(current, nextMessages));
       setHasMore(nextMessages.length >= 50);
-      setActiveConversation(conversationId);
       markConversationRead(conversationId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not load that chat.");
     } finally {
       setLoading(false);
     }
-  }, [token, conversationId, setActiveConversation, markConversationRead]);
+  }, [token, conversationId, markConversationRead]);
 
   const refreshLive = useCallback(async () => {
     if (!token || !conversationId) return;
@@ -127,17 +126,22 @@ export default function ThreadScreen() {
       return;
     }
     void load();
-    return () => setActiveConversation(null);
-  }, [token, load, setActiveConversation]);
+  }, [token, load]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!token || !conversationId) return;
-      const timer = setInterval(() => {
-        void refreshLive();
-      }, 2000);
-      return () => clearInterval(timer);
-    }, [token, conversationId, refreshLive]),
+      if (!conversationId) return;
+      setActiveConversation(conversationId);
+      const timer = token
+        ? setInterval(() => {
+            void refreshLive();
+          }, 2000)
+        : null;
+      return () => {
+        setActiveConversation(null);
+        if (timer) clearInterval(timer);
+      };
+    }, [token, conversationId, refreshLive, setActiveConversation]),
   );
 
   useEffect(() => {

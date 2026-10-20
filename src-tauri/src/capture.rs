@@ -258,8 +258,6 @@ mod windows_impl {
         ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
         MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
     };
-    use windows_capture::window::Window;
-
     use crate::camera::SessionClock;
 
     pub struct WindowsSession {
@@ -528,19 +526,6 @@ mod windows_impl {
         }
     }
 
-    fn window_for_pid(pid: u32) -> Option<Window> {
-        let windows = Window::enumerate().ok()?;
-        let mut matches: Vec<Window> = windows
-            .into_iter()
-            .filter(|window| window.is_valid() && window.process_id().ok() == Some(pid))
-            .collect();
-        matches.sort_by_key(|window| {
-            let area = window.width().unwrap_or(0).saturating_mul(window.height().unwrap_or(0));
-            std::cmp::Reverse(area)
-        });
-        matches.into_iter().next()
-    }
-
     fn load_settings(app: &AppHandle) -> AppResult<AppSettings> {
         let db = app.state::<AppState>();
         let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
@@ -637,6 +622,17 @@ mod windows_impl {
             .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
             .collect::<String>();
         dir.join(format!("{slug}-{stamp}.{ext}"))
+    }
+
+    /// Move `moov` ahead of `mdat` so players start without reading the file tail.
+    /// The saved file is kept as-is when this fails; a save never fails here.
+    fn faststart_saved_mp4(path: &Path) {
+        match crate::export::faststart_mp4_in_place(path) {
+            Ok(_) => {}
+            Err(err) => {
+                tracing::warn!(path = %path.display(), %err, "fast-start skipped; keeping the saved file");
+            }
+        }
     }
 
     fn insert_local_clip(
@@ -830,46 +826,32 @@ mod windows_impl {
             }
         };
 
-        let mut last_error = None;
         let mut started = None;
 
         if let Some(pid) = pid.filter(|id| *id != 0) {
-            if let Some(window) = window_for_pid(pid) {
-                let (width, height) = encode_size(
-                    window.width().unwrap_or(1920).max(0) as u32,
-                    window.height().unwrap_or(1080).max(0) as u32,
-                    &resolution,
-                );
-                let monitor = window.monitor();
-                match begin(window, make_flags(width, height)) {
-                    Ok(control) => {
-                        started = Some((
-                            game_name.clone().unwrap_or_else(|| "Window".into()),
-                            control,
-                            width,
-                            height,
-                        ));
-                    }
-                    Err(err) => {
-                        tracing::warn!("window capture failed: {err}");
-                        last_error = Some(err);
-                        if let Some(monitor) = monitor {
-                            let (width, height) = encode_size(
-                                monitor.width().unwrap_or(1920),
-                                monitor.height().unwrap_or(1080),
-                                &resolution,
-                            );
-                            match begin(monitor, make_flags(width, height)) {
-                                Ok(control) => {
-                                    started = Some(("Display".into(), control, width, height));
-                                }
-                                Err(err) => {
-                                    tracing::warn!("game-display capture failed: {err}");
-                                    last_error = Some(err);
-                                }
-                            }
-                        }
-                    }
+            let Some(window) = crate::game_window::window_for_pid(pid) else {
+                tracing::error!(pid, "no visible window for the detected process; capture left stopped");
+                state.shared.preview.resume_if_wanted();
+                return Err(AppError::Message(format!("No visible window for process {pid}.")));
+            };
+            let (width, height) = encode_size(
+                window.width().unwrap_or(1920).max(0) as u32,
+                window.height().unwrap_or(1080).max(0) as u32,
+                &resolution,
+            );
+            match begin(window, make_flags(width, height)) {
+                Ok(control) => {
+                    started = Some((
+                        game_name.clone().unwrap_or_else(|| "Window".into()),
+                        control,
+                        width,
+                        height,
+                    ));
+                }
+                Err(err) => {
+                    tracing::error!(pid, "game window capture failed; capture left stopped: {err}");
+                    state.shared.preview.resume_if_wanted();
+                    return Err(AppError::Message(err));
                 }
             }
         }
@@ -880,12 +862,9 @@ mod windows_impl {
             match start_monitor(make_flags(1920, 1080)) {
                 Ok(session) => session,
                 Err(err) => {
-                    let detail = last_error
-                        .map(|previous| format!("{previous}; {err}"))
-                        .unwrap_or_else(|| err.to_string());
-                    tracing::error!("could not start capture: {detail}");
+                    tracing::error!("could not start capture: {err}");
                     state.shared.preview.resume_if_wanted();
-                    return Err(AppError::Message(detail));
+                    return Err(err);
                 }
             }
         };
@@ -1127,6 +1106,7 @@ mod windows_impl {
                 })
                 .collect();
             crate::export::concat_mp4s(&segments, &output, window.start_hns).map_err(AppError::Message)?;
+            faststart_saved_mp4(&output);
             camera.save_overlap_sidecar(&output, window.start_hns, window.end_hns);
             if let Ok(mut buffer) = state.shared.buffer.lock() {
                 buffer.unlock_all();
@@ -1178,6 +1158,7 @@ mod windows_impl {
             return Err(AppError::Message("Not recording.".into()));
         }
         let elapsed = session.started.elapsed();
+        faststart_saved_mp4(&session.path);
         let local_id = insert_local_clip(
             app,
             state,
@@ -1242,10 +1223,12 @@ mod windows_impl {
                     _ => (false, None),
                 }
             };
+            let catalog_game = game_id.as_ref().is_some_and(|slug| !slug.is_empty());
             let action = crate::ir_target::resolve_ir_sync(
                 running_ir,
                 locked_pid,
                 detected_pid,
+                catalog_game,
                 crate::process::pid_alive,
             );
             match action {
@@ -1265,6 +1248,27 @@ mod windows_impl {
                     let _ = halt_capture(state);
                     if let Ok(dir) = replay_scratch_dir(app) {
                         discard_scratch(state, &dir);
+                    }
+                }
+                crate::ir_target::IrSyncAction::Retarget { pid: next_pid } => {
+                    tracing::info!(
+                        from = locked_pid.unwrap_or(0),
+                        to = next_pid,
+                        process = %game_name.as_deref().unwrap_or("game"),
+                        "IR retargeting to the detected game process"
+                    );
+                    if let Err(err) = halt_capture(state) {
+                        tracing::warn!("IR retarget halt failed: {err}");
+                        publish_replay(app, state, &settings, Some(err.to_string()));
+                        return Ok(replay_status(state, &settings));
+                    }
+                    match start(app, state, Some(next_pid), game_name, game_id, true, false, None) {
+                        Ok(_) => {}
+                        Err(err) => {
+                            tracing::error!(pid = next_pid, "IR retarget capture failed: {err}");
+                            publish_replay(app, state, &settings, Some(err.to_string()));
+                            return Ok(replay_status(state, &settings));
+                        }
                     }
                 }
                 crate::ir_target::IrSyncAction::StartDetected { pid: start_pid } => {
@@ -1643,6 +1647,7 @@ mod windows_impl {
             }
         }
 
+        faststart_saved_mp4(&staged.output);
         let webcam_layout = crate::clip_scene::webcam_layout(&staged.settings);
         let local_id = insert_local_clip(
             app,

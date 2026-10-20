@@ -1,6 +1,6 @@
 [package]
 name = "replay"
-version = "0.1.71"
+version = "0.1.72"
 description = "Project Replay desktop application"
 authors = ["Project Replay"]
 edition = "2021"
@@ -57,6 +57,7 @@ windows = { version = "0.61", features = [
     "Win32_Graphics_Direct3D10",
     "Win32_Graphics_Direct3D11",
     "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dwm",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
     "Win32_UI_HiDpi",

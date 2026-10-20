@@ -138,7 +138,15 @@ export function ClipPage() {
           ) : null}
           <div className="player-stage">
             <PlayerVideo showWatermark={clip.watermark !== false}>
-              <video className="player" src={clip.playbackUrl} controls playsInline autoPlay />
+              <video
+                className="player"
+                src={clip.playbackUrl}
+                poster={clip.thumbnailUrl || undefined}
+                preload="auto"
+                controls
+                playsInline
+                autoPlay
+              />
             </PlayerVideo>
           </div>
           {!session || billing?.ads ? (

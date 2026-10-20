@@ -58,7 +58,7 @@ export function FolderPage() {
   const [folder, setFolder] = useState<FolderDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [playback, setPlayback] = useState<{ title: string; url: string } | null>(null);
+  const [playback, setPlayback] = useState<{ title: string; url: string; poster: string | null } | null>(null);
   const [panel, setPanel] = useState<"share" | "add" | "edits" | "activity" | null>(null);
   const [editClip, setEditClip] = useState<FolderClip | null>(null);
   const [busy, setBusy] = useState(false);
@@ -84,7 +84,11 @@ export function FolderPage() {
   async function play(clip: FolderClip) {
     if (!token || clip.status !== "ready") return;
     try {
-      setPlayback({ title: clip.title || "Untitled clip", url: await playFolderClip(token, folderId, clip.id) });
+      setPlayback({
+        title: clip.title || "Untitled clip",
+        url: await playFolderClip(token, folderId, clip.id),
+        poster: clip.thumbnailUrl ?? null,
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not play that clip.");
     }
@@ -181,7 +185,7 @@ export function FolderPage() {
           {playback ? (
             <section className="public-folder-player">
               <PlayerVideo showWatermark>
-                <video src={playback.url} controls playsInline autoPlay />
+                <video src={playback.url} poster={playback.poster || undefined} preload="auto" controls playsInline autoPlay />
               </PlayerVideo>
               <strong>{playback.title}</strong>
             </section>

@@ -56,11 +56,10 @@ if (setups.length === 0) {
   throw new Error("No NSIS setup exe yet. Run npm run tauri:build first.");
 }
 
-const preferred = setups.find((item) => item.name.includes(version));
-const setup = preferred
-  ?? setups
-    .slice()
-    .sort((a, b) => statSync(b.path).mtimeMs - statSync(a.path).mtimeMs)[0];
+const versioned = setups.filter((item) => item.name.includes(version));
+const setup = (versioned.length ? versioned : setups)
+  .slice()
+  .sort((a, b) => statSync(b.path).mtimeMs - statSync(a.path).mtimeMs)[0];
 
 mkdirSync(destDir, { recursive: true });
 if (existsSync(notesPath)) {

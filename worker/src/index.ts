@@ -1470,12 +1470,16 @@ async function getPlayback(
     return json({ error: "That clip is not available." }, 404);
   }
   requireR2(env);
-  const signed = await r2Client(env).sign(`${objectUrl(env, clip.storage_key)}?X-Amz-Expires=3600`, {
-    method: "GET",
-    aws: { signQuery: true },
-  });
+  // Independent work runs together so the playback URL is not held up by auth or the poster signature.
+  const [signed, viewer, thumbnailUrl] = await Promise.all([
+    r2Client(env).sign(`${objectUrl(env, clip.storage_key)}?X-Amz-Expires=3600`, {
+      method: "GET",
+      aws: { signQuery: true },
+    }),
+    optionalUser(request, env),
+    signedOwnedUrl(env, clip.user_id, clip.thumbnail_key, "GET"),
+  ]);
   ctx.waitUntil(recordProductEvent(env, "sign_count", 2, { route: "playback" }));
-  const viewer = await optionalUser(request, env);
   observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.clipPlayed, {
     userId: viewer?.id ?? null,
     entityId: clip.id,
@@ -1499,7 +1503,7 @@ async function getPlayback(
     visibility: clip.visibility,
     status: clip.status,
     playbackUrl: signed.url,
-    thumbnailUrl: await signedOwnedUrl(env, clip.user_id, clip.thumbnail_key, "GET"),
+    thumbnailUrl,
     author: extra?.author ?? anonymousAuthor(),
     likeCount: extra?.likeCount ?? clip.like_count ?? 0,
     commentCount: extra?.commentCount ?? clip.comment_count ?? 0,

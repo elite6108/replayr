@@ -1,5 +1,6 @@
 //! Preview-only WGC session. No encoder, SessionClock, audio, or camera.
 
+use crate::still::StillFrame;
 use std::convert::TryInto;
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
@@ -8,9 +9,6 @@ use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
     MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
 };
-use windows_capture::window::Window;
-
-use crate::still::StillFrame;
 
 use super::{PreviewHub, PreviewMode};
 
@@ -57,8 +55,11 @@ impl StandalonePreview {
     ) -> Result<Self, String> {
         let control = match mode {
             PreviewMode::Game => {
-                let pid = pid.filter(|value| *value != 0).ok_or_else(|| "No game detected.".to_string())?;
-                let window = window_for_pid(pid).ok_or_else(|| "No game window.".to_string())?;
+                let pid = pid
+                    .filter(|value| *value != 0)
+                    .ok_or_else(|| "No game detected.".to_string())?;
+                let window = crate::game_window::window_for_pid(pid)
+                    .ok_or_else(|| "No game window.".to_string())?;
                 begin(window, hub)?
             }
             PreviewMode::Desktop => {
@@ -98,19 +99,6 @@ fn pack_frame(frame: &mut Frame) -> Option<StillFrame> {
         height,
         pitch,
     })
-}
-
-fn window_for_pid(pid: u32) -> Option<Window> {
-    let windows = Window::enumerate().ok()?;
-    let mut matches: Vec<Window> = windows
-        .into_iter()
-        .filter(|window| window.is_valid() && window.process_id().ok() == Some(pid))
-        .collect();
-    matches.sort_by_key(|window| {
-        let area = window.width().unwrap_or(0).saturating_mul(window.height().unwrap_or(0));
-        std::cmp::Reverse(area)
-    });
-    matches.into_iter().next()
 }
 
 fn begin<T>(

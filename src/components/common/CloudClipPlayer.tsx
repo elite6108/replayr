@@ -46,7 +46,7 @@ export function CloudClipPlayer() {
       <section className="player-card">
         <div className="player-stage">
           <PlayerVideo showWatermark={watermark}>
-            <video src={url} controls autoPlay />
+            <video src={url} poster={clip.thumbnailUrl || undefined} preload="auto" controls autoPlay />
           </PlayerVideo>
         </div>
         <div className="player-side">

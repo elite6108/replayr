@@ -500,6 +500,57 @@ mod tests {
         let _ = std::fs::remove_file(&src);
     }
 
+    fn co64(offsets: &[u64]) -> Vec<u8> {
+        let mut payload = vec![0, 0, 0, 0];
+        payload.extend_from_slice(&(offsets.len() as u32).to_be_bytes());
+        for offset in offsets {
+            payload.extend_from_slice(&offset.to_be_bytes());
+        }
+        box_bytes(b"co64", &payload)
+    }
+
+    /// The MF SinkWriter save shape: `ftyp`, `free`, `mdat`, then `moov` with
+    /// 64-bit chunk offsets. This is what `concat_mp4s` writes for every clip.
+    #[test]
+    fn saved_clip_shape_ends_with_moov_before_mdat() {
+        let ftyp = box_bytes(b"ftyp", b"mp42\0\0\0\0mp42isom");
+        let free = box_bytes(b"free", &[0u8; 24]);
+        let payload = vec![0x42_u8; 2048];
+        let mdat = box_bytes(b"mdat", &payload);
+        let chunk = (ftyp.len() + free.len() + 8) as u64;
+        let stbl = nested(b"stbl", &co64(&[chunk, chunk + 1024]));
+        let moov = nested(b"moov", &nested(b"trak", &nested(b"mdia", &nested(b"minf", &stbl))));
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&ftyp);
+        bytes.extend_from_slice(&free);
+        bytes.extend_from_slice(&mdat);
+        bytes.extend_from_slice(&moov);
+        let src = write_tmp(&bytes);
+
+        assert!(faststart_mp4_in_place(&src).unwrap());
+        assert!(super::moov_precedes_mdat(&src).unwrap());
+
+        let rewritten = std::fs::read(&src).unwrap();
+        let boxes = read_top_boxes(&src).unwrap();
+        let new_moov = boxes.iter().copied().find(|item| item.kind_is(b"moov")).unwrap();
+        let new_mdat = boxes.iter().copied().find(|item| item.kind_is(b"mdat")).unwrap();
+        let copied = &rewritten[(new_mdat.offset + new_mdat.header_len) as usize..new_mdat.end() as usize];
+        assert_eq!(copied, payload.as_slice());
+
+        let moov_bytes = &rewritten[new_moov.offset as usize..new_moov.end() as usize];
+        let co64_at = moov_bytes.windows(4).position(|w| w == b"co64").unwrap();
+        let table = &moov_bytes[co64_at + 4..];
+        let first = u64::from_be_bytes(table[8..16].try_into().unwrap());
+        assert_eq!(first, new_mdat.offset + new_mdat.header_len);
+        let second = u64::from_be_bytes(table[16..24].try_into().unwrap());
+        assert_eq!(second, first + 1024);
+
+        // Running it again is a no-op; the file is left as written.
+        assert!(!faststart_mp4_in_place(&src).unwrap());
+        assert_eq!(std::fs::read(&src).unwrap(), rewritten);
+        let _ = std::fs::remove_file(&src);
+    }
+
     #[test]
     fn patch_chunk_offsets_adds_shift() {
         let mut moov = nested(b"moov", &nested(b"trak", &stco(&[32, 64])));

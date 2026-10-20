@@ -122,7 +122,7 @@ export function PublicFolderPage() {
           {active && playbackUrl ? (
             <section className="public-folder-player">
               <PlayerVideo showWatermark>
-                <video src={playbackUrl} controls playsInline autoPlay />
+                <video src={playbackUrl} poster={active.thumbnailUrl || undefined} preload="auto" controls playsInline autoPlay />
               </PlayerVideo>
               <div className="row">
                 <strong>{active.title || "Untitled clip"}</strong>

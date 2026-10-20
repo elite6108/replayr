@@ -109,6 +109,7 @@ export function ClipPlayer() {
   const playbackFile = playPath ?? clip.filePath;
   const localId = clip.localId;
   const media = blobUrl ?? convertFileSrc(playbackFile);
+  const poster = clip.thumbnailPath ? convertFileSrc(clip.thumbnailPath) : undefined;
   const video = isVideoPath(clip.filePath);
   const webcamSource = clipWebcamSource(clip);
   const webcamMedia = webcamSource ? convertFileSrc(webcamSource.filePath) : "";
@@ -210,6 +211,8 @@ export function ClipPlayer() {
                 key={media}
                 ref={gameplayRef}
                 src={media}
+                poster={poster}
+                preload="auto"
                 controls
                 autoPlay
                 controlsList={webcamMedia ? "nofullscreen" : undefined}

@@ -157,7 +157,9 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     fn rec(pattern: &[u8], text: &[u8]) -> bool {
         match (pattern.first().copied(), text.first().copied()) {
             (None, None) => true,
-            (Some(b'*'), _) => rec(&pattern[1..], text) || (!text.is_empty() && rec(pattern, &text[1..])),
+            (Some(b'*'), _) => {
+                rec(&pattern[1..], text) || (!text.is_empty() && rec(pattern, &text[1..]))
+            }
             (Some(expected), Some(actual)) if expected == actual => rec(&pattern[1..], &text[1..]),
             _ => false,
         }
@@ -188,6 +190,18 @@ pub fn detect_games(
     foreground_pid: Option<u32>,
     catalog: &[GameRecord],
 ) -> DetectedGameSnapshot {
+    detect_games_with(processes, foreground_pid, catalog, None, &[])
+}
+
+/// `preferred_pid` is the process chosen on the previous poll.
+/// `visible_pids` are processes that currently own a capturable window.
+pub fn detect_games_with(
+    processes: &[ProcessRef],
+    foreground_pid: Option<u32>,
+    catalog: &[GameRecord],
+    preferred_pid: Option<u32>,
+    visible_pids: &[u32],
+) -> DetectedGameSnapshot {
     let mut by_exe: Vec<(&GameRecord, &str)> = Vec::new();
     for game in catalog {
         for exe in &game.process_names {
@@ -195,7 +209,12 @@ pub fn detect_games(
         }
     }
 
-    let mut running: Vec<RunningGame> = Vec::new();
+    struct Matched<'a> {
+        game: &'a GameRecord,
+        processes: Vec<&'a ProcessRef>,
+    }
+
+    let mut matched: Vec<Matched<'_>> = Vec::new();
     for process in processes {
         let normalized = normalize_process_name(&process.name);
         if normalized.is_empty() {
@@ -207,26 +226,38 @@ pub fn detect_games(
         else {
             continue;
         };
-        let focused = foreground_pid == Some(process.pid);
-        if let Some(existing) = running.iter_mut().find(|item| item.slug == game.slug) {
-            if focused || (!existing.focused && process.pid < existing.pid) {
-                existing.pid = process.pid;
-                existing.process_name = process.name.clone();
-                existing.focused = existing.focused || focused;
-            }
+        if let Some(existing) = matched.iter_mut().find(|item| item.game.slug == game.slug) {
+            existing.processes.push(process);
             continue;
         }
-        running.push(RunningGame {
-            slug: game.slug.clone(),
-            name: game.name.clone(),
-            publisher: game.publisher.clone(),
-            process_name: process.name.clone(),
-            pid: process.pid,
-            focused,
+        matched.push(Matched {
+            game,
+            processes: vec![process],
         });
     }
 
-    running.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+    let mut running: Vec<RunningGame> = Vec::new();
+    for item in matched {
+        let Some(process) =
+            select_game_process(&item.processes, foreground_pid, preferred_pid, visible_pids)
+        else {
+            continue;
+        };
+        running.push(RunningGame {
+            slug: item.game.slug.clone(),
+            name: item.game.name.clone(),
+            publisher: item.game.publisher.clone(),
+            process_name: process.name.clone(),
+            pid: process.pid,
+            focused: foreground_pid == Some(process.pid),
+        });
+    }
+
+    running.sort_by(|a, b| {
+        a.name
+            .to_ascii_lowercase()
+            .cmp(&b.name.to_ascii_lowercase())
+    });
 
     let primary = running
         .iter()
@@ -246,6 +277,64 @@ pub fn detect_games(
         },
         None => DetectedGameSnapshot::empty(),
     }
+}
+
+/// Focused process wins. A visible window wins over an earlier launcher.
+/// The previous choice is kept only while it is still one of these processes
+/// and none of them owns a visible window.
+fn select_game_process<'a>(
+    processes: &[&'a ProcessRef],
+    foreground_pid: Option<u32>,
+    preferred_pid: Option<u32>,
+    visible_pids: &[u32],
+) -> Option<&'a ProcessRef> {
+    if processes.is_empty() {
+        return None;
+    }
+    if let Some(focused) = processes
+        .iter()
+        .copied()
+        .find(|process| Some(process.pid) == foreground_pid)
+    {
+        return Some(focused);
+    }
+    let visible: Vec<&ProcessRef> = processes
+        .iter()
+        .copied()
+        .filter(|process| visible_pids.contains(&process.pid))
+        .collect();
+    if !visible.is_empty() {
+        return Some(prefer_game_process(&visible));
+    }
+    if let Some(preferred) =
+        preferred_pid.and_then(|pid| processes.iter().copied().find(|process| process.pid == pid))
+    {
+        return Some(preferred);
+    }
+    Some(prefer_game_process(processes))
+}
+
+/// Prefer the process that is not the parent of another match, then the
+/// later PID. The process that started first is usually the launcher.
+fn prefer_game_process<'a>(processes: &[&'a ProcessRef]) -> &'a ProcessRef {
+    let children: Vec<&ProcessRef> = processes
+        .iter()
+        .copied()
+        .filter(|process| {
+            !processes
+                .iter()
+                .any(|other| other.pid != process.pid && other.parent_pid == process.pid)
+        })
+        .collect();
+    let pool: &[&ProcessRef] = if children.is_empty() {
+        processes
+    } else {
+        &children
+    };
+    pool.iter()
+        .copied()
+        .max_by_key(|process| process.pid)
+        .unwrap_or(processes[0])
 }
 
 #[cfg(test)]
@@ -342,7 +431,10 @@ mod tests {
 
     #[test]
     fn glob_process_names_match_prefix() {
-        assert!(process_name_matches("*GTAProcess.exe", "FiveM_b3258_GTAProcess.exe"));
+        assert!(process_name_matches(
+            "*GTAProcess.exe",
+            "FiveM_b3258_GTAProcess.exe"
+        ));
         assert!(process_name_matches("GTA5.exe", "gta5.EXE"));
         assert!(!process_name_matches("*GTAProcess.exe", "FiveM.exe"));
         assert!(!process_name_matches("*GTAProcess.exe", "chrome.exe"));
@@ -432,7 +524,10 @@ mod tests {
             &catalog,
         );
         assert_eq!(snapshot.slug.as_deref(), Some("gta-v"));
-        assert_eq!(snapshot.process_name.as_deref(), Some("FiveM_b3258_GTAProcess.exe"));
+        assert_eq!(
+            snapshot.process_name.as_deref(),
+            Some("FiveM_b3258_GTAProcess.exe")
+        );
     }
 
     #[test]
@@ -468,5 +563,77 @@ mod tests {
         );
         assert_eq!(snapshot.slug.as_deref(), Some("wow-forever"));
         assert_eq!(snapshot.name.as_deref(), Some("World of Warcraft: Forever"));
+    }
+
+    fn valorant_processes(launcher: u32, game: u32) -> Vec<ProcessRef> {
+        vec![
+            ProcessRef {
+                pid: launcher,
+                parent_pid: 1,
+                name: "VALORANT-Win64-Shipping.exe".into(),
+            },
+            ProcessRef {
+                pid: game,
+                parent_pid: launcher,
+                name: "VALORANT-Win64-Shipping.exe".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn focused_process_wins_over_an_earlier_match() {
+        let snapshot = detect_games_with(
+            &valorant_processes(10, 80),
+            Some(80),
+            &catalog(),
+            Some(10),
+            &[10],
+        );
+        assert_eq!(snapshot.pid, Some(80));
+        assert!(snapshot.focused);
+    }
+
+    #[test]
+    fn visible_window_wins_over_the_lowest_pid() {
+        let snapshot = detect_games_with(
+            &valorant_processes(10, 80),
+            Some(1),
+            &catalog(),
+            None,
+            &[80],
+        );
+        assert_eq!(snapshot.pid, Some(80));
+        assert!(!snapshot.focused);
+    }
+
+    #[test]
+    fn visible_child_wins_over_a_visible_launcher() {
+        let snapshot = detect_games_with(
+            &valorant_processes(10, 80),
+            None,
+            &catalog(),
+            Some(10),
+            &[10, 80],
+        );
+        assert_eq!(snapshot.pid, Some(80));
+    }
+
+    #[test]
+    fn previous_choice_stays_when_no_window_is_visible() {
+        let snapshot =
+            detect_games_with(&valorant_processes(10, 80), None, &catalog(), Some(10), &[]);
+        assert_eq!(snapshot.pid, Some(10));
+    }
+
+    #[test]
+    fn dropped_previous_choice_does_not_fall_back_to_the_lowest_pid() {
+        let snapshot = detect_games_with(
+            &valorant_processes(10, 80),
+            None,
+            &catalog(),
+            Some(999),
+            &[],
+        );
+        assert_eq!(snapshot.pid, Some(80));
     }
 }

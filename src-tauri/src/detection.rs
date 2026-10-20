@@ -5,9 +5,11 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::database::AppState;
-use crate::games::{detect_games, load_catalog, DetectedGameSnapshot};
+use crate::games::{detect_games_with, load_catalog, DetectedGameSnapshot};
 use crate::process::{foreground_window, list_processes};
-use crate::unknown_game::{learn_unknown_foreground, remember_learned_game, snapshot_from_sighting};
+use crate::unknown_game::{
+    learn_unknown_foreground, remember_learned_game, snapshot_from_sighting,
+};
 
 pub struct DetectionState {
     pub current: Mutex<DetectedGameSnapshot>,
@@ -58,8 +60,15 @@ fn poll_once(app: &AppHandle) {
     let window = foreground_window();
     let fg = window.as_ref().map(|item| item.pid);
     let processes = list_processes();
-    let catalog_hit = detect_games(&processes, fg, &catalog);
     let detection = app.state::<DetectionState>();
+    let preferred_pid = current_snapshot(&detection).pid.filter(|id| *id != 0);
+    let visible_pids = crate::game_window::pids_with_capturable_window(
+        &processes
+            .iter()
+            .map(|process| process.pid)
+            .collect::<Vec<_>>(),
+    );
+    let catalog_hit = detect_games_with(&processes, fg, &catalog, preferred_pid, &visible_pids);
     let observed = if catalog_hit.focused {
         catalog_hit
     } else if let Some(pid) = fg {
@@ -68,7 +77,10 @@ fn poll_once(app: &AppHandle) {
             .find(|process| process.pid == pid)
             .map(|process| process.name.as_str())
             .unwrap_or("");
-        let title = window.as_ref().map(|item| item.title.as_str()).unwrap_or("");
+        let title = window
+            .as_ref()
+            .map(|item| item.title.as_str())
+            .unwrap_or("");
         let sighting = {
             let mut watch = match detection.unknown.lock() {
                 Ok(guard) => guard,
@@ -121,20 +133,25 @@ fn poll_once(app: &AppHandle) {
 
     log_foreground_vs_capture(app, &detection, fg);
 
-    #[cfg(windows)]
-    refresh_audio(app, &catalog, &snapshot);
-
     let rec = app.state::<crate::capture::RecordingState>();
     let ir_running = rec.ir_lock().is_some();
     // Health-check a locked IR target every poll; otherwise only sync when
     // detection actually changes (avoids idle scratch churn every 2s).
     if ir_running || changed {
-        if let Err(err) =
-            crate::capture::sync_replay(app, &rec, snapshot.pid, snapshot.name.clone(), snapshot.slug.clone())
-        {
+        if let Err(err) = crate::capture::sync_replay(
+            app,
+            &rec,
+            snapshot.pid,
+            snapshot.name.clone(),
+            snapshot.slug.clone(),
+        ) {
             tracing::warn!("replay retarget: {err}");
         }
     }
+
+    // After sync, so a retarget pins Game Audio to the process we just locked.
+    #[cfg(windows)]
+    refresh_audio(app, &catalog, &snapshot);
 
     if !changed {
         return;
@@ -191,7 +208,11 @@ fn log_foreground_vs_capture(app: &AppHandle, detection: &DetectionState, fg: Op
 }
 
 #[cfg(windows)]
-fn refresh_audio(app: &AppHandle, catalog: &[crate::games::GameRecord], snapshot: &crate::games::DetectedGameSnapshot) {
+fn refresh_audio(
+    app: &AppHandle,
+    catalog: &[crate::games::GameRecord],
+    snapshot: &crate::games::DetectedGameSnapshot,
+) {
     let settings = {
         let db = app.state::<AppState>();
         db.db

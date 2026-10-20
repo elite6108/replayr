@@ -6,6 +6,7 @@ use std::convert::TryInto;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
+use crate::still::StillFrame;
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
@@ -13,9 +14,6 @@ use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
     MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
 };
-use windows_capture::window::Window;
-
-use crate::still::StillFrame;
 
 use super::super::scene::CaptureKind;
 
@@ -83,7 +81,11 @@ impl GraphicsCaptureApiHandler for CaptureOnlySession {
 }
 
 impl ComposedCapture {
-    pub fn start(kind: CaptureKind, pid: Option<u32>, monitor_id: Option<&str>) -> Result<Self, String> {
+    pub fn start(
+        kind: CaptureKind,
+        pid: Option<u32>,
+        monitor_id: Option<&str>,
+    ) -> Result<Self, String> {
         let hub = CaptureHub::new();
         let control = match kind {
             CaptureKind::Display => {
@@ -91,10 +93,11 @@ impl ComposedCapture {
                 begin(monitor, Arc::clone(&hub))?
             }
             CaptureKind::Game | CaptureKind::Window => {
-                let pid = pid
-                    .filter(|value| *value != 0)
-                    .ok_or_else(|| "No game detected. Open a game or switch the source to Desktop.".to_string())?;
-                let window = window_for_pid(pid).ok_or_else(|| "No game window.".to_string())?;
+                let pid = pid.filter(|value| *value != 0).ok_or_else(|| {
+                    "No game detected. Open a game or switch the source to Desktop.".to_string()
+                })?;
+                let window = crate::game_window::window_for_pid(pid)
+                    .ok_or_else(|| "No game window.".to_string())?;
                 begin(window, Arc::clone(&hub))?
             }
         };
@@ -142,22 +145,6 @@ fn pack_frame(frame: &mut Frame) -> Option<StillFrame> {
         height,
         pitch,
     })
-}
-
-fn window_for_pid(pid: u32) -> Option<Window> {
-    let windows = Window::enumerate().ok()?;
-    let mut matches: Vec<Window> = windows
-        .into_iter()
-        .filter(|window| window.is_valid() && window.process_id().ok() == Some(pid))
-        .collect();
-    matches.sort_by_key(|window| {
-        let area = window
-            .width()
-            .unwrap_or(0)
-            .saturating_mul(window.height().unwrap_or(0));
-        std::cmp::Reverse(area)
-    });
-    matches.into_iter().next()
 }
 
 fn begin<T>(

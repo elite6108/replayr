@@ -1,6 +1,11 @@
 {
+  "0.1.72": [
+    "New clips start playing sooner.",
+    "The thumbnail stays up while a clip loads."
+  ],
   "0.1.71": [
-    "Click a title in Recent moments to rename that clip."
+    "Click a title in Recent moments to rename that clip.",
+    "Instant Replay records the detected game process, not an earlier launcher or the desktop."
   ],
   "0.1.70": [
     "Show in folder opens the clip saved in your library.",

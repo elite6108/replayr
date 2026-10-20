@@ -31,6 +31,7 @@ mod encode_pump;
 mod error;
 #[cfg(windows)]
 mod export;
+mod game_window;
 mod games;
 mod hotkeys;
 mod library;

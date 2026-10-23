@@ -6,7 +6,6 @@ import {
   FrameCorners,
   Gauge,
   Info,
-  Selection,
   Sparkle,
   SpeakerHigh,
   TextT,
@@ -14,6 +13,9 @@ import {
 import type { ClipSourceLayout, LocalClip } from "../../types/clip";
 import type { WebcamPlacement, WebcamShape } from "../../types/settings";
 import { formatBytes, formatDuration } from "../../utils/format";
+import { SECTION_SPEEDS, type SectionSpeed, type SectionText } from "./segments";
+
+const TEXT_COLORS = ["#ffffff", "#000000", "#ffe14a", "#ff4d4d", "#7fd0ef"];
 
 type Tool = "frame" | "audio" | "text" | "speed" | "effects";
 
@@ -47,6 +49,7 @@ export function EditorInspector({
   longSelection,
   selectedDurationMs,
   webcam,
+  treatment,
 }: {
   source: LocalClip;
   shortsMode: boolean;
@@ -61,6 +64,17 @@ export function EditorInspector({
   onResetPan: () => void;
   longSelection: boolean;
   selectedDurationMs: number;
+  treatment: {
+    gameVolume: number;
+    micVolume: number;
+    speed: SectionSpeed;
+    text: SectionText | null;
+    hasMic: boolean;
+    onGameVolume: (value: number) => void;
+    onMicVolume: (value: number) => void;
+    onSpeed: (speed: SectionSpeed) => void;
+    onText: (text: SectionText | null) => void;
+  };
   webcam: {
     layout: ClipSourceLayout;
     placements: { id: WebcamPlacement; label: string }[];
@@ -118,15 +132,6 @@ export function EditorInspector({
             </div>
             <p className={`editor-helper${frame === "short" ? " on" : ""}`}>{helper}</p>
             {longSelection ? <p className="editor-note">Longer than 60 seconds. You can still save.</p> : null}
-
-            <div className="editor-split">
-              <span className="editor-split-label">
-                <Selection size={13} aria-hidden="true" />
-                Auto reframe
-                <span className="editor-beta">Beta</span>
-              </span>
-              <button type="button" className="editor-toggle" disabled aria-pressed="false" title="Coming soon" aria-label="Auto reframe, coming soon" />
-            </div>
 
             <div className="editor-split">
               <span className="editor-split-label">
@@ -263,6 +268,116 @@ export function EditorInspector({
               Original recording stays unchanged.
             </p>
           </>
+        ) : tool === "audio" ? (
+          <>
+            <h2>Audio</h2>
+            <p className="editor-later">Levels are saved with this section. The slider under the video is only how loud you hear the preview.</p>
+            <label className="editor-slider editor-slider-row">
+              <span>Game</span>
+              <input
+                type="range"
+                min={0}
+                max={200}
+                step={1}
+                value={Math.round(treatment.gameVolume * 100)}
+                aria-label="Game volume"
+                onChange={(event) => treatment.onGameVolume(Number(event.currentTarget.value) / 100)}
+              />
+              <em>{Math.round(treatment.gameVolume * 100)}%</em>
+            </label>
+            {treatment.hasMic ? (
+              <label className="editor-slider editor-slider-row">
+                <span>Mic</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={200}
+                  step={1}
+                  value={Math.round(treatment.micVolume * 100)}
+                  aria-label="Microphone volume"
+                  onChange={(event) => treatment.onMicVolume(Number(event.currentTarget.value) / 100)}
+                />
+                <em>{Math.round(treatment.micVolume * 100)}%</em>
+              </label>
+            ) : (
+              <p className="editor-later">This clip has no microphone track.</p>
+            )}
+          </>
+        ) : tool === "text" ? (
+          <>
+            <h2>Text</h2>
+            <label className="editor-text-field">
+              <span>Label</span>
+              <input
+                type="text"
+                maxLength={80}
+                placeholder="Add text"
+                aria-label="Text"
+                value={treatment.text?.text ?? ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (!value.trim()) {
+                    treatment.onText(null);
+                    return;
+                  }
+                  treatment.onText({
+                    text: value,
+                    color: treatment.text?.color ?? "#ffffff",
+                    size: treatment.text?.size ?? 48,
+                    x: treatment.text?.x ?? 0.5,
+                    y: treatment.text?.y ?? 0.82,
+                  });
+                }}
+              />
+            </label>
+            <div className="editor-swatches" role="group" aria-label="Text color">
+              {TEXT_COLORS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  className={treatment.text?.color === color ? "on" : ""}
+                  style={{ background: color }}
+                  aria-label={color}
+                  disabled={!treatment.text}
+                  onClick={() => treatment.text && treatment.onText({ ...treatment.text, color })}
+                />
+              ))}
+            </div>
+            <label className={`editor-slider editor-slider-row${treatment.text ? "" : " is-disabled"}`}>
+              <span>Size</span>
+              <input
+                type="range"
+                min={24}
+                max={96}
+                step={2}
+                disabled={!treatment.text}
+                value={treatment.text?.size ?? 48}
+                aria-label="Text size"
+                onChange={(event) =>
+                  treatment.text && treatment.onText({ ...treatment.text, size: Number(event.currentTarget.value) })
+                }
+              />
+              <em>{treatment.text?.size ?? 48}</em>
+            </label>
+            <p className="editor-later">Drag the text on the video to place it.</p>
+          </>
+        ) : tool === "speed" ? (
+          <>
+            <h2>Speed</h2>
+            <div className="editor-speeds" role="group" aria-label="Playback speed">
+              {SECTION_SPEEDS.map((speed) => (
+                <button
+                  key={speed}
+                  type="button"
+                  className={treatment.speed === speed ? "on" : ""}
+                  onClick={() => treatment.onSpeed(speed)}
+                >
+                  {speed}×
+                </button>
+              ))}
+            </div>
+            <p className="editor-later">This section plays at {treatment.speed}×. The saved clip uses that speed.</p>
+          </>
         ) : (
           <p className="editor-later">Coming later</p>
         )}
@@ -278,8 +393,8 @@ export function EditorInspector({
               role="tab"
               aria-selected={active}
               className={active ? "on" : ""}
-              disabled={item.id !== "frame"}
-              title={item.id === "frame" ? undefined : `${item.label} tools are coming later`}
+              disabled={item.id === "effects"}
+              title={item.id === "effects" ? "Effects are coming later" : undefined}
               onClick={() => setTool(item.id)}
             >
               <Icon size={18} weight={active ? "fill" : "regular"} />

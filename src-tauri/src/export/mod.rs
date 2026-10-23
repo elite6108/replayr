@@ -1,4 +1,4 @@
-﻿mod audio;
+mod audio;
 mod compose;
 mod compose_scene;
 mod copy_remux;
@@ -8,6 +8,7 @@ mod progress;
 mod remux;
 mod session_place;
 mod types;
+mod treat;
 mod vertical;
 mod watermark;
 mod webcam;
@@ -30,6 +31,9 @@ pub use session_place::TimelineBasis;
 pub use types::{
     ComposeProgress, ComposeQuality, WebcamCompose, WebcamComposeOpts, CLOUD_COMPOSE_MAX_HEIGHT,
     CLOUD_COMPOSE_MAX_WIDTH,
+};
+pub use treat::{
+    sanitize_speed, section_is_identity, write_treated_section, write_treated_section_with, TreatedSection, TreatedText,
 };
 pub use vertical::write_vertical_mp4;
 pub use watermark::{should_watermark_exports, watermarked_temp, write_watermarked_mp4};

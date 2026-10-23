@@ -116,6 +116,36 @@ export async function saveSegmentedClip(
   });
 }
 
+export type TreatedSectionInput = {
+  startMs: number;
+  endMs: number;
+  gameVolume: number;
+  micVolume: number;
+  speed: number;
+  text: string;
+  textColor: string;
+  textSize: number;
+  textX: number;
+  textY: number;
+};
+
+/** Re-encodes sections that change volume, text, or speed. Plain sections stay lossless inside the command. */
+export async function saveTreatedClip(
+  sourceLocalId: string,
+  sections: TreatedSectionInput[],
+  vertical: boolean,
+  pan?: number,
+  title?: string,
+): Promise<LocalClip> {
+  return invoke("save_treated_clip", {
+    sourceLocalId,
+    sections,
+    vertical,
+    pan: pan == null ? 0.5 : Math.max(0, Math.min(1, pan)),
+    title,
+  });
+}
+
 export async function saveShortClip(
   sourceLocalId: string,
   startMs: number,

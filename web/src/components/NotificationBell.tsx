@@ -8,6 +8,7 @@ import {
   personName,
 } from "../lib/api.friends";
 import {
+  clearNotifications,
   fetchNotifications,
   readNotifications,
   type NotificationItem,
@@ -44,6 +45,7 @@ export function NotificationBell() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
@@ -99,12 +101,31 @@ export function NotificationBell() {
     setFriendsUnread(requests.incoming.length > 0);
   }
 
+  function dropItem(item: NotificationItem) {
+    setItems((current) => current.filter((row) => row.id !== item.id));
+    void clearNotifications(accessToken, [item.id]).catch(() => undefined);
+  }
+
+  async function clearAll() {
+    setClearing(true);
+    setError(null);
+    try {
+      await clearNotifications(accessToken);
+      setItems([]);
+      setNotificationsUnread(0);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not clear notifications.");
+    } finally {
+      setClearing(false);
+    }
+  }
+
   async function onAccept(item: NotificationItem) {
     if (!item.friendshipId) return;
     setBusyId(item.id);
     try {
       await acceptFriendRequest(accessToken, item.friendshipId);
-      setItems((current) => current.filter((row) => row.id !== item.id));
+      dropItem(item);
       await refreshFriendsFlag();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not accept that request.");
@@ -118,7 +139,7 @@ export function NotificationBell() {
     setBusyId(item.id);
     try {
       await declineFriendRequest(accessToken, item.friendshipId);
-      setItems((current) => current.filter((row) => row.id !== item.id));
+      dropItem(item);
       await refreshFriendsFlag();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not decline that request.");
@@ -128,6 +149,7 @@ export function NotificationBell() {
   }
 
   function openItem(item: NotificationItem) {
+    dropItem(item);
     setOpen(false);
     if (item.kind === "friend_request") {
       navigate("/friends?tab=requests");
@@ -181,9 +203,16 @@ export function NotificationBell() {
         <div className="header-popover" id={menuId} role="dialog" aria-label="Notifications">
           <div className="header-popover-head">
             <strong>Notifications</strong>
-            <Link to="/friends?tab=requests" onClick={() => setOpen(false)}>
-              View all
-            </Link>
+            <span className="header-popover-head-actions">
+              {items.length > 0 ? (
+                <button className="header-popover-text-btn" type="button" disabled={clearing} onClick={() => void clearAll()}>
+                  {clearing ? "Clearing…" : "Clear"}
+                </button>
+              ) : null}
+              <Link to="/friends?tab=requests" onClick={() => setOpen(false)}>
+                View all
+              </Link>
+            </span>
           </div>
           {error ? <p className="error">{error}</p> : null}
           {loading ? (

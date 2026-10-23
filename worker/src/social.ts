@@ -183,6 +183,7 @@ export async function handleSocial(request: Request, env: Env, url: URL): Promis
   if (send?.[1] && method === "POST") return sendClip(request, env, send[1]);
 
   if (path === "/v1/notifications" && method === "GET") return listNotifications(request, env, url);
+  if (path === "/v1/notifications" && method === "DELETE") return clearNotifications(request, env);
   if (path === "/v1/notifications/read" && method === "POST") return readNotifications(request, env);
 
   return null;
@@ -864,6 +865,21 @@ async function readNotifications(request: Request, env: Env): Promise<Response> 
     await serviceRest(env, "PATCH", `/notifications?user_id=eq.${user.id}&read_at=is.null`, { read_at: now });
   }
   return json({ read: true });
+}
+
+async function clearNotifications(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const body = await readJson(request);
+  const hasIds = Array.isArray(body.ids);
+  const ids = hasIds
+    ? body.ids.filter((id): id is string => typeof id === "string" && UUID.test(id)).slice(0, 50)
+    : [];
+  if (hasIds && ids.length === 0) throw new HttpError(400, "Those notifications were not found.");
+  const filter = ids.length
+    ? `/notifications?user_id=eq.${user.id}&id=in.(${ids.join(",")})`
+    : `/notifications?user_id=eq.${user.id}`;
+  await serviceRest(env, "DELETE", filter);
+  return json({ ok: true });
 }
 
 async function loadVisibleConversation(request: Request, env: Env, conversationId: string): Promise<ConversationSummary> {

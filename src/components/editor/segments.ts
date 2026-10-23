@@ -3,8 +3,77 @@
  * non-overlapping and at least `minMs` long. No React, no I/O.
  */
 
-export type Segment = { id: string; startMs: number; endMs: number };
+export const SECTION_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+export type SectionSpeed = (typeof SECTION_SPEEDS)[number];
+
+export type SectionText = {
+  text: string;
+  color: string;
+  size: number;
+  x: number;
+  y: number;
+};
+
+export type Segment = {
+  id: string;
+  startMs: number;
+  endMs: number;
+  /** Linear gain, 1 = 100%. Omitted means 100%. */
+  gameVolume?: number;
+  /** Webcam/mic gain. Omitted means 100%. Ignored when the clip has no webcam. */
+  micVolume?: number;
+  /** Omitted means 1×. */
+  speed?: number;
+  /** Empty or missing text means no overlay. */
+  text?: SectionText | null;
+};
 export type SegmentEdge = "start" | "end";
+
+export function sectionSpeed(segment: Segment | null | undefined): SectionSpeed {
+  const speed = segment?.speed;
+  if (speed == null || !Number.isFinite(speed)) return 1;
+  let nearest: SectionSpeed = 1;
+  let best = Infinity;
+  for (const option of SECTION_SPEEDS) {
+    const distance = Math.abs(option - speed);
+    if (distance < best) {
+      best = distance;
+      nearest = option;
+    }
+  }
+  return nearest;
+}
+
+export function sectionGain(value: number | null | undefined): number {
+  if (value == null || !Number.isFinite(value)) return 1;
+  return Math.max(0, Math.min(2, value));
+}
+
+export function sectionText(segment: Segment | null | undefined): SectionText | null {
+  const text = segment?.text;
+  if (!text || !text.text.trim()) return null;
+  const size = Number.isFinite(text.size) ? Math.max(18, Math.min(120, Math.round(text.size))) : 48;
+  const x = Number.isFinite(text.x) ? Math.max(0, Math.min(1, text.x)) : 0.5;
+  const y = Number.isFinite(text.y) ? Math.max(0, Math.min(1, text.y)) : 0.82;
+  return { text: text.text.trim().slice(0, 80), color: text.color || "#ffffff", size, x, y };
+}
+
+/** True when a save can stay a lossless trim: full volume, 1×, no text. */
+export function sectionIsIdentity(segment: Segment | null | undefined): boolean {
+  return sectionGain(segment?.gameVolume) === 1 && sectionGain(segment?.micVolume) === 1 && sectionSpeed(segment) === 1 && sectionText(segment) == null;
+}
+
+export function sectionsAreIdentity(segments: Segment[]): boolean {
+  return segments.every((segment) => sectionIsIdentity(segment));
+}
+
+/** Output length after each section is played at its speed. */
+export function outputDurationMs(segments: Segment[]): number {
+  return segments.reduce((sum, segment) => {
+    const length = Math.max(0, segment.endMs - segment.startMs);
+    return sum + length / sectionSpeed(segment);
+  }, 0);
+}
 
 let counter = 0;
 export function newSegmentId(): string {
@@ -53,7 +122,7 @@ export function splitAt(segments: Segment[], atMs: number, minMs: number): Segme
   const target = segments[index]!;
   if (at - target.startMs < minMs || target.endMs - at < minMs) return segments;
   const left: Segment = { ...target, endMs: at };
-  const right: Segment = { id: newSegmentId(), startMs: at, endMs: target.endMs };
+  const right: Segment = { ...target, id: newSegmentId(), startMs: at, endMs: target.endMs };
   return [...segments.slice(0, index), left, right, ...segments.slice(index + 1)];
 }
 
@@ -132,8 +201,9 @@ export function setOuterRange(
   durationMs: number,
 ): Segment[] {
   if (segments.length <= 1) {
-    const id = segments[0]?.id ?? newSegmentId();
-    return singleSegment(startMs, endMs, id);
+    const previous = segments[0];
+    const id = previous?.id ?? newSegmentId();
+    return [{ ...previous, id, startMs: round(startMs), endMs: round(endMs) }];
   }
   const first = segments[0]!;
   const last = segments[segments.length - 1]!;

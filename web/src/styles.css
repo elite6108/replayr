@@ -4123,9 +4123,28 @@ body:has(.home-stage) {
   gap: 12px;
 }
 
-.header-popover-head a {
+.header-popover-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-popover-head a,
+.header-popover-text-btn {
   color: var(--accent, #7fd0ef);
   font-size: 13px;
+}
+
+.header-popover-text-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.header-popover-text-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .header-popover-list {

@@ -165,6 +165,15 @@ export async function fetchNotifications(accessToken: string, limit = 30): Promi
   return body.notifications ?? [];
 }
 
+export async function clearNotifications(accessToken: string, ids?: string[]): Promise<void> {
+  const response = await fetch(`${publicApiUrl()}/v1/notifications`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken, true),
+    body: JSON.stringify(ids ? { ids } : {}),
+  });
+  await readApi<{ ok?: boolean }>(response, "Could not clear notifications.");
+}
+
 export async function readNotifications(accessToken: string, ids?: string[]): Promise<void> {
   const response = await fetch(`${publicApiUrl()}/v1/notifications/read`, {
     method: "POST",

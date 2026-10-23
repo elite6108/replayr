@@ -324,6 +324,203 @@ pub fn save_segmented_clip(
     }
 }
 
+/// Saves one or more sections. Plain full-volume 1× sections with no text stay
+/// on the lossless trim path. Anything else is re-encoded to match the preview.
+pub fn save_treated_clip(
+    app: &AppHandle,
+    source_local_id: &str,
+    sections: &[crate::export::TreatedSection],
+    title: Option<String>,
+) -> AppResult<LocalClipDto> {
+    if sections.is_empty() {
+        return Err(AppError::Message("Select at least one second.".into()));
+    }
+    if sections.len() > MAX_SEGMENTS {
+        return Err(AppError::Message(format!("Keep at most {MAX_SEGMENTS} sections.")));
+    }
+    let plain = sections.iter().all(crate::export::section_is_identity);
+    let vertical = sections.iter().any(|section| section.vertical_pan.is_some());
+    if plain && !vertical {
+        let ranges: Vec<(u64, u64)> = sections
+            .iter()
+            .map(|section| (section.start_ms, section.end_ms))
+            .collect();
+        return if ranges.len() == 1 {
+            save_trimmed_clip(app, source_local_id, ranges[0].0, ranges[0].1, title)
+        } else {
+            save_segmented_clip(app, source_local_id, &ranges, title)
+        };
+    }
+    if plain && vertical && sections.len() == 1 {
+        let section = &sections[0];
+        return save_short_clip(
+            app,
+            source_local_id,
+            section.start_ms,
+            section.end_ms,
+            section.vertical_pan.unwrap_or(0.5),
+            title,
+        );
+    }
+
+    let source = {
+        let db = app.state::<AppState>();
+        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        library::get(&conn, source_local_id)?
+    };
+    let path = PathBuf::from(&source.file_path);
+    if !path.exists() {
+        return Err(AppError::Message("That clip is no longer on disk.".into()));
+    }
+    let duration_ms = source.duration_ms.unwrap_or(0).max(0) as u64;
+    for section in sections {
+        validate_range(section.start_ms, section.end_ms, duration_ms).map_err(AppError::Message)?;
+    }
+    let dest_dir = path
+        .parent()
+        .ok_or_else(|| AppError::Message("That clip has no folder.".into()))?;
+    let dest = output_path(dest_dir, if vertical { "clip-short" } else { "clip-edit" }, "mp4");
+    let fps = source.fps.unwrap_or(60).clamp(24, 60) as u32;
+
+    #[cfg(not(windows))]
+    {
+        let _ = (dest, title, fps);
+        return Err(AppError::Message("That edit is only available on Windows.".into()));
+    }
+
+    #[cfg(windows)]
+    {
+        let webcam = library::valid_webcam_source(&source).map(|webcam| crate::export::WebcamCompose {
+            path: PathBuf::from(&webcam.file_path),
+            layout: crate::overlay::OverlayLayout::from_json(webcam.layout_json.as_deref()),
+        });
+        let scratch = dest_dir.join(".editor-tmp").join(
+            dest.file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("edit"),
+        );
+        std::fs::create_dir_all(&scratch).map_err(|err| AppError::Message(err.to_string()))?;
+        let _scratch_guard = RemoveDir(scratch.clone());
+
+        let mut pieces = Vec::with_capacity(sections.len());
+        let mut cursor_hns = 0_i64;
+        let mut written_total = 0_u64;
+        for (index, section) in sections.iter().enumerate() {
+            let piece = if sections.len() == 1 {
+                dest.clone()
+            } else {
+                scratch.join(format!("part-{index:02}.mp4"))
+            };
+            let app_progress = app.clone();
+            let section_number = index + 1;
+            let section_count = sections.len();
+            let mut last_emit = std::time::Instant::now() - std::time::Duration::from_secs(1);
+            let written_ms = crate::export::write_treated_section_with(
+                &path,
+                webcam.as_ref(),
+                &piece,
+                section,
+                fps,
+                &mut |frame, frames| {
+                    if frame != 1 && last_emit.elapsed() < std::time::Duration::from_millis(250) && frame < frames {
+                        return;
+                    }
+                    last_emit = std::time::Instant::now();
+                    let _ = app_progress.emit(
+                        "editor-save-progress",
+                        serde_json::json!({
+                            "section": section_number,
+                            "sections": section_count,
+                            "frame": frame,
+                            "frames": frames,
+                        }),
+                    );
+                },
+            )
+            .map_err(|err| {
+                let _ = std::fs::remove_file(&piece);
+                AppError::Message(err)
+            })?;
+            let length_ms = if written_ms > 0 {
+                written_ms as u64
+            } else {
+                let speed = crate::export::sanitize_speed(section.speed);
+                (((section.end_ms - section.start_ms) as f32) / speed).round().max(1.0) as u64
+            };
+            written_total += length_ms;
+            if sections.len() > 1 {
+                let length_hns = ms_to_hns(length_ms);
+                pieces.push(crate::export::ConcatSegment {
+                    path: piece,
+                    start_hns: cursor_hns,
+                    end_hns: cursor_hns + length_hns,
+                });
+                cursor_hns += length_hns;
+            }
+        }
+        if sections.len() > 1 {
+            crate::export::concat_mp4s(&pieces, &dest, 0).map_err(|err| {
+                let _ = std::fs::remove_file(&dest);
+                AppError::Message(err)
+            })?;
+        }
+        if let Err(err) = crate::export::faststart_mp4_in_place(&dest) {
+            tracing::warn!(%err, "fast-start skipped on the edited clip");
+        }
+
+        let (width, height) = if vertical {
+            (1080, 1920)
+        } else {
+            (
+                source.width.unwrap_or(0).max(0) as u32,
+                source.height.unwrap_or(0).max(0) as u32,
+            )
+        };
+        let preview = crate::thumb::frame_at(&dest, written_total / 2).ok();
+        let title = title
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| {
+                let suffix = if vertical { "Short" } else { "Edit" };
+                format!(
+                    "{} — {suffix}",
+                    source.title.as_deref().filter(|value| !value.is_empty()).unwrap_or("Clip")
+                )
+            });
+        let first_start = sections.first().map(|section| section.start_ms).unwrap_or(0);
+        let last_end = sections.last().map(|section| section.end_ms).unwrap_or(written_total);
+        let local_id = library::insert_derived(
+            app,
+            &dest,
+            written_total,
+            width,
+            height,
+            fps,
+            source.game_id.clone(),
+            title,
+            preview.as_ref(),
+            ClipLineage {
+                source_clip_id: source.local_id.clone(),
+                source_start_ms: first_start as i64,
+                source_end_ms: last_end as i64,
+            },
+        )?;
+        let _ = app.emit(
+            "local-clip-saved",
+            SavedClipEvent {
+                path: dest.display().to_string(),
+                kind: if vertical { "short" } else { "trim" }.into(),
+                local_id: local_id.clone(),
+            },
+        );
+        let db = app.state::<AppState>();
+        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        library::get(&conn, &local_id)
+    }
+}
+
 pub fn save_short_clip(
     app: &AppHandle,
     source_local_id: &str,

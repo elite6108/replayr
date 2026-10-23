@@ -550,6 +550,70 @@ pub async fn save_segmented_clip(
     .map_err(|err| AppError::Message(err.to_string()))?
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSectionInput {
+    pub start_ms: f64,
+    pub end_ms: f64,
+    pub game_volume: f64,
+    pub mic_volume: f64,
+    pub speed: f64,
+    pub text: String,
+    pub text_color: String,
+    pub text_size: f64,
+    pub text_x: f64,
+    pub text_y: f64,
+}
+
+#[tauri::command]
+pub async fn save_treated_clip(
+    app: AppHandle,
+    source_local_id: String,
+    sections: Vec<EditorSectionInput>,
+    vertical: Option<bool>,
+    pan: Option<f64>,
+    title: Option<String>,
+) -> AppResult<crate::library::LocalClipDto> {
+    if sections.len() > crate::editor::MAX_SEGMENTS {
+        return Err(AppError::Message(format!(
+            "Keep at most {} sections.",
+            crate::editor::MAX_SEGMENTS
+        )));
+    }
+    let vertical = vertical.unwrap_or(false);
+    let pan = pan.unwrap_or(0.5) as f32;
+    let sections: Vec<crate::export::TreatedSection> = sections
+        .into_iter()
+        .map(|section| {
+            let text = section.text.trim();
+            crate::export::TreatedSection {
+                start_ms: ms_arg(section.start_ms),
+                end_ms: ms_arg(section.end_ms),
+                game_volume: section.game_volume as f32,
+                mic_volume: section.mic_volume as f32,
+                speed: section.speed as f32,
+                text: if text.is_empty() {
+                    None
+                } else {
+                    Some(crate::export::TreatedText {
+                        text: text.to_string(),
+                        color: section.text_color,
+                        size: section.text_size.round().clamp(18.0, 120.0) as u32,
+                        x: section.text_x as f32,
+                        y: section.text_y as f32,
+                    })
+                },
+                vertical_pan: if vertical { Some(pan) } else { None },
+            }
+        })
+        .collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::editor::save_treated_clip(&app, &source_local_id, &sections, title)
+    })
+    .await
+    .map_err(|err| AppError::Message(err.to_string()))?
+}
+
 #[tauri::command]
 pub async fn save_short_clip(
     app: AppHandle,

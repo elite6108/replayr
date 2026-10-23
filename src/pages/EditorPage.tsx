@@ -1,4 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { CaretDown, CornersOut, Pause, Play, SkipBack, SkipForward, SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
@@ -13,7 +14,12 @@ import {
   mergeWithNext,
   nextSegmentAfter,
   outerRange,
+  outputDurationMs,
   removeSegment,
+  sectionGain,
+  sectionSpeed,
+  sectionText,
+  sectionsAreIdentity,
   segmentAt,
   segmentsToRanges,
   setOuterRange,
@@ -23,6 +29,7 @@ import {
   totalMs,
   viewSpanMs,
   zoomAround,
+  type SectionText,
   type Segment,
   type SegmentEdge,
   type TimelineMap,
@@ -33,6 +40,7 @@ import {
   revealLocalClip,
   saveSegmentedClip,
   saveShortClip,
+  saveTreatedClip,
   saveTrimmedClip,
   setClipEditorCrop,
   setClipSourceLayout,
@@ -87,6 +95,13 @@ function clampRange(startMs: number, endMs: number, durationMs: number): { start
   const start = Math.max(0, Math.min(asMs(startMs), duration - MIN_TRIM_MS));
   const end = Math.max(start + MIN_TRIM_MS, Math.min(asMs(endMs), duration));
   return { startMs: start, endMs: end };
+}
+
+function applyElementLevel(element: HTMLMediaElement | null, level: number) {
+  if (!element) return;
+  const gain = Number.isFinite(level) ? Math.max(0, level) : 0;
+  element.volume = Math.min(1, gain);
+  element.muted = gain === 0;
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -162,13 +177,63 @@ function panFromClientX(clientX: number, rect: DOMRect, windowPct: number): numb
   return clampPan(x / max);
 }
 
-function documentFromEditor(startMs: number, endMs: number, pan: number, webcam: ClipSourceLayout): FolderEditDocument {
+function documentFromEditor(
+  startMs: number,
+  endMs: number,
+  pan: number,
+  webcam: ClipSourceLayout,
+  segment: Segment | undefined,
+): FolderEditDocument {
   const layout = { ...webcam } as FolderEditDocument["webcam"];
+  const text = sectionText(segment);
   return {
     version: 1,
     trim: { startMs: asMs(startMs), endMs: asMs(endMs) },
     composition: { cropX: clampPan(pan), webcam: layout },
     webcam: layout,
+    audio: {
+      gameVolume: sectionGain(segment?.gameVolume),
+      micVolume: sectionGain(segment?.micVolume),
+      speed: sectionSpeed(segment),
+    },
+    overlays: text ? [{ kind: "text", ...text }] : [],
+  };
+}
+
+function treatmentFromDocument(data: FolderEditDocument | undefined): Pick<Segment, "gameVolume" | "micVolume" | "speed" | "text"> {
+  const audio = data?.audio as { gameVolume?: number; micVolume?: number; speed?: number } | undefined;
+  const overlay = (data?.overlays ?? []).find((item) => item.kind === "text" || typeof item.text === "string");
+  const text =
+    overlay && typeof overlay.text === "string"
+      ? {
+          text: overlay.text,
+          color: typeof overlay.color === "string" ? overlay.color : "#ffffff",
+          size: typeof overlay.size === "number" ? overlay.size : 48,
+          x: typeof overlay.x === "number" ? overlay.x : 0.5,
+          y: typeof overlay.y === "number" ? overlay.y : 0.82,
+        }
+      : null;
+  return {
+    gameVolume: audio?.gameVolume,
+    micVolume: audio?.micVolume,
+    speed: audio?.speed,
+    text,
+  };
+}
+
+function sectionInput(segment: Segment) {
+  const text = sectionText(segment);
+  return {
+    startMs: segment.startMs,
+    endMs: segment.endMs,
+    gameVolume: sectionGain(segment.gameVolume),
+    micVolume: sectionGain(segment.micVolume),
+    speed: sectionSpeed(segment),
+    text: text?.text ?? "",
+    textColor: text?.color ?? "#ffffff",
+    textSize: text?.size ?? 48,
+    textX: text?.x ?? 0.5,
+    textY: text?.y ?? 0.82,
   };
 }
 
@@ -268,6 +333,7 @@ export function EditorPage() {
   const [previewFit, setPreviewFit] = useState<"contain" | "cover">("contain");
   const [previewing, setPreviewing] = useState(false);
   const [savingKind, setSavingKind] = useState<SaveKind | null>(null);
+  const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [sharing, setSharing] = useState(false);
   const [sharingFile, setSharingFile] = useState(false);
   const [saved, setSaved] = useState<LocalClip | null>(null);
@@ -385,6 +451,21 @@ export function EditorPage() {
   }, [activeFolder, clips, editId, editorContext.kind, folderId, folderSession, getFolderEdit, openFolder, playFolderClip, setFolderEdit, setPersonal]);
 
   useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<{ section: number; sections: number; frame: number; frames: number }>("editor-save-progress", (event) => {
+      const { section, sections, frame, frames } = event.payload;
+      const within = frames > 0 ? Math.min(1, frame / frames) : 0;
+      const ratio = ((Math.max(1, section) - 1) + within) / Math.max(1, sections);
+      setSaveProgress(ratio);
+    }).then((stop) => {
+      unlisten = stop;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!loaded) return;
     if (folderId && editId) return;
     if (!source || !isVideoPath(source.filePath)) {
@@ -419,7 +500,8 @@ export function EditorPage() {
     const stored = folderSession?.editData;
     if (stored?.trim) {
       const next = clampRange(stored.trim.startMs, stored.trim.endMs || duration, duration);
-      setSegments(singleSegment(next.startMs, next.endMs));
+      const [base] = singleSegment(next.startMs, next.endMs);
+      setSegments([{ ...base!, ...treatmentFromDocument(stored) }]);
       setStartText(formatClock(next.startMs, true));
       setEndText(formatClock(next.endMs, true));
       setPan(clampPan(stored.composition?.cropX ?? source.editorCropX ?? 0.5));
@@ -696,11 +778,17 @@ export function EditorPage() {
   }, [applyRange, seekTo]);
 
   useEffect(() => {
+    const segment = segmentAt(segments, playheadMs) ?? segments[0];
+    const speed = sectionSpeed(segment);
     const video = videoRef.current;
-    if (!video) return;
-    video.volume = previewVolume;
-    video.muted = previewVolume === 0;
-  }, [previewVolume, source?.localId]);
+    const cam = webcamRef.current;
+    if (video && video.playbackRate !== speed) video.playbackRate = speed;
+    if (cam && cam.playbackRate !== speed) cam.playbackRate = speed;
+    // Local files are served from the asset host. Routing them through
+    // MediaElementSource plays silence, so the preview uses the element volume.
+    applyElementLevel(video, previewVolume * sectionGain(segment?.gameVolume));
+    applyElementLevel(cam, webcamSource ? previewVolume * sectionGain(segment?.micVolume) : 0);
+  }, [playheadMs, previewVolume, segments, webcamSource]);
 
   const selectedMs = multiSection ? totalMs(segments) : Math.max(0, endMs - startMs);
   const canSave =
@@ -832,7 +920,10 @@ export function EditorPage() {
       try {
         const savedEdit = await saveFolderEdit(folderSession.folderId, folderSession.sourceClipId, folderSession.editId, {
           expectedRevision: folderSession.revision,
-          editData: mergeFolderEditDocument(folderSession.editData, documentFromEditor(startMs, endMs, pan, webcamLayout)),
+          editData: mergeFolderEditDocument(
+            folderSession.editData,
+            documentFromEditor(startMs, endMs, pan, webcamLayout, segments[0]),
+          ),
         });
         if (savedEdit) {
           patchFolderEdit({ revision: savedEdit.revision, editData: savedEdit.editData, editName: savedEdit.name });
@@ -849,9 +940,12 @@ export function EditorPage() {
       return;
     }
     setSavingKind(kind);
+    setSaveProgress(0);
     try {
-      const next =
-        kind === "short"
+      const treated = !sectionsAreIdentity(segments);
+      const next = treated
+        ? await saveTreatedClip(source.localId, segments.map(sectionInput), kind === "short", pan)
+        : kind === "short"
           ? await saveShortClip(source.localId, asMs(startMs), asMs(endMs), pan)
           : kind === "sections"
             ? await saveSegmentedClip(source.localId, segmentsToRanges(segments))
@@ -887,6 +981,7 @@ export function EditorPage() {
       if (kind === "short") trackClipRenderFailed({ kind: "short", message });
     } finally {
       setSavingKind(null);
+      setSaveProgress(null);
       setSharing(false);
     }
   }
@@ -930,7 +1025,15 @@ export function EditorPage() {
     if (!folderSession || !localSource || saving) return;
     setSavingKind("trim");
     try {
-      const next = await saveTrimmedClip(localSource.localId, asMs(startMs), asMs(endMs), folderSession.editName);
+      const next = sectionsAreIdentity(segments)
+        ? await saveTrimmedClip(localSource.localId, asMs(startMs), asMs(endMs), folderSession.editName)
+        : await saveTreatedClip(
+            localSource.localId,
+            segments.map(sectionInput),
+            shortsMode,
+            pan,
+            folderSession.editName,
+          );
       await refresh();
       await ensureCloudUpload(next.localId);
       let cloudId: string | null = null;
@@ -972,7 +1075,28 @@ export function EditorPage() {
   const frameHeight = frameSize.height || source.height || 0;
   const sourceIs16x9 =
     frameWidth > 0 && frameHeight > 0 && Math.abs(frameWidth / frameHeight - 16 / 9) / (16 / 9) < 0.03;
-  const selectedDurationMs = Math.max(0, multiSection ? totalMs(segments) : endMs - startMs);
+  const editedSegment =
+    segments.find((segment) => segment.id === selectedSegmentId) ?? segmentAt(segments, playheadMs) ?? segments[0] ?? null;
+  const visibleSegment = segmentAt(segments, playheadMs) ?? segments[0] ?? null;
+  const visibleText = sectionText(visibleSegment);
+  const canvasHeight = shortsMode ? 1920 : frameHeight || 1080;
+  const treatment = {
+    gameVolume: sectionGain(editedSegment?.gameVolume),
+    micVolume: sectionGain(editedSegment?.micVolume),
+    speed: sectionSpeed(editedSegment),
+    text: sectionText(editedSegment),
+    hasMic: Boolean(webcamSource),
+    onGameVolume: (value: number) => patchEdited({ gameVolume: value }),
+    onMicVolume: (value: number) => patchEdited({ micVolume: value }),
+    onSpeed: (speed: Segment["speed"]) => patchEdited({ speed }),
+    onText: (text: SectionText | null) => patchEdited({ text }),
+  };
+  function patchEdited(patch: Partial<Segment>) {
+    if (!editedSegment) return;
+    const id = editedSegment.id;
+    setSegments((prev) => prev.map((segment) => (segment.id === id ? { ...segment, ...patch } : segment)));
+    if (playheadMs < editedSegment.startMs || playheadMs > editedSegment.endMs) seekTo(editedSegment.startMs);
+  }
   return (
     <div
       className="editor-studio"
@@ -989,6 +1113,7 @@ export function EditorPage() {
         onBack={() => closePlayer()}
         badge={folderSession ? "Shared Edit" : undefined}
         saving={saving}
+        progress={saveProgress}
         menu={
           <>
             <button
@@ -1067,8 +1192,10 @@ export function EditorPage() {
               if (video.videoWidth > 0 && video.videoHeight > 0) {
                 setFrameSize({ width: video.videoWidth, height: video.videoHeight });
               }
-              video.volume = previewVolume;
-              video.muted = previewVolume === 0;
+              applyElementLevel(
+                video,
+                previewVolume * sectionGain((segmentAt(segments, playheadMs) ?? segments[0])?.gameVolume),
+              );
               void ensureFirstFrame(video);
             }}
             onTimeUpdate={(event) => {
@@ -1129,7 +1256,6 @@ export function EditorPage() {
               <video
                 ref={webcamRef}
                 src={webcamMedia}
-                muted
                 playsInline
                 preload="auto"
                 controls={false}
@@ -1165,6 +1291,45 @@ export function EditorPage() {
                 style={{ left: `${(overlay.left + overlay.width) * 100}%`, right: 0 }}
               />
             </div>
+          ) : null}
+          {visibleText ? (
+            <button
+              type="button"
+              className="editor-text-overlay"
+              style={{
+                left: `${visibleText.x * 100}%`,
+                top: `${visibleText.y * 100}%`,
+                transform: "translate(-50%, -50%)",
+                color: visibleText.color,
+                fontSize: `${(visibleText.size / canvasHeight) * 100}cqh`,
+              }}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const preview = previewRef.current;
+                const id = visibleSegment?.id;
+                if (!preview || !id) return;
+                const rect = preview.getBoundingClientRect();
+                const move = (ev: PointerEvent) => {
+                  if (rect.width <= 0 || rect.height <= 0) return;
+                  const x = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+                  const y = Math.max(0, Math.min(1, (ev.clientY - rect.top) / rect.height));
+                  setSegments((prev) =>
+                    prev.map((segment) =>
+                      segment.id === id && segment.text ? { ...segment, text: { ...segment.text, x, y } } : segment,
+                    ),
+                  );
+                };
+                const up = () => {
+                  window.removeEventListener("pointermove", move);
+                  window.removeEventListener("pointerup", up);
+                };
+                window.addEventListener("pointermove", move);
+                window.addEventListener("pointerup", up);
+              }}
+            >
+              {visibleText.text}
+            </button>
           ) : null}
         </div>
         </div>
@@ -1250,7 +1415,8 @@ export function EditorPage() {
           persistPan(0.5);
         }}
         longSelection={longShort && shortsMode}
-        selectedDurationMs={selectedDurationMs}
+        selectedDurationMs={outputDurationMs(segments)}
+        treatment={treatment}
         webcam={
           webcamMedia
             ? {

@@ -168,6 +168,8 @@
 }
 
 .editor-save .btn.primary.editor-save-btn {
+  position: relative;
+  overflow: hidden;
   height: 34px;
   padding: 0 15px;
   border-radius: 7px;
@@ -178,6 +180,21 @@
   font-size: 12px;
   font-weight: 650;
   gap: 8px;
+}
+
+.editor-save-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(4, 20, 24, 0.28);
+}
+
+.editor-save-progress > span {
+  display: block;
+  height: 100%;
+  background: #041418;
 }
 
 .editor-save .btn.primary.editor-save-btn:hover:not(:disabled) {
@@ -772,6 +789,81 @@
   padding-top: 8px;
 }
 
+.editor-text-field {
+  display: grid;
+  gap: 6px;
+  color: var(--editor-secondary);
+  font-size: 11px;
+}
+
+.editor-text-field input {
+  width: 100%;
+  border: 1px solid var(--editor-border-strong);
+  border-radius: 8px;
+  background: var(--editor-panel-2);
+  color: var(--editor-text);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.editor-swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.editor-swatches button {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  padding: 0;
+}
+
+.editor-swatches button.on {
+  border-color: var(--accent);
+}
+
+.editor-speeds {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.editor-speeds button {
+  border: 1px solid var(--editor-border-strong);
+  border-radius: 8px;
+  background: var(--editor-panel-2);
+  color: var(--editor-secondary);
+  padding: 8px 0;
+  font: inherit;
+}
+
+.editor-speeds button.on {
+  border-color: transparent;
+  background: rgba(0, 216, 240, 0.14);
+  color: var(--accent);
+}
+
+.editor-text-overlay {
+  position: absolute;
+  z-index: 7;
+  max-width: 80%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-weight: 650;
+  line-height: 1.15;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+  cursor: grab;
+  user-select: none;
+}
+
+.editor-text-overlay:active {
+  cursor: grabbing;
+}
+
 .editor-webcam-controls {
   display: grid;
   gap: 8px;
@@ -926,21 +1018,6 @@
 
 .editor-tl-icon:disabled {
   opacity: 0.45;
-}
-
-.editor-tl-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 8px;
-  margin-left: 2px;
-  border: 1px solid var(--editor-border-strong);
-  border-radius: 6px;
-  background: var(--editor-panel-2);
-  color: var(--editor-secondary);
-  font-size: 9px;
-  opacity: 0.75;
 }
 
 .editor-tl-sections {

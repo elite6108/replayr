@@ -57,6 +57,53 @@ test("splitAt divides a segment at the playhead", () => {
   assert.equal(split[0]!.id, "a");
 });
 
+test("splitAt copies volume, text, and speed onto both pieces", () => {
+  const base: ReturnType<typeof singleSegment> = [
+    {
+      id: "a",
+      startMs: 0,
+      endMs: 10_000,
+      gameVolume: 0.5,
+      micVolume: 1.5,
+      speed: 2,
+      text: { text: "Nice", color: "#ffffff", size: 48, x: 0.4, y: 0.7 },
+    },
+  ];
+  const split = splitAt(base, 4_000, MIN);
+  assert.equal(split[0]!.gameVolume, 0.5);
+  assert.equal(split[1]!.gameVolume, 0.5);
+  assert.equal(split[1]!.micVolume, 1.5);
+  assert.equal(split[1]!.speed, 2);
+  assert.equal(split[1]!.text?.text, "Nice");
+  assert.notEqual(split[1]!.id, "a");
+});
+
+test("mergeWithNext keeps the selected section's settings", () => {
+  const segments = [
+    { id: "a", startMs: 0, endMs: 4_000, speed: 0.5, gameVolume: 0.25, text: { text: "Keep", color: "#fff", size: 32, x: 0.5, y: 0.5 } },
+    { id: "b", startMs: 6_000, endMs: 10_000, speed: 2, gameVolume: 2, text: { text: "Drop", color: "#000", size: 32, x: 0.2, y: 0.2 } },
+  ];
+  const merged = mergeWithNext(segments, "a");
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]!.speed, 0.5);
+  assert.equal(merged[0]!.gameVolume, 0.25);
+  assert.equal(merged[0]!.text?.text, "Keep");
+  assert.deepEqual([merged[0]!.startMs, merged[0]!.endMs], [0, 10_000]);
+});
+
+test("setOuterRange keeps treatment on a single section", () => {
+  const next = setOuterRange(
+    [{ id: "a", startMs: 0, endMs: 10_000, speed: 1.5, gameVolume: 0.8 }],
+    2_000,
+    8_000,
+    MIN,
+    10_000,
+  );
+  assert.equal(next[0]!.speed, 1.5);
+  assert.equal(next[0]!.gameVolume, 0.8);
+  assert.deepEqual([next[0]!.startMs, next[0]!.endMs], [2_000, 8_000]);
+});
+
 test("splitAt refuses cuts that leave a side shorter than the minimum", () => {
   const base = singleSegment(0, 10_000, "a");
   assert.equal(splitAt(base, 500, MIN), base);

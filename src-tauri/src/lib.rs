@@ -275,6 +275,7 @@ pub fn run() {
             commands::save_trimmed_clip,
             commands::save_segmented_clip,
             commands::save_short_clip,
+            commands::save_treated_clip,
             commands::list_clip_filmstrip,
             commands::get_clip_waveform,
             commands::set_clip_editor_crop,

@@ -6,7 +6,6 @@ import {
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
   Scissors,
-  Selection,
   SpeakerHigh,
   Trash,
 } from "@phosphor-icons/react";
@@ -237,11 +236,6 @@ export function EditorTimeline({
             <ArrowsInLineHorizontal size={14} />
           </button>
         ) : null}
-        <span className="editor-tl-chip" title="Coming soon">
-          <Selection size={12} />
-          Auto Reframe
-          <span className="editor-beta">Beta</span>
-        </span>
         {segments.length > 1 ? (
           <span className="editor-tl-sections">
             {segments.length} sections · {formatDuration(totalMs(segments))} kept

@@ -9,6 +9,7 @@ export function EditorHeader({
   onBack,
   badge,
   saving,
+  progress,
   menu,
 }: {
   title: string;
@@ -17,6 +18,7 @@ export function EditorHeader({
   onBack: () => void;
   badge?: string;
   saving: boolean;
+  progress?: number | null;
   menu: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -67,7 +69,12 @@ export function EditorHeader({
             onClick={() => setOpen((value) => !value)}
           >
             <Export size={15} weight="bold" />
-            {saving ? "Saving…" : "Save Clip"}
+            {saving ? (progress == null ? "Saving…" : `Saving ${Math.round(progress * 100)}%`) : "Save Clip"}
+            {saving && progress != null ? (
+              <span className="editor-save-progress" aria-hidden="true">
+                <span style={{ width: `${Math.round(progress * 100)}%` }} />
+              </span>
+            ) : null}
           </button>
           {open ? (
             <div className="editor-save-menu" role="menu" onClick={() => setOpen(false)}>

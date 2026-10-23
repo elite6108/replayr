@@ -12,6 +12,7 @@ commands.allow = [
   "save_trimmed_clip",
   "save_segmented_clip",
   "save_short_clip",
+  "save_treated_clip",
   "list_clip_filmstrip",
   "get_clip_waveform",
   "set_clip_editor_crop",

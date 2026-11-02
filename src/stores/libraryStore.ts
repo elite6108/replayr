@@ -16,6 +16,7 @@ import {
   setLocalClipFavorite,
   uploadLocalClip,
 } from "../services/tauri";
+import { isUnsentCloudOnly, shouldReleaseLocalCopy } from "../services/cloudRelease";
 import { shouldAutoUpload, shouldDeferUpload } from "../services/cloudUploadPolicy";
 import type { LocalClip } from "../types/clip";
 import type { CloudUploadEvent, UploadQueueItem, UploadQueuePhase } from "../types/upload";
@@ -182,6 +183,21 @@ function enqueueJob(localId: string): Promise<void> {
   return work;
 }
 
+async function releaseUploadedCopy(localId: string) {
+  try {
+    await deleteLocalClip(localId);
+  } catch (caught) {
+    useToastStore.getState().show(invokeErrorMessage(caught, "Saved to the cloud. This PC’s copy is still here."));
+    return;
+  }
+  const state = useLibraryStore.getState();
+  useLibraryStore.setState({
+    clips: state.clips.filter((item) => item.localId !== localId),
+    playingId: state.playingId === localId ? null : state.playingId,
+    selectedIds: state.selectedIds.filter((id) => id !== localId),
+  });
+}
+
 async function runUploadWork(localId: string) {
   const token = useAuthStore.getState().session?.access_token;
   if (!token) {
@@ -190,8 +206,20 @@ async function runUploadWork(localId: string) {
   }
   const next = await uploadLocalClip(localId, token, publicAppUrl());
   useLibraryStore.setState({ clips: patchClip(useLibraryStore.getState().clips, next) });
-  await useCloudStore.getState().refresh();
-  await useAuthStore.getState().refreshProfile();
+  if (shouldReleaseLocalCopy(next)) await releaseUploadedCopy(localId);
+  try {
+    await useCloudStore.getState().refresh();
+    await useAuthStore.getState().refreshProfile();
+  } catch (caught) {
+    console.warn("cloud refresh after upload failed", caught);
+  }
+}
+
+function settleCloudOnlyClips() {
+  for (const clip of useLibraryStore.getState().clips) {
+    if (isUnsentCloudOnly(clip)) enqueueOrUpload(clip.localId, clip);
+    else if (shouldReleaseLocalCopy(clip)) void releaseUploadedCopy(clip.localId);
+  }
 }
 
 async function drainUploadQueue() {
@@ -298,6 +326,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       const clip = get().clips.find((item) => item.localId === localId);
       enqueueOrUpload(localId, clip);
     }
+    settleCloudOnlyClips();
     if (!listening) {
       listening = true;
       await listen<{ localId?: string; path: string; kind: string }>("local-clip-saved", (event) => {
@@ -327,6 +356,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         if (prev.settings.cloudUploadWhen === "afterGame" && state.settings.cloudUploadWhen === "immediate") {
           flushDeferredUploads();
         }
+      });
+      useAuthStore.subscribe((state, prev) => {
+        if (!prev.user && state.user) settleCloudOnlyClips();
       });
     }
   },

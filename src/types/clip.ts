@@ -40,6 +40,8 @@ export interface LocalClip {
   fps: number | null;
   fileSize: number | null;
   uploadStatus: LocalUploadStatus;
+  /** Set when this clip was saved with "Keep a copy on this PC" off. */
+  releaseLocal?: boolean;
   favorite: boolean;
   title: string | null;
   description: string | null;

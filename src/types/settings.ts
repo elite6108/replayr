@@ -200,6 +200,8 @@ export interface AppSettings {
   hotkeys: Record<HotkeyAction, string>;
   autoUpload: AutoUploadMode;
   cloudUploadWhen: CloudUploadWhen;
+  /** When false, a new clip is removed from this PC after the cloud copy is ready. */
+  keepLocalClips: boolean;
   uploadBandwidthLimit: BandwidthLimit;
   customBandwidthKbps: number;
   pauseUploadsWhileGaming: boolean;
@@ -259,6 +261,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hotkeys: { ...DEFAULT_HOTKEYS },
   autoUpload: "all",
   cloudUploadWhen: "afterGame",
+  keepLocalClips: false,
   uploadBandwidthLimit: "unlimited",
   customBandwidthKbps: 10000,
   pauseUploadsWhileGaming: true,

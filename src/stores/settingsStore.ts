@@ -85,6 +85,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     ...DEFAULT_SETTINGS,
     ...settings,
     cloudUploadWhen: resolveCloudUploadWhen(settings),
+    keepLocalClips: settings.keepLocalClips === true,
     resolution: parseCaptureResolution(settings.resolution),
     codec: "h264",
     micGain: typeof settings.micGain === "number" ? settings.micGain : DEFAULT_SETTINGS.micGain,

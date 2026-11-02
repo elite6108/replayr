@@ -9,11 +9,29 @@ export function CloudSettings({
   settings: AppSettings;
   onChange: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
 }) {
-  const autoOff = settings.autoUpload === "off";
+  const scheduleUploads = !settings.keepLocalClips || settings.autoUpload !== "off";
 
   return (
     <>
-      <p className="muted">Signed-in uploads go Desktop → R2. This PC still keeps the original file.</p>
+      <p className="muted">
+        Signed-in clips upload to the cloud. With Keep a copy on this PC off, this PC’s file is removed after that
+        upload succeeds.
+      </p>
+      <label className="setting-row">
+        <span className="setting-copy">
+          Keep a copy on this PC
+          <small>
+            Off removes this PC’s copy after the clip reaches the cloud. On keeps the file and follows the upload rules
+            below. A failed upload or a signed-out save stays on this PC. The original recording stays either way.
+          </small>
+        </span>
+        <input
+          className="switch"
+          type="checkbox"
+          checked={settings.keepLocalClips}
+          onChange={(event) => void onChange("keepLocalClips", event.target.checked)}
+        />
+      </label>
       <div className="settings-fields">
         <div className="field">
           <label htmlFor="auto-upload">Automatically upload clips</label>
@@ -22,7 +40,9 @@ export function CloudSettings({
             value={settings.autoUpload}
             onChange={(event) => void onChange("autoUpload", event.target.value as AppSettings["autoUpload"])}
           >
-            <option value="off">Off — keep clips on this PC only</option>
+            <option value="off">
+              {settings.keepLocalClips ? "Off — keep clips on this PC only" : "Off — new clips still upload"}
+            </option>
             <option value="favorites">Favorites only</option>
             <option value="all">All clips</option>
           </select>
@@ -32,7 +52,7 @@ export function CloudSettings({
           <select
             id="cloud-upload-when"
             value={settings.cloudUploadWhen}
-            disabled={autoOff}
+            disabled={!scheduleUploads}
             onChange={(event) => void onChange("cloudUploadWhen", event.target.value as AppSettings["cloudUploadWhen"])}
           >
             <option value="immediate">Right after recording</option>

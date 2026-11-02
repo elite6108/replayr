@@ -77,7 +77,14 @@ pub struct LocalClipDto {
     pub tags: Vec<String>,
     #[serde(default)]
     pub sources: Vec<ClipSourceDto>,
+    /// This PC's file can be removed after a successful cloud upload.
+    #[serde(default)]
+    pub release_local: bool,
 }
+
+const CLIP_COLUMNS: &str = "local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
+                duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
+                source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind, tags, release_local";
 
 pub struct ClipLineage {
     pub source_clip_id: String,
@@ -190,12 +197,13 @@ fn insert_row(
     lineage: Option<&ClipLineage>,
     webcam_layout: Option<OverlayLayout>,
 ) -> AppResult<()> {
+    let release_local = release_local_for_new_clip(conn, capture_kind);
     conn.execute(
         "INSERT INTO local_clips (
             local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
             duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-            source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind
-         ) VALUES (?1, NULL, ?2, ?3, ?4, datetime('now'), ?5, ?6, ?7, ?8, ?9, 'local', 0, ?10, NULL, ?11, ?12, ?13, 0.5, ?14)",
+            source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind, release_local
+         ) VALUES (?1, NULL, ?2, ?3, ?4, datetime('now'), ?5, ?6, ?7, ?8, ?9, 'local', 0, ?10, NULL, ?11, ?12, ?13, 0.5, ?14, ?15)",
         rusqlite::params![
             local_id,
             path.display().to_string(),
@@ -211,6 +219,7 @@ fn insert_row(
             lineage.map(|row| row.source_start_ms),
             lineage.map(|row| row.source_end_ms),
             capture_kind.as_str(),
+            if release_local { 1 } else { 0 },
         ],
     )?;
     attach_saved_sources(
@@ -452,14 +461,8 @@ fn map_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipSourceDto> {
 }
 
 pub fn list(conn: &Connection, limit: i64) -> AppResult<Vec<LocalClipDto>> {
-    let mut stmt = conn.prepare(
-        "SELECT local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
-                duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-                source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind, tags
-         FROM local_clips
-         ORDER BY created_at DESC
-         LIMIT ?1",
-    )?;
+    let sql = format!("SELECT {CLIP_COLUMNS} FROM local_clips ORDER BY created_at DESC LIMIT ?1");
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([limit], map_clip)?;
     let mut clips = Vec::new();
     for row in rows {
@@ -681,11 +684,56 @@ pub fn delete(conn: &Connection, local_id: &str) -> AppResult<()> {
     if play != Path::new(&clip.file_path) {
         paths.push(play.to_string_lossy().into_owned());
     }
+    // Decide ownership before the row disappears. A derived clip must not erase the
+    // recording it was cut from, even if a source row points at that file.
+    let paths: Vec<String> = paths
+        .into_iter()
+        .filter(|path| path_is_safe_to_remove(conn, local_id, path))
+        .collect();
     conn.execute("DELETE FROM local_clips WHERE local_id = ?1", [local_id])?;
     for path in paths {
         remove_media(&path);
     }
     Ok(())
+}
+
+fn release_local_for_new_clip(conn: &Connection, capture_kind: CaptureKind) -> bool {
+    // Full recordings stay on this PC. Cloud-only applies to clips: Instant Replay, editor, and shorts.
+    if capture_kind != CaptureKind::Clip {
+        return false;
+    }
+    match crate::settings::load(conn) {
+        Ok(settings) => !settings.keep_local_clips,
+        Err(err) => {
+            tracing::warn!(%err, "keeping the new clip on this PC because settings could not be read");
+            false
+        }
+    }
+}
+
+fn path_is_safe_to_remove(conn: &Connection, local_id: &str, path: &str) -> bool {
+    let path = path.trim();
+    if path.is_empty() {
+        return false;
+    }
+    let owned_elsewhere = conn.query_row(
+        "SELECT 1 FROM local_clips
+         WHERE local_id != ?1 AND (file_path = ?2 OR IFNULL(thumbnail_path, '') = ?2)
+         UNION
+         SELECT 1 FROM clip_sources
+         WHERE clip_id != ?1 AND file_path = ?2
+         LIMIT 1",
+        rusqlite::params![local_id, path],
+        |_| Ok(true),
+    );
+    match owned_elsewhere {
+        Ok(_) => false,
+        Err(rusqlite::Error::QueryReturnedNoRows) => true,
+        Err(err) => {
+            tracing::warn!(%err, "skipping a file delete because ownership could not be checked");
+            false
+        }
+    }
 }
 
 pub fn set_editor_crop(app: &AppHandle, local_id: &str, pan: f32) -> AppResult<LocalClipDto> {
@@ -769,14 +817,8 @@ pub fn prepare_playback(app: &AppHandle, local_id: &str) -> AppResult<String> {
 }
 
 pub fn get(conn: &Connection, local_id: &str) -> AppResult<LocalClipDto> {
-    conn.query_row(
-        "SELECT local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
-                duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-                source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind, tags
-         FROM local_clips WHERE local_id = ?1",
-        [local_id],
-        map_clip,
-    )
+    let sql = format!("SELECT {CLIP_COLUMNS} FROM local_clips WHERE local_id = ?1");
+    conn.query_row(&sql, [local_id], map_clip)
     .map_err(|err| match err {
         rusqlite::Error::QueryReturnedNoRows => AppError::Message("Clip not found.".into()),
         other => AppError::Sqlite(other),
@@ -848,6 +890,7 @@ fn map_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalClipDto> {
         capture_kind: row.get(19)?,
         tags: parse_tags(row.get(20)?),
         sources: Vec::new(),
+        release_local: row.get::<_, i64>(21)? != 0,
     })
 }
 
@@ -918,6 +961,122 @@ mod tests {
         assert!(fav.favorite);
         delete(&conn, "clip-1").unwrap();
         assert!(get(&conn, "clip-1").is_err());
+    }
+
+    #[test]
+    fn new_clips_follow_keep_local_setting() {
+        let dir = tempdir().unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+        let cloud_only = dir.path().join("cloud-only.mp4");
+        insert_row(
+            &conn,
+            "clip-cloud",
+            &cloud_only,
+            None,
+            None,
+            1000,
+            1920,
+            1080,
+            60,
+            10,
+            "Cloud only".into(),
+            CaptureKind::Clip,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(get(&conn, "clip-cloud").unwrap().release_local);
+
+        let recording = dir.path().join("recording.mp4");
+        insert_row(
+            &conn,
+            "rec-1",
+            &recording,
+            None,
+            None,
+            1000,
+            1920,
+            1080,
+            60,
+            10,
+            "Recording".into(),
+            CaptureKind::Recording,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(!get(&conn, "rec-1").unwrap().release_local);
+
+        let mut settings = crate::settings::load(&conn).unwrap();
+        settings.keep_local_clips = true;
+        crate::settings::save(&conn, &settings).unwrap();
+        let kept = dir.path().join("kept.mp4");
+        insert_row(
+            &conn,
+            "clip-kept",
+            &kept,
+            None,
+            None,
+            1000,
+            1920,
+            1080,
+            60,
+            10,
+            "Kept".into(),
+            CaptureKind::Clip,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(!get(&conn, "clip-kept").unwrap().release_local);
+        assert!(get(&conn, "clip-cloud").unwrap().release_local);
+    }
+
+    #[test]
+    fn delete_does_not_remove_another_clips_file() {
+        let dir = tempdir().unwrap();
+        let recording = dir.path().join("recording.mp4");
+        let derived = dir.path().join("derived.mp4");
+        std::fs::write(&recording, b"recording").unwrap();
+        std::fs::write(&derived, b"derived").unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+        seed(&conn, "recording", "Recording");
+        seed(&conn, "derived", "Derived");
+        conn.execute(
+            "UPDATE local_clips SET file_path = ?1 WHERE local_id = 'recording'",
+            [recording.display().to_string()],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE local_clips SET file_path = ?1 WHERE local_id = 'derived'",
+            [derived.display().to_string()],
+        )
+        .unwrap();
+        attach_source(
+            &conn,
+            NewClipSource {
+                clip_id: "derived",
+                source_instance_id: "gameplay",
+                kind: "gameplay",
+                file_path: &recording.display().to_string(),
+                role: "base",
+                start_hns: 0,
+                duration_hns: Some(1),
+                width: None,
+                height: None,
+                fps: None,
+                health: "valid",
+                layout_json: None,
+            },
+        )
+        .unwrap();
+        delete(&conn, "derived").unwrap();
+        assert!(recording.exists(), "the source recording stays on disk");
+        assert!(!derived.exists(), "the derived clip file is removed");
+        assert!(get(&conn, "recording").is_ok());
+        assert!(get(&conn, "derived").is_err());
     }
 
     #[test]

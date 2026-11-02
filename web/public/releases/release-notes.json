@@ -1,4 +1,7 @@
 {
+  "0.1.75": [
+    "New clips upload to the cloud, then this PC’s copy is removed. Turn on Keep a copy on this PC to leave the file here too."
+  ],
   "0.1.74": [
     "Premium can find vertical shorts from the commentary in a clip. Play one, then save the ones you want.",
     "Hover the timeline and click the scissors to cut at that time."

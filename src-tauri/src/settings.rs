@@ -162,6 +162,9 @@ pub struct AppSettings {
     /// When clips upload: "immediate" after save, or "afterGame" when the session ends.
     #[serde(default = "default_cloud_upload_when")]
     pub cloud_upload_when: String,
+    /// When false, a new clip is removed from this PC after its cloud copy is ready.
+    #[serde(default)]
+    pub keep_local_clips: bool,
     pub upload_bandwidth_limit: String,
     pub custom_bandwidth_kbps: u32,
     #[serde(default = "default_true")]
@@ -624,6 +627,7 @@ impl Default for AppSettings {
             hotkeys: Hotkeys::default(),
             auto_upload: "all".into(),
             cloud_upload_when: default_cloud_upload_when(),
+            keep_local_clips: false,
             upload_bandwidth_limit: "unlimited".into(),
             custom_bandwidth_kbps: 10000,
             pause_uploads_while_gaming: true,
@@ -1005,6 +1009,14 @@ mod tests {
         assert_eq!(loaded.recording_visuals.filter, "none");
         assert!(!loaded.recording_visuals.overlays.rec_indicator);
         assert!(!loaded.recording_visuals.overlays.timestamp);
+    }
+
+    #[test]
+    fn keep_local_clips_defaults_off_when_missing() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("keepLocalClips");
+        let loaded: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(!loaded.keep_local_clips);
     }
 
     #[test]

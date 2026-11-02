@@ -2,7 +2,7 @@ import type { LocalClip, LocalUploadStatus } from "../types/clip";
 import type { DetectedGameSnapshot } from "../types/game";
 import type { RecordingStatus, ReplayStatus } from "../types/recording";
 import type { AppSettings } from "../types/settings";
-import { isVideoPath } from "../utils/format";
+import { isVideoPath } from "../utils/format.ts";
 
 const BUSY_UPLOAD: LocalUploadStatus[] = ["queued", "preparing", "uploading", "processing"];
 
@@ -23,6 +23,8 @@ export function shouldAutoUpload(
   if (!clip || !isVideoPath(clip.filePath)) return false;
   if (isUploadSettled(clip)) return false;
   if (!signedIn) return false;
+  // Cloud-only clips still upload when automatic upload is Off or Favorites.
+  if (clip.releaseLocal) return true;
   if (settings.autoUpload === "off") return false;
   if (settings.autoUpload === "favorites") return clip.favorite;
   return true;

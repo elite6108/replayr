@@ -1,0 +1,1 @@
+ALTER TABLE local_clips ADD COLUMN release_local INTEGER NOT NULL DEFAULT 0;

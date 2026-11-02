@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import {
   ArrowsInLineHorizontal,
   Eye,
@@ -81,6 +81,7 @@ export function EditorTimeline({
   onPlayheadPointerDown,
   onSelectSegment,
   onSplit,
+  onSplitAt,
   onDeleteSelected,
   onJoinSelected,
   onJoinSeam,
@@ -114,6 +115,8 @@ export function EditorTimeline({
   onPlayheadPointerDown: () => void;
   onSelectSegment: (id: string | null) => void;
   onSplit: () => void;
+  /** Cuts the section under this source time. */
+  onSplitAt: (sourceMs: number) => void;
   onDeleteSelected: () => void;
   onJoinSelected: () => void;
   /** Rejoins the two sections meeting at a seam, restoring the footage between them. */
@@ -129,6 +132,7 @@ export function EditorTimeline({
 }) {
   const gridRef = useRef<HTMLDivElement>(null);
   const scrollDragRef = useRef<{ startClientX: number; startViewMs: number; trackWidth: number } | null>(null);
+  const [hoverCut, setHoverCut] = useState<{ left: number; sourceMs: number; labelMs: number; canCut: boolean } | null>(null);
 
   const spanMs = Math.max(1, viewEndMs - viewStartMs);
   const domainMs = map.domainMs;
@@ -206,6 +210,18 @@ export function EditorTimeline({
     onZoom(next, viewStartMs + spanMs / 2, 0.5);
   };
 
+  function hoverCutAt(clientX: number) {
+    const node = timelineRef.current;
+    if (!node || durationMs <= 0) return null;
+    const rect = node.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const timelineMs = viewStartMs + ratio * spanMs;
+    const sourceMs = Math.round(map.toSource(timelineMs));
+    const canCut = segments.some((segment) => sourceMs - segment.startMs >= 1000 && segment.endMs - sourceMs >= 1000);
+    return { left: ratio * 100, sourceMs, labelMs: Math.round(timelineMs), canCut };
+  }
+
   return (
     <section className="editor-timeline-wrap" aria-label="Timeline">
       <div className="editor-timeline-toolbar">
@@ -272,7 +288,20 @@ export function EditorTimeline({
             Audio
           </span>
         </div>
-        <div ref={timelineRef} className="editor-timeline" onPointerDown={onPointerDown}>
+        <div
+          ref={timelineRef}
+          className="editor-timeline"
+          onPointerDown={(event) => {
+            if ((event.target as HTMLElement).closest("[data-hover-cut]")) return;
+            setHoverCut(null);
+            onPointerDown(event);
+          }}
+          onPointerMove={(event) => {
+            if ((event.target as HTMLElement).closest("[data-hover-cut]")) return;
+            setHoverCut(hoverCutAt(event.clientX));
+          }}
+          onPointerLeave={() => setHoverCut(null)}
+        >
           <div className="editor-marker-lane" aria-label="Clip event markers" />
           <div className="editor-ruler">
             {marks.map((mark, index) => (
@@ -416,6 +445,29 @@ export function EditorTimeline({
               );
             }),
           )}
+          {hoverCut ? (
+            <div className="editor-hover-cut" style={{ left: `${hoverCut.left}%` }}>
+              <span className="editor-hover-cut-line" />
+              <span className="editor-hover-cut-tools" data-hover-cut="">
+                <span className="editor-hover-cut-time">{formatClock(hoverCut.labelMs, true)}</span>
+                <button
+                  type="button"
+                  className="editor-hover-cut-scissors"
+                  disabled={!hoverCut.canCut}
+                  title={hoverCut.canCut ? "Cut here" : "Cut inside a section, at least one second from its edges"}
+                  aria-label="Cut here"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (!hoverCut.canCut) return;
+                    onSplitAt(hoverCut.sourceMs);
+                  }}
+                >
+                  <Scissors size={13} />
+                </button>
+              </span>
+            </div>
+          ) : null}
           <button
             type="button"
             className="editor-playhead"

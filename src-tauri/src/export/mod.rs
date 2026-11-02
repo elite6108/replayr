@@ -8,6 +8,7 @@ mod progress;
 mod remux;
 mod session_place;
 mod types;
+mod transcript_audio;
 mod treat;
 mod vertical;
 mod watermark;
@@ -32,6 +33,7 @@ pub use types::{
     ComposeProgress, ComposeQuality, WebcamCompose, WebcamComposeOpts, CLOUD_COMPOSE_MAX_HEIGHT,
     CLOUD_COMPOSE_MAX_WIDTH,
 };
+pub use transcript_audio::{extract_speech_audio, MAX_TRANSCRIPT_MS};
 pub use treat::{
     sanitize_speed, section_is_identity, write_treated_section, write_treated_section_with, TreatedSection, TreatedText,
 };

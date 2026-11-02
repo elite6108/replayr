@@ -15,5 +15,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "../packages/avatar-src"]
+  "include": ["src", "../packages/avatar-src"],
+  "exclude": ["src/**/*.test.ts"]
 }

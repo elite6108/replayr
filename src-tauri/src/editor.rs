@@ -718,6 +718,83 @@ fn ms_to_hns(ms: u64) -> i64 {
     (ms as i64).saturating_mul(10_000)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptAudioPart {
+    pub path: String,
+    pub start_ms: u64,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptAudio {
+    pub duration_ms: u64,
+    pub parts: Vec<TranscriptAudioPart>,
+}
+
+pub fn extract_transcript_audio(app: &AppHandle, local_id: &str) -> AppResult<TranscriptAudio> {
+    let clip = load_clip(app, local_id)?;
+    let path = PathBuf::from(&clip.file_path);
+    if !path.is_file() {
+        return Err(AppError::Message("That clip is no longer on disk.".into()));
+    }
+    let known = clip.duration_ms.unwrap_or(0).max(0) as u64;
+    if known > crate::export::MAX_TRANSCRIPT_MS {
+        return Err(AppError::Message("Trim this clip under 45 minutes first.".into()));
+    }
+    let dir = transcript_dir(&path, local_id)?;
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|err| AppError::Message(err.to_string()))?;
+    }
+    std::fs::create_dir_all(&dir).map_err(|err| AppError::Message(err.to_string()))?;
+    let audio = crate::export::extract_speech_audio(&path, &dir).map_err(|err| {
+        let _ = std::fs::remove_dir_all(&dir);
+        AppError::Message(err)
+    })?;
+    Ok(TranscriptAudio {
+        duration_ms: audio.duration_ms,
+        parts: audio
+            .parts
+            .into_iter()
+            .map(|part| TranscriptAudioPart {
+                path: part.path.display().to_string(),
+                start_ms: part.start_ms,
+                duration_ms: part.duration_ms,
+            })
+            .collect(),
+    })
+}
+
+pub fn discard_transcript_audio(app: &AppHandle, local_id: &str) -> AppResult<()> {
+    let clip = load_clip(app, local_id)?;
+    let path = PathBuf::from(&clip.file_path);
+    let dir = transcript_dir(&path, local_id)?;
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|err| AppError::Message(err.to_string()))?;
+    }
+    Ok(())
+}
+
+fn load_clip(app: &AppHandle, local_id: &str) -> AppResult<LocalClipDto> {
+    let db = app.state::<AppState>();
+    let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    library::get(&conn, local_id)
+}
+
+fn transcript_dir(clip: &Path, local_id: &str) -> AppResult<PathBuf> {
+    if !local_id
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        return Err(AppError::Message("That clip id is not valid.".into()));
+    }
+    let parent = clip
+        .parent()
+        .ok_or_else(|| AppError::Message("That clip has no folder.".into()))?;
+    Ok(parent.join(".editor-tmp").join(format!("transcript-{local_id}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

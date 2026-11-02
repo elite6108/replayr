@@ -663,6 +663,23 @@ pub async fn list_clip_filmstrip(
 }
 
 #[tauri::command]
+pub async fn extract_transcript_audio(
+    app: AppHandle,
+    local_id: String,
+) -> AppResult<crate::editor::TranscriptAudio> {
+    tauri::async_runtime::spawn_blocking(move || crate::editor::extract_transcript_audio(&app, &local_id))
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+#[tauri::command]
+pub async fn discard_transcript_audio(app: AppHandle, local_id: String) -> AppResult<()> {
+    tauri::async_runtime::spawn_blocking(move || crate::editor::discard_transcript_audio(&app, &local_id))
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+#[tauri::command]
 pub async fn get_clip_waveform(app: AppHandle, local_id: String, buckets: Option<u32>) -> AppResult<Vec<f32>> {
     tauri::async_runtime::spawn_blocking(move || {
         crate::editor::clip_waveform(&app, &local_id, buckets.unwrap_or(800))

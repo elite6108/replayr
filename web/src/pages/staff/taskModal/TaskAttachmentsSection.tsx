@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { fetchStaffAttachmentUrl } from "../../../lib/staff";
 import { formatBytes } from "../../../lib/format";
 import { IconCloudUpload, IconPaperclip, IconTrash } from "../opsIcons";
+import { attachmentFilesFromPaste } from "./pasteAttachment";
 
 export type StaffAttachmentItem = {
   id: string;
@@ -32,6 +33,19 @@ export function TaskAttachmentsSection({
 }) {
   const [over, setOver] = useState(false);
   const inputId = useId();
+
+  useEffect(() => {
+    if (!canUpload) return;
+    function onPaste(event: ClipboardEvent) {
+      const target = event.target instanceof EventTarget ? event.target : null;
+      const images = attachmentFilesFromPaste(event.clipboardData, target);
+      if (!images.length) return;
+      event.preventDefault();
+      for (const file of images) onPick(file);
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [canUpload, onPick]);
 
   function takeFiles(list: FileList | File[]) {
     for (const file of Array.from(list)) onPick(file);
@@ -65,7 +79,7 @@ export function TaskAttachmentsSection({
             <IconCloudUpload />
             <strong>
               Drag and drop files here
-              <span> or click to browse</span>
+              <span>, click to browse, or paste a screenshot</span>
             </strong>
             <em>Supports images, PDFs, and text (max 25 MB)</em>
           </label>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   ArrowCounterClockwise,
   CheckCircle,
@@ -6,6 +6,7 @@ import {
   FrameCorners,
   Gauge,
   Info,
+  MagicWand,
   Sparkle,
   SpeakerHigh,
   TextT,
@@ -17,13 +18,14 @@ import { SECTION_SPEEDS, type SectionSpeed, type SectionText } from "./segments"
 
 const TEXT_COLORS = ["#ffffff", "#000000", "#ffe14a", "#ff4d4d", "#7fd0ef"];
 
-type Tool = "frame" | "audio" | "text" | "speed" | "effects";
+type Tool = "frame" | "audio" | "text" | "speed" | "ai" | "effects";
 
 const TOOLS: { id: Tool; label: string; icon: typeof FrameCorners; beta?: boolean }[] = [
   { id: "frame", label: "Frame", icon: FrameCorners },
   { id: "audio", label: "Audio", icon: SpeakerHigh },
   { id: "text", label: "Text", icon: TextT },
   { id: "speed", label: "Speed", icon: Gauge },
+  { id: "ai", label: "AI", icon: MagicWand },
   { id: "effects", label: "Effects", icon: Sparkle, beta: true },
 ];
 
@@ -50,6 +52,7 @@ export function EditorInspector({
   selectedDurationMs,
   webcam,
   treatment,
+  ai,
 }: {
   source: LocalClip;
   shortsMode: boolean;
@@ -75,6 +78,7 @@ export function EditorInspector({
     onSpeed: (speed: SectionSpeed) => void;
     onText: (text: SectionText | null) => void;
   };
+  ai: ReactNode;
   webcam: {
     layout: ClipSourceLayout;
     placements: { id: WebcamPlacement; label: string }[];
@@ -361,6 +365,8 @@ export function EditorInspector({
             </label>
             <p className="editor-later">Drag the text on the video to place it.</p>
           </>
+        ) : tool === "ai" ? (
+          ai
         ) : tool === "speed" ? (
           <>
             <h2>Speed</h2>

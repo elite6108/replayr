@@ -277,6 +277,8 @@ pub fn run() {
             commands::save_short_clip,
             commands::save_treated_clip,
             commands::list_clip_filmstrip,
+            commands::extract_transcript_audio,
+            commands::discard_transcript_audio,
             commands::get_clip_waveform,
             commands::set_clip_editor_crop,
             commands::set_clip_source_layout,

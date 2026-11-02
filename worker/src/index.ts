@@ -40,6 +40,7 @@ import {
   type PlaybackRow,
   type PublicClipRow,
 } from "./shared";
+import { handleAiMoments } from "./aiMoments";
 import { assertUploadAllowed, handleBilling, loadStatus } from "./billing";
 import { handleFolders } from "./folders";
 import { handlePublicFolders } from "./folderPublic";
@@ -290,6 +291,8 @@ async function route(
   if (screenshotShare) return screenshotShare;
   const billing = await handleBilling(request, env, url);
   if (billing) return billing;
+  const aiMoments = await handleAiMoments(request, env, url);
+  if (aiMoments) return aiMoments;
   if (
     request.method !== "GET" &&
     request.method !== "HEAD" &&

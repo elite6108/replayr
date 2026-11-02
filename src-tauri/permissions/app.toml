@@ -14,6 +14,8 @@ commands.allow = [
   "save_short_clip",
   "save_treated_clip",
   "list_clip_filmstrip",
+  "extract_transcript_audio",
+  "discard_transcript_audio",
   "get_clip_waveform",
   "set_clip_editor_crop",
   "set_clip_source_layout",

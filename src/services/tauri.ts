@@ -146,6 +146,17 @@ export async function saveTreatedClip(
   });
 }
 
+export async function extractTranscriptAudio(localId: string): Promise<{
+  durationMs: number;
+  parts: { path: string; startMs: number; durationMs: number }[];
+}> {
+  return invoke("extract_transcript_audio", { localId });
+}
+
+export async function discardTranscriptAudio(localId: string): Promise<void> {
+  return invoke("discard_transcript_audio", { localId });
+}
+
 export async function saveShortClip(
   sourceLocalId: string,
   startMs: number,

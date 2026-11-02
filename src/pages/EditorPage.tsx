@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { CaretDown, CornersOut, Pause, Play, SkipBack, SkipForward, SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
+import { EditorAiPanel } from "../components/editor/EditorAiPanel";
+import { momentLoopRestart, type MomentLoop } from "../components/editor/momentLoop";
 import { EditorHeader } from "../components/editor/EditorHeader";
 import { EditorInspector } from "../components/editor/EditorInspector";
 import { EditorTimeline } from "../components/editor/EditorTimeline";
@@ -332,6 +334,8 @@ export function EditorPage() {
   const [previewVolume, setPreviewVolume] = useState(1);
   const [previewFit, setPreviewFit] = useState<"contain" | "cover">("contain");
   const [previewing, setPreviewing] = useState(false);
+  const [momentLoop, setMomentLoop] = useState<MomentLoop | null>(null);
+  const momentLoopRef = useRef<MomentLoop | null>(null);
   const [savingKind, setSavingKind] = useState<SaveKind | null>(null);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [sharing, setSharing] = useState(false);
@@ -486,6 +490,8 @@ export function EditorPage() {
     setSaved(null);
     setSavedKind(null);
     setPreviewing(false);
+    momentLoopRef.current = null;
+    setMomentLoop(null);
     setShortsMode(false);
     setPan(clampPan(source.editorCropX ?? 0.5));
     setFrameSize({ width: source.width ?? 0, height: source.height ?? 0 });
@@ -800,20 +806,24 @@ export function EditorPage() {
   // Sections only export through the local multi-range path.
   const sectionsAllowed = Boolean(localSource) && !folderSession;
 
-  function splitAtPlayhead() {
+  function splitAtSource(atMs: number) {
     if (!sectionsAllowed) {
       showToast("Sections are available for local clips only.");
       return;
     }
-    const next = splitAt(segments, playheadMs, MIN_TRIM_MS);
+    const next = splitAt(segments, atMs, MIN_TRIM_MS);
     if (next === segments) {
-      showToast("Move the playhead inside a section, at least one second from its edges.");
+      showToast("Cut inside a section, at least one second from its edges.");
       return;
     }
     setSegments(next);
     setShortsMode(false);
-    const created = segmentAt(next, playheadMs);
+    const created = segmentAt(next, atMs);
     setSelectedSegmentId(created?.id ?? null);
+  }
+
+  function splitAtPlayhead() {
+    splitAtSource(playheadMs);
   }
 
   function deleteSelectedSection() {
@@ -883,9 +893,34 @@ export function EditorPage() {
   function previewSelection() {
     const video = videoRef.current;
     if (!video) return;
+    stopMomentLoop();
     setPreviewing(true);
     seekTo(startMs);
     void video.play();
+  }
+
+  function previewMoment(startMs: number, endMs: number) {
+    const video = videoRef.current;
+    const next = { startMs, endMs };
+    momentLoopRef.current = next;
+    setMomentLoop(next);
+    setPreviewing(false);
+    seekTo(startMs);
+    if (video) void video.play();
+  }
+
+  function stopMomentLoop() {
+    momentLoopRef.current = null;
+    setMomentLoop(null);
+  }
+
+  function onVideoSeeked(video: HTMLVideoElement) {
+    syncWebcam(video);
+    const loop = momentLoopRef.current;
+    if (!loop) return;
+    const ms = video.currentTime * 1000;
+    if (Math.abs(ms - loop.startMs) <= 250) return;
+    stopMomentLoop();
   }
 
   function resetRange() {
@@ -1204,7 +1239,13 @@ export function EditorPage() {
               setPlayheadMs(ms);
               syncWebcam(video);
               followPlayhead(ms);
-              if (previewing || tl.collapsed) followPreview(video, ms);
+              const restart = momentLoopRestart(ms, momentLoopRef.current);
+              if (restart != null) {
+                video.currentTime = restart / 1000;
+                setPlayheadMs(asMs(restart));
+                return;
+              }
+              if (!momentLoopRef.current && (previewing || tl.collapsed)) followPreview(video, ms);
             }}
             onPlay={(event) => {
               setPlaying(true);
@@ -1214,7 +1255,7 @@ export function EditorPage() {
               setPlaying(false);
               syncWebcam(event.currentTarget);
             }}
-            onSeeked={(event) => syncWebcam(event.currentTarget)}
+            onSeeked={(event) => onVideoSeeked(event.currentTarget)}
           />
           {webcamMedia ? (
             <div
@@ -1417,6 +1458,16 @@ export function EditorPage() {
         longSelection={longShort && shortsMode}
         selectedDurationMs={outputDurationMs(segments)}
         treatment={treatment}
+        ai={
+          <EditorAiPanel
+            localId={localSource?.localId ?? null}
+            durationMs={localSource?.durationMs ?? 0}
+            pan={pan}
+            previewRange={momentLoop}
+            onPreviewMoment={previewMoment}
+            onStopPreview={stopMomentLoop}
+          />
+        }
         webcam={
           webcamMedia
             ? {
@@ -1465,6 +1516,7 @@ export function EditorPage() {
         }}
         onSelectSegment={setSelectedSegmentId}
         onSplit={splitAtPlayhead}
+        onSplitAt={splitAtSource}
         onDeleteSelected={deleteSelectedSection}
         onJoinSelected={joinSelectedSection}
         onStartText={setStartText}

@@ -1,4 +1,13 @@
 {
+  "0.1.74": [
+    "Premium can find vertical shorts from the commentary in a clip. Play one, then save the ones you want.",
+    "Hover the timeline and click the scissors to cut at that time."
+  ],
+  "0.1.73": [
+    "Each kept section in the editor can change volume, add one text label, and change speed. Saving bakes that into a new clip.",
+    "Editor saves show progress and no longer hold the whole clip in memory.",
+    "Click a notification to dismiss it, or clear them all."
+  ],
   "0.1.72": [
     "New clips start playing sooner.",
     "The thumbnail stays up while a clip loads."

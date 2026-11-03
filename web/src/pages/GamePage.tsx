@@ -56,6 +56,7 @@ export function GamePage() {
           <div>
             <p className="eyebrow">{game.publisher || "Catalog"}</p>
             <h1>{game.name}</h1>
+            {game.status === "pending" ? <p className="muted">Pending</p> : null}
             <p className="muted">Public clips only. Unlisted and private uploads stay off this page.</p>
           </div>
         </div>

@@ -13,6 +13,8 @@ import { handlePush } from "./pushRoutes";
 import type { Env } from "./env";
 import { ingestClientError, recordWorkerError } from "./errors";
 import { ingestGameObservation, matchSteamGame } from "./gameCatalogAdmin";
+import { importGamesBatch } from "./gameImport";
+import { captureFromBody, createPendingGame, resolveClipGame, searchGames, setClipGame } from "./gameRecords";
 import { cors, HttpError, json } from "./http";
 import { recordProductEvent } from "./metrics";
 import { assertRateLimit } from "./rateLimit";
@@ -132,6 +134,10 @@ interface UploadBody {
   fps?: number | null;
   title?: string | null;
   gameSlug?: string | null;
+  captureExe?: string | null;
+  captureLauncherKind?: string | null;
+  captureLauncherId?: string | null;
+  captureTitle?: string | null;
   replacesClipId?: string | null;
   preferSinglePut?: boolean;
 }
@@ -194,6 +200,11 @@ export default {
           await cleanupLiveVisitors(env);
         } catch (caught) {
           console.error("live_visitors_cleanup_failed", caught instanceof Error ? caught.message : "unknown");
+        }
+        try {
+          await importGamesBatch(env);
+        } catch (caught) {
+          console.error("game_import_failed", caught instanceof Error ? caught.message : "unknown");
         }
         try {
           const result = await runRecentAnalyticsRollup(env);
@@ -331,6 +342,16 @@ async function route(
   }
   if (request.method === "GET" && url.pathname === "/v1/clips/public") {
     return listPublicClips(request, env, url);
+  }
+  if (request.method === "GET" && url.pathname === "/v1/games/search") {
+    return searchGames(request, env, url);
+  }
+  if (request.method === "POST" && url.pathname === "/v1/games") {
+    return createPendingGame(request, env);
+  }
+  const clipGame = url.pathname.match(/^\/v1\/clips\/([^/]+)\/game$/);
+  if (request.method === "PATCH" && clipGame?.[1]) {
+    return setClipGame(request, env, clipGame[1]);
   }
   const gameClips = url.pathname.match(/^\/v1\/games\/([^/]+)\/clips$/);
   if (request.method === "GET" && gameClips?.[1]) {
@@ -609,11 +630,19 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
   const clipId = crypto.randomUUID();
   const key = `clips/${user.id}/${clipId}/original.mp4`;
   const thumbKey = `clips/${user.id}/${clipId}/thumb`;
-  const gameId = await lookupGame(env, user.token, body.gameSlug ?? null);
+  const capture = captureFromBody(body);
+  const hasCapture = Boolean(capture.exe || (capture.launcherKind && capture.launcherId) || capture.title);
+  const gameId = hasCapture
+    ? await resolveClipGame(env, capture)
+    : await lookupGame(env, user.token, body.gameSlug ?? null);
   const slug = await insertClip(env, user, {
     id: clipId,
     user_id: user.id,
     game_id: gameId,
+    capture_exe: capture.exe,
+    capture_launcher_kind: capture.launcherKind,
+    capture_launcher_id: capture.launcherId,
+    capture_title: capture.title,
     title: body.title ?? null,
     storage_key: key,
     thumbnail_key: thumbKey,
@@ -1238,15 +1267,17 @@ async function listGameClips(request: Request, env: Env, slug: string): Promise<
   if (!/^[a-z0-9-]+$/i.test(slug)) {
     return json({ error: "That game was not found." }, 404);
   }
-  const games = await rest<GameRow[]>(
+  const games = await serviceRest<GameRow[]>(
     env,
-    env.SUPABASE_ANON_KEY,
     "GET",
-    `/games?slug=eq.${encodeURIComponent(slug)}&select=id,slug,name,publisher,cover_url`,
+    `/games?slug=eq.${encodeURIComponent(slug)}&select=id,slug,name,publisher,cover_url,status&limit=1`,
   );
   const game = games[0];
   if (!game) {
     return json({ error: "That game was not found." }, 404);
+  }
+  if (game.status === "pending") {
+    return json({ game, clips: [] });
   }
   const rows = await serviceRest<LibraryRow[]>(
     env,
@@ -2035,6 +2066,7 @@ interface GameRow {
   name: string;
   publisher: string | null;
   cover_url: string | null;
+  status?: "confirmed" | "pending";
 }
 
 interface CommentRow {

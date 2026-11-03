@@ -1,4 +1,7 @@
 {
+  "0.1.76": [
+    "A saved clip is matched to the game that was running, so that game is the same on every PC."
+  ],
   "0.1.75": [
     "New clips upload to the cloud, then this PC’s copy is removed. Turn on Keep a copy on this PC to leave the file here too."
   ],

@@ -441,6 +441,8 @@ fn stop_windows(
                     crate::library::CaptureKind::Recording,
                     None,
                     session.webcam_layout,
+                    None,
+                    None,
                 )?;
                 let _ = app.emit(
                     "local-clip-saved",

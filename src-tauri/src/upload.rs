@@ -531,6 +531,10 @@ fn start_session(
             "fps": clip.fps,
             "title": clip.title,
             "gameSlug": clip.game_id,
+            "captureExe": clip.capture_exe,
+            "captureLauncherKind": null,
+            "captureLauncherId": null,
+            "captureTitle": clip.capture_title,
         }))
         .send()
         .map_err(map_reqwest)?;

@@ -7,6 +7,7 @@ export interface CatalogGame {
   name: string;
   publisher: string | null;
   coverUrl: string | null;
+  status?: "confirmed" | "pending";
 }
 
 export interface ClipAuthor {
@@ -31,7 +32,8 @@ export interface PublicGameClip {
 export async function fetchGames(): Promise<CatalogGame[]> {
   const { data, error } = await getSupabase()
     .from("games")
-    .select("id, slug, name, publisher, cover_url")
+    .select("id, slug, name, publisher, cover_url, status")
+    .eq("status", "confirmed")
     .order("name");
   if (error) throw error;
   return (data ?? []).map((row) => ({
@@ -40,6 +42,31 @@ export async function fetchGames(): Promise<CatalogGame[]> {
     name: row.name,
     publisher: row.publisher,
     coverUrl: row.cover_url,
+    status: row.status === "pending" ? "pending" : "confirmed",
+  }));
+}
+
+export async function searchGames(query: string): Promise<CatalogGame[]> {
+  const response = await fetch(apiUrl(`/v1/games/search?q=${encodeURIComponent(query)}`), {
+    headers: { accept: "application/json" },
+  });
+  const body = await readApiJson<{
+    games?: Array<{
+      id: string;
+      slug: string;
+      name: string;
+      publisher: string | null;
+      coverUrl: string | null;
+      status?: "confirmed" | "pending";
+    }>;
+  }>(response, "Could not search games.");
+  return (body.games ?? []).map((game) => ({
+    id: game.id,
+    slug: game.slug,
+    name: game.name,
+    publisher: game.publisher,
+    coverUrl: game.coverUrl,
+    status: game.status === "pending" ? "pending" : "confirmed",
   }));
 }
 
@@ -96,7 +123,14 @@ export async function fetchGameClips(
     headers: authHeaders(accessToken),
   });
   const body = await readApiJson<{
-    game?: { id: string; slug: string; name: string; publisher: string | null; cover_url: string | null };
+    game?: {
+      id: string;
+      slug: string;
+      name: string;
+      publisher: string | null;
+      cover_url: string | null;
+      status?: "confirmed" | "pending";
+    };
     clips?: PublicGameClip[];
   }>(response, "Could not load that game.");
   if (!body.game) {
@@ -109,6 +143,7 @@ export async function fetchGameClips(
       name: body.game.name,
       publisher: body.game.publisher,
       coverUrl: body.game.cover_url,
+      status: body.game.status === "pending" ? "pending" : "confirmed",
     },
     clips: body.clips ?? [],
   };

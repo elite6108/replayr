@@ -39,6 +39,10 @@ export interface Env {
   RESEND_REPLY_TO?: string;
   /** OpenAI key for waitlist campaign rewrite. Worker secret only. */
   OPENAI_API_KEY?: string;
+  /** Twitch client id for the IGDB game import. Worker secret only. */
+  TWITCH_CLIENT_ID?: string;
+  /** Twitch client secret for the IGDB game import. Worker secret only. */
+  TWITCH_CLIENT_SECRET?: string;
   /** HMAC key for pseudonymous analytics subjects. Worker secret only. */
   ANALYTICS_SUBJECT_KEY?: string;
   /** Previous HMAC key accepted during key rotation. Worker secret only. */

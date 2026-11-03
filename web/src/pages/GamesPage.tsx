@@ -2,11 +2,12 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { GameCover } from "../components/GameCover";
-import { fetchGames, type CatalogGame } from "../lib/games";
+import { fetchGames, searchGames, type CatalogGame } from "../lib/games";
 
 export function GamesPage() {
   const [games, setGames] = useState<CatalogGame[]>([]);
   const [query, setQuery] = useState("");
+  const [remote, setRemote] = useState<CatalogGame[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -23,11 +24,34 @@ export function GamesPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const needle = query.trim();
+    if (needle.length < 2) {
+      setRemote(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void searchGames(needle)
+        .then((next) => {
+          if (!cancelled) setRemote(next);
+        })
+        .catch(() => {
+          if (!cancelled) setRemote(null);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query]);
+
   const visible = useMemo(() => {
+    if (remote) return remote;
     const needle = query.trim().toLowerCase();
     if (!needle) return games;
     return games.filter((game) => `${game.name} ${game.publisher ?? ""} ${game.slug}`.toLowerCase().includes(needle));
-  }, [games, query]);
+  }, [games, query, remote]);
 
   return (
     <main className="page games-page">
@@ -64,7 +88,7 @@ export function GamesPage() {
               <GameCover name={game.name} coverUrl={game.coverUrl} />
               <div className="game-card-meta">
                 <strong>{game.name}</strong>
-                <span className="muted">{game.publisher || "Game"}</span>
+                <span className="muted">{game.status === "pending" ? "Pending" : game.publisher || "Game"}</span>
               </div>
             </Link>
           </li>

@@ -197,6 +197,8 @@ struct ActiveRecording {
     session: bool,
     webcam_layout: Option<crate::overlay::OverlayLayout>,
     capture_settings: CaptureSettings,
+    capture_exe: Option<String>,
+    capture_title: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -648,6 +650,8 @@ mod windows_impl {
         capture_kind: CaptureKind,
         webcam_layout: Option<crate::overlay::OverlayLayout>,
         burned: bool,
+        capture_exe: Option<String>,
+        capture_title: Option<String>,
     ) -> AppResult<String> {
         // `last_still` is a raw gameplay frame, so a burned clip's thumbnail would show none of
         // its overlays. Passing None makes `library::insert` decode the composed file instead.
@@ -668,6 +672,8 @@ mod windows_impl {
             capture_kind,
             preview.as_ref(),
             webcam_layout,
+            capture_exe,
+            capture_title,
         )
     }
 
@@ -689,6 +695,15 @@ mod windows_impl {
             *slot = status.clone();
         }
         let _ = app.emit("replay-status", &status);
+    }
+
+    fn capture_identity(app: &AppHandle) -> (Option<String>, Option<String>) {
+        let detection = app.state::<crate::detection::DetectionState>();
+        let snapshot = crate::detection::current_snapshot(&detection);
+        (
+            snapshot.process_name.filter(|name| !name.trim().is_empty()),
+            snapshot.name.filter(|name| !name.trim().is_empty()),
+        )
     }
 
     pub fn start(
@@ -892,6 +907,7 @@ mod windows_impl {
             output_fallback: false,
         };
         *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
+        let (capture_exe, capture_title) = capture_identity(app);
         *inner = Some(ActiveRecording {
             capture_settings: CaptureSettings::from_settings(&settings),
             control: Some(CaptureHandle::Session(control)),
@@ -907,6 +923,8 @@ mod windows_impl {
             segmented,
             session,
             webcam_layout: if session { webcam_layout } else { None },
+            capture_exe,
+            capture_title,
         });
         drop(inner);
         if session {
@@ -1007,6 +1025,9 @@ mod windows_impl {
                     if let Some(name) = game_name {
                         active.title = name;
                     }
+                    let (capture_exe, capture_title) = capture_identity(app);
+                    active.capture_exe = capture_exe;
+                    active.capture_title = capture_title;
                     active.session = true;
                     active.webcam_layout = webcam_layout;
                     let stamp = SystemTime::now()
@@ -1079,7 +1100,7 @@ mod windows_impl {
                 (window, concat)
             };
             let paths = window.paths.clone();
-            let (output, elapsed, width, height, fps, game_id, title, webcam_layout) = {
+            let (output, elapsed, width, height, fps, game_id, title, webcam_layout, capture_exe, capture_title) = {
                 let mut inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
                 let active = inner.as_mut().ok_or_else(|| AppError::Message("Not recording.".into()))?;
                 active.session = false;
@@ -1092,6 +1113,8 @@ mod windows_impl {
                     active.game_id.clone(),
                     active.title.clone(),
                     active.webcam_layout.clone(),
+                    active.capture_exe.clone(),
+                    active.capture_title.clone(),
                 )
             };
             if paths.is_empty() {
@@ -1125,6 +1148,8 @@ mod windows_impl {
                 CaptureKind::Recording,
                 webcam_layout,
                 false,
+                capture_exe,
+                capture_title,
             )?;
             emit_saved(app, &output, "recording", local_id);
             let status = RecordingStatus {
@@ -1172,6 +1197,8 @@ mod windows_impl {
             CaptureKind::Recording,
             session.webcam_layout,
             false,
+            session.capture_exe,
+            session.capture_title,
         )?;
         emit_saved(app, &session.path, "recording", local_id);
         let status = RecordingStatus {
@@ -1419,6 +1446,8 @@ mod windows_impl {
         fps: u32,
         game_id: Option<String>,
         title: String,
+        capture_exe: Option<String>,
+        capture_title: Option<String>,
         placement: crate::overlay_notification::PlacementHint,
         /// Unix seconds at the clip's first frame, for the burned HUD timestamp.
         started_unix_secs: u64,
@@ -1450,7 +1479,7 @@ mod windows_impl {
         let settings = load_settings(app)?;
         let save = save_dir(app, &settings)?;
         crate::disk::ensure_free_space(&save, settings.min_free_disk_bytes)?;
-        let (width, height, fps, game_id, title, placement) = {
+            let (width, height, fps, game_id, title, capture_exe, capture_title, placement) = {
             let inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
             let active = inner.as_ref().ok_or_else(|| AppError::Message("Instant Replay is not running.".into()))?;
             if !active.segmented {
@@ -1462,6 +1491,8 @@ mod windows_impl {
                 active.fps,
                 active.game_id.clone(),
                 active.title.clone(),
+                active.capture_exe.clone(),
+                active.capture_title.clone(),
                 active.placement,
             )
         };
@@ -1536,6 +1567,8 @@ mod windows_impl {
             fps,
             game_id,
             title,
+            capture_exe,
+            capture_title,
             placement,
             started_unix_secs,
         })
@@ -1662,6 +1695,8 @@ mod windows_impl {
             CaptureKind::Clip,
             webcam_layout,
             burned,
+            staged.capture_exe,
+            staged.capture_title,
         )?;
         emit_saved(app, &staged.output, "clip", local_id);
         crate::overlay_notification::notify_clip_saved(
@@ -1683,12 +1718,19 @@ mod windows_impl {
             .map_err(|err| AppError::Message(err.to_string()))?
             .clone()
             .ok_or_else(|| AppError::Message("No frame captured yet. Start Instant Replay or a recording first.".into()))?;
-        let (game_id, title) = {
+        let (game_id, title, capture_exe, capture_title) = {
             let inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
             inner
                 .as_ref()
-                .map(|active| (active.game_id.clone(), active.title.clone()))
-                .unwrap_or((None, "Screenshot".into()))
+                .map(|active| {
+                    (
+                        active.game_id.clone(),
+                        active.title.clone(),
+                        active.capture_exe.clone(),
+                        active.capture_title.clone(),
+                    )
+                })
+                .unwrap_or((None, "Screenshot".into(), None, None))
         };
         let output = output_path(&save, "screenshot", "bmp");
         crate::still::write_bgra_bmp(&output, &frame).map_err(AppError::Message)?;
@@ -1705,6 +1747,8 @@ mod windows_impl {
             CaptureKind::Screenshot,
             None,
             false,
+            capture_exe,
+            capture_title,
         )?;
         emit_saved(app, &output, "screenshot", local_id);
         Ok(output.display().to_string())

@@ -80,11 +80,18 @@ pub struct LocalClipDto {
     /// This PC's file can be removed after a successful cloud upload.
     #[serde(default)]
     pub release_local: bool,
+    /// Foreground executable at the moment capture started.
+    #[serde(default)]
+    pub capture_exe: Option<String>,
+    /// Window or catalog title at the moment capture started.
+    #[serde(default)]
+    pub capture_title: Option<String>,
 }
 
 const CLIP_COLUMNS: &str = "local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
                 duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-                source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind, tags, release_local";
+                source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind, tags, release_local,
+                capture_exe, capture_title";
 
 pub struct ClipLineage {
     pub source_clip_id: String,
@@ -104,6 +111,8 @@ pub fn insert(
     capture_kind: CaptureKind,
     preview: Option<&StillFrame>,
     webcam_layout: Option<OverlayLayout>,
+    capture_exe: Option<String>,
+    capture_title: Option<String>,
 ) -> AppResult<String> {
     let local_id = format!(
         "clip-{}",
@@ -133,6 +142,8 @@ pub fn insert(
         capture_kind,
         None,
         webcam_layout,
+        capture_exe,
+        capture_title,
     )?;
     Ok(local_id)
 }
@@ -177,6 +188,8 @@ pub fn insert_derived(
         CaptureKind::Clip,
         Some(&lineage),
         None,
+        None,
+        None,
     )?;
     Ok(local_id)
 }
@@ -196,14 +209,17 @@ fn insert_row(
     capture_kind: CaptureKind,
     lineage: Option<&ClipLineage>,
     webcam_layout: Option<OverlayLayout>,
+    capture_exe: Option<String>,
+    capture_title: Option<String>,
 ) -> AppResult<()> {
     let release_local = release_local_for_new_clip(conn, capture_kind);
     conn.execute(
         "INSERT INTO local_clips (
             local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
             duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
-            source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind, release_local
-         ) VALUES (?1, NULL, ?2, ?3, ?4, datetime('now'), ?5, ?6, ?7, ?8, ?9, 'local', 0, ?10, NULL, ?11, ?12, ?13, 0.5, ?14, ?15)",
+            source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind, release_local,
+            capture_exe, capture_title
+         ) VALUES (?1, NULL, ?2, ?3, ?4, datetime('now'), ?5, ?6, ?7, ?8, ?9, 'local', 0, ?10, NULL, ?11, ?12, ?13, 0.5, ?14, ?15, ?16, ?17)",
         rusqlite::params![
             local_id,
             path.display().to_string(),
@@ -220,8 +236,19 @@ fn insert_row(
             lineage.map(|row| row.source_end_ms),
             capture_kind.as_str(),
             if release_local { 1 } else { 0 },
+            capture_exe,
+            capture_title,
         ],
     )?;
+    if let Some(source) = lineage {
+        conn.execute(
+            "UPDATE local_clips SET
+                capture_exe = COALESCE(capture_exe, (SELECT capture_exe FROM local_clips WHERE local_id = ?2)),
+                capture_title = COALESCE(capture_title, (SELECT capture_title FROM local_clips WHERE local_id = ?2))
+             WHERE local_id = ?1",
+            rusqlite::params![local_id, source.source_clip_id],
+        )?;
+    }
     attach_saved_sources(
         conn,
         local_id,
@@ -891,6 +918,8 @@ fn map_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalClipDto> {
         tags: parse_tags(row.get(20)?),
         sources: Vec::new(),
         release_local: row.get::<_, i64>(21)? != 0,
+        capture_exe: row.get(22)?,
+        capture_title: row.get(23)?,
     })
 }
 
@@ -984,6 +1013,8 @@ mod tests {
             CaptureKind::Clip,
             None,
             None,
+            None,
+            None,
         )
         .unwrap();
         assert!(get(&conn, "clip-cloud").unwrap().release_local);
@@ -1002,6 +1033,8 @@ mod tests {
             10,
             "Recording".into(),
             CaptureKind::Recording,
+            None,
+            None,
             None,
             None,
         )
@@ -1025,6 +1058,8 @@ mod tests {
             10,
             "Kept".into(),
             CaptureKind::Clip,
+            None,
+            None,
             None,
             None,
         )

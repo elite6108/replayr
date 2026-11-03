@@ -17,6 +17,7 @@ import {
   saveCatalogGame,
   searchSteamCatalog,
   unblockLearnedProcess,
+  userGameHasNoProcesses,
 } from "./gameCatalogStore";
 import { HttpError, json } from "./http";
 import { allowRateLimit, assertRateLimit } from "./rateLimit";
@@ -81,9 +82,11 @@ export async function handleGameCatalogAdmin(
 
   const slugMatch = path.match(/^\/v1\/admin\/games\/([^/]+)$/);
   if (request.method === "PATCH" && slugMatch?.[1]) {
-    const parsed = parseCatalogWrite(await readJson(request));
+    const slug = decodeURIComponent(slugMatch[1]);
+    const allowEmptyProcesses = await userGameHasNoProcesses(env, slug);
+    const parsed = parseCatalogWrite(await readJson(request), { allowEmptyProcesses });
     if (!parsed.ok) throw new HttpError(400, parsed.error);
-    const saved = await saveCatalogGame(env, parsed.value, decodeURIComponent(slugMatch[1]));
+    const saved = await saveCatalogGame(env, parsed.value, slug);
     await audit(env, actor, AUDIT_ACTIONS.gamesCatalogUpdated, saved.game.slug, {
       name: saved.game.name,
       processes: saved.game.processNames.length,

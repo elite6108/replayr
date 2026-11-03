@@ -74,6 +74,7 @@ export type CatalogGame = {
   coverUrl: string | null;
   processNames: string[];
   catalogSource: string;
+  status?: "confirmed" | "pending";
 };
 
 export type CatalogWrite = {
@@ -82,6 +83,7 @@ export type CatalogWrite = {
   publisher: string | null;
   coverUrl: string | null;
   processNames: string[];
+  status?: "confirmed" | "pending";
 };
 
 export type GameDraft = {
@@ -198,7 +200,10 @@ export function parseObservation(body: unknown): { ok: true; value: ObservationR
   return { ok: true, value: { processName, windowTitle, installHash } };
 }
 
-export function parseCatalogWrite(body: unknown): { ok: true; value: CatalogWrite } | { ok: false; error: string } {
+export function parseCatalogWrite(
+  body: unknown,
+  options?: { allowEmptyProcesses?: boolean },
+): { ok: true; value: CatalogWrite } | { ok: false; error: string } {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, error: "Game details were not usable." };
   }
@@ -218,8 +223,17 @@ export function parseCatalogWrite(body: unknown): { ok: true; value: CatalogWrit
   }
   const processNames = parseProcessNames(record.processNames);
   if (!processNames.ok) return processNames;
-  if (processNames.value.length === 0) return { ok: false, error: "Add the game's .exe before saving." };
-  return { ok: true, value: { slug, name, publisher, coverUrl, processNames: processNames.value } };
+  if (processNames.value.length === 0 && !options?.allowEmptyProcesses) {
+    return { ok: false, error: "Add the game's .exe before saving." };
+  }
+  let status: "confirmed" | "pending" | undefined;
+  if (record.status !== undefined) {
+    if (record.status !== "confirmed" && record.status !== "pending") {
+      return { ok: false, error: "That game status is not usable." };
+    }
+    status = record.status;
+  }
+  return { ok: true, value: { slug, name, publisher, coverUrl, processNames: processNames.value, ...(status ? { status } : {}) } };
 }
 
 export function parseGameDraft(value: unknown, steamAppId?: number): GameDraft | null {

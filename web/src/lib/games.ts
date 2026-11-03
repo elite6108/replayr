@@ -46,10 +46,10 @@ export async function fetchGames(): Promise<CatalogGame[]> {
   }));
 }
 
-export async function searchGames(query: string): Promise<CatalogGame[]> {
-  const response = await fetch(apiUrl(`/v1/games/search?q=${encodeURIComponent(query)}`), {
-    headers: { accept: "application/json" },
-  });
+export async function searchGames(query: string, accessToken?: string | null): Promise<CatalogGame[]> {
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (accessToken) headers.authorization = `Bearer ${accessToken}`;
+  const response = await fetch(apiUrl(`/v1/games/search?q=${encodeURIComponent(query)}`), { headers });
   const body = await readApiJson<{
     games?: Array<{
       id: string;

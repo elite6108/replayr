@@ -43,6 +43,7 @@ export async function assertDistributedRateLimit(
   suffix: string,
   fallbackLimit: number,
   userId?: string,
+  windowMs = 60_000,
 ): Promise<void> {
   const key = clientKey(request, suffix, userId);
   if (binding) {
@@ -50,7 +51,7 @@ export async function assertDistributedRateLimit(
     if (!result.success) throw new HttpError(429, "Slow down. Try again in a moment.");
     return;
   }
-  if (!allowRateLimit(key, fallbackLimit)) {
+  if (!allowRateLimit(key, fallbackLimit, windowMs)) {
     throw new HttpError(429, "Slow down. Try again in a moment.");
   }
 }

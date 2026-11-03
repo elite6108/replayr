@@ -9,6 +9,7 @@ export type CatalogGame = {
   coverUrl: string | null;
   processNames: string[];
   catalogSource: string;
+  status?: "confirmed" | "pending";
 };
 
 export type SteamHit = {

@@ -1,7 +1,7 @@
 import { loadStatus } from "./billing";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
-import { assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit, assertRateLimit } from "./rateLimit";
 import { requireUser, restError, serviceRest } from "./shared";
 
 /** Segment timestamps still require whisper-1. Swap this when a timestamped replacement ships. */
@@ -100,6 +100,49 @@ export function mp4DurationMs(bytes: Uint8Array): number | null {
     return Math.round((duration / timescale) * 1000);
   }
   return null;
+}
+
+export function mp4HeaderFacts(bytes: Uint8Array): { durationMs: number | null; width: number | null; height: number | null } {
+  const durationMs = mp4DurationMs(bytes);
+  let width: number | null = null;
+  let height: number | null = null;
+  const moov = findBox(bytes, 0, bytes.length, "moov");
+  if (!moov) return { durationMs, width, height };
+  let offset = moov.start;
+  while (offset + 8 <= moov.end) {
+    let size = readU32(bytes, offset);
+    let header = 8;
+    if (size === 1) {
+      if (offset + 16 > moov.end) break;
+      size = readU64(bytes, offset + 8);
+      header = 16;
+    } else if (size === 0) {
+      size = moov.end - offset;
+    }
+    if (size < header || offset + size > moov.end) break;
+    if (ascii(bytes, offset + 4) === "trak") {
+      const tkhd = findBox(bytes, offset + header, offset + size, "tkhd");
+      if (tkhd) {
+        const pixels = trackPixels(bytes.subarray(tkhd.start, tkhd.end));
+        if (pixels && (width == null || height == null || pixels.width * pixels.height > width * height)) {
+          width = pixels.width;
+          height = pixels.height;
+        }
+      }
+    }
+    offset += size;
+  }
+  return { durationMs, width, height };
+}
+
+function trackPixels(body: Uint8Array): { width: number; height: number } | null {
+  const version = body[0] ?? 0;
+  const at = version === 0 ? 76 : version === 1 ? 88 : -1;
+  if (at < 0 || body.length < at + 8) return null;
+  const width = readU32(body, at) >>> 16;
+  const height = readU32(body, at + 4) >>> 16;
+  if (width < 1 || height < 1 || width > 10000 || height > 10000) return null;
+  return { width, height };
 }
 
 export function sanitizeMoments(
@@ -459,7 +502,7 @@ async function quota(request: Request, env: Env): Promise<Response> {
 
 async function transcribe(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  assertRateLimit(request, "ai-transcribe", 4, user.id);
+  await assertDistributedRateLimit(request, env.AI_TRANSCRIBE_RATE_LIMITER, "ai-transcribe", 4, user.id);
   await assertPremium(env, user.id);
   if (!env.OPENAI_API_KEY) throw new HttpError(503, "AI moments are not configured.");
 

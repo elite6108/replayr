@@ -29,6 +29,7 @@ type GameRow = {
   cover_url: string | null;
   process_names: string[] | null;
   catalog_source: string | null;
+  status?: "confirmed" | "pending";
 };
 
 type ObservationRow = {
@@ -61,7 +62,7 @@ export type ObservationResult = {
   promotedSlug: string | null;
 };
 
-const GAME_COLUMNS = "id,slug,name,publisher,cover_url,process_names,catalog_source";
+const GAME_COLUMNS = "id,slug,name,publisher,cover_url,process_names,catalog_source,status";
 
 export async function listCatalogGames(env: Env, query: string): Promise<CatalogGame[]> {
   const term = searchTerm(query);
@@ -76,27 +77,35 @@ export async function listCatalogGames(env: Env, query: string): Promise<Catalog
   return rows.map(toCatalogGame);
 }
 
+export async function userGameHasNoProcesses(env: Env, slug: string): Promise<boolean> {
+  const game = await gameBySlug(env, slugifyGameName(slug));
+  return game?.catalog_source === "user" && (game.process_names ?? []).length === 0;
+}
+
 export async function saveCatalogGame(env: Env, input: CatalogWrite, existingSlug?: string): Promise<{ game: CatalogGame; created: boolean }> {
   const slug = existingSlug ? slugifyGameName(existingSlug) : input.slug;
   await assertProcessesAvailable(env, input.processNames, slug);
   const current = existingSlug ? await gameBySlug(env, slug) : null;
   if (existingSlug && !current) throw new HttpError(404, "That game is not in the catalog.");
+  const nextStatus = input.status ?? current?.status ?? "confirmed";
+  const keepUserPending = current?.catalog_source === "user" && nextStatus === "pending";
+  const fields: Record<string, unknown> = {
+    name: input.name,
+    publisher: input.publisher,
+    cover_url: input.coverUrl,
+    process_names: input.processNames,
+  };
+  if (!keepUserPending) fields.catalog_source = "staff";
+  if (input.status) fields.status = input.status;
   const saved = current
-    ? await updateGame(env, slug, {
-        name: input.name,
-        publisher: input.publisher,
-        cover_url: input.coverUrl,
-        process_names: input.processNames,
-        catalog_source: "staff",
-      })
-    : await insertGame(env, {
-        slug,
-        name: input.name,
-        publisher: input.publisher,
-        cover_url: input.coverUrl,
-        process_names: input.processNames,
-        catalog_source: "staff",
-      });
+    ? await updateGame(env, slug, fields)
+    : await insertGame(env, { slug, ...fields, catalog_source: "staff" });
+  if (current && input.status === "confirmed") {
+    await serviceRest(env, "PATCH", `/game_matches?game_id=eq.${current.id}&status=eq.pending`, { status: "confirmed" });
+  }
+  if (current && input.status === "pending") {
+    await serviceRest(env, "PATCH", `/game_matches?game_id=eq.${current.id}&status=eq.confirmed`, { status: "pending" });
+  }
   return { game: toCatalogGame(saved), created: !current };
 }
 
@@ -466,5 +475,6 @@ function toCatalogGame(row: GameRow): CatalogGame {
     coverUrl: row.cover_url,
     processNames: row.process_names ?? [],
     catalogSource: row.catalog_source ?? "catalog",
+    status: row.status === "pending" ? "pending" : "confirmed",
   };
 }

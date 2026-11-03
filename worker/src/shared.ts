@@ -127,6 +127,17 @@ function bearerToken(request: Request): string | null {
   return token || null;
 }
 
+const CLIP_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PUBLIC_CLIP_SLUG = /^[abcdefghijkmnopqrstuvwxyz23456789]{6,16}$/;
+
+export function isClipUuid(value: string): boolean {
+  return CLIP_UUID.test(value);
+}
+
+export function isPublicClipSlug(value: string): boolean {
+  return PUBLIC_CLIP_SLUG.test(value);
+}
+
 export function ownedObjectKey(userId: string, key: string | null | undefined): key is string {
   return Boolean(
     key &&
@@ -332,11 +343,11 @@ export function restError(body: string): string {
 }
 
 export async function lookupPlaybackRaw(env: Env, slug: string): Promise<PlaybackRow | null> {
-  if (!/^[a-z0-9]{6,16}$/.test(slug)) return null;
+  if (!isPublicClipSlug(slug)) return null;
   const rows = await serviceRest<PlaybackRow[]>(
     env,
     "GET",
-    `/clips?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,file_size_bytes,visibility,status,storage_key,thumbnail_key,like_count,comment_count,watermark`,
+    `/clips?slug=eq.${encodeURIComponent(slug)}&status=eq.ready&select=id,user_id,slug,title,duration_ms,width,height,file_size_bytes,visibility,status,storage_key,thumbnail_key,like_count,comment_count,watermark`,
   );
   const clip = rows[0];
   if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) return null;

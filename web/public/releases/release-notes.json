@@ -1,4 +1,7 @@
 {
+  "0.1.77": [
+    "Games you add stay pending until Replayr confirms them, and a free upload is checked against the plan before it is saved."
+  ],
   "0.1.76": [
     "A saved clip is matched to the game that was running, so that game is the same on every PC."
   ],

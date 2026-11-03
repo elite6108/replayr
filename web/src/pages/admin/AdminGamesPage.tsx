@@ -23,10 +23,11 @@ type GameForm = {
   publisher: string;
   coverUrl: string;
   processNames: string;
+  status: "confirmed" | "pending";
   steamAppId?: number;
 };
 
-const emptyForm: GameForm = { slug: "", name: "", publisher: "", coverUrl: "", processNames: "" };
+const emptyForm: GameForm = { slug: "", name: "", publisher: "", coverUrl: "", processNames: "", status: "confirmed" };
 
 export function AdminGamesPage() {
   const { can, loading } = useStaffPermissions();
@@ -76,6 +77,7 @@ export function AdminGamesPage() {
         publisher: game.publisher ?? "",
         coverUrl: game.coverUrl ?? "",
         processNames: game.processNames.join(", "),
+        status: game.status === "pending" ? "pending" : "confirmed",
       },
       game.slug,
     );
@@ -96,6 +98,7 @@ export function AdminGamesPage() {
           publisher: form.publisher,
           coverUrl: form.coverUrl,
           processNames: form.processNames,
+          ...(editingSlug ? { status: form.status } : {}),
         },
         editingSlug ?? undefined,
       );
@@ -208,9 +211,23 @@ export function AdminGamesPage() {
             value={form.processNames}
             onChange={(event) => setForm({ ...form, processNames: event.target.value })}
             placeholder="HoodWarfare.exe"
-            required
+            required={!editingSlug || form.processNames.trim().length > 0}
           />
         </label>
+        {editingSlug ? (
+          <label>
+            Status
+            <select
+              value={form.status}
+              onChange={(event) =>
+                setForm({ ...form, status: event.target.value === "pending" ? "pending" : "confirmed" })
+              }
+            >
+              <option value="confirmed">Confirmed</option>
+              <option value="pending">Pending</option>
+            </select>
+          </label>
+        ) : null}
         <label>
           Cover URL
           <input value={form.coverUrl} onChange={(event) => setForm({ ...form, coverUrl: event.target.value })} placeholder="https://" />
@@ -365,7 +382,7 @@ function GameTable({ games, onEdit }: { games: CatalogGame[]; onEdit: (game: Cat
             <tr key={game.slug}>
               <td>
                 <strong>{game.name}</strong>
-                <span className="muted">{game.publisher || game.slug}</span>
+                <span className="muted">{game.status === "pending" ? "Pending" : game.publisher || game.slug}</span>
               </td>
               <td>{game.processNames.join(", ") || "None"}</td>
               <td>

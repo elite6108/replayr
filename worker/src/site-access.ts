@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { requireServiceRole, serviceRest } from "./shared";
 import { publicSiteUrl, sendReplayrEmail, waitlistConfirmEmail, waitlistUnsubscribeUrl } from "./email";
+import { assertDistributedRateLimit } from "./rateLimit";
 
 const COOKIE_NAME = "replayr_site_access";
 const COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 30; // 30 days
@@ -26,7 +27,7 @@ export function isOAuthHandoff(url: URL): boolean {
   if (url.pathname === "/auth/desktop" || url.pathname === "/auth/callback" || url.pathname.startsWith("/auth/")) {
     return true;
   }
-  return url.searchParams.has("code");
+  return url.pathname === "/" && url.searchParams.has("code");
 }
 
 /** Static files the locked coming-soon page needs (must stay ungated). */
@@ -157,6 +158,7 @@ export async function hasValidSiteAccess(request: Request, env: Env): Promise<bo
 export async function handleSiteAccess(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (request.method === "POST" && url.pathname === "/v1/site-access") {
+    await assertDistributedRateLimit(request, env.SITE_ACCESS_RATE_LIMITER, "site-access", 10);
     const password = env.SITE_ACCESS_PASSWORD?.trim();
     if (!password) {
       return json({ error: "Site access is not configured." }, 503);
@@ -200,6 +202,7 @@ export async function handleWaitlist(request: Request, env: Env): Promise<Respon
     return unsubscribeWaitlist(url, env);
   }
   if (!(request.method === "POST" && url.pathname === "/v1/waitlist")) return null;
+  await assertDistributedRateLimit(request, env.WAITLIST_RATE_LIMITER, "waitlist", 10);
 
   const body = (await request.json().catch(() => ({}))) as { email?: string; source?: string };
   const email = String(body.email ?? "")
@@ -324,11 +327,11 @@ export async function serveComingSoon(request: Request, env: Env): Promise<Respo
       const text = await asset.text();
       // SPA fallback would look like the main app shell — reject that.
       if (text.includes("coming-soon.js") || text.includes("hero-logo")) {
-        return comingSoonResponse(text);
+        return comingSoonResponse(text, new URL(request.url).protocol === "https:");
       }
     }
   }
-  return comingSoonResponse(comingSoonFallbackHtml());
+  return comingSoonResponse(comingSoonFallbackHtml(), new URL(request.url).protocol === "https:");
 }
 
 /** Paid-traffic waitlist URLs. `/waitlist` used to SPA-fallback to the download homepage. */
@@ -340,7 +343,7 @@ export async function handleWaitlistPages(request: Request, env: Env): Promise<R
   return null;
 }
 
-export function comingSoonSecurityHeaders(headers: Headers = new Headers()): Headers {
+export function comingSoonSecurityHeaders(headers: Headers = new Headers(), https = false): Headers {
   const csp = [
     "default-src 'self'",
     "base-uri 'self'",
@@ -359,11 +362,12 @@ export function comingSoonSecurityHeaders(headers: Headers = new Headers()): Hea
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("X-Frame-Options", "DENY");
   headers.set("cache-control", "no-store");
+  if (https) headers.set("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
   return headers;
 }
 
-function comingSoonResponse(html: string): Response {
-  const headers = comingSoonSecurityHeaders();
+function comingSoonResponse(html: string, https = false): Response {
+  const headers = comingSoonSecurityHeaders(new Headers(), https);
   headers.set("content-type", "text/html; charset=utf-8");
   return new Response(html, { status: 200, headers });
 }

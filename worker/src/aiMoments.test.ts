@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { applyShortPicks, applyWindowPicks, handleAiMoments, mp4DurationMs, parseRankJson, planShorts, sanitizeMoments, speechWindows } from "./aiMoments";
+import { applyShortPicks, applyWindowPicks, handleAiMoments, mp4DurationMs, mp4HeaderFacts, parseRankJson, planShorts, sanitizeMoments, speechWindows } from "./aiMoments";
+import { freeUploadHeaderError } from "./billing";
 import type { Env } from "./env";
 import { HttpError } from "./http";
 import { clearRateLimitBuckets } from "./rateLimit";
@@ -83,6 +84,27 @@ describe("moment bounds", () => {
   it("reads a version-0 movie header", () => {
     expect(mp4DurationMs(sampleAudio())).toBe(2000);
     expect(mp4DurationMs(new Uint8Array([0, 0, 0, 8, 0, 0, 0, 0]))).toBeNull();
+    const mvhd = new Uint8Array(20);
+    mvhd.set(u32(1000), 12);
+    mvhd.set(u32(2000), 16);
+    const tkhd = new Uint8Array(84);
+    tkhd.set(u32(1920 * 65536), 76);
+    tkhd.set(u32(1080 * 65536), 80);
+    const video = concat([
+      box("ftyp", new Uint8Array(8)),
+      box("moov", concat([box("mvhd", mvhd), box("trak", box("tkhd", tkhd))])),
+    ]);
+    expect(mp4HeaderFacts(video)).toEqual({ durationMs: 2000, width: 1920, height: 1080 });
+    expect(mp4HeaderFacts(new Uint8Array(8))).toEqual({ durationMs: null, width: null, height: null });
+  });
+
+  it("rejects a free upload that is over 1080p or unreadable", () => {
+    const free = { maxClipDurationMs: 1_200_000, maxUploadQuality: "1080p" };
+    expect(freeUploadHeaderError(free, { durationMs: 2_000, width: 1920, height: 1080 })).toBeNull();
+    expect(freeUploadHeaderError(free, { durationMs: 2_000, width: 1080, height: 1920 })).toBeNull();
+    expect(freeUploadHeaderError(free, { durationMs: 2_000, width: 2560, height: 1440 })).toMatch(/1080p/);
+    expect(freeUploadHeaderError(free, { durationMs: null, width: 1920, height: 1080 })).toMatch(/could not be checked/);
+    expect(freeUploadHeaderError({ maxClipDurationMs: null, maxUploadQuality: "original" }, { durationMs: null, width: null, height: null })).toBeNull();
   });
 
   it("drops moments that are too short, too long, or overlapping", () => {

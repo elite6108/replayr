@@ -24,6 +24,22 @@ name = "ANALYTICS_REVEAL_RATE_LIMITER"
 namespace_id = "1002"
 simple = { limit = 10, period = 60 }
 
+[[ratelimits]]
+name = "SITE_ACCESS_RATE_LIMITER"
+namespace_id = "1003"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "WAITLIST_RATE_LIMITER"
+namespace_id = "1004"
+# Wrangler only allows a 10s or 60s period, so this is 10 per minute.
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "AI_TRANSCRIBE_RATE_LIMITER"
+namespace_id = "1005"
+simple = { limit = 4, period = 60 }
+
 [assets]
 directory = "../web/dist"
 binding = "ASSETS"

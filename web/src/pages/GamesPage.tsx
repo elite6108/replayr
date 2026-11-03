@@ -2,9 +2,11 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { GameCover } from "../components/GameCover";
+import { useAuth } from "../lib/auth";
 import { fetchGames, searchGames, type CatalogGame } from "../lib/games";
 
 export function GamesPage() {
+  const { session } = useAuth();
   const [games, setGames] = useState<CatalogGame[]>([]);
   const [query, setQuery] = useState("");
   const [remote, setRemote] = useState<CatalogGame[] | null>(null);
@@ -32,7 +34,7 @@ export function GamesPage() {
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void searchGames(needle)
+      void searchGames(needle, session?.access_token)
         .then((next) => {
           if (!cancelled) setRemote(next);
         })
@@ -44,7 +46,7 @@ export function GamesPage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, session?.access_token]);
 
   const visible = useMemo(() => {
     if (remote) return remote;

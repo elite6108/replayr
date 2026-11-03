@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CONFIRMATION_THRESHOLD,
   cleanSearchTerm,
+  matchStatusForSource,
   nextMatchStatus,
   resolveGame,
   type MatchGame,
@@ -95,5 +96,11 @@ describe("confirmation threshold", () => {
     expect(nextMatchStatus(2)).toBe("pending");
     expect(nextMatchStatus(CONFIRMATION_THRESHOLD)).toBe("confirmed");
     expect(nextMatchStatus(4)).toBe("confirmed");
+  });
+
+  it("keeps a player-created game pending after three votes", () => {
+    expect(matchStatusForSource(3, "user")).toBe("pending");
+    expect(matchStatusForSource(3, "igdb")).toBe("confirmed");
+    expect(matchStatusForSource(3, "staff")).toBe("confirmed");
   });
 });

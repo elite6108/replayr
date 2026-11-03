@@ -190,5 +190,7 @@ describe("isOAuthHandoff", () => {
   it("treats a homepage return with a code as an OAuth handoff", () => {
     expect(isOAuthHandoff(new URL("https://www.replayr.tv/?code=abc"))).toBe(true);
     expect(isOAuthHandoff(new URL("https://www.replayr.tv/"))).toBe(false);
+    expect(isOAuthHandoff(new URL("https://www.replayr.tv/auth/callback?code=abc"))).toBe(true);
+    expect(isOAuthHandoff(new URL("https://www.replayr.tv/library?code=abc"))).toBe(false);
   });
 });

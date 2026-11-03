@@ -1,10 +1,10 @@
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { assertRateLimit } from "./rateLimit";
-import { requireUser, serviceRest } from "./shared";
+import { isClipUuid, optionalUser, requireUser, serviceRest, serviceRestCount } from "./shared";
 import {
   cleanSearchTerm,
-  nextMatchStatus,
+  matchStatusForSource,
   normalizeExe,
   normalizeLauncherId,
   normalizeLauncherKind,
@@ -40,6 +40,7 @@ interface MatchRow {
 }
 
 const BLOCKED_NAMES = new Set(["discord", "chrome", "firefox", "desktop", "replayr", "spotify", "steam"]);
+const PENDING_GAME_CAP = 10;
 
 const GAME_PUBLIC = "id,slug,name,publisher,cover_url,status";
 
@@ -119,11 +120,17 @@ export async function searchGames(request: Request, env: Env, url: URL): Promise
   if (!term) return json({ games: [] });
   const encoded = encodeURIComponent(term);
   const filter = `or=(name.ilike.*${encoded}*,slug.ilike.*${encoded}*)&select=${GAME_PUBLIC}&order=name.asc&limit=12`;
-  const [confirmed, pending] = await Promise.all([
-    serviceRest<GameRow[]>(env, "GET", `/games?status=eq.confirmed&${filter}`),
-    serviceRest<GameRow[]>(env, "GET", `/games?status=eq.pending&${filter}`),
-  ]);
-  return json({ games: [...confirmed, ...pending].map(toPublicGame) });
+  const viewer = await optionalUser(request, env);
+  const confirmed = await serviceRest<GameRow[]>(env, "GET", `/games?status=eq.confirmed&${filter}`);
+  const ownPending =
+    viewer && isClipUuid(viewer.id)
+      ? await serviceRest<GameRow[]>(
+          env,
+          "GET",
+          `/games?status=eq.pending&created_by=eq.${viewer.id}&${filter}`,
+        )
+      : [];
+  return json({ games: [...confirmed, ...ownPending].map(toPublicGame) });
 }
 
 export async function createPendingGame(request: Request, env: Env): Promise<Response> {
@@ -141,7 +148,14 @@ export async function createPendingGame(request: Request, env: Env): Promise<Res
     const rows = await serviceRest<GameRow[]>(env, "GET", `/games?id=eq.${existingId}&select=${GAME_PUBLIC}&limit=1`);
     if (rows[0]) return json({ game: toPublicGame(rows[0]), created: false });
   }
-  const slug = await insertPendingGame(env, title, raw.slice(0, 80));
+  const open = await serviceRestCount(
+    env,
+    `/games?created_by=eq.${user.id}&status=eq.pending&catalog_source=eq.user&select=id`,
+  );
+  if (open >= PENDING_GAME_CAP) {
+    return json({ error: "You already have 10 games waiting for review." }, 429);
+  }
+  const slug = await insertPendingGame(env, title, raw.slice(0, 80), user.id);
   const rows = await serviceRest<GameRow[]>(env, "GET", `/games?slug=eq.${encodeURIComponent(slug)}&select=${GAME_PUBLIC}&limit=1`);
   const game = rows[0];
   if (!game) return json({ error: "Could not add that game." }, 500);
@@ -150,10 +164,10 @@ export async function createPendingGame(request: Request, env: Env): Promise<Res
 
 export async function setClipGame(request: Request, env: Env, clipId: string): Promise<Response> {
   const user = await requireUser(request, env);
-  if (!/^[0-9a-f-]{36}$/i.test(clipId)) return json({ error: "Clip not found." }, 404);
+  if (!isClipUuid(clipId)) return json({ error: "Clip not found." }, 404);
   const body = (await request.json().catch(() => null)) as { gameId?: string } | null;
   const gameId = body?.gameId?.trim() ?? "";
-  if (!/^[0-9a-f-]{36}$/i.test(gameId)) return json({ error: "Choose a game." }, 400);
+  if (!isClipUuid(gameId)) return json({ error: "Choose a game." }, 400);
 
   const clips = await serviceRest<{ id: string; capture_exe: string | null }[]>(
     env,
@@ -226,15 +240,11 @@ async function confirmExe(env: Env, userId: string, exe: string, game: GameRow):
     "GET",
     `/game_match_confirmations?match_id=eq.${match.id}&select=user_id&limit=20`,
   );
-  const status = nextMatchStatus(count.length);
+  const status = matchStatusForSource(count.length, game.catalog_source ?? null);
   await serviceRest(env, "PATCH", `/game_matches?id=eq.${match.id}`, {
     confirmation_count: count.length,
     status,
   });
-  if (status === "confirmed" && game.status === "pending" && game.catalog_source === "user") {
-    await serviceRest(env, "PATCH", `/games?id=eq.${game.id}`, { status: "confirmed" });
-    return "confirmed";
-  }
   return game.status;
 }
 
@@ -243,7 +253,7 @@ function blockedExeName(title: string): boolean {
   return exe !== null && ["discord.exe", "chrome.exe", "firefox.exe", "spotify.exe", "steam.exe"].includes(exe);
 }
 
-async function insertPendingGame(env: Env, title: string, displayName: string): Promise<string> {
+async function insertPendingGame(env: Env, title: string, displayName: string, userId: string): Promise<string> {
   const base = title.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "game";
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
@@ -258,6 +268,7 @@ async function insertPendingGame(env: Env, title: string, displayName: string): 
           aliases: [title],
           status: "pending",
           catalog_source: "user",
+          created_by: userId,
           process_names: [],
         },
         "return=minimal",

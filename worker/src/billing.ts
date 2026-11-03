@@ -154,6 +154,33 @@ export async function assertUploadAllowed(
   return status;
 }
 
+/** Free uploads are rejected when the file itself is over the plan or its header cannot be read. */
+export function freeUploadHeaderError(
+  status: Pick<BillingStatus, "maxClipDurationMs" | "maxUploadQuality">,
+  facts: { durationMs: number | null; width: number | null; height: number | null },
+): string | null {
+  if (status.maxClipDurationMs == null && status.maxUploadQuality !== "1080p") return null;
+  if (status.maxClipDurationMs != null) {
+    if (facts.durationMs == null) {
+      return "This clip could not be checked against the free plan, so it was not saved.";
+    }
+    if (facts.durationMs > status.maxClipDurationMs + 999) {
+      return `Free cloud clips are limited to ${Math.round(status.maxClipDurationMs / 60000)} minutes. Upgrade to Premium to upload longer clips.`;
+    }
+  }
+  if (status.maxUploadQuality === "1080p") {
+    if (facts.width == null || facts.height == null) {
+      return "This clip could not be checked against the free plan, so it was not saved.";
+    }
+    const longSide = Math.max(facts.width, facts.height);
+    const shortSide = Math.min(facts.width, facts.height);
+    if (longSide > 1920 || shortSide > 1080) {
+      return "Free cloud uploads are limited to 1080p. Upgrade to Premium for original quality.";
+    }
+  }
+  return null;
+}
+
 async function checkout(request: Request, env: Env): Promise<Response> {
   requireStripe(env);
   const user = await requireUser(request, env);

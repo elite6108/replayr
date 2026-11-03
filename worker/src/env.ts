@@ -3,6 +3,9 @@ export interface Env {
   ASSETS?: { fetch: (request: Request) => Promise<Response> };
   ANALYTICS_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
   ANALYTICS_REVEAL_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  SITE_ACCESS_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  WAITLIST_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  AI_TRANSCRIBE_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;

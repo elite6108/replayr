@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <defs>
+    <linearGradient id="g" x1="1" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#0d1118"/>
+      <stop offset="1" stop-color="#1c3348"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="360" fill="url(#g)"/>
+  <text x="320" y="188" fill="#8be9fd" font-size="28" text-anchor="middle" font-family="Outfit, Sora, sans-serif" letter-spacing="4">REPLAYR</text>
+</svg>

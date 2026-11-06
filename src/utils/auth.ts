@@ -16,13 +16,21 @@ export function isAlreadyRegisteredError(message: string): boolean {
   return /already registered|already been registered|user already exists/i.test(message);
 }
 
-export function validateAuthCredentials(email: string, password: string): string | null {
+export function validateAuthCredentials(
+  email: string,
+  password: string,
+  purpose: "sign-in" | "sign-up" = "sign-up",
+): string | null {
   const trimmed = normalizeAuthEmail(email);
   if (!trimmed || !trimmed.includes("@")) {
     return "Enter an email address to create an account or sign in.";
   }
-  if (password.length < 6) {
-    return "Password must be at least 6 characters.";
+  if (purpose === "sign-in") {
+    if (!password) return "Enter your password.";
+    return null;
+  }
+  if (password.length < 8) {
+    return "Password must be at least 8 characters.";
   }
   return null;
 }

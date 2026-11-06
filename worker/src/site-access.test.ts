@@ -33,7 +33,7 @@ function expectWaitlistConversionCopy(html: string) {
   expect(html).toContain("Join the beta");
   expect(html).toContain("Replayr keeps the last few minutes of your game ready.");
   expect(html).toContain("No spam. Just launch updates and early access.");
-  expect(html).toContain("Windows first");
+  expect(html).toContain("Windows app available");
   expect(html).toContain("Free at launch");
   expect(html).toContain("CAPTURE — KEEP — EDIT — SHARE — RELIVE");
   expect(html).toContain("Thanks — we'll email you when beta opens.");

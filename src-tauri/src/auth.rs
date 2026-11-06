@@ -11,17 +11,28 @@ use crate::error::{AppError, AppResult};
 const KEYRING_READ_TIMEOUT: Duration = Duration::from_millis(1500);
 
 /// Windows Credential Manager rejects blobs over 2560 bytes and can hang or
-/// error on leftover oversized entries. The session lives in a DPAPI-protected
-/// file; keyring is migration-only and must never fail a sign-in.
+/// error on leftover oversized entries. The session file is DPAPI-protected on
+/// Windows and AES-GCM on macOS, with only the small macOS key in the login
+/// keychain. The keychain never stores the session itself.
 pub fn get_item(app: &AppHandle, key: &str) -> AppResult<Option<String>> {
     let path = store_path(app, key)?;
     if path.exists() {
-        match std::fs::read(&path)
-            .map_err(AppError::from)
-            .and_then(|bytes| unprotect_string(&bytes))
-        {
-            Ok(value) => return Ok(Some(value)),
+        let bytes = std::fs::read(&path)?;
+        match unprotect_string(&bytes) {
+            Ok(value) => {
+                if session_needs_migration(&bytes) {
+                    if let Err(err) = set_item(app, key, &value) {
+                        tracing::warn!("could not encrypt the existing auth session: {err}");
+                    }
+                }
+                return Ok(Some(value));
+            }
             Err(err) => {
+                let message = err.to_string();
+                if message.contains("keychain") {
+                    tracing::warn!("auth session stayed on disk because the keychain was unavailable: {message}");
+                    return Err(err);
+                }
                 tracing::warn!("auth session file was unreadable and will be reset: {err}");
                 let _ = std::fs::remove_file(&path);
             }
@@ -151,14 +162,129 @@ fn unprotect(bytes: &[u8]) -> AppResult<Vec<u8>> {
     dpapi_unprotect(bytes)
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn protect(bytes: &[u8]) -> AppResult<Vec<u8>> {
     Ok(bytes.to_vec())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn unprotect(bytes: &[u8]) -> AppResult<Vec<u8>> {
     Ok(bytes.to_vec())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn session_needs_migration(_bytes: &[u8]) -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn session_needs_migration(bytes: &[u8]) -> bool {
+    !bytes.starts_with(b"RPR1")
+}
+
+#[cfg(target_os = "macos")]
+fn protect(bytes: &[u8]) -> AppResult<Vec<u8>> {
+    use aes_gcm::aead::rand_core::{OsRng, RngCore};
+    use aes_gcm::aead::{Aead, KeyInit};
+    use aes_gcm::{Aes256Gcm, Nonce};
+
+    let key = session_file_key()?;
+    let cipher = Aes256Gcm::new_from_slice(&key)
+        .map_err(|err| AppError::Message(format!("Could not encrypt the auth session: {err}")))?;
+    let mut nonce_bytes = [0u8; 12];
+    OsRng.fill_bytes(&mut nonce_bytes);
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), bytes)
+        .map_err(|_| AppError::Message("Could not encrypt the auth session.".into()))?;
+    let mut out = Vec::with_capacity(4 + nonce_bytes.len() + ciphertext.len());
+    out.extend_from_slice(b"RPR1");
+    out.extend_from_slice(&nonce_bytes);
+    out.extend_from_slice(&ciphertext);
+    Ok(out)
+}
+
+#[cfg(target_os = "macos")]
+fn unprotect(bytes: &[u8]) -> AppResult<Vec<u8>> {
+    use aes_gcm::aead::{Aead, KeyInit};
+    use aes_gcm::{Aes256Gcm, Nonce};
+
+    if !bytes.starts_with(b"RPR1") {
+        return Ok(bytes.to_vec());
+    }
+    if bytes.len() < 4 + 12 + 16 {
+        return Err(AppError::Message("Auth session file is incomplete.".into()));
+    }
+    let key = session_file_key()?;
+    let cipher = Aes256Gcm::new_from_slice(&key)
+        .map_err(|err| AppError::Message(format!("Could not read the auth session: {err}")))?;
+    let nonce = Nonce::from_slice(&bytes[4..16]);
+    cipher
+        .decrypt(nonce, &bytes[16..])
+        .map_err(|_| AppError::Message("Could not read the auth session.".into()))
+}
+
+#[cfg(target_os = "macos")]
+fn session_file_key() -> AppResult<[u8; 32]> {
+    use aes_gcm::aead::rand_core::{OsRng, RngCore};
+
+    let entry = Entry::new(KEYRING_SERVICE, "session-file-key").map_err(|err| {
+        AppError::Message(format!("Could not open the login keychain: {err}"))
+    })?;
+    match entry.get_password() {
+        Ok(stored) => decode_key(&stored),
+        Err(keyring::Error::NoEntry) => {
+            let mut key = [0u8; 32];
+            OsRng.fill_bytes(&mut key);
+            entry.set_password(&encode_hex(&key)).map_err(|err| {
+                AppError::Message(format!(
+                    "Could not store the auth key in the login keychain: {err}"
+                ))
+            })?;
+            Ok(key)
+        }
+        Err(err) => Err(AppError::Message(format!(
+            "Could not read the auth key from the login keychain: {err}"
+        ))),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn encode_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+#[cfg(target_os = "macos")]
+fn decode_key(value: &str) -> AppResult<[u8; 32]> {
+    if value.len() != 64 {
+        return Err(AppError::Message(
+            "Could not read the auth key from the login keychain.".into(),
+        ));
+    }
+    let mut key = [0u8; 32];
+    for (index, byte) in key.iter_mut().enumerate() {
+        let high = hex_nibble(value.as_bytes()[index * 2])?;
+        let low = hex_nibble(value.as_bytes()[index * 2 + 1])?;
+        *byte = (high << 4) | low;
+    }
+    Ok(key)
+}
+
+#[cfg(target_os = "macos")]
+fn hex_nibble(byte: u8) -> AppResult<u8> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        _ => Err(AppError::Message(
+            "Could not read the auth key from the login keychain.".into(),
+        )),
+    }
 }
 
 #[cfg(windows)]

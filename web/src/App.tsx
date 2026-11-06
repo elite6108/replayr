@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { SiteFooter } from "./components/SiteFooter";
 import { SiteHeader } from "./components/SiteHeader";
 import { RequireAuth } from "./components/RequireAuth";
 import { AuthProvider, useAuth } from "./lib/auth";
+import { siteMenuOpen } from "./lib/siteOpen";
 import { noteWebPresencePath } from "./lib/presence";
 import { StaffPermissionsProvider } from "./lib/staff";
 import { SocialUnreadProvider } from "./lib/socialUnread";
@@ -99,8 +100,8 @@ function AppShell() {
           <Route path="/" element={<HomePage />} />
           <Route path="/waitlist" element={<WaitlistToComingSoon />} />
           <Route path="/coming-soon" element={<ComingSoonStatic />} />
-          <Route path="/features" element={<FeaturesPage />} />
-          <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/features" element={<GatedMarketing><FeaturesPage /></GatedMarketing>} />
+          <Route path="/pricing" element={<GatedMarketing><PricingPage /></GatedMarketing>} />
           <Route path="/creators" element={<CreatorsPage />} />
           <Route path="/releases" element={<ReleaseNotesPage />} />
           <Route path="/explore" element={<ExplorePage />} />
@@ -221,6 +222,11 @@ function webScreen(pathname: string): string {
   if (pathname.startsWith("/account")) return "account";
   if (pathname.startsWith("/signin") || pathname.startsWith("/auth/")) return "auth";
   return "other";
+}
+
+function GatedMarketing({ children }: { children: ReactNode }) {
+  if (!siteMenuOpen()) return <Navigate to="/coming-soon" replace />;
+  return <>{children}</>;
 }
 
 function WaitlistToComingSoon() {

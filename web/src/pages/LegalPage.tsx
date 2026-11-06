@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { APP_NAME, SUPPORT_EMAIL } from "../lib/branding";
 
-const UPDATED = "October 12, 2026";
+const UPDATED = "November 5, 2026";
 
 export function LegalPage({ kind }: { kind: "privacy" | "terms" }) {
   const privacy = kind === "privacy";
@@ -77,7 +77,8 @@ function PrivacyBody() {
       <p>
         Gameplay video, microphone, game audio, and desktop audio are captured locally when you turn those sources on.
         Settings, the local library, and the Instant Replay buffer live on disk on that PC. We do not stream that
-        capture to our servers in the background.
+        capture to our servers in the background. The Windows app can send the foreground process name and window
+        title so a game can be recognized. It does not send the contents of the game.
       </p>
       <h3>Technical data</h3>
       <p>
@@ -120,6 +121,17 @@ function PrivacyBody() {
         <li>
           <strong>Google, Discord, or X</strong> — only if you choose that sign-in. They send us the account details
           their OAuth flow provides (typically email and a stable id).
+        </li>
+        <li>
+          <strong>Stripe</strong> — payment details when you subscribe to Premium. Replayr stores the subscription
+          status, not your full card number.
+        </li>
+        <li>
+          <strong>OpenAI</strong> — the audio of a clip when a signed-in user runs AI moments, so suggested cuts can be
+          returned.
+        </li>
+        <li>
+          <strong>Bunny</strong> — a free clip when it is prepared for branded playback.
         </li>
       </ul>
       <p>

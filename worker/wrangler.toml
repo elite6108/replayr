@@ -40,6 +40,31 @@ name = "AI_TRANSCRIBE_RATE_LIMITER"
 namespace_id = "1005"
 simple = { limit = 4, period = 60 }
 
+[[ratelimits]]
+name = "WRITE_60_RATE_LIMITER"
+namespace_id = "1006"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "WRITE_30_RATE_LIMITER"
+namespace_id = "1007"
+simple = { limit = 30, period = 60 }
+
+[[ratelimits]]
+name = "WRITE_20_RATE_LIMITER"
+namespace_id = "1008"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "WRITE_10_RATE_LIMITER"
+namespace_id = "1009"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "WRITE_5_RATE_LIMITER"
+namespace_id = "1010"
+simple = { limit = 5, period = 60 }
+
 [assets]
 directory = "../web/dist"
 binding = "ASSETS"

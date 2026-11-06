@@ -1,7 +1,7 @@
 import { observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
-import { assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit } from "./rateLimit";
 import { requireServiceRole, requireUser, serviceRest, type AuthUser } from "./shared";
 import { detectSubscriptionTransition } from "./analyticsRevenue";
 
@@ -184,8 +184,8 @@ export function freeUploadHeaderError(
 
 async function checkout(request: Request, env: Env): Promise<Response> {
   requireStripe(env);
-  const user = await requireUser(request, env);
-  assertRateLimit(request, "billing-checkout", 5, user.id);
+  const user = await requireUser(request, env, { fresh: true });
+  await assertDistributedRateLimit(request, env.WRITE_5_RATE_LIMITER, "billing-checkout", 5, user.id);
   const body = (await request.json().catch(() => ({}))) as {
     interval?: string;
     successUrl?: string;
@@ -225,7 +225,7 @@ async function checkout(request: Request, env: Env): Promise<Response> {
 
 async function portal(request: Request, env: Env): Promise<Response> {
   requireStripe(env);
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   const body = (await request.json().catch(() => ({}))) as { returnUrl?: string };
   const origin = publicOrigin(env, request);
   const customers = await serviceRest<CustomerRow[]>(
@@ -499,6 +499,24 @@ export async function stripeGet<T>(env: Env, path: string): Promise<T> {
 function requireStripe(env: Env): string {
   if (!env.STRIPE_SECRET_KEY) throw new HttpError(503, "Stripe is not configured on the Worker.");
   return env.STRIPE_SECRET_KEY;
+}
+
+export function accountDeleteConfirmed(body: unknown): boolean {
+  if (!body || typeof body !== "object") return false;
+  return (body as { confirm?: unknown }).confirm === "DELETE";
+}
+
+/** Stops billing before an account is removed. A Stripe failure deletes nothing. */
+export async function cancelActiveSubscription(env: Env, userId: string): Promise<void> {
+  if (!env.STRIPE_SECRET_KEY) return;
+  const rows = await serviceRest<SubscriptionRow[]>(
+    env,
+    "GET",
+    `/billing_subscriptions?user_id=eq.${userId}&select=user_id,stripe_subscription_id,stripe_price_id,status,current_period_end,cancel_at_period_end`,
+  );
+  const subscriptionId = rows[0]?.stripe_subscription_id;
+  if (!subscriptionId || rows[0]?.status === "canceled") return;
+  await stripeForm(env, "DELETE", `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`);
 }
 
 function publicOrigin(env: Env, request: Request): string {

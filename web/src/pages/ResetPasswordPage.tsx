@@ -70,8 +70,8 @@ export function ResetPasswordPage() {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
       return;
     }
     if (password !== confirm) {
@@ -116,7 +116,7 @@ export function ResetPasswordPage() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required
-              minLength={6}
+              minLength={8}
               autoComplete="new-password"
             />
           </label>
@@ -127,7 +127,7 @@ export function ResetPasswordPage() {
               value={confirm}
               onChange={(event) => setConfirm(event.target.value)}
               required
-              minLength={6}
+              minLength={8}
               autoComplete="new-password"
             />
           </label>

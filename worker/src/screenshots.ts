@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
-import { assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit, assertRateLimit } from "./rateLimit";
 import {
   objectUrl,
   r2Client,
@@ -200,7 +200,7 @@ async function createScreenshot(
     throw caught;
   }
   try {
-    assertRateLimit(request, "screenshot-upload", 30, user.id);
+    await assertDistributedRateLimit(request, env.WRITE_30_RATE_LIMITER, "screenshot-upload", 30, user.id);
   } catch (caught) {
     if (caught instanceof HttpError && caught.status === 429) {
       throw new HttpError(429, caught.message, "rate_limited");

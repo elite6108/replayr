@@ -18,7 +18,7 @@ import { captureFromBody, createPendingGame, listDetectionCatalog, resolveClipGa
 import { webContentSecurityPolicy } from "./contentSecurity";
 import { cors, HttpError, json } from "./http";
 import { recordProductEvent } from "./metrics";
-import { assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit, assertRateLimit } from "./rateLimit";
 import {
   anonymousAuthor,
   loadAuthors,
@@ -45,8 +45,8 @@ import {
   type PlaybackRow,
   type PublicClipRow,
 } from "./shared";
-import { handleAiMoments, mp4HeaderFacts } from "./aiMoments";
-import { assertUploadAllowed, freeUploadHeaderError, handleBilling, loadStatus } from "./billing";
+import { handleAiMoments, uploadObjectHeaderError } from "./aiMoments";
+import { accountDeleteConfirmed, assertUploadAllowed, cancelActiveSubscription, handleBilling, loadStatus } from "./billing";
 import { handleFolders } from "./folders";
 import { handlePublicFolders } from "./folderPublic";
 import { handlePosts } from "./posts";
@@ -322,9 +322,11 @@ async function route(
       url.pathname.startsWith("/v1/folders") ||
       url.pathname === "/v1/posts" ||
       /^\/v1\/posts\/[^/]+$/.test(url.pathname) ||
-      /^\/v1\/clips\/[^/]+\/send$/.test(url.pathname))
+      /^\/v1\/clips\/[^/]+\/send$/.test(url.pathname) ||
+      /^\/v1\/clips\/[^/]+\/like$/.test(url.pathname) ||
+      /^\/v1\/clips\/[^/]+\/comments(\/[^/]+)?$/.test(url.pathname))
   ) {
-    assertRateLimit(request, "social-write", 60);
+    await assertDistributedRateLimit(request, env.WRITE_60_RATE_LIMITER, "social-write", 60);
   }
   const posts = await handlePosts(request, env, url);
   if (posts) return posts;
@@ -587,7 +589,7 @@ function withWebSecurityHeaders(response: Response, request?: Request): Response
 
 async function createUpload(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  assertRateLimit(request, "upload-create", 10, user.id);
+  await assertDistributedRateLimit(request, env.WRITE_10_RATE_LIMITER, "upload-create", 10, user.id);
   requireR2(env);
   const body = (await request.json()) as UploadBody;
   const size = Number(body.size ?? 0);
@@ -1056,27 +1058,24 @@ async function completeUpload(
   }
 
   const billing = await loadStatus(env, user.id);
-  if (billing.maxClipDurationMs != null || billing.maxUploadQuality === "1080p") {
-    const prefix = await readObjectPrefix(env, objectKey, 512 * 1024);
-    const facts = prefix ? mp4HeaderFacts(prefix) : { durationMs: null, width: null, height: null };
-    const reason = freeUploadHeaderError(billing, facts);
-    if (reason) {
-      await deleteOwnedObject(env, user.id, objectKey);
-      const reserved = replacing ? Math.max(0, expected - oldSize) : expected;
-      await releaseReservedBytes(env, user.id, reserved);
-      if (!replacing) {
-        await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, { status: "failed" });
-      }
-      await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&status=eq.uploading`, {
-        status: "aborted",
-      });
-      observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadFailed, {
-        userId: user.id,
-        entityId: clipId,
-        properties: { reason: "plan_limit" },
-      });
-      return json({ error: reason }, 403);
+  const prefix = await readObjectPrefix(env, objectKey, 512 * 1024);
+  const reason = uploadObjectHeaderError(prefix, billing);
+  if (reason) {
+    await deleteOwnedObject(env, user.id, objectKey);
+    const reserved = replacing ? Math.max(0, expected - oldSize) : expected;
+    await releaseReservedBytes(env, user.id, reserved);
+    if (!replacing) {
+      await serviceRest(env, "PATCH", `/clips?id=eq.${clipId}&user_id=eq.${user.id}`, { status: "failed" });
     }
+    await serviceRest(env, "PATCH", `/upload_sessions?clip_id=eq.${clipId}&user_id=eq.${user.id}&status=eq.uploading`, {
+      status: "aborted",
+    });
+    observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.uploadFailed, {
+      userId: user.id,
+      entityId: clipId,
+      properties: { reason: reason === "Upload must be an MP4 file." ? "not_mp4" : "plan_limit" },
+    });
+    return json({ error: reason }, reason === "Upload must be an MP4 file." ? 400 : 403);
   }
 
   if (replacing) {
@@ -1129,7 +1128,7 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
   if (!isClipUuid(clipId)) {
     return json({ error: "Clip id is invalid." }, 400);
   }
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   const clips = await serviceRest<(ClipRow & { watermark_processor_video_id?: string | null })[]>(
     env,
     "GET",
@@ -1195,7 +1194,12 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
 }
 
 async function deleteAccount(request: Request, env: Env): Promise<Response> {
-  const user = await requireUser(request, env);
+  const body = await request.json().catch(() => null);
+  if (!accountDeleteConfirmed(body)) {
+    throw new HttpError(400, "Confirm account deletion with DELETE.");
+  }
+  const user = await requireUser(request, env, { fresh: true });
+  await cancelActiveSubscription(env, user.id);
   const serviceKey = requireServiceRole(env);
   requireR2(env);
 

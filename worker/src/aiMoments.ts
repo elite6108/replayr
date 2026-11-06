@@ -1,4 +1,4 @@
-import { loadStatus } from "./billing";
+import { freeUploadHeaderError, loadStatus, type BillingStatus } from "./billing";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { assertDistributedRateLimit, assertRateLimit } from "./rateLimit";
@@ -100,6 +100,19 @@ export function mp4DurationMs(bytes: Uint8Array): number | null {
     return Math.round((duration / timescale) * 1000);
   }
   return null;
+}
+
+export function mp4HasFtyp(bytes: Uint8Array): boolean {
+  return findBox(bytes, 0, bytes.length, "ftyp") != null;
+}
+
+/** Every upload needs an MP4 ftyp. Duration and size limits stay on plans that have them. */
+export function uploadObjectHeaderError(
+  bytes: Uint8Array | null,
+  status: Pick<BillingStatus, "maxClipDurationMs" | "maxUploadQuality">,
+): string | null {
+  if (!bytes || !mp4HasFtyp(bytes)) return "Upload must be an MP4 file.";
+  return freeUploadHeaderError(status, mp4HeaderFacts(bytes));
 }
 
 export function mp4HeaderFacts(bytes: Uint8Array): { durationMs: number | null; width: number | null; height: number | null } {
@@ -572,7 +585,7 @@ async function transcribe(request: Request, env: Env): Promise<Response> {
 
 async function rank(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  assertRateLimit(request, "ai-rank", 10, user.id);
+  await assertDistributedRateLimit(request, env.WRITE_10_RATE_LIMITER, "ai-rank", 10, user.id);
   await assertPremium(env, user.id);
   const body = (await request.json().catch(() => null)) as { transcriptId?: unknown; format?: unknown } | null;
   const transcriptId = typeof body?.transcriptId === "string" ? body.transcriptId : "";

@@ -6,6 +6,7 @@ import { publicSiteUrl, sendReplayrEmail, waitlistConfirmEmail, waitlistUnsubscr
 import { assertDistributedRateLimit } from "./rateLimit";
 
 const COOKIE_NAME = "replayr_site_access";
+const OPEN_COOKIE = "replayr_site_open";
 const COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 30; // 30 days
 
 const ALWAYS_OPEN_PREFIXES = [
@@ -181,6 +182,10 @@ export async function handleSiteAccess(request: Request, env: Env): Promise<Resp
       "set-cookie",
       `${COOKIE_NAME}=${token}; Path=/${domain}; HttpOnly${secure}; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE_SEC}`,
     );
+    headers.append(
+      "set-cookie",
+      `${OPEN_COOKIE}=1; Path=/${domain}${secure}; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE_SEC}`,
+    );
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   }
   if (request.method === "POST" && url.pathname === "/v1/site-access/logout") {
@@ -192,6 +197,10 @@ export async function handleSiteAccess(request: Request, env: Env): Promise<Resp
     headers.append(
       "set-cookie",
       `${COOKIE_NAME}=; Path=/${domain}; HttpOnly${secure}; SameSite=Lax; Max-Age=0`,
+    );
+    headers.append(
+      "set-cookie",
+      `${OPEN_COOKIE}=; Path=/${domain}${secure}; SameSite=Lax; Max-Age=0`,
     );
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   }
@@ -426,7 +435,7 @@ export function comingSoonFallbackHtml(): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Replayr — Your best plays, already captured</title>
-    <meta name="description" content="Replayr keeps the last few minutes of your game ready. One hotkey saves what just happened. Join the beta. Windows first, free at launch." />
+    <meta name="description" content="Replayr keeps the last few minutes of your game ready. One hotkey saves what just happened. Join the beta. Windows app available, free at launch." />
     <meta name="robots" content="index,follow" />
     <link rel="canonical" href="https://replayr.tv/coming-soon" />
     <link rel="icon" type="image/png" href="/favicon.png" />
@@ -468,7 +477,7 @@ export function comingSoonFallbackHtml(): string {
         </div>
         <p class="msg" id="waitMsg" role="status"></p>
         <p class="trust">No spam. Just launch updates and early access.</p>
-        <p class="trust">Windows first · Free at launch</p>
+        <p class="trust">Windows app available · Free at launch</p>
       </div>
       <p class="pipeline">CAPTURE — KEEP — EDIT — SHARE — RELIVE</p>
       <footer>

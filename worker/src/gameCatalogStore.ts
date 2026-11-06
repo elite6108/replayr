@@ -8,7 +8,6 @@ import {
   parseGameDraft,
   parseSteamSearch,
   searchTerm,
-  shouldPromote,
   slugifyGameName,
   steamDirectoryName,
   steamHeaderUrl,
@@ -279,36 +278,8 @@ export async function recordPlayObservation(env: Env, input: ObservationInput): 
     p_network: input.networkHash,
   });
   if (!result?.stored || result.blocked) return { stored: false, promotedSlug: null };
-  const distinctInstalls = Number(result.distinctInstalls ?? 0);
-  const distinctNetworks = Number(result.distinctNetworks ?? 0);
-  const winningVotes = Number(result.winningVotes ?? 0);
-  const winningTitle = typeof result.winningTitle === "string" ? result.winningTitle : "";
-  if (
-    !shouldPromote({
-      processName: input.processName,
-      distinctInstalls,
-      distinctNetworks,
-      winningTitle,
-      winningVotes,
-      blocked: false,
-    })
-  ) {
-    return { stored: true, promotedSlug: null };
-  }
-  try {
-    const game = await upsertDetectedProcess(env, input.processName, winningTitle, "observation");
-    await serviceRest(
-      env,
-      "PATCH",
-      `/game_observations?process_name=eq.${encodeURIComponent(input.processName)}`,
-      { promoted_slug: game.slug },
-      "return=minimal",
-    );
-    return { stored: true, promotedSlug: game.slug };
-  } catch (caught) {
-    console.error("game_promote_failed", caught instanceof Error ? caught.name : "unknown");
-    return { stored: true, promotedSlug: null };
-  }
+  // A play report never confirms a game. Staff review is the only promotion path.
+  return { stored: true, promotedSlug: null };
 }
 
 export async function matchSteamTitle(env: Env, processName: string, windowTitle: string): Promise<CatalogGame | null> {
@@ -331,25 +302,21 @@ export async function matchSteamTitle(env: Env, processName: string, windowTitle
   }
   const slug = slugifyGameName(official);
   const existing = await gameBySlug(env, slug);
-  if (existing && existing.name.toLowerCase() !== official.toLowerCase()) return null;
-  const cover = steamHeaderUrl(matches[0].app_id) ?? null;
   if (existing) {
-    const patch: Record<string, unknown> = {
-      process_names: mergeProcessNames(existing.process_names ?? [], [process]),
-    };
-    if (!existing.cover_url && cover) patch.cover_url = cover;
-    return toCatalogGame(await updateGame(env, existing.slug, patch));
+    if (existing.name.toLowerCase() !== official.toLowerCase()) return null;
+    return toCatalogGame(existing);
   }
-  return toCatalogGame(
-    await insertGame(env, {
-      slug,
-      name: official,
-      publisher: null,
-      cover_url: cover,
-      process_names: [process],
-      catalog_source: "steam",
-    }),
-  );
+  const cover = steamHeaderUrl(matches[0].app_id) ?? null;
+  await insertGame(env, {
+    slug,
+    name: official,
+    publisher: null,
+    cover_url: cover,
+    process_names: [process],
+    catalog_source: "steam",
+    status: "pending",
+  });
+  return null;
 }
 
 async function upsertDetectedProcess(

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { applyShortPicks, applyWindowPicks, handleAiMoments, mp4DurationMs, mp4HeaderFacts, parseRankJson, planShorts, sanitizeMoments, speechWindows, TRANSCRIPTION_LIMIT_SECONDS } from "./aiMoments";
+import { applyShortPicks, applyWindowPicks, handleAiMoments, mp4DurationMs, mp4HasFtyp, mp4HeaderFacts, parseRankJson, planShorts, sanitizeMoments, speechWindows, TRANSCRIPTION_LIMIT_SECONDS, uploadObjectHeaderError } from "./aiMoments";
 import { freeUploadHeaderError } from "./billing";
 import type { Env } from "./env";
 import { HttpError } from "./http";
@@ -102,6 +102,20 @@ describe("moment bounds", () => {
     ]);
     expect(mp4HeaderFacts(video)).toEqual({ durationMs: 2000, width: 1920, height: 1080 });
     expect(mp4HeaderFacts(new Uint8Array(8))).toEqual({ durationMs: null, width: null, height: null });
+    expect(mp4HasFtyp(video)).toBe(true);
+    expect(mp4HasFtyp(new Uint8Array(8))).toBe(false);
+  });
+
+  it("rejects an upload with no MP4 ftyp and still accepts a Premium file with no duration", () => {
+    const premiumPlan = { maxClipDurationMs: null, maxUploadQuality: "original" as const };
+    const free = { maxClipDurationMs: 1_200_000, maxUploadQuality: "1080p" as const };
+    const ftypOnly = box("ftyp", new Uint8Array(8));
+    expect(uploadObjectHeaderError(ftypOnly, premiumPlan)).toBeNull();
+    expect(uploadObjectHeaderError(new Uint8Array([0, 0, 0, 8, 109, 100, 97, 116]), premiumPlan)).toBe(
+      "Upload must be an MP4 file.",
+    );
+    expect(uploadObjectHeaderError(null, premiumPlan)).toBe("Upload must be an MP4 file.");
+    expect(uploadObjectHeaderError(sampleAudio(), free)).toMatch(/could not be checked/);
   });
 
   it("rejects a free upload that is over 1080p or unreadable", () => {

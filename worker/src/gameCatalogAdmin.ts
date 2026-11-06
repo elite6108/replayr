@@ -20,7 +20,7 @@ import {
   userGameHasNoProcesses,
 } from "./gameCatalogStore";
 import { HttpError, json } from "./http";
-import { allowRateLimit, assertRateLimit } from "./rateLimit";
+import { allowRateLimit, assertDistributedRateLimit } from "./rateLimit";
 
 export async function handleGameCatalogAdmin(
   request: Request,
@@ -98,7 +98,7 @@ export async function handleGameCatalogAdmin(
 }
 
 export async function matchSteamGame(request: Request, env: Env): Promise<Response> {
-  assertRateLimit(request, "steam-match", 30);
+  await assertDistributedRateLimit(request, env.WRITE_30_RATE_LIMITER, "steam-match", 30);
   const raw = await request.text();
   if (raw.length > 2_000) throw new HttpError(400, "That game title was not usable.");
   let body: unknown;
@@ -127,7 +127,7 @@ export async function matchSteamGame(request: Request, env: Env): Promise<Respon
 }
 
 export async function ingestGameObservation(request: Request, env: Env): Promise<Response> {
-  assertRateLimit(request, "game-observation", 30);
+  await assertDistributedRateLimit(request, env.WRITE_30_RATE_LIMITER, "game-observation", 30);
   const raw = await request.text();
   if (raw.length > 2_000) throw new HttpError(400, "Play report was not usable.");
   let body: unknown;

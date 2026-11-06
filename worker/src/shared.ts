@@ -67,13 +67,18 @@ interface ClipAuthor {
 const AUTH_CACHE_TTL_MS = 45_000;
 const authUserCache = new Map<string, { user: AuthUser; expiresAt: number }>();
 
-export async function requireUser(request: Request, env: Env): Promise<AuthUser> {
+export async function requireUser(
+  request: Request,
+  env: Env,
+  options?: { fresh?: boolean },
+): Promise<AuthUser> {
   const header = request.headers.get("authorization") || "";
   const token = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
   if (!token) {
     throw new HttpError(401, "Sign in required.");
   }
-  const cached = authUserCache.get(token);
+  if (options?.fresh) authUserCache.delete(token);
+  const cached = options?.fresh ? undefined : authUserCache.get(token);
   if (cached && cached.expiresAt > Date.now()) {
     return { ...cached.user, token };
   }

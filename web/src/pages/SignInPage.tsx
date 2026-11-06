@@ -58,6 +58,10 @@ export function SignInPage() {
         const { error: next } = await auth.signInWithPassword({ email: normalized, password });
         if (next) throw next;
       } else {
+        if (password.length < 8) {
+          setError("Password must be at least 8 characters.");
+          return;
+        }
         if (password !== confirm) {
           setError("Passwords do not match.");
           return;
@@ -199,7 +203,7 @@ export function SignInPage() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required
-            minLength={6}
+            minLength={mode === "up" ? 8 : undefined}
             autoComplete={mode === "in" ? "current-password" : "new-password"}
           />
         </label>
@@ -211,7 +215,7 @@ export function SignInPage() {
               value={confirm}
               onChange={(event) => setConfirm(event.target.value)}
               required
-              minLength={6}
+              minLength={8}
               autoComplete="new-password"
             />
           </label>

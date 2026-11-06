@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
-import { assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit, assertRateLimit } from "./rateLimit";
 import { isClipUuid, optionalUser, requireUser, serviceRest, serviceRestCount } from "./shared";
 import {
   cleanSearchTerm,
@@ -137,7 +137,7 @@ export async function searchGames(request: Request, env: Env, url: URL): Promise
 /** Detection catalog for a signed-in desktop. Process names stay off the public table. */
 export async function listDetectionCatalog(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  assertRateLimit(request, "game-catalog", 30, user.id);
+  await assertDistributedRateLimit(request, env.WRITE_30_RATE_LIMITER, "game-catalog", 30, user.id);
   const games: GameRow[] = [];
   const pageSize = 500;
   for (let offset = 0; offset < 2000; offset += pageSize) {
@@ -164,7 +164,7 @@ export async function listDetectionCatalog(request: Request, env: Env): Promise<
 
 export async function createPendingGame(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  assertRateLimit(request, `game-create:${user.id}`, 10);
+  await assertDistributedRateLimit(request, env.WRITE_10_RATE_LIMITER, "game-create", 10, user.id);
   const body = (await request.json().catch(() => null)) as { name?: string } | null;
   const raw = typeof body?.name === "string" ? body.name.replace(/[\u0000-\u001f]/g, "").replace(/\s+/g, " ").trim() : "";
   const title = normalizeTitle(raw);
@@ -193,7 +193,7 @@ export async function createPendingGame(request: Request, env: Env): Promise<Res
 
 export async function setClipGame(request: Request, env: Env, clipId: string): Promise<Response> {
   const user = await requireUser(request, env);
-  assertRateLimit(request, "clip-game", 20, user.id);
+  await assertDistributedRateLimit(request, env.WRITE_20_RATE_LIMITER, "clip-game", 20, user.id);
   if (!isClipUuid(clipId)) return json({ error: "Clip not found." }, 404);
   const body = (await request.json().catch(() => null)) as { gameId?: string } | null;
   const gameId = body?.gameId?.trim() ?? "";

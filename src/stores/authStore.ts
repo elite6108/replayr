@@ -151,7 +151,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   signIn: async (email, password) => {
     set({ error: null, notice: null });
-    const invalid = validateAuthCredentials(email, password);
+    const invalid = validateAuthCredentials(email, password, "sign-in");
     if (invalid) {
       set({ error: invalid });
       throw new Error(invalid);
@@ -182,7 +182,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   signUp: async (email, password) => {
     set({ error: null, notice: null });
-    const invalid = validateAuthCredentials(email, password);
+    const invalid = validateAuthCredentials(email, password, "sign-up");
     if (invalid) {
       set({ error: invalid });
       throw new Error(invalid);
@@ -269,8 +269,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   updatePassword: async (password) => {
     set({ error: null });
-    if (password.length < 6) {
-      const message = "Password must be at least 6 characters.";
+    if (password.length < 8) {
+      const message = "Password must be at least 8 characters.";
       set({ error: message });
       throw new Error(message);
     }

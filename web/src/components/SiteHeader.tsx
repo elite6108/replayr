@@ -6,6 +6,7 @@ import { useAuth } from "../lib/auth";
 import { useSocialUnread } from "../lib/socialUnread";
 import { AppDownloadLink } from "./analytics/AppDownloadLink";
 import { APP_NAME, MAC_DOWNLOAD_PATH, WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
+import { siteMenuOpen } from "../lib/siteOpen";
 import { NotificationBell } from "./NotificationBell";
 import { HeaderSearch } from "./HeaderSearch";
 
@@ -17,6 +18,7 @@ export function SiteHeader() {
   const { can } = useStaffPermissions();
   const staff = can("staff.access");
   const location = useLocation();
+  const marketingOpen = siteMenuOpen();
   const [open, setOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
@@ -71,9 +73,9 @@ export function SiteHeader() {
         <div className="site-header-menu" id={menuId}>
           <nav className="site-nav" aria-label="Primary">
             <NavLink to="/" end>Home</NavLink>
-            <NavLink to="/features">How it works</NavLink>
+            {marketingOpen ? <NavLink to="/features">How it works</NavLink> : null}
             <NavLink to="/library">Library</NavLink>
-            <NavLink to="/pricing">Pricing</NavLink>
+            {marketingOpen ? <NavLink to="/pricing">Pricing</NavLink> : null}
             {signedIn ? (
               <>
                 <NavLink className="nav-with-pip" to="/friends">

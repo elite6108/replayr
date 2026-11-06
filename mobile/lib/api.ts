@@ -340,7 +340,12 @@ export async function fetchBillingStatus(accessToken: string): Promise<BillingSt
 export async function deleteAccount(accessToken: string): Promise<void> {
   const response = await fetch(apiUrl("/v1/account/delete"), {
     method: "POST",
-    headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ confirm: "DELETE" }),
   });
   if (!response.ok) throw new Error(await readApiError(response, "Could not delete this account."));
 }

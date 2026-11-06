@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import { clientFacingOrigin, HttpError, json } from "./http";
-import { assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit } from "./rateLimit";
 import {
   deleteR2Object,
   headR2Object,
@@ -49,7 +49,7 @@ export async function handleAvatars(request: Request, env: Env, url: URL): Promi
 
 async function uploadAvatar(request: Request, env: Env, url: URL): Promise<Response> {
   const user = await requireUser(request, env);
-  assertRateLimit(request, "avatar-upload", 10, user.id);
+  await assertDistributedRateLimit(request, env.WRITE_10_RATE_LIMITER, "avatar-upload", 10, user.id);
   requireR2(env);
   const declared = (request.headers.get("content-type") || "").toLowerCase().split(";")[0]!.trim();
   const declaredExt = AVATAR_MIMES[declared];

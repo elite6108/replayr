@@ -232,6 +232,33 @@ async function bootstrapSuperAdmin(env: Env, userId: string, email: string | nul
   }).catch(() => undefined);
 }
 
+export function inviteEmailIsConfirmed(
+  user: { email?: string | null; email_confirmed_at?: string | null; confirmed_at?: string | null } | null,
+  inviteEmail: string,
+): boolean {
+  const email = user?.email?.trim().toLowerCase() ?? "";
+  if (!email || email !== inviteEmail.trim().toLowerCase()) return false;
+  return Boolean(user?.email_confirmed_at || user?.confirmed_at);
+}
+
+async function confirmedAuthUser(env: Env, userId: string) {
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key || !env.SUPABASE_URL) return null;
+  try {
+    const response = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
+      headers: { apikey: key, authorization: `Bearer ${key}` },
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as {
+      email?: string | null;
+      email_confirmed_at?: string | null;
+      confirmed_at?: string | null;
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function acceptInviteIfPresent(env: Env, userId: string, email: string) {
   const normalized = email.trim().toLowerCase();
   if (!normalized) return;
@@ -253,6 +280,8 @@ async function acceptInviteIfPresent(env: Env, userId: string, email: string) {
     await serviceRest(env, "PATCH", `/staff_invites?id=eq.${invite.id}`, { status: "expired" });
     return;
   }
+  const confirmed = await confirmedAuthUser(env, userId);
+  if (!inviteEmailIsConfirmed(confirmed, normalized)) return;
   const profiles = await serviceRest<Array<{ display_name: string | null; username: string | null }>>(
     env,
     "GET",

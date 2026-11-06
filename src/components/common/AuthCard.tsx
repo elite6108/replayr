@@ -94,7 +94,7 @@ export function AuthCard({
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required
-              minLength={6}
+              minLength={8}
             />
           </div>
           <div className="field">
@@ -107,7 +107,7 @@ export function AuthCard({
               value={confirm}
               onChange={(event) => setConfirm(event.target.value)}
               required
-              minLength={6}
+              minLength={8}
             />
           </div>
           {error ? <div className="error-text">{error}</div> : null}
@@ -187,7 +187,7 @@ export function AuthCard({
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required
-            minLength={6}
+            minLength={mode === "up" ? 8 : undefined}
           />
         </div>
         {mode === "up" ? (
@@ -201,7 +201,7 @@ export function AuthCard({
               value={confirm}
               onChange={(event) => setConfirm(event.target.value)}
               required
-              minLength={6}
+              minLength={8}
             />
           </div>
         ) : null}

@@ -8,14 +8,18 @@ use tauri_plugin_notification::NotificationExt;
 
 use crate::capture::RecordingState;
 use crate::database::AppState;
-use crate::detection::DetectionState;
 use crate::error::{AppError, AppResult};
+use crate::recording_compositor::record_toggle::{self, ToggleOutcome};
 use crate::settings::Hotkeys;
-use crate::{capture, detection, settings};
+use crate::{capture, settings};
 
 #[derive(Default)]
 pub struct HotkeyMap {
     bindings: Mutex<HashMap<String, &'static str>>,
+    /// The bookmark combo, planned with the rest so duplicates are caught, but only bound to the
+    /// OS while a recording runs so it never steals the key from games the rest of the time.
+    bookmark: Mutex<Option<Shortcut>>,
+    bookmark_active: std::sync::atomic::AtomicBool,
     /// Shortcuts that could not be bound on the last sync, kept so Settings can explain them.
     failures: Mutex<Vec<HotkeyFailure>>,
 }
@@ -65,6 +69,13 @@ pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: tauri_plugin_global_s
     let Some(action) = action else {
         return;
     };
+    if action == "bookmark" {
+        let composed = app.state::<crate::recording_compositor::ComposedRecordingState>();
+        if let Some(at) = composed.add_marker() {
+            notify(app, "Bookmark added", &format_marker(at));
+        }
+        return;
+    }
     if action == "region_screenshot" {
         // Owns its own thread and single-snip guard; nothing to do on the hotkey thread.
         crate::snip::start(app, crate::snip::SnipTrigger::Hotkey);
@@ -76,22 +87,11 @@ pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: tauri_plugin_global_s
             Ok(_) => {}
             Err(err) => notify(app, "Could not save clip", &err.to_string()),
         },
-        "toggle_recording" => {
-            let rec = app.state::<RecordingState>();
-            let detection = app.state::<DetectionState>();
-            let snapshot = detection::current_snapshot(&detection);
-            let recording = capture::status(&rec).active;
-            let result = if recording {
-                capture::stop(app, &rec).map(|_| "Recording saved".to_string())
-            } else {
-                capture::start(app, &rec, snapshot.pid, snapshot.name, snapshot.slug, None)
-                    .map(|_| "Recording started".to_string())
-            };
-            match result {
-                Ok(title) => notify(app, &title, ""),
-                Err(err) => notify(app, "Recording", &err.to_string()),
-            }
-        }
+        "toggle_recording" => match record_toggle::toggle(app) {
+            Ok(ToggleOutcome::Started) => notify(app, "Recording started", ""),
+            Ok(ToggleOutcome::Saved) => notify(app, "Recording saved", ""),
+            Err(err) => notify(app, "Recording", &err.to_string()),
+        },
         "screenshot" => match capture::screenshot(app, &app.state::<RecordingState>()) {
             Ok(path) => notify(app, "Screenshot saved", &path),
             Err(err) => notify(app, "Could not save screenshot", &err.to_string()),
@@ -119,13 +119,51 @@ pub fn sync(app: &AppHandle) -> AppResult<Vec<HotkeyFailure>> {
 }
 
 /// Every configurable action and its combo, in registration priority order.
-fn bindings(hotkeys: &Hotkeys) -> [(&str, &'static str); 4] {
+fn bindings(hotkeys: &Hotkeys) -> [(&str, &'static str); 5] {
     [
         (hotkeys.save_replay.as_str(), "save_replay"),
         (hotkeys.toggle_recording.as_str(), "toggle_recording"),
         (hotkeys.screenshot.as_str(), "screenshot"),
         (hotkeys.region_screenshot.as_str(), "region_screenshot"),
+        (hotkeys.bookmark.as_str(), "bookmark"),
     ]
+}
+
+fn format_marker(ms: u64) -> String {
+    let total = ms / 1000;
+    let (hours, minutes, seconds) = (total / 3600, (total % 3600) / 60, total % 60);
+    if hours > 0 {
+        format!("at {hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("at {minutes}:{seconds:02}")
+    }
+}
+
+/// Binds the bookmark combo while a recording runs and releases it afterwards.
+pub fn set_bookmark_active(app: &AppHandle, active: bool) {
+    let map = app.state::<HotkeyMap>();
+    map.bookmark_active.store(active, std::sync::atomic::Ordering::SeqCst);
+    let Some(shortcut) = map.bookmark.lock().ok().and_then(|slot| slot.clone()) else {
+        return;
+    };
+    let key = shortcut_key(&shortcut);
+    let Ok(mut bindings) = map.bindings.lock() else {
+        return;
+    };
+    if active {
+        if bindings.contains_key(&key) {
+            return;
+        }
+        match app.global_shortcut().register(shortcut) {
+            Ok(()) => {
+                bindings.insert(key, "bookmark");
+            }
+            Err(err) => tracing::warn!("bookmark hotkey not bound: {err}"),
+        }
+    } else if bindings.get(&key) == Some(&"bookmark") {
+        bindings.remove(&key);
+        let _ = app.global_shortcut().unregister(shortcut);
+    }
 }
 
 /// Parse and de-duplicate combos without touching the OS. Pure, so it is unit-testable.
@@ -177,7 +215,15 @@ pub fn register_all(app: &AppHandle, hotkeys: &Hotkeys) -> Vec<HotkeyFailure> {
 
     let _ = app.global_shortcut().unregister_all();
     let mut next = HashMap::new();
+    let map = app.state::<HotkeyMap>();
+    let bookmark_active = map.bookmark_active.load(std::sync::atomic::Ordering::SeqCst);
+    if let Ok(mut slot) = map.bookmark.lock() {
+        *slot = planned.iter().find(|item| item.action == "bookmark").map(|item| item.shortcut.clone());
+    }
     for item in planned {
+        if item.action == "bookmark" && !bookmark_active {
+            continue;
+        }
         match app.global_shortcut().register(item.shortcut.clone()) {
             Ok(()) => {
                 next.insert(shortcut_key(&item.shortcut), item.action);
@@ -190,7 +236,6 @@ pub fn register_all(app: &AppHandle, hotkeys: &Hotkeys) -> Vec<HotkeyFailure> {
         }
     }
 
-    let map = app.state::<HotkeyMap>();
     if let Ok(mut bindings) = map.bindings.lock() {
         *bindings = next;
     }
@@ -275,6 +320,15 @@ mod tests {
                 reason: HotkeyFailureReason::Duplicate("save_replay"),
             }]
         );
+    }
+
+    #[test]
+    fn default_hotkeys_include_bookmark_without_conflicts() {
+        let (planned, failures) = plan_registrations(&bindings(&Hotkeys::default()));
+        assert!(failures.is_empty(), "{failures:?}");
+        assert!(planned.iter().any(|item| item.action == "bookmark"));
+        assert_eq!(format_marker(65_400), "at 1:05");
+        assert_eq!(format_marker(3_725_000), "at 1:02:05");
     }
 
     #[test]

@@ -92,6 +92,8 @@ export function EditorTimeline({
   onPreviewSelection,
   onZoom,
   onScroll,
+  markers = [],
+  onSeekMarker,
 }: {
   timelineRef: RefObject<HTMLDivElement | null>;
   durationMs: number;
@@ -129,6 +131,9 @@ export function EditorTimeline({
   /** `anchorFrac` is the horizontal fraction of the view that should stay fixed. */
   onZoom: (nextZoom: number, anchorMs: number, anchorFrac: number) => void;
   onScroll: (nextViewStartMs: number) => void;
+  /** Recording bookmarks in source ms. */
+  markers?: number[];
+  onSeekMarker?: (sourceMs: number) => void;
 }) {
   const gridRef = useRef<HTMLDivElement>(null);
   const scrollDragRef = useRef<{ startClientX: number; startViewMs: number; trackWidth: number } | null>(null);
@@ -302,7 +307,29 @@ export function EditorTimeline({
           }}
           onPointerLeave={() => setHoverCut(null)}
         >
-          <div className="editor-marker-lane" aria-label="Clip event markers" />
+          <div className="editor-marker-lane" aria-label="Clip event markers">
+            {markers.map((ms, index) => {
+              if (ms < 0 || ms > durationMs) return null;
+              const at = pct(ms);
+              if (at < 0 || at > 100) return null;
+              return (
+                <button
+                  key={`${ms}-${index}`}
+                  type="button"
+                  className="editor-marker"
+                  style={{ left: `${at}%` }}
+                  data-handle="marker"
+                  title={`Bookmark ${index + 1} · ${formatClock(ms, true)}`}
+                  aria-label={`Jump to bookmark ${index + 1} at ${formatClock(ms, true)}`}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSeekMarker?.(ms);
+                  }}
+                />
+              );
+            })}
+          </div>
           <div className="editor-ruler">
             {marks.map((mark, index) => (
               <span

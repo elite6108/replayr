@@ -46,12 +46,11 @@ export async function assertDistributedRateLimit(
   windowMs = 60_000,
 ): Promise<void> {
   const key = clientKey(request, suffix, userId);
-  if (binding) {
-    const result = await binding.limit({ key });
-    if (!result.success) throw new HttpError(429, "Slow down. Try again in a moment.");
-    return;
-  }
+  // Each isolate keeps its own window even when a Cloudflare limiter is bound.
   if (!allowRateLimit(key, fallbackLimit, windowMs)) {
     throw new HttpError(429, "Slow down. Try again in a moment.");
   }
+  if (!binding) return;
+  const result = await binding.limit({ key });
+  if (!result.success) throw new HttpError(429, "Slow down. Try again in a moment.");
 }

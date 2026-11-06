@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCameraStatus } from "../../services/tauri";
-import { useRecordingStore } from "../../stores/recordingStore";
+import { scheduleRecordScenePush, useRecordingStore } from "../../stores/recordingStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { IDLE_CAMERA_STATUS, type CameraDevice, type CameraStatus } from "../../types/camera";
 import type { AppSettings } from "../../types/settings";
@@ -26,14 +26,16 @@ import { RecordingPreview } from "./RecordingPreview";
 import { SourceInspector } from "./SourceInspector";
 import { SourceList } from "./SourceList";
 import { SourcePropertiesDialog } from "./SourcePropertiesDialog";
+import { displayFps, qualityLabel } from "../../utils/qualityLabels";
+import { RECORDABLE_IMAGE_EXTENSIONS } from "../../recording/composition";
 
-/** The Recordings tab: full-length legacy or composed recording. Behaviour is unchanged. */
+/** The Recordings tab: full-length recording of the scene layout into one MP4. */
 export function RecordingStudio() {
   const settings = useSettingsStore((state) => state.settings);
   const status = useRecordingStore((state) => state.status);
   const replay = useRecordingStore((state) => state.replay);
   const startingComposed = useRecordingStore((state) => state.startingComposed);
-  const compositionLocked = Boolean((status.active && status.composed) || startingComposed);
+  const compositionLocked = Boolean(status.active || startingComposed);
   const {
     scene,
     scenes,
@@ -57,13 +59,12 @@ export function RecordingStudio() {
     removeScene,
     copyScene,
     writeSettings,
-    setOutputMode,
   } = useRecordingScene();
   const [camera, setCamera] = useState<CameraStatus>(IDLE_CAMERA_STATUS);
   const [propertiesId, setPropertiesId] = useState<string | null>(null);
   const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
   const dragging = useRef(false);
-  const { displays, error: displayError } = useDisplays();
+  const { displays, error: displayError, refresh: refreshDisplays } = useDisplays();
   const levels = useStudioAudio();
   const propertiesSource = scene.sources.find((source) => source.id === propertiesId) ?? null;
   const quiet = status.active || replay.active || camera.rolling || camera.recording;
@@ -85,6 +86,10 @@ export function RecordingStudio() {
   useEffect(() => {
     if (compositionLocked) commitGesture();
   }, [compositionLocked, commitGesture]);
+
+  useEffect(() => {
+    scheduleRecordScenePush();
+  }, [scene]);
 
   useEffect(() => {
     if (!compositionLocked || !propertiesSource || isAudioSource(propertiesSource.type)) return;
@@ -114,7 +119,7 @@ export function RecordingStudio() {
     if (type === "image") {
       const selectedPath = await open({
         multiple: false,
-        filters: [{ name: "Images", extensions: scene.outputMode === "composed" ? ["png", "jpg", "jpeg"] : ["png", "jpg", "jpeg", "webp", "gif"] }],
+        filters: [{ name: "PNG or JPEG", extensions: [...RECORDABLE_IMAGE_EXTENSIONS] }],
       });
       if (typeof selectedPath !== "string" || !selectedPath) return;
       addSource("image", { settings: { path: selectedPath, opacity: 1 } });
@@ -151,7 +156,6 @@ export function RecordingStudio() {
         levels={levels}
         settingsGain={{ mic: settings.micGain, desktop: settings.systemAudioGain, game: settings.gameAudioGain }}
         compositionLocked={compositionLocked}
-        legacySession={scene.outputMode !== "composed"}
         onSelect={setSelectedId}
         onToggle={(id, enabled) => {
           const source = scene.sources.find((item) => item.id === id);
@@ -247,8 +251,9 @@ export function RecordingStudio() {
         describeFit
         canvasAspect={canvasAspect}
         sourceAspect={selectedAspect}
-        composed={scene.outputMode === "composed"}
+        composed
         displays={displays}
+        onRefreshDisplays={refreshDisplays}
         listError={displayError}
         recording={status.active || startingComposed}
         onSaveSetting={(key, value) => {
@@ -307,24 +312,21 @@ export function RecordingStudio() {
         />
         <RecordControls
           settings={settings}
-          outputMode={scene.outputMode}
-          onOutputMode={setOutputMode}
           onSave={(key, value) => void writeSettings(key, value)}
         />
       </div>
       <footer className="studio-status">
         <span>
-          Requested: {outputSizeLabel(settings.resolution)} · {settings.fps} FPS
-          {scene.outputMode === "composed" ? " · Composed" : " · Legacy"}
+          Requested: {outputSizeLabel(settings.resolution)} · {displayFps(settings.fps)} FPS
         </span>
-        {scene.outputMode === "composed" && negotiated ? (
+        {negotiated ? (
           <span>
             Recording: {status.outputWidth} × {status.outputHeight}
             {status.outputFps ? ` · ${status.outputFps} FPS` : ""}
             {status.outputFallback ? " · fallback" : ""}
           </span>
         ) : null}
-        <span>Selected video quality: {qualityLabel(settings.bitrate)}</span>
+        <span>Quality: {qualityLabel(settings.bitrate)}</span>
         <IrEncoderDetails replay={replay} />
       </footer>
       {propertiesSource ? (
@@ -334,6 +336,8 @@ export function RecordingStudio() {
           displays={displays}
           listError={displayError}
           recording={status.active || startingComposed}
+          strictDisplay
+          onRefreshDisplays={refreshDisplays}
           onMonitorId={(monitorId) => {
             if (status.active || startingComposed) return;
             patchSource(propertiesSource.id, { settings: { monitorId } });
@@ -356,11 +360,4 @@ export function outputSizeLabel(resolution: AppSettings["resolution"]) {
   if (resolution === "4k") return "3840 × 2160";
   if (resolution === "720p") return "1280 × 720";
   return "Native";
-}
-
-export function qualityLabel(bitrate: AppSettings["bitrate"]) {
-  if (bitrate === "low") return "Low Quality";
-  if (bitrate === "high") return "Maximum";
-  if (bitrate === "custom") return "Custom";
-  return "High Quality";
 }

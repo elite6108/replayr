@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 import type { AppSettings, RecordingVisualSettings, WebcamSettings } from "../types/settings";
 import { useSettingsStore } from "../stores/settingsStore";
 import {
@@ -6,7 +6,6 @@ import {
   findSourceByType,
   overlayToVisuals,
   persistScene,
-  type RecordingOutputMode,
   type RecordingScene,
   type RecordingSource,
 } from "./scene";
@@ -81,14 +80,6 @@ export function useRecordingScene() {
   const studio = useSceneStudio(adapter);
   writeSettingsRef.current = studio.writeSettings;
 
-  const { commit, scene } = studio;
-  const setOutputMode = useCallback(
-    (outputMode: RecordingOutputMode) => {
-      commit({ ...scene, outputMode });
-    },
-    [commit, scene],
-  );
-
   return {
     scene: studio.scene,
     scenes: studio.scenes,
@@ -107,7 +98,6 @@ export function useRecordingScene() {
     commitGesture: studio.commitGesture,
     cancelGesture: studio.cancelGesture,
     writeSettings: studio.writeSettings,
-    setOutputMode,
     selectScene: studio.selectScene,
     addScene: studio.addScene,
     renameScene: studio.renameScene,

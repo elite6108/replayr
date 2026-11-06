@@ -62,7 +62,7 @@ export function EditorAiPanel({
   const tooLong = durationMs > TRANSCRIPT_LIMIT_MS;
   const minutes = Math.max(1, Math.ceil(Math.max(0, durationMs) / 60_000));
   const leftMinutes = Math.floor((quota?.transcriptionRemainingSeconds ?? 0) / 60);
-  const limitMinutes = Math.floor((quota?.transcriptionLimitSeconds ?? 90 * 60) / 60);
+  const limitMinutes = Math.floor((quota?.transcriptionLimitSeconds ?? 50 * 60) / 60);
   const shortAllowance = quota != null && quota.transcriptionRemainingSeconds < minutes * 60;
 
   async function find(nextFormat = format) {

@@ -89,7 +89,7 @@ impl ComposedCapture {
         let hub = CaptureHub::new();
         let control = match kind {
             CaptureKind::Display => {
-                let monitor = crate::displays::resolve_monitor(monitor_id)?;
+                let monitor = crate::displays::resolve_monitor_for_recording(monitor_id)?;
                 begin(monitor, Arc::clone(&hub))?
             }
             CaptureKind::Game | CaptureKind::Window => {

@@ -52,6 +52,8 @@ export interface LocalClip {
   sourceEndMs: number | null;
   editorCropX?: number;
   sources?: ClipSource[];
+  /** Recording bookmarks, ms from the start of the file. */
+  markers?: number[];
 }
 
 export type ClipSourceKind = "gameplay" | "webcam" | string;

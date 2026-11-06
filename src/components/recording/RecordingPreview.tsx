@@ -152,8 +152,6 @@ export function RecordingPreview({
     fitOutputCanvas && stageBox.w > 0 && stageBox.h > 0
       ? Math.min(stageBox.w / logical.width, stageBox.h / logical.height)
       : 1;
-  const legacyDisplay = fitOutputCanvas && !composed && primary?.type === "display";
-
   const capturePlate = (
     <PreviewCaptureLayer
       mode={previewMode}
@@ -270,11 +268,7 @@ export function RecordingPreview({
     <section className="studio-panel studio-preview">
       <div className="studio-preview-head">
         <h2>
-          {studio === "clip"
-            ? "Clip Layout Preview"
-            : scene.outputMode === "composed"
-              ? "Live Output Preview"
-              : "Recording Layout Preview"}
+          {studio === "clip" ? "Clip Layout Preview" : "Live Output Preview"}
         </h2>
       </div>
       <div
@@ -294,11 +288,6 @@ export function RecordingPreview({
         ) : (
           canvas
         )}
-        {legacyDisplay ? (
-          <p className="studio-lock-note">
-            Legacy records the detected game, or the primary display if no game is running. It does not record this monitor. Use Composed to record this layout.
-          </p>
-        ) : null}
         {compositionLocked ? <p className="studio-lock-note">Stop recording to edit layout.</p> : null}
       </div>
     </section>

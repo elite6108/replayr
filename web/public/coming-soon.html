@@ -3,77 +3,60 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Replayr — Beta waitlist</title>
+    <title>Replayr — Your best plays, already captured</title>
     <meta
       name="description"
-      content="Join the Replayr beta waitlist. Instant Replay clips stay on your PC. Early emails get access when beta opens."
+      content="Replayr keeps the last few minutes of your game ready. One hotkey saves what just happened. Join the beta. Windows first, free at launch."
     />
     <meta name="robots" content="index,follow" />
+    <meta name="theme-color" content="#101415" />
     <link rel="canonical" href="https://replayr.tv/coming-soon" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@700;800&family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="stylesheet" href="/coming-soon.css" />
   </head>
   <body>
-    <header class="top">
-      <div class="wrap top-inner">
-        <a class="brand" href="/coming-soon" aria-label="Replayr">
-          <img src="/replayr-logo.png" alt="Replayr" width="140" height="32" />
-        </a>
-        <nav class="nav-links" aria-label="Page">
-          <a href="#features">Features</a>
-          <a href="#screenshots">Screenshots</a>
-          <a href="#pricing">Pricing</a>
-          <a href="#faq">FAQ</a>
-        </nav>
-        <div class="header-actions">
-          <a
-            class="header-follow"
-            href="https://x.com/Replayr_TV"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Follow us on X, @Replayr_TV"
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.727-8.851L1.254 2.25H8.08l4.253 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"
-              />
-            </svg>
-            <span>Follow us</span>
-          </a>
-          <a class="header-cta" href="#waitlist-cta">Join waitlist</a>
-        </div>
-      </div>
-    </header>
-
-    <main>
-      <section class="hero">
-        <div class="wrap hero-grid">
-          <div class="hero-copy">
-            <p class="eyebrow">Beta waitlist</p>
-            <h1>Your best plays,<br /><span class="accent">already captured.</span></h1>
+    <main class="stage">
+      <div class="hero">
+        <section class="copy">
+          <div class="copy-main">
+            <p class="kicker"><span class="mark" aria-hidden="true"></span>GAMEPLAY HAPPENS ONCE. KEEP IT.</p>
+            <h1>YOUR BEST PLAYS,<br />ALREADY<br /><span class="mint">CAPTURED.</span></h1>
             <p class="lede">
-              Replayr keeps a rolling buffer while you play, so the moment is there before you realize it. Save it, edit
-              it, and share only when you want.
+              Replayr keeps the last few minutes of your game ready.<br />
+              Something incredible happens? One hotkey saves what just happened.
             </p>
             <div class="signup">
               <form class="waitlist" id="waitlist" autocomplete="on">
+                <label class="sr" for="email">Email</label>
                 <input
+                  id="email"
                   type="email"
                   name="email"
                   required
-                  placeholder="Email address"
+                  placeholder="Your email address"
                   aria-label="Email"
                   autocomplete="email"
                   inputmode="email"
                 />
-                <button type="submit">Join the waitlist</button>
+                <button type="submit">
+                  Join the beta
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path
+                      d="M3 8h10M9 4l4 4-4 4"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
               </form>
               <div class="confirm" id="waitConfirm" role="status" aria-live="polite">
                 <strong>You're on the list.</strong>
@@ -81,349 +64,66 @@
               </div>
               <p class="msg" id="waitMsg" role="status"></p>
               <p class="trust">No spam. Just launch updates and early access.</p>
-              <p class="price-teaser">Free at launch · Windows first · Premium $6.99/mo</p>
+              <ul class="checks">
+                <li>
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path
+                      d="M3.2 8.2 6.4 11.4 12.8 4.6"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                  Windows first
+                </li>
+                <li>
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path
+                      d="M3.2 8.2 6.4 11.4 12.8 4.6"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                  Free at launch
+                </li>
+              </ul>
             </div>
           </div>
-          <div class="hero-stage">
-            <figure class="shot shot-hero">
-              <img
-                src="/instant-replay.png"
-                alt="Replayr Instant Replay workspace with clip buffer and sources"
-                width="1600"
-                height="1000"
-              />
-            </figure>
+          <div class="copy-foot">
+            <p class="pipeline">
+              <span class="rule" aria-hidden="true"></span>
+              <span>CAPTURE — KEEP — EDIT — SHARE — RELIVE</span>
+              <span class="rule" aria-hidden="true"></span>
+            </p>
+            <footer class="legal">
+              <button type="button" class="access-link" id="unlockToggle">Already have access?</button>
+              <a href="/terms">Terms</a>
+              <a href="/privacy">Privacy</a>
+              <form class="gate" id="gate" hidden autocomplete="current-password">
+                <input type="password" name="password" required placeholder="Access password" aria-label="Access password" />
+                <button type="submit">Enter site</button>
+              </form>
+              <p class="msg" id="gateMsg" role="status"></p>
+            </footer>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <div class="proof" aria-label="Product highlights">
-        <div class="wrap proof-row">
-          <span>Windows first</span>
-          <span>Local-first clips</span>
-          <span>Instant Replay</span>
-          <span>1080p / 1440p / 4K</span>
-          <span>Edit &amp; share</span>
-          <span>Mobile support</span>
-          <span>Built for gamers</span>
+        <div class="laptop-wrap">
+          <img
+            class="laptop"
+            src="/marketing/hero-laptop.png"
+            alt="Replayr on a laptop, with Instant Replay ready and recent moments"
+            width="1024"
+            height="846"
+          />
         </div>
       </div>
-
-      <section class="feature" id="features">
-        <div class="wrap feature-grid">
-          <div class="section-copy">
-            <p class="eyebrow">Instant Replay</p>
-            <h2>Capture instantly.</h2>
-            <p>
-              Replayr keeps a rolling buffer of your gameplay, so the last few minutes are always ready. One hotkey
-              saves the moment without interrupting your game.
-            </p>
-            <ul>
-              <li>Always-on buffer while you play</li>
-              <li>Game and mic audio</li>
-              <li>Preview before saving</li>
-              <li>Game detection for titles you actually run</li>
-            </ul>
-          </div>
-          <figure class="shot shot-lg">
-            <img
-              src="/marketing/record-preview.png"
-              alt="Replayr Record workspace with preview, sources, and capture controls"
-              width="3200"
-              height="2000"
-            />
-          </figure>
-        </div>
-      </section>
-
-      <section class="feature feature-alt" id="edit">
-        <div class="wrap feature-grid">
-          <figure class="shot shot-lg">
-            <img
-              src="/marketing/clip-editor.jpg"
-              alt="Replayr clip editor with Studio trim, timeline, and clip details"
-              width="1024"
-              height="639"
-              loading="lazy"
-            />
-          </figure>
-          <div class="section-copy">
-            <p class="eyebrow">Edit</p>
-            <h2>Make it yours.</h2>
-            <p>
-              Trim, crop, add your webcam, adjust audio, and export. The original file stays unchanged — Studio writes a
-              new local MP4.
-            </p>
-            <ul>
-              <li>Timeline trim next to clip details</li>
-              <li>Webcam overlays in the scene</li>
-              <li>Crop for vertical posts</li>
-              <li>Export or share when the take is ready</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <section class="feature" id="screenshots">
-        <div class="wrap feature-grid">
-          <div class="section-copy">
-            <p class="eyebrow">Organize</p>
-            <h2>Keep everything in one place.</h2>
-            <p>
-              Your clips live in a local library first. Keep them on this PC or in the cloud, organize with folders, and
-              find a take without waiting on an upload.
-            </p>
-            <ul>
-              <li>Grid of clips on this machine</li>
-              <li>Titles, games, folders, and favorites</li>
-              <li>Local and cloud copies stay distinct</li>
-              <li>Delete local or cloud independently</li>
-            </ul>
-          </div>
-          <figure class="shot shot-lg">
-            <img
-              src="/marketing/local-library.png"
-              alt="Replayr local library grid of gameplay clips"
-              width="3200"
-              height="2000"
-              loading="lazy"
-            />
-          </figure>
-        </div>
-      </section>
-
-      <section class="feature feature-alt" id="discover">
-        <div class="wrap feature-grid">
-          <figure class="shot shot-lg">
-            <img
-              src="/marketing/social-explore-or-following.png"
-              alt="Replayr Explore feed of public clips and following"
-              width="3200"
-              height="2000"
-              loading="lazy"
-            />
-          </figure>
-          <div class="section-copy">
-            <p class="eyebrow">Discover</p>
-            <h2>A home for your clips.</h2>
-            <p>
-              Replayr.tv is for library, shares, and finding other players — not a replacement for desktop capture. Open
-              a link from your phone. No desktop app required to watch.
-            </p>
-            <ul>
-              <li>Private, unlisted, or public when you send a link</li>
-              <li>Follow the people you actually watch</li>
-              <li>Public clips for later discovery</li>
-              <li>Quiet shares until you choose to send them</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <section class="why" id="why">
-        <div class="wrap">
-          <div class="why-head">
-            <h2>Why Replayr?</h2>
-            <p class="lede">Built different for gamers.</p>
-          </div>
-          <div class="compare">
-            <article>
-              <h3>Typical clip tools</h3>
-              <ul>
-                <li>Start recording after the moment</li>
-                <li>Uploads required</li>
-                <li>Limited editing</li>
-                <li>Generic sharing</li>
-              </ul>
-            </article>
-            <article class="compare-accent">
-              <h3>Replayr</h3>
-              <ul>
-                <li>The moment is already captured</li>
-                <li>Local first — your clips, your choice</li>
-                <li>Studio trim, crop, overlays, export</li>
-                <li>Share with anyone, anywhere</li>
-                <li>Quiet links until you send them</li>
-              </ul>
-            </article>
-          </div>
-
-          <div class="players">
-            <h3>Made for every type of player.</h3>
-            <div class="player-grid">
-              <article>
-                <img src="/marketing/overlay-pack-or-scene.png" alt="" width="1600" height="1000" loading="lazy" />
-                <div>
-                  <h4>Creators</h4>
-                  <p>Turn your best moments into content faster.</p>
-                </div>
-              </article>
-              <article>
-                <img src="/marketing/record-preview.png" alt="" width="1600" height="1000" loading="lazy" />
-                <div>
-                  <h4>Casual players</h4>
-                  <p>Save the funny, wild, and everything in between.</p>
-                </div>
-              </article>
-              <article>
-                <img src="/marketing/share-privacy.png" alt="" width="1600" height="1000" loading="lazy" />
-                <div>
-                  <h4>Communities</h4>
-                  <p>Share moments with your friends and server.</p>
-                </div>
-              </article>
-              <article>
-                <img src="/instant-replay.png" alt="" width="1600" height="1000" loading="lazy" />
-                <div>
-                  <h4>Competitive players</h4>
-                  <p>Review, improve, and relive your best plays.</p>
-                </div>
-              </article>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="pricing" id="pricing" aria-label="Pricing">
-        <div class="wrap">
-          <h2>Simple pricing.</h2>
-          <p class="lede">Waitlist only for now. Same two tiers when we launch.</p>
-          <div class="plans">
-            <article class="plan">
-              <strong>Free</strong>
-              <div class="price">$0</div>
-              <ul>
-                <li>Local library unlimited and unmarked</li>
-                <li>5 GB cloud</li>
-                <li>20-minute cloud clips</li>
-                <li>1080p uploads</li>
-                <li>Watermark on share, export, and cloud</li>
-              </ul>
-            </article>
-            <article class="plan plan-accent">
-              <strong>Premium</strong>
-              <div class="price">$6.99<span>/mo</span></div>
-              <ul>
-                <li>100 GB cloud storage</li>
-                <li>No cloud length cap</li>
-                <li>Original quality, including 4K</li>
-                <li>No watermark</li>
-                <li>No ads · Premium badge</li>
-              </ul>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section class="cta-band" id="waitlist-cta">
-        <div class="wrap cta-grid">
-          <div class="signup">
-            <p class="eyebrow">Waitlist</p>
-            <h2>Be there when Replayr opens.</h2>
-            <p class="lede">
-              Join the waitlist for early access, launch updates, and a first look at new creator features. Early emails get beta access when it opens.
-            </p>
-            <form class="waitlist" id="waitlist-cta-form" autocomplete="on">
-              <input
-                type="email"
-                name="email"
-                required
-                placeholder="Email address"
-                aria-label="Email"
-                autocomplete="email"
-                inputmode="email"
-              />
-              <button type="submit">Join the waitlist</button>
-            </form>
-            <div class="confirm" role="status" aria-live="polite">
-              <strong>You're on the list.</strong>
-              <p>Thanks — we'll email you when beta opens.</p>
-            </div>
-            <p class="msg" role="status"></p>
-            <p class="trust">No spam. Just launch updates and access invites.</p>
-          </div>
-          <figure class="shot">
-            <img
-              src="/marketing/share-privacy.png"
-              alt="Replayr share visibility: private, unlisted, or public"
-              width="3200"
-              height="2000"
-              loading="lazy"
-            />
-          </figure>
-        </div>
-      </section>
-
-      <section class="faq" id="faq">
-        <div class="wrap">
-          <h2>Frequently asked questions</h2>
-          <details>
-            <summary>What is Replayr?</summary>
-            <p>
-              Replayr is a gameplay clipper: Instant Replay and Record on the desktop, a local library, optional cloud
-              copies, and share links that stay quiet until you send them.
-            </p>
-          </details>
-          <details>
-            <summary>What platforms will be supported?</summary>
-            <p>
-              Desktop app first, with web and mobile for library and shares. Capture stays on the desktop; phones are for
-              watching and sending links.
-            </p>
-          </details>
-          <details>
-            <summary>Is there a mobile app?</summary>
-            <p>
-              Mobile is for the library and shares, not for replacing desktop capture. We’ll say more when those builds
-              are ready to invite people into.
-            </p>
-          </details>
-          <details>
-            <summary>Do clips have to go to the cloud?</summary>
-            <p>
-              No. Files stay on this PC until you upload. Cloud copies are optional, and you can keep local and cloud
-              versions separate.
-            </p>
-          </details>
-          <details>
-            <summary>When does it launch?</summary>
-            <p>When beta opens. We don’t have a public date yet — waitlist mail is how you’ll hear.</p>
-          </details>
-          <details>
-            <summary>What do I get for joining the waitlist?</summary>
-            <p>
-              Early access when we invite, launch mail, a beta invite, and a first look. We only email when there’s
-              something to send.
-            </p>
-          </details>
-        </div>
-      </section>
     </main>
-
-    <footer>
-      <div class="wrap footer-row">
-        <div class="footer-brand">
-          <img src="/replayr-logo.png" alt="Replayr" width="120" height="28" />
-          <p>Built for gamers. Powered by creators.</p>
-        </div>
-        <div class="footer-links">
-          <a href="https://x.com/Replayr_TV" rel="noopener noreferrer">X</a>
-          <a href="https://x.com/Replayr_TV" rel="noopener noreferrer">Follow us</a>
-          <a href="/terms">Terms</a>
-          <a href="/privacy">Privacy</a>
-          <a href="mailto:support@replayr.tv">Support</a>
-          <button type="button" class="access-link" id="unlockToggle">Already have access?</button>
-        </div>
-      </div>
-      <div class="wrap">
-        <form class="gate" id="gate" hidden autocomplete="current-password">
-          <input type="password" name="password" required placeholder="Access password" aria-label="Access password" />
-          <button type="submit">Enter site</button>
-        </form>
-        <p class="msg" id="gateMsg" role="status"></p>
-        <p class="copy">© Replayr</p>
-      </div>
-    </footer>
     <script src="/coming-soon.js" defer></script>
   </body>
 </html>

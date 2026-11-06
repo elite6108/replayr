@@ -1,6 +1,7 @@
 import { observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
+import { assertRateLimit } from "./rateLimit";
 import { requireServiceRole, requireUser, serviceRest, type AuthUser } from "./shared";
 import { detectSubscriptionTransition } from "./analyticsRevenue";
 
@@ -184,6 +185,7 @@ export function freeUploadHeaderError(
 async function checkout(request: Request, env: Env): Promise<Response> {
   requireStripe(env);
   const user = await requireUser(request, env);
+  assertRateLimit(request, "billing-checkout", 5, user.id);
   const body = (await request.json().catch(() => ({}))) as {
     interval?: string;
     successUrl?: string;

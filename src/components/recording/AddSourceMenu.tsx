@@ -35,7 +35,11 @@ export function AddSourceMenu({
       {visible.map((group) => (
         <div key={group.id} className="add-source-group">
           <span className="settings-group-label">{group.label}</span>
-          {SOURCE_REGISTRY.filter((entry) => entry.group === group.id).map((entry) => {
+          {SOURCE_REGISTRY.filter(
+            (entry) =>
+              entry.group === group.id &&
+              (studio === "clip" || (entry.capability !== "unsupported" && sourceComposedSupported(entry.type))),
+          ).map((entry) => {
             const existing = findSourceByType(scene, entry.type);
             const unsupported = entry.capability === "unsupported";
             const composedBlocked = Boolean(composed) && !sourceComposedSupported(entry.type);
@@ -44,11 +48,9 @@ export function AddSourceMenu({
             const caption =
               studio === "clip"
                 ? clipSourceCaption(entry.type) ?? capabilityCaption(entry.capability, studio)
-                : composedBlocked
-                  ? composedSourceCaption(entry.type)
-                  : taken
-                    ? "Already added"
-                    : capabilityCaption(entry.capability, studio);
+                : taken
+                  ? "Already added"
+                  : composedSourceCaption(entry.type);
             return (
               <button
                 key={entry.type}

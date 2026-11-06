@@ -144,7 +144,7 @@ impl RecordingCompositor {
                 != 0;
             if !bgra_in || !nv12_out {
                 return Err(
-                    "This GPU cannot compose BGRA capture into NV12. Use Legacy recording.".into(),
+                    "This GPU cannot compose BGRA capture into NV12. Update your graphics driver and try again.".into(),
                 );
             }
             let mut caps = D3D11_VIDEO_PROCESSOR_CAPS::default();
@@ -153,7 +153,7 @@ impl RecordingCompositor {
                 .map_err(|err| format!("Could not query video processor caps: {err}"))?;
             let max_streams = caps.MaxInputStreams.max(1).min(MAX_STREAMS as u32);
             if spec.layers.len() as u32 > max_streams {
-                return Err("This GPU cannot composite that many recording sources. Remove a layer or use Legacy recording.".into());
+                return Err("This GPU cannot composite that many recording sources. Remove a layer and try again.".into());
             }
             let processor = gpu
                 .video
@@ -200,7 +200,7 @@ impl RecordingCompositor {
                 != 0;
             if !bgra_out {
                 return Err(
-                    "This GPU cannot compose transparent stills. Use Legacy recording.".into(),
+                    "This GPU cannot compose transparent stills. Update your graphics driver and try again.".into(),
                 );
             }
             let bgra_canvas = create_bgra_input(&gpu.device, out_w, out_h)?;

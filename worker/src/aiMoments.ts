@@ -8,7 +8,7 @@ import { requireUser, restError, serviceRest } from "./shared";
 const TRANSCRIBE_MODEL = "whisper-1";
 const RANK_MODEL = "gpt-4o-mini";
 
-export const TRANSCRIPTION_LIMIT_SECONDS = 90 * 60;
+export const TRANSCRIPTION_LIMIT_SECONDS = 50 * 60;
 export const RANKING_LIMIT = 60;
 export const MAX_CLIP_MS = 45 * 60 * 1000;
 const MAX_PARTS = 5;

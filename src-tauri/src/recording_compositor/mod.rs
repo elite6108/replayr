@@ -7,6 +7,7 @@
 //! compositor, never touches the encode pump, and never consumes a frame produced here.
 
 mod diagnostics;
+pub mod record_toggle;
 pub(crate) mod scene;
 pub(crate) mod transforms;
 
@@ -31,6 +32,7 @@ mod session_aac;
 #[cfg(windows)]
 mod preview_tap;
 
+pub use record_toggle::RecordSceneState;
 pub use scene::RecordingComposition;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -64,7 +66,11 @@ struct ActiveComposed {
     fps: u32,
     output_fallback: bool,
     webcam_layout: Option<crate::overlay::OverlayLayout>,
+    /// Bookmark offsets in ms from `started`.
+    markers: Vec<u64>,
 }
+
+const MAX_SESSION_MARKERS: usize = 500;
 
 struct FinishedComposed {
     path: std::path::PathBuf,
@@ -110,6 +116,18 @@ impl ComposedRecordingState {
                     .unwrap_or(false)
             })
             .unwrap_or(true)
+    }
+
+    /// Adds a bookmark at the current recording time. `None` when nothing is recording.
+    pub fn add_marker(&self) -> Option<u64> {
+        let mut inner = self.inner.lock().ok()?;
+        let session = inner.as_mut()?;
+        if session.finished.load(Ordering::SeqCst) || session.markers.len() >= MAX_SESSION_MARKERS {
+            return None;
+        }
+        let at = session.started.elapsed().as_millis() as u64;
+        session.markers.push(at);
+        Some(at)
     }
 
     pub fn status(&self) -> Option<RecordingStatus> {
@@ -183,13 +201,13 @@ fn start_windows(
     let spec = payload.validate().map_err(AppError::Message)?;
     if rec.wgc_session_active() {
         return Err(AppError::Message(
-            "Turn off Instant Replay or use Legacy recording. Composed recording cannot share the Instant Replay capture session.".into(),
+            "Turn off Instant Replay to record. Recording and Instant Replay cannot run at the same time.".into(),
         ));
     }
     let cam_status = camera.status();
     if cam_status.rolling || cam_status.recording {
         return Err(AppError::Message(
-            "Webcam is in use by Instant Replay. Turn off Instant Replay or use Legacy recording.".into(),
+            "Webcam is in use by Instant Replay. Turn off Instant Replay to record.".into(),
         ));
     }
     let slot = composed
@@ -235,8 +253,10 @@ fn start_windows(
         .unwrap_or(0);
     let slug = game_id.as_deref().unwrap_or("recording");
     let path = output_path(&save, slug, "mp4");
+    let per_app_audio = !spec.audio.desktop_audio.routed()
+        && (settings.discord_audio_enabled || settings.extra_apps.iter().any(|app| app.enabled));
     let audio_plan = ComposedAudioPlan {
-        include: spec.audio.include(),
+        include: spec.audio.include() || per_app_audio,
         mic: spec.audio.microphone.routed(),
         game: spec.audio.game_audio.routed(),
         desktop: spec.audio.desktop_audio.routed(),
@@ -330,6 +350,7 @@ fn start_windows(
         fps: spec.fps,
         output_fallback: false,
         webcam_layout,
+        markers: Vec::new(),
     });
     drop(slot);
 
@@ -350,6 +371,8 @@ fn start_windows(
             session.width = width;
             session.height = height;
             session.output_fallback = fallback;
+            // Bookmarks are offsets into the file, which begins once the encoder is ready.
+            session.started = Instant::now();
             output_fallback_flag.store(fallback, Ordering::SeqCst);
             let status = RecordingStatus {
                 active: true,
@@ -365,6 +388,7 @@ fn start_windows(
                 output_fallback: fallback,
             };
             drop(slot);
+            crate::hotkeys::set_bookmark_active(app, true);
             let _ = app.emit("recording-status", &status);
             Ok(status)
         }
@@ -378,7 +402,7 @@ fn start_windows(
             stop.store(true, Ordering::SeqCst);
             reap_composed_slot(composed);
             rec.shared.preview.resume_if_wanted();
-            let err = "Composed recording did not start in time. Use Legacy recording or try again.".to_string();
+            let err = "Composed recording did not start in time. Try again.".to_string();
             diagnostics::log_fail("start", &err);
             Err(AppError::Message(err))
         }
@@ -421,6 +445,7 @@ fn stop_windows(
     session.stop.store(true, Ordering::SeqCst);
     let thread = session.thread.take();
     drop(slot);
+    crate::hotkeys::set_bookmark_active(app, false);
     let finished = match thread {
         Some(handle) => handle.join().unwrap_or_else(|_| Err("Composed recording thread panicked.".into())),
         None => Err("Composed recording was already stopping.".into()),
@@ -444,6 +469,7 @@ fn stop_windows(
                     None,
                     None,
                 )?;
+                save_markers(app, &done.path, &local_id, &session.markers, done.duration_ms);
                 let _ = app.emit(
                     "local-clip-saved",
                     SavedClipEvent {
@@ -487,6 +513,25 @@ fn stop_windows(
             let _ = app.emit("recording-status", &status);
             Err(AppError::Message(err))
         }
+    }
+}
+
+/// Writes bookmarks beside the MP4 (so they travel with the file) and onto the library row.
+/// A failure here never loses the recording.
+#[cfg(windows)]
+fn save_markers(app: &AppHandle, video: &std::path::Path, local_id: &str, markers: &[u64], duration_ms: u64) {
+    let kept: Vec<u64> = markers.iter().copied().filter(|at| duration_ms == 0 || *at <= duration_ms).collect();
+    if kept.is_empty() {
+        return;
+    }
+    let sidecar = video.with_extension("markers.json");
+    if let Ok(json) = serde_json::to_string(&serde_json::json!({ "version": 1, "markersMs": kept })) {
+        if let Err(err) = std::fs::write(&sidecar, json) {
+            tracing::warn!("could not write recording markers: {err}");
+        }
+    }
+    if let Err(err) = crate::library::set_markers(app, local_id, &kept) {
+        tracing::warn!("could not store recording markers: {err}");
     }
 }
 
@@ -546,7 +591,7 @@ fn run_composed_session(
     };
     let gpu = match SharedGpu::open() {
         Ok(gpu) => gpu,
-        Err(err) => return Err(fail_ready(format!("{err} Use Legacy recording or try again."))),
+        Err(err) => return Err(fail_ready(format!("{err} Try again."))),
     };
 
     let fps = spec.fps.clamp(24, 60);
@@ -628,7 +673,7 @@ fn run_composed_session(
         Some(value) => value,
         None => {
             return Err(fail_ready(format!(
-                "Composed GPU encoding could not start: {last_probe_err} Use Legacy recording."
+                "Composed GPU encoding could not start: {last_probe_err} Update your graphics driver and try again."
             )));
         }
     };
@@ -726,7 +771,7 @@ fn run_composed_session(
         Ok(encoder) => encoder,
         Err(err) => {
             return Err(fail_ready(format!(
-                "Composed GPU encoding could not start: {err} Use Legacy recording."
+                "Composed GPU encoding could not start: {err} Update your graphics driver and try again."
             )));
         }
     };
@@ -1006,7 +1051,7 @@ fn wait_first_frame(
         }
         std::thread::sleep(Duration::from_millis(16));
     }
-    Err("Composed recording did not receive a capture frame. Use Legacy recording or try again.".into())
+    Err("Composed recording did not receive a capture frame. Try again.".into())
 }
 
 fn load_settings(app: &AppHandle) -> AppResult<AppSettings> {

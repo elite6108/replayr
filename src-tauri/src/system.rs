@@ -7,6 +7,7 @@ use crate::capture::{self, RecordingState};
 use crate::database::AppState;
 use crate::detection::{self, DetectionState};
 use crate::error::{AppError, AppResult};
+use crate::recording_compositor::record_toggle;
 use crate::settings;
 
 pub fn setup_tray(app: &AppHandle) -> AppResult<()> {
@@ -60,18 +61,21 @@ pub fn setup_tray(app: &AppHandle) -> AppResult<()> {
                 });
             }
             "start_recording" => {
-                let rec = app.state::<RecordingState>();
-                let detection = app.state::<DetectionState>();
-                let snapshot = detection::current_snapshot(&detection);
-                if let Err(err) = capture::start(app, &rec, snapshot.pid, snapshot.name, snapshot.slug, None) {
-                    tracing::warn!("tray start recording: {err}");
-                }
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    if let Err(err) = record_toggle::start(&app) {
+                        tracing::warn!("tray start recording: {err}");
+                        tray_notify(&app, "Recording", &err.to_string());
+                    }
+                });
             }
             "stop_recording" => {
-                let rec = app.state::<RecordingState>();
-                if let Err(err) = capture::stop(app, &rec) {
-                    tracing::warn!("tray stop recording: {err}");
-                }
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    if let Err(err) = record_toggle::stop(&app) {
+                        tracing::warn!("tray stop recording: {err}");
+                    }
+                });
             }
             "instant_replay" => {
                 let rec = app.state::<RecordingState>();
@@ -119,6 +123,11 @@ fn show_main(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+fn tray_notify(app: &AppHandle, title: &str, body: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification().builder().title(title).body(body).show();
 }
 
 fn toggle_instant_replay(app: &AppHandle) -> bool {

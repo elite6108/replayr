@@ -86,12 +86,15 @@ pub struct LocalClipDto {
     /// Window or catalog title at the moment capture started.
     #[serde(default)]
     pub capture_title: Option<String>,
+    /// Recording bookmarks, ms from the start of the file.
+    #[serde(default)]
+    pub markers: Vec<u64>,
 }
 
 const CLIP_COLUMNS: &str = "local_id, cloud_clip_id, file_path, thumbnail_path, game_id, created_at,
                 duration_ms, width, height, fps, file_size, upload_status, favorite, title, description,
                 source_clip_id, source_start_ms, source_end_ms, editor_crop_x, capture_kind, tags, release_local,
-                capture_exe, capture_title";
+                capture_exe, capture_title, markers";
 
 pub struct ClipLineage {
     pub source_clip_id: String,
@@ -711,6 +714,9 @@ pub fn delete(conn: &Connection, local_id: &str) -> AppResult<()> {
     if play != Path::new(&clip.file_path) {
         paths.push(play.to_string_lossy().into_owned());
     }
+    if !clip.markers.is_empty() {
+        paths.push(Path::new(&clip.file_path).with_extension("markers.json").to_string_lossy().into_owned());
+    }
     // Decide ownership before the row disappears. A derived clip must not erase the
     // recording it was cut from, even if a source row points at that file.
     let paths: Vec<String> = paths
@@ -920,7 +926,36 @@ fn map_clip(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalClipDto> {
         release_local: row.get::<_, i64>(21)? != 0,
         capture_exe: row.get(22)?,
         capture_title: row.get(23)?,
+        markers: parse_markers(row.get(24)?),
     })
+}
+
+const MAX_MARKERS: usize = 500;
+
+/// Bookmark offsets in ms from the start of the recording. Bad JSON reads as no markers.
+fn parse_markers(raw: Option<String>) -> Vec<u64> {
+    let mut markers: Vec<u64> = raw
+        .and_then(|text| serde_json::from_str::<Vec<u64>>(&text).ok())
+        .unwrap_or_default();
+    markers.sort_unstable();
+    markers.dedup();
+    markers.truncate(MAX_MARKERS);
+    markers
+}
+
+pub fn set_markers(app: &AppHandle, local_id: &str, markers: &[u64]) -> AppResult<()> {
+    let mut clean = markers.to_vec();
+    clean.sort_unstable();
+    clean.dedup();
+    clean.truncate(MAX_MARKERS);
+    let json = serde_json::to_string(&clean).map_err(|err| AppError::Message(err.to_string()))?;
+    let db = app.state::<AppState>();
+    let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    conn.execute(
+        "UPDATE local_clips SET markers = ?1 WHERE local_id = ?2",
+        rusqlite::params![json, local_id],
+    )?;
+    Ok(())
 }
 
 fn preview_thumb(path: &Path, local_id: &str, frame: &StillFrame) -> Option<PathBuf> {
@@ -1170,6 +1205,21 @@ mod tests {
         let clip = get(&conn, "clip-3").unwrap();
         assert_eq!(clip.upload_status, "failed");
         assert_eq!(clip.cloud_clip_id.as_deref(), Some("cloud-pending"));
+    }
+
+    #[test]
+    fn recording_markers_read_back_sorted() {
+        let dir = tempdir().unwrap();
+        let conn = open_path(&dir.path().join("db.sqlite")).unwrap();
+        migrate(&conn).unwrap();
+        seed(&conn, "clip-marks", "Session");
+        assert!(get(&conn, "clip-marks").unwrap().markers.is_empty());
+        conn.execute("UPDATE local_clips SET markers = '[9000,1500,1500]' WHERE local_id = 'clip-marks'", [])
+            .unwrap();
+        assert_eq!(get(&conn, "clip-marks").unwrap().markers, vec![1500, 9000]);
+        conn.execute("UPDATE local_clips SET markers = 'not json' WHERE local_id = 'clip-marks'", [])
+            .unwrap();
+        assert!(get(&conn, "clip-marks").unwrap().markers.is_empty());
     }
 
     #[test]

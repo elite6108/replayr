@@ -74,10 +74,9 @@ export function nextMatchStatus(distinctUsers: number): GameStatus {
   return distinctUsers >= CONFIRMATION_THRESHOLD ? "confirmed" : "pending";
 }
 
-/** A player-created game stays pending until staff confirms it. */
-export function matchStatusForSource(distinctUsers: number, catalogSource: string | null): GameStatus {
-  if (catalogSource === "user") return "pending";
-  return nextMatchStatus(distinctUsers);
+/** Crowd votes never confirm an exe match. Staff catalog review is the only confirmation path. */
+export function matchStatusForSource(_distinctUsers: number, _catalogSource: string | null): GameStatus {
+  return "pending";
 }
 
 function globMatch(pattern: string, text: string): boolean {

@@ -3,15 +3,17 @@ import { textSettingsOf, type RecordingSource } from "../../../recording/scene";
 export function TextSourceSettings({
   source,
   onChange,
+  recorded = false,
 }: {
   source: RecordingSource;
   onChange: (settings: { text?: string; color?: string; size?: number; align?: "left" | "center" | "right" }) => void;
+  recorded?: boolean;
 }) {
   const text = textSettingsOf(source);
 
   return (
     <div className="stack">
-      <p className="muted">Preview only. Not burned into the session file.</p>
+      <p className="muted">{recorded ? "Recorded into the session file." : "Preview only. Not burned into the session file."}</p>
       <div className="field">
         <label htmlFor="record-text-value">Text</label>
         <input

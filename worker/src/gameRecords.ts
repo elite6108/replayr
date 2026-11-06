@@ -22,6 +22,7 @@ interface GameRow {
   name: string;
   publisher: string | null;
   cover_url: string | null;
+  icon_url?: string | null;
   status: GameStatus;
   aliases?: string[] | null;
   steam_app_id?: number | null;
@@ -133,6 +134,34 @@ export async function searchGames(request: Request, env: Env, url: URL): Promise
   return json({ games: [...confirmed, ...ownPending].map(toPublicGame) });
 }
 
+/** Detection catalog for a signed-in desktop. Process names stay off the public table. */
+export async function listDetectionCatalog(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  assertRateLimit(request, "game-catalog", 30, user.id);
+  const games: GameRow[] = [];
+  const pageSize = 500;
+  for (let offset = 0; offset < 2000; offset += pageSize) {
+    const rows = await serviceRest<GameRow[]>(
+      env,
+      "GET",
+      `/games?status=eq.confirmed&select=id,slug,name,publisher,cover_url,icon_url,process_names&order=name.asc&limit=${pageSize}&offset=${offset}`,
+    );
+    games.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return json({
+    games: games.map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      publisher: row.publisher,
+      cover_url: row.cover_url,
+      icon_url: row.icon_url ?? null,
+      process_names: row.process_names ?? [],
+    })),
+  });
+}
+
 export async function createPendingGame(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   assertRateLimit(request, `game-create:${user.id}`, 10);
@@ -164,6 +193,7 @@ export async function createPendingGame(request: Request, env: Env): Promise<Res
 
 export async function setClipGame(request: Request, env: Env, clipId: string): Promise<Response> {
   const user = await requireUser(request, env);
+  assertRateLimit(request, "clip-game", 20, user.id);
   if (!isClipUuid(clipId)) return json({ error: "Clip not found." }, 404);
   const body = (await request.json().catch(() => null)) as { gameId?: string } | null;
   const gameId = body?.gameId?.trim() ?? "";
@@ -240,7 +270,8 @@ async function confirmExe(env: Env, userId: string, exe: string, game: GameRow):
     "GET",
     `/game_match_confirmations?match_id=eq.${match.id}&select=user_id&limit=20`,
   );
-  const status = matchStatusForSource(count.length, game.catalog_source ?? null);
+  const voted = matchStatusForSource(count.length, game.catalog_source ?? null);
+  const status: GameStatus = match.status === "confirmed" ? "confirmed" : voted;
   await serviceRest(env, "PATCH", `/game_matches?id=eq.${match.id}`, {
     confirmation_count: count.length,
     status,

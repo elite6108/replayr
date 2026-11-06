@@ -98,9 +98,10 @@ describe("confirmation threshold", () => {
     expect(nextMatchStatus(4)).toBe("confirmed");
   });
 
-  it("keeps a player-created game pending after three votes", () => {
+  it("stays pending after three votes, including catalog and staff sources", () => {
     expect(matchStatusForSource(3, "user")).toBe("pending");
-    expect(matchStatusForSource(3, "igdb")).toBe("confirmed");
-    expect(matchStatusForSource(3, "staff")).toBe("confirmed");
+    expect(matchStatusForSource(3, "igdb")).toBe("pending");
+    expect(matchStatusForSource(3, "staff")).toBe("pending");
+    expect(matchStatusForSource(4, "catalog")).toBe("pending");
   });
 });

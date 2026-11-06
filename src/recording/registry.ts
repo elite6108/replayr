@@ -41,7 +41,7 @@ export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     group: "media",
     capability: "sidecar",
     unique: true,
-    hint: "Recorded separately.",
+    hint: "Recorded into the layout.",
   },
   {
     type: "image",
@@ -49,7 +49,7 @@ export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     group: "media",
     capability: "preview_only",
     unique: false,
-    hint: "Preview only.",
+    hint: "Recorded into the layout.",
   },
   {
     type: "text",
@@ -57,7 +57,7 @@ export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     group: "media",
     capability: "preview_only",
     unique: false,
-    hint: "Preview only.",
+    hint: "Recorded into the layout.",
   },
   {
     type: "browser",
@@ -121,7 +121,7 @@ export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     group: "overlay",
     capability: "preview_only",
     unique: true,
-    hint: "Preview only.",
+    hint: "Recorded into the layout.",
   },
 ] as const;
 
@@ -143,9 +143,7 @@ export function capabilityCaption(capability: RecordingSourceCapability, studio:
     if (capability === "sidecar") return "Recorded separately";
     return "Layout only";
   }
-  if (capability === "preview_only") return "Preview only";
-  if (capability === "unsupported") return "Coming later";
-  if (capability === "sidecar") return "Recorded separately";
+  if (capability === "unsupported") return "Cannot be recorded yet";
   return "Recorded";
 }
 
@@ -211,7 +209,7 @@ export function filterComposedSupported(id: string): boolean {
 
 export function composedSourceCaption(type: RecordingSourceType): string | null {
   if (!sourceComposedSupported(type)) {
-    return "Not yet available in composed recording";
+    return "Cannot be recorded yet";
   }
   if (type === "webcam" || type === "image" || type === "text" || type === "replayrOverlay") {
     return "Recorded";

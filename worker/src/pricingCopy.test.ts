@@ -15,7 +15,6 @@ const advertisedSurfaces = [
   "web/src/pages/ExplorePage.tsx",
   "web/src/pages/ClipPage.tsx",
   "web/src/pages/AccountPage.tsx",
-  "web/public/coming-soon.html",
   "src/pages/SettingsPage.tsx",
   "src/pages/ProfilePage.tsx",
   "src/pages/ExplorePage.tsx",
@@ -24,7 +23,6 @@ const advertisedSurfaces = [
   "mobile/app/c/[slug].web.tsx",
   "mobile/app/settings.tsx",
   "mobile/components/player/ClipPlayerCell.tsx",
-  "worker/src/site-access.ts",
 ] as const;
 
 describe("premium pricing copy", () => {

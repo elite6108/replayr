@@ -1,19 +1,10 @@
 import { DetectedGamePanel } from "../../common/DetectedGamePanel";
 import { useDetectionStore } from "../../../stores/detectionStore";
 import type { AppSettings } from "../../../types/settings";
+import { displayFps } from "../../../utils/qualityLabels";
 
-export function GameSourceSettings({
-  settings,
-  onSave,
-  layoutOnly = false,
-}: {
-  settings: AppSettings;
-  onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
-  layoutOnly?: boolean;
-}) {
+export function GameSourceSettings({ layoutOnly = false }: { layoutOnly?: boolean }) {
   const snapshot = useDetectionStore((state) => state.snapshot);
-  void settings;
-  void onSave;
 
   return (
     <div className="stack">
@@ -58,13 +49,12 @@ export function CaptureOutputFields({
         <label htmlFor="record-fps">FPS</label>
         <select
           id="record-fps"
-          value={settings.fps}
+          value={displayFps(settings.fps)}
           disabled={disabled}
           onChange={(event) => onSave("fps", Number(event.target.value) as AppSettings["fps"])}
         >
           <option value={30}>30</option>
           <option value={60}>60</option>
-          <option value={120}>120</option>
         </select>
       </div>
       <div className="field">

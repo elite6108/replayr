@@ -34,6 +34,7 @@ commands.allow = [
   "start_recording",
   "stop_recording",
   "start_composed_recording",
+  "set_record_scene",
   "stop_composed_recording",
   "get_recording_status",
   "get_replay_status",

@@ -116,6 +116,7 @@ pub fn run() {
             app.manage(detection::DetectionState::default());
             app.manage(capture::RecordingState::default());
             app.manage(crate::recording_compositor::ComposedRecordingState::default());
+            app.manage(crate::recording_compositor::RecordSceneState::default());
             app.manage(hotkeys::HotkeyMap::default());
             app.manage(crate::camera::CameraEngine::new());
             #[cfg(windows)]
@@ -302,6 +303,7 @@ pub fn run() {
             commands::start_recording,
             commands::stop_recording,
             commands::start_composed_recording,
+            commands::set_record_scene,
             commands::stop_composed_recording,
             commands::get_recording_status,
             commands::get_replay_status,

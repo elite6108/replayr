@@ -50,6 +50,7 @@ export function SourceInspector({
   listError,
   recording,
   studio = "recording",
+  onRefreshDisplays,
 }: {
   source: RecordingSource | null;
   settings: AppSettings;
@@ -71,6 +72,7 @@ export function SourceInspector({
   listError?: string | null;
   recording?: boolean;
   studio?: StudioMode;
+  onRefreshDisplays?: () => void;
 }) {
   return (
     <section className="studio-panel studio-inspector">
@@ -111,6 +113,7 @@ export function SourceInspector({
             listError={listError}
             recording={recording}
             studio={studio}
+            onRefreshDisplays={onRefreshDisplays}
           />
           {source.transform && !isAudioSource(source.type) ? (
             <TransformSection
@@ -149,12 +152,14 @@ function InspectorBody({
   listError,
   recording,
   studio = "recording",
+  onRefreshDisplays,
 }: {
   source: RecordingSource;
   settings: AppSettings;
   camera: CameraStatus;
   levels: { micPeak: number; gamePeak: number; desktopPeak: number };
   onSaveSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  onRefreshDisplays?: () => void;
   onPatch: (id: string, patch: { settings?: Record<string, unknown>; transform?: SourceTransform | null }) => void;
   onToggle: (id: string, enabled: boolean) => void;
   onWebcamDevice: (device: CameraDevice) => void;
@@ -165,7 +170,7 @@ function InspectorBody({
   studio?: StudioMode;
 }) {
   if (source.type === "game") {
-    return <GameSourceSettings settings={settings} onSave={onSaveSetting} layoutOnly={studio === "clip"} />;
+    return <GameSourceSettings layoutOnly={studio === "clip"} />;
   }
   if (source.type === "display") {
     return (
@@ -175,11 +180,19 @@ function InspectorBody({
         listError={listError}
         recording={Boolean(recording)}
         onMonitorId={(monitorId) => onPatch(source.id, { settings: { monitorId } })}
+        strict={studio !== "clip"}
+        onOpen={onRefreshDisplays}
       />
     );
   }
   if (source.type === "window") {
-    return <p className="studio-empty">Coming later. Window capture is not available yet.</p>;
+    return (
+      <p className="studio-empty">
+        {studio === "clip"
+          ? "Coming later. Window capture is not available yet."
+          : "Window capture cannot be recorded yet. Use Game or Desktop."}
+      </p>
+    );
   }
   if (source.type === "webcam") {
     return (
@@ -201,10 +214,22 @@ function InspectorBody({
     );
   }
   if (source.type === "image") {
-    return <ImageSourceSettings source={source} onChange={(next) => onPatch(source.id, { settings: next })} />;
+    return (
+      <ImageSourceSettings
+        source={source}
+        recorded={studio !== "clip"}
+        onChange={(next) => onPatch(source.id, { settings: next })}
+      />
+    );
   }
   if (source.type === "text") {
-    return <TextSourceSettings source={source} onChange={(next) => onPatch(source.id, { settings: next })} />;
+    return (
+      <TextSourceSettings
+        source={source}
+        recorded={studio !== "clip"}
+        onChange={(next) => onPatch(source.id, { settings: next })}
+      />
+    );
   }
       if (source.type === "microphone" || source.type === "desktopAudio" || source.type === "gameAudio") {
     return (

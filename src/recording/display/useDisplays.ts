@@ -1,34 +1,36 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listDisplays } from "../../services/tauri";
 import type { DisplayInfo } from "./displayTypes";
 
 export function useDisplays() {
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const alive = useRef(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      void listDisplays()
-        .then((next) => {
-          if (cancelled) return;
-          const list = Array.isArray(next) ? next : [];
-          setDisplays(list);
-          setError(null);
-        })
-        .catch((caught: unknown) => {
-          if (cancelled) return;
-          const message = caught instanceof Error ? caught.message : "Could not list displays.";
-          setError(message);
-        });
-    };
-    load();
-    const timer = window.setInterval(load, 4000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
+  const refresh = useCallback(() => {
+    void listDisplays()
+      .then((next) => {
+        if (!alive.current) return;
+        const list = Array.isArray(next) ? next : [];
+        setDisplays(list);
+        setError(null);
+      })
+      .catch((caught: unknown) => {
+        if (!alive.current) return;
+        const message = caught instanceof Error ? caught.message : "Could not list displays.";
+        setError(message);
+      });
   }, []);
 
-  return { displays, error };
+  useEffect(() => {
+    alive.current = true;
+    refresh();
+    const timer = window.setInterval(refresh, 4000);
+    return () => {
+      alive.current = false;
+      window.clearInterval(timer);
+    };
+  }, [refresh]);
+
+  return { displays, error, refresh };
 }

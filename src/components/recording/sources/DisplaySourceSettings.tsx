@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { desktopCaptureSettingsOf, type RecordingSource } from "../../../recording/scene";
-import { displayMeta, type DisplayInfo } from "../../../recording/display/displayTypes";
+import { displayMeta, displayPosition, displayTitle, type DisplayInfo } from "../../../recording/display/displayTypes";
 import { IconCheck, IconChevron } from "../../icons";
 
 type DisplayOption = {
@@ -17,12 +17,17 @@ export function DisplaySourceSettings({
   listError = null,
   recording,
   onMonitorId,
+  strict = false,
+  onOpen,
 }: {
   source: RecordingSource;
   displays: DisplayInfo[];
   listError?: string | null;
   recording: boolean;
   onMonitorId: (monitorId: string | null) => void;
+  /** Recordings refuse to start on a missing display instead of falling back to Primary. */
+  strict?: boolean;
+  onOpen?: () => void;
 }) {
   const selected = desktopCaptureSettingsOf(source).monitorId;
   const available = selected ? displays.some((display) => display.id === selected) : true;
@@ -34,15 +39,16 @@ export function DisplaySourceSettings({
       next.push({ id: selected, title: "Display unavailable", meta: "Saved display is not connected" });
     }
     for (const display of displays) {
+      const position = strict ? displayPosition(display, displays) : null;
       next.push({
         id: display.id,
-        title: display.name,
-        meta: displayMeta(display),
+        title: strict ? displayTitle(display) : display.name,
+        meta: position ? `${displayMeta(display)} · ${position}` : displayMeta(display),
         badge: display.isPrimary ? "Primary" : undefined,
       });
     }
     return next;
-  }, [available, displays, selected]);
+  }, [available, displays, selected, strict]);
 
   return (
     <div className="stack">
@@ -53,6 +59,7 @@ export function DisplaySourceSettings({
           value={selected ?? ""}
           disabled={recording}
           onChange={(id) => onMonitorId(id || null)}
+          onOpen={onOpen}
         />
       </label>
       {listError && displays.length === 0 ? (
@@ -60,7 +67,11 @@ export function DisplaySourceSettings({
       ) : null}
       {recording ? <p className="studio-lock-note">Stop recording to change display.</p> : null}
       {selected && !available ? (
-        <p className="studio-lock-note">Display unavailable. Preview and new recordings use Primary until this display returns. The saved selection is kept.</p>
+        <p className="studio-lock-note">
+          {strict
+            ? "Display unavailable. The preview shows Primary, and recording will not start until this display is reconnected or you pick another one."
+            : "Display unavailable. Preview and new recordings use Primary until this display returns. The saved selection is kept."}
+        </p>
       ) : null}
     </div>
   );
@@ -71,11 +82,13 @@ function DisplayCombo({
   value,
   disabled,
   onChange,
+  onOpen,
 }: {
   options: DisplayOption[];
   value: string;
   disabled: boolean;
   onChange: (id: string) => void;
+  onOpen?: () => void;
 }) {
   const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -143,12 +156,15 @@ function DisplayCombo({
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => {
-          if (!disabled) setOpen((next) => !next);
+          if (disabled) return;
+          if (!open) onOpen?.();
+          setOpen((next) => !next);
         }}
         onKeyDown={(event) => {
           if (disabled) return;
           if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
             event.preventDefault();
+            if (!open) onOpen?.();
             setOpen(true);
           }
         }}

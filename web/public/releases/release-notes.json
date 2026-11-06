@@ -1,4 +1,9 @@
 {
+  "0.1.78": [
+    "AI transcription is limited to 50 minutes a month.",
+    "Choosing a game for a clip no longer confirms that executable for everyone.",
+    "Recordings use the layout you set up. Turn Instant Replay off before you record, and Ctrl+F8 bookmarks a moment while recording."
+  ],
   "0.1.77": [
     "Games you add stay pending until Replayr confirms them, and a free upload is checked against the plan before it is saved."
   ],

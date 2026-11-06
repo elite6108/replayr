@@ -312,23 +312,40 @@ export function snapshotRecordingComposition(
   );
 }
 
+export const RECORD_NEEDS_IR_OFF = "Turn off Instant Replay to record.";
+
+export const RECORDABLE_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg"] as const;
+
+export function isRecordableImagePath(path: string): boolean {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return (RECORDABLE_IMAGE_EXTENSIONS as readonly string[]).includes(ext);
+}
+
 export function composedStartBlocker(scene: RecordingScene, settings: AppSettings): string | null {
   if (settings.instantReplayEnabled) {
-    return "Turn off Instant Replay to use Composed Recording.";
+    return RECORD_NEEDS_IR_OFF;
   }
   const capture = primaryCapture(scene);
   if (!capture || !capture.enabled) {
-    return "Composed recording needs a Game or Desktop capture source.";
+    return "Add a Game or Desktop capture to record.";
   }
   if (capture.type === "window" || !sourceComposedSupported(capture.type)) {
-    return "Window capture is not available in composed recording yet. Use Game or Desktop.";
+    return "Window capture cannot be recorded yet. Use Game or Desktop.";
   }
   const overlay = scene.sources.find((source) => source.type === "replayrOverlay" && source.enabled);
   if (overlay) {
     const filter = overlaySettingsOf(overlay).filter;
     if (!filterComposedSupported(filter)) {
-      return "That visual filter is not yet available in composed recording.";
+      return "That visual filter cannot be recorded yet. Choose another filter.";
     }
+  }
+  const badImage = scene.sources.find((source) => {
+    if (source.type !== "image" || !source.enabled) return false;
+    const path = imageSettingsOf(source).path;
+    return Boolean(path) && !isRecordableImagePath(path);
+  });
+  if (badImage) {
+    return `${badImage.name} is not a PNG or JPEG. Replace it or hide it to record.`;
   }
   return null;
 }

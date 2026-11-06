@@ -80,7 +80,7 @@ pub fn set_settings(app: AppHandle, state: State<AppState>, rec: State<Recording
 fn reject_ir_while_composed(composed: &ComposedRecordingState, key: &str, value: &Value) -> AppResult<()> {
     if key == "instantReplayEnabled" && value.as_bool() == Some(true) && composed.is_active() {
         return Err(AppError::Message(
-            "Stop composed recording before enabling Instant Replay.".into(),
+            "Stop recording before enabling Instant Replay.".into(),
         ));
     }
     Ok(())
@@ -918,6 +918,17 @@ pub fn start_composed_recording(
     webcam_layout: Option<crate::overlay::OverlayLayout>,
 ) -> AppResult<RecordingStatus> {
     crate::recording_compositor::start(&app, &rec, &composed, &camera, payload, webcam_layout)
+}
+
+/// The Recordings tab keeps Rust's copy of the active scene current so the toggle hotkey and the
+/// tray record the same layout the page shows.
+#[tauri::command]
+pub fn set_record_scene(
+    scene: State<crate::recording_compositor::RecordSceneState>,
+    payload: RecordingComposition,
+    webcam_layout: Option<crate::overlay::OverlayLayout>,
+) -> AppResult<()> {
+    scene.set(payload, webcam_layout)
 }
 
 #[tauri::command]

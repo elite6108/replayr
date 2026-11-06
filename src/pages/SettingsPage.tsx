@@ -7,6 +7,7 @@ import { PageHeader } from "../components/common/PageHeader";
 import { IrEncoderDetails } from "../components/common/IrEncoderDetails";
 import { BitrateChangeInfo } from "../components/common/BitrateChangeInfo";
 import { CustomBitrateInput } from "../components/settings/CustomBitrateInput";
+import { displayFps, QUALITY_OPTIONS } from "../utils/qualityLabels";
 import { HotkeyRecorder } from "../components/common/HotkeyRecorder";
 import {
   DEFAULT_HOTKEYS,
@@ -593,26 +594,26 @@ function RecordingPane({
           <label htmlFor="fps">FPS</label>
           <select
             id="fps"
-            value={settings.fps}
+            value={displayFps(settings.fps)}
             onChange={(event) => void onChange("fps", Number(event.target.value) as AppSettings["fps"])}
           >
             <option value={30}>30</option>
             <option value={60}>60</option>
-            <option value={120}>120</option>
           </select>
         </div>
         <div className="field">
-          <label htmlFor="bitrate">Bitrate</label>
+          <label htmlFor="bitrate">Quality</label>
           <BitrateChangeInfo />
           <select
             id="bitrate"
             value={settings.bitrate}
             onChange={(event) => void onChange("bitrate", event.target.value as AppSettings["bitrate"])}
           >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="custom">Custom</option>
+            {QUALITY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
           <p className="muted" style={{ marginTop: 6 }}>
             {formatBitrateEstimate(settings)}

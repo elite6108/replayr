@@ -15,12 +15,16 @@ export function SourcePropertiesDialog({
   onMonitorId,
   onSaveSetting,
   onClose,
+  strictDisplay = false,
+  onRefreshDisplays,
 }: {
   source: RecordingSource;
   settings: AppSettings;
   displays: DisplayInfo[];
   listError?: string | null;
   recording: boolean;
+  strictDisplay?: boolean;
+  onRefreshDisplays?: () => void;
   onMonitorId: (monitorId: string | null) => void;
   onSaveSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onClose: () => void;
@@ -57,6 +61,8 @@ export function SourcePropertiesDialog({
             listError={listError}
             recording={recording}
             onMonitorId={onMonitorId}
+            strict={strictDisplay}
+            onOpen={onRefreshDisplays}
           />
         ) : source.type === "microphone" ? (
           <div className="stack">

@@ -14,7 +14,8 @@ import type { Env } from "./env";
 import { ingestClientError, recordWorkerError } from "./errors";
 import { ingestGameObservation, matchSteamGame } from "./gameCatalogAdmin";
 import { importGamesBatch } from "./gameImport";
-import { captureFromBody, createPendingGame, resolveClipGame, searchGames, setClipGame } from "./gameRecords";
+import { captureFromBody, createPendingGame, listDetectionCatalog, resolveClipGame, searchGames, setClipGame } from "./gameRecords";
+import { webContentSecurityPolicy } from "./contentSecurity";
 import { cors, HttpError, json } from "./http";
 import { recordProductEvent } from "./metrics";
 import { assertRateLimit } from "./rateLimit";
@@ -348,6 +349,9 @@ async function route(
   if (request.method === "GET" && url.pathname === "/v1/games/search") {
     return searchGames(request, env, url);
   }
+  if (request.method === "GET" && url.pathname === "/v1/games/catalog") {
+    return listDetectionCatalog(request, env);
+  }
   if (request.method === "POST" && url.pathname === "/v1/games") {
     return createPendingGame(request, env);
   }
@@ -567,20 +571,7 @@ async function serveExactAsset(request: Request, env: Env): Promise<Response> {
 
 function withWebSecurityHeaders(response: Response, request?: Request): Response {
   const headers = new Headers(response.headers);
-  const csp = [
-    "default-src 'self'",
-    "base-uri 'self'",
-    "object-src 'none'",
-    "frame-ancestors 'none'",
-    "img-src 'self' data: blob: https:",
-    "media-src 'self' blob: https:",
-    "font-src 'self' data:",
-    "style-src 'self' 'unsafe-inline'",
-    "script-src 'self'",
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://*.r2.cloudflarestorage.com https://replayr.tv https://www.replayr.tv",
-    "form-action 'self'",
-  ].join("; ");
-  headers.set("Content-Security-Policy", csp);
+  headers.set("Content-Security-Policy", webContentSecurityPolicy());
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("X-Frame-Options", "DENY");

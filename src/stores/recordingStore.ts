@@ -7,8 +7,8 @@ import {
   getReplayStatus,
   saveClip,
   saveScreenshot,
+  setRecordScene,
   startComposedRecording,
-  startRecording,
   stopComposedRecording,
   stopRecording,
 } from "../services/tauri";
@@ -164,6 +164,23 @@ function setClockTick(active: boolean) {
   }
 }
 
+let recordSceneTimer: number | null = null;
+let recordSceneSubscribed = false;
+
+/** Sends the active Recordings scene to Rust so the toggle hotkey and tray record the same layout. */
+export function scheduleRecordScenePush(delayMs = 400) {
+  if (recordSceneTimer != null) window.clearTimeout(recordSceneTimer);
+  recordSceneTimer = window.setTimeout(() => {
+    recordSceneTimer = null;
+    const settings = useSettingsStore.getState().settings;
+    const scene = loadActiveScene(settings);
+    void setRecordScene(
+      snapshotRecordingComposition(scene, settings, settings.webcam.mirrorRecording),
+      sessionWebcamLayoutFromScene(scene),
+    ).catch(() => undefined);
+  }, delayMs);
+}
+
 export const useRecordingStore = create<RecordingState>((set, get) => ({
   status: IDLE_RECORDING,
   replay: IDLE_REPLAY,
@@ -179,29 +196,31 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       set({ status: IDLE_RECORDING, replay: IDLE_REPLAY });
     }
     await attachRecordingListeners();
+    if (!recordSceneSubscribed) {
+      recordSceneSubscribed = true;
+      useSettingsStore.subscribe((state, previous) => {
+        if (state.settings !== previous.settings) scheduleRecordScenePush();
+      });
+    }
+    scheduleRecordScenePush(0);
   },
   start: async () => {
     if (get().busy || get().status.active) return;
     const settings = useSettingsStore.getState().settings;
     const scene = loadActiveScene(settings);
-    if (scene.outputMode === "composed") {
-      const blocked = composedStartBlocker(scene, settings);
-      if (blocked) {
-        useToastStore.getState().show(blocked);
-        return;
-      }
+    const blocked = composedStartBlocker(scene, settings);
+    if (blocked) {
+      useToastStore.getState().show(blocked);
+      return;
     }
-    const startingComposed = scene.outputMode === "composed";
     const webcamLayout = sessionWebcamLayoutFromScene(scene);
-    set({ busy: true, startingComposed });
+    set({ busy: true, startingComposed: true });
     try {
       const status = liveRecording(
-        startingComposed
-          ? await startComposedRecording(
-              snapshotRecordingComposition(scene, settings, settings.webcam.mirrorRecording),
-              webcamLayout,
-            )
-          : await startRecording(webcamLayout),
+        await startComposedRecording(
+          snapshotRecordingComposition(scene, settings, settings.webcam.mirrorRecording),
+          webcamLayout,
+        ),
       );
       set({ status, busy: false, startingComposed: false });
       setClockTick(true);

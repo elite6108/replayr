@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { applyShortPicks, applyWindowPicks, handleAiMoments, mp4DurationMs, mp4HeaderFacts, parseRankJson, planShorts, sanitizeMoments, speechWindows } from "./aiMoments";
+import { applyShortPicks, applyWindowPicks, handleAiMoments, mp4DurationMs, mp4HeaderFacts, parseRankJson, planShorts, sanitizeMoments, speechWindows, TRANSCRIPTION_LIMIT_SECONDS } from "./aiMoments";
 import { freeUploadHeaderError } from "./billing";
 import type { Env } from "./env";
 import { HttpError } from "./http";
 import { clearRateLimitBuckets } from "./rateLimit";
 
 const USER = "11111111-1111-4111-8111-111111111111";
+
+describe("transcription allowance", () => {
+  it("caps each user at 50 minutes", () => {
+    expect(TRANSCRIPTION_LIMIT_SECONDS).toBe(50 * 60);
+  });
+});
 
 function env(): Env {
   return {

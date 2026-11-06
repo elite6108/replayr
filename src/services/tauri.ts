@@ -348,6 +348,14 @@ export async function startComposedRecording(
   return status;
 }
 
+/** Keeps the toggle hotkey and tray recording the same layout as the Record page. */
+export async function setRecordScene(
+  payload: import("../recording/composition").RecordingComposition,
+  webcamLayout?: import("../types/clip").ClipSourceLayout | null,
+): Promise<void> {
+  await invoke("set_record_scene", { payload, webcamLayout: webcamLayout ?? null });
+}
+
 export async function stopComposedRecording(): Promise<RecordingStatus> {
   const status = await invoke<RecordingStatus>("stop_composed_recording");
   void import("./analytics").then(({ trackDesktopEvent }) =>

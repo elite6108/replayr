@@ -121,7 +121,7 @@ fn activate_aac_encoder() -> Result<IMFTransform, String> {
             if !activates.is_null() {
                 CoTaskMemFree(Some(activates as *const std::ffi::c_void));
             }
-            return Err("No AAC encoder is available. Use Legacy recording.".into());
+            return Err("No AAC encoder is available. Restart Replayr and try again.".into());
         }
         let slice = std::slice::from_raw_parts(activates, count as usize);
         let mut chosen = None;
@@ -134,7 +134,7 @@ fn activate_aac_encoder() -> Result<IMFTransform, String> {
             }
         }
         CoTaskMemFree(Some(activates as *const std::ffi::c_void));
-        chosen.ok_or_else(|| "Could not start the AAC encoder. Use Legacy recording.".into())
+        chosen.ok_or_else(|| "Could not start the AAC encoder. Restart Replayr and try again.".into())
     }
 }
 

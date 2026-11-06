@@ -39,6 +39,9 @@ pub struct Hotkeys {
     /// Drag-to-select screenshot. Independent of Instant Replay and of `screenshot` above.
     #[serde(default = "default_region_screenshot_hotkey")]
     pub region_screenshot: String,
+    /// Marks a moment while a recording is running. Unbound the rest of the time.
+    #[serde(default = "default_bookmark_hotkey")]
+    pub bookmark: String,
 }
 
 impl Default for Hotkeys {
@@ -48,8 +51,13 @@ impl Default for Hotkeys {
             toggle_recording: "CommandOrControl+F9".into(),
             screenshot: "CommandOrControl+F11".into(),
             region_screenshot: default_region_screenshot_hotkey(),
+            bookmark: default_bookmark_hotkey(),
         }
     }
+}
+
+fn default_bookmark_hotkey() -> String {
+    "CommandOrControl+F8".into()
 }
 
 /// Ctrl+PrintScreen: the region-capture convention (ShareX), clear of Windows' own PrtScn,

@@ -74,6 +74,41 @@ pub fn resolve_monitor(monitor_id: Option<&str>) -> Result<Monitor, String> {
     Monitor::primary().map_err(|err| err.to_string())
 }
 
+/// Recording must never silently capture a different screen than the one the user picked.
+/// `None` means the user chose Primary.
+#[cfg(windows)]
+pub fn resolve_monitor_for_recording(monitor_id: Option<&str>) -> Result<Monitor, String> {
+    let available: Vec<String> = Monitor::enumerate()
+        .map_err(|err| err.to_string())?
+        .iter()
+        .filter_map(|monitor| monitor.device_name().ok())
+        .collect();
+    match pick_recording_monitor(monitor_id, &available)? {
+        Some(id) => find_monitor(&id).ok_or_else(|| missing_display_message(&id)),
+        None => Monitor::primary().map_err(|err| err.to_string()),
+    }
+}
+
+fn pick_recording_monitor(monitor_id: Option<&str>, available: &[String]) -> Result<Option<String>, String> {
+    let raw = monitor_id.map(str::trim).filter(|value| !value.is_empty());
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let Some(id) = sanitize_monitor_id(Some(raw)) else {
+        return Err("The selected display is not valid. Pick a display in the Desktop source.".into());
+    };
+    if available.iter().any(|item| item == &id) {
+        Ok(Some(id))
+    } else {
+        Err(missing_display_message(&id))
+    }
+}
+
+fn missing_display_message(id: &str) -> String {
+    let short = id.rsplit('\\').next().unwrap_or(id);
+    format!("{short} is not connected. Reconnect it or pick another display in the Desktop source.")
+}
+
 #[cfg(windows)]
 fn find_monitor(id: &str) -> Option<Monitor> {
     Monitor::enumerate().ok()?.into_iter().find(|monitor| monitor.device_name().ok().as_deref() == Some(id))
@@ -123,7 +158,21 @@ fn monitor_rect(monitor: &Monitor) -> (i32, i32, bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_monitor_id;
+    use super::{pick_recording_monitor, sanitize_monitor_id};
+
+    #[test]
+    fn recording_uses_the_picked_display_or_errors() {
+        let available = vec![r"\\.\DISPLAY1".to_string(), r"\\.\DISPLAY2".to_string()];
+        assert_eq!(pick_recording_monitor(None, &available), Ok(None));
+        assert_eq!(pick_recording_monitor(Some(""), &available), Ok(None));
+        assert_eq!(
+            pick_recording_monitor(Some(r"\\.\DISPLAY2"), &available),
+            Ok(Some(r"\\.\DISPLAY2".to_string()))
+        );
+        let missing = pick_recording_monitor(Some(r"\\.\DISPLAY3"), &available).unwrap_err();
+        assert!(missing.contains("DISPLAY3"), "{missing}");
+        assert!(pick_recording_monitor(Some("Monitor 1"), &available).is_err());
+    }
 
     #[test]
     fn accepts_windows_display_device_names() {

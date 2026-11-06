@@ -114,7 +114,7 @@ impl ComposedGpuEncoder {
         );
         if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
             return Err(
-                "Composed GPU encoding could not start: encoder canvas is invalid. Use Legacy recording."
+                "Composed GPU encoding could not start: encoder canvas is invalid. Update your graphics driver and try again."
                     .into(),
             );
         }
@@ -122,7 +122,7 @@ impl ComposedGpuEncoder {
         let aware = d3d11_aware(&transform);
         if aware == Some(false) {
             return Err(
-                "Composed GPU encoding could not start: the selected encoder is not D3D11-aware. Use Legacy recording."
+                "Composed GPU encoding could not start: the selected encoder is not D3D11-aware. Update your graphics driver and try again."
                     .into(),
             );
         }
@@ -139,7 +139,7 @@ impl ComposedGpuEncoder {
         )?;
         verify_configured_types(&transform, width, height, fps)?;
         let events: IMFMediaEventGenerator = transform.cast().map_err(|err| {
-            format!("Composed GPU encoding could not start: {err} Use Legacy recording.")
+            format!("Composed GPU encoding could not start: {err} Update your graphics driver and try again.")
         })?;
         // Do not open the mux here. GetOutputCurrentType before the first encoded
         // sample often lacks MF_MT_MPEG_SEQUENCE_HEADER (SPS/PPS). That is the
@@ -270,7 +270,7 @@ impl ComposedGpuEncoder {
             }
             waited = true;
             if Instant::now() > deadline {
-                return Err("Composed GPU encoder did not release a surface. Use Legacy recording.".into());
+                return Err("Composed GPU encoder did not release a surface. Update your graphics driver and try again.".into());
             }
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -412,7 +412,7 @@ impl ComposedGpuEncoder {
                 if self.stats.process_input == 0 {
                     Ok(())
                 } else {
-                    Err("Composed GPU encoder produced no H.264 samples. Use Legacy recording.".into())
+                    Err("Composed GPU encoder produced no H.264 samples. Update your graphics driver and try again.".into())
                 }
             }
         }
@@ -426,7 +426,7 @@ impl ComposedGpuEncoder {
                 return Ok(());
             }
             if Instant::now() > deadline {
-                return Err("Composed GPU encoder did not request input. Use Legacy recording.".into());
+                return Err("Composed GPU encoder did not request input. Update your graphics driver and try again.".into());
             }
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -441,7 +441,7 @@ impl ComposedGpuEncoder {
                     let ty = unsafe { event.GetType().unwrap_or(0) };
                     let status = unsafe { event.GetStatus().ok() };
                     if status.is_some_and(|hr| hr.is_err()) || ty == MEError.0 as u32 {
-                        return Err("Composed GPU encoder reported an error. Use Legacy recording.".into());
+                        return Err("Composed GPU encoder reported an error. Update your graphics driver and try again.".into());
                     }
                     if ty == METransformNeedInput.0 as u32 && !draining {
                         self.need_input = self.need_input.saturating_add(1);
@@ -555,7 +555,7 @@ fn activate_gpu_encoder() -> Result<(String, String, IMFTransform), String> {
     let (matched, clsid, transform) = activate_named_h264_encoder(&selected)?;
     if is_software_only_name(&matched) || is_software_only_name(&selected) {
         return Err(
-            "Composed GPU encoding could not start: no D3D-aware hardware H.264 encoder. Use Legacy recording."
+            "Composed GPU encoding could not start: no D3D-aware hardware H.264 encoder. Update your graphics driver and try again."
                 .into(),
         );
     }
@@ -584,7 +584,7 @@ fn activate_named_h264_encoder(selected: &str) -> Result<(String, String, IMFTra
         if !raw.is_null() {
             unsafe { CoTaskMemFree(Some(raw as *const std::ffi::c_void)) };
         }
-        return Err("Composed GPU encoding could not start: no H.264 MFT. Use Legacy recording.".into());
+        return Err("Composed GPU encoding could not start: no H.264 MFT. Update your graphics driver and try again.".into());
     }
     let slice = unsafe { std::slice::from_raw_parts(raw, count as usize) };
     let mut names = Vec::new();
@@ -616,12 +616,12 @@ fn activate_named_h264_encoder(selected: &str) -> Result<(String, String, IMFTra
     let (matched_name, clsid, activate) = chosen.ok_or_else(|| {
         unsafe { CoTaskMemFree(Some(raw as *const std::ffi::c_void)) };
         format!(
-            "Composed GPU encoding could not start: {selected} was not enumerated. Use Legacy recording."
+            "Composed GPU encoding could not start: {selected} was not enumerated. Update your graphics driver and try again."
         )
     })?;
     let transform = unsafe { activate.ActivateObject::<IMFTransform>() }.map_err(|err| {
         unsafe { CoTaskMemFree(Some(raw as *const std::ffi::c_void)) };
-        format!("Composed GPU encoding could not start ({matched_name}): {err} Use Legacy recording.")
+        format!("Composed GPU encoding could not start ({matched_name}): {err} Update your graphics driver and try again.")
     })?;
     unsafe { CoTaskMemFree(Some(raw as *const std::ffi::c_void)) };
     Ok((matched_name, clsid, transform))

@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { fetchGames, supabaseConfigured } from "../services/supabase";
 import { attachSteamMatch, maybeReportLearnedGame } from "../services/gameObservations";
 import { getDetectedGame, listGames, syncGames } from "../services/tauri";
-import { EMPTY_DETECTION, type DetectedGameSnapshot, type GameCatalogEntry } from "../types/game";
+import { EMPTY_DETECTION, type CloudGame, type DetectedGameSnapshot, type GameCatalogEntry } from "../types/game";
 
 interface DetectionState {
   ready: boolean;
@@ -15,7 +15,7 @@ interface DetectionState {
   refreshCatalog: () => Promise<void>;
 }
 
-function cloudToLocal(games: Awaited<ReturnType<typeof fetchGames>>): GameCatalogEntry[] {
+function cloudToLocal(games: CloudGame[]): GameCatalogEntry[] {
   return games.map((game) => ({
     slug: game.slug,
     cloudId: game.id,
@@ -42,7 +42,7 @@ export const useDetectionStore = create<DetectionState>((set) => ({
       if (supabaseConfigured()) {
         try {
           const cloud = await fetchGames();
-          if (cloud.length > 0) {
+          if (cloud && cloud.length > 0) {
             const next = await syncGames(cloudToLocal(cloud));
             set({ catalog: next });
           }
@@ -101,6 +101,11 @@ export const useDetectionStore = create<DetectionState>((set) => ({
       return;
     }
     const cloud = await fetchGames();
+    if (!cloud) {
+      const catalog = await listGames();
+      set({ catalog, error: null });
+      return;
+    }
     const catalog = await syncGames(cloudToLocal(cloud));
     set({ catalog, error: null });
   },

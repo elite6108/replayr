@@ -1,24 +1,22 @@
 import { useState } from "react";
 import { BitrateChangeInfo } from "../common/BitrateChangeInfo";
+import { CustomBitrateInput } from "../settings/CustomBitrateInput";
 import { IconGear, IconRecord } from "../icons";
 import type { AppSettings } from "../../types/settings";
 import { useRecordingStore } from "../../stores/recordingStore";
-import type { RecordingOutputMode } from "../../recording/scene";
+import { RECORD_NEEDS_IR_OFF } from "../../recording/composition";
 import type { StudioMode } from "../../recording/studioMode";
 import { CaptureOutputFields } from "./sources/GameSourceSettings";
 import { formatBitrateEstimate } from "../../utils/recordingBitrate";
+import { QUALITY_OPTIONS } from "../../utils/qualityLabels";
 import { IrControlsCard } from "./IrControlsCard";
 
 export function RecordControls({
   settings,
-  outputMode,
-  onOutputMode,
   onSave,
   studio = "recording",
 }: {
   settings: AppSettings;
-  outputMode: RecordingOutputMode;
-  onOutputMode: (mode: RecordingOutputMode) => void;
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   studio?: StudioMode;
 }) {
@@ -28,9 +26,10 @@ export function RecordControls({
   const start = useRecordingStore((state) => state.start);
   const stop = useRecordingStore((state) => state.stop);
   const [outputOpen, setOutputOpen] = useState(false);
+  const recording = status.active || startingComposed;
   const composedRecording = (status.active && status.composed) || startingComposed;
-  const composedNeedsIrOff = outputMode === "composed" && settings.instantReplayEnabled;
-  const canStart = !busy && !composedNeedsIrOff;
+  const needsIrOff = !recording && settings.instantReplayEnabled;
+  const canStart = !busy && !needsIrOff;
 
   return (
     <section className="studio-panel studio-controls">
@@ -40,15 +39,9 @@ export function RecordControls({
         <button
           type="button"
           className={`record-orb ${status.active ? "live" : ""}`}
-          disabled={status.active || composedRecording ? busy : !canStart}
-          title={
-            composedNeedsIrOff
-              ? "Turn off Instant Replay to use Composed Recording."
-              : status.active || composedRecording
-                ? "Stop recording"
-                : "Start recording"
-          }
-          onClick={() => void (status.active || composedRecording ? stop() : start())}
+          disabled={recording ? busy : !canStart}
+          title={needsIrOff ? RECORD_NEEDS_IR_OFF : recording ? "Stop recording" : "Start recording"}
+          onClick={() => void (recording ? stop() : start())}
         >
           <IconRecord size={30} />
         </button>
@@ -60,63 +53,69 @@ export function RecordControls({
                 Stop Recording
               </button>
             </>
+          ) : needsIrOff ? (
+            <>
+              <strong>Start Recording</strong>
+              <p>Instant Replay is on. Recording and Instant Replay cannot run at the same time.</p>
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => onSave("instantReplayEnabled", false)}
+              >
+                Turn off Instant Replay
+              </button>
+            </>
           ) : (
             <>
               <strong>Start Recording</strong>
-              <p>{status.error && !status.active ? status.error : "Start a new recording session"}</p>
+              <p>{status.error ? status.error : "Records this layout to one MP4"}</p>
             </>
           )}
         </div>
-        <button type="button" className="studio-icon-btn studio-output-gear" title="Recording output" onClick={() => setOutputOpen((open) => !open)}>
+        <button
+          type="button"
+          className="studio-icon-btn studio-output-gear"
+          title="Recording output"
+          aria-expanded={outputOpen}
+          onClick={() => setOutputOpen((open) => !open)}
+        >
           <IconGear size={16} />
+          <span>Output</span>
         </button>
       </div>
       {outputOpen ? (
         <div className="studio-output-pop">
-          <div className="field">
-            <label htmlFor="record-output-mode">Session output</label>
-            <select
-              id="record-output-mode"
-              value={outputMode}
-              disabled={status.active || composedRecording}
-              onChange={(event) => onOutputMode(event.target.value === "composed" ? "composed" : "legacy")}
-            >
-              <option value="legacy">Legacy (gameplay + optional webcam sidecar)</option>
-              <option value="composed">Composed (matches Recording Layout Preview)</option>
-            </select>
-          </div>
-          {composedNeedsIrOff ? (
-            <p className="studio-output-hint studio-output-warn">
-              Turn off Instant Replay to use Composed Recording.
-            </p>
-          ) : null}
-          {outputMode === "composed" ? (
-            <p className="studio-output-hint">
-              Game, desktop, webcam, images, text, and Replayr overlays are baked into one MP4.
-            </p>
-          ) : (
-            <p className="studio-output-hint">
-              Legacy records the detected game plus an optional webcam sidecar. It does not record the selected monitor or this layout. Composed is required for that.
-            </p>
-          )}
-          <CaptureOutputFields settings={settings} onSave={onSave} disabled={composedRecording} />
+          <p className="studio-output-hint">
+            Game, desktop, webcam, images, text, and Replayr overlays are recorded into one MP4, exactly as the preview shows.
+          </p>
+          <CaptureOutputFields settings={settings} onSave={onSave} disabled={recording} />
           <div className="field">
             <label htmlFor="record-quality">Quality</label>
             <BitrateChangeInfo />
             <select
               id="record-quality"
               value={settings.bitrate}
-              disabled={composedRecording}
+              disabled={recording}
               onChange={(event) => onSave("bitrate", event.target.value as AppSettings["bitrate"])}
             >
-              <option value="low">Low</option>
-              <option value="medium">High Quality</option>
-              <option value="high">Maximum</option>
-              <option value="custom">Custom</option>
+              {QUALITY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
             <p className="muted" style={{ marginTop: 6 }}>
               {formatBitrateEstimate(settings)}
             </p>
+            {settings.bitrate === "custom" ? (
+              <div className="field" style={{ marginTop: 8 }}>
+                <label htmlFor="custom-bitrate">Custom bitrate (kbps)</label>
+                <CustomBitrateInput
+                  value={settings.customBitrateKbps}
+                  onSave={(value) => onSave("customBitrateKbps", value)}
+                />
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

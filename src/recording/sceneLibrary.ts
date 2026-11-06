@@ -109,12 +109,21 @@ export function loadOrMigrateLibraryFrom(
   return created;
 }
 
+/** The Recordings tab has a single output: every scene records its full layout. */
+export function asRecordingLibrary(library: RecordingSceneLibrary): RecordingSceneLibrary {
+  if (library.scenes.every((scene) => scene.outputMode === "composed")) return library;
+  return {
+    ...library,
+    scenes: library.scenes.map((scene) => (scene.outputMode === "composed" ? scene : { ...scene, outputMode: "composed" })),
+  };
+}
+
 export function persistLibrary(library: RecordingSceneLibrary): void {
-  persistLibraryTo(RECORDING_LIBRARY_STORE, library);
+  persistLibraryTo(RECORDING_LIBRARY_STORE, asRecordingLibrary(library));
 }
 
 export function loadOrMigrateLibrary(settings: AppSettings): RecordingSceneLibrary {
-  return loadOrMigrateLibraryFrom(RECORDING_LIBRARY_STORE, settings, loadStoredScene);
+  return asRecordingLibrary(loadOrMigrateLibraryFrom(RECORDING_LIBRARY_STORE, settings, loadStoredScene));
 }
 
 export function loadActiveScene(settings: AppSettings): RecordingScene {

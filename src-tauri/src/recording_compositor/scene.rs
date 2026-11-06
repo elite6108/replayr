@@ -456,10 +456,10 @@ impl RecordingComposition {
         }
         let _ = images;
         let capture = capture.ok_or_else(|| {
-            "Composed recording needs a Game or Desktop capture source.".to_string()
+            "Add a Game or Desktop capture to record.".to_string()
         })?;
         if matches!(capture.kind, CaptureKind::Window) {
-            return Err("Window capture is not available in composed recording yet. Use Game or Desktop.".into());
+            return Err("Window capture cannot be recorded yet. Use Game or Desktop.".into());
         }
         let filter = overlay
             .as_ref()

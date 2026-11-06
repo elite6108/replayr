@@ -27,23 +27,22 @@ const comingSoonJs = readFileSync(
 );
 
 function expectWaitlistConversionCopy(html: string) {
-  expect(html).toContain("Your best plays,");
-  expect(html).toContain("already captured.");
-  expect(html).toContain("Join the waitlist");
-  expect(html).toContain("Join waitlist");
-  expect(html).toContain("https://x.com/Replayr_TV");
-  expect(html).toContain("Early emails get beta access when it opens.");
+  expect(html).toContain("YOUR BEST PLAYS,");
+  expect(html).toContain("CAPTURED.");
+  expect(html).toContain("GAMEPLAY HAPPENS ONCE. KEEP IT.");
+  expect(html).toContain("Join the beta");
+  expect(html).toContain("Replayr keeps the last few minutes of your game ready.");
   expect(html).toContain("No spam. Just launch updates and early access.");
   expect(html).toContain("Windows first");
-  expect(html).toContain("$6.99/mo");
+  expect(html).toContain("Free at launch");
+  expect(html).toContain("CAPTURE — KEEP — EDIT — SHARE — RELIVE");
   expect(html).toContain("Thanks — we'll email you when beta opens.");
-  expect(html).toContain("/instant-replay.png");
   expect(html).toContain('id="waitlist"');
-  expect(html).toContain('id="waitlist-cta"');
   expect(html).toContain('id="waitConfirm"');
   expect(html).toContain("Already have access?");
   expect(html).toContain('href="/terms"');
   expect(html).toContain('href="/privacy"');
+  expect(html).not.toContain("$6.99");
   expect(html).not.toContain("4.99");
   expect(html).not.toContain("47.88");
 }
@@ -134,23 +133,18 @@ describe("coming-soon conversion copy", () => {
     expectWaitlistConversionCopy(comingSoonPage);
     expectWaitlistConversionCopy(comingSoonFallbackHtml());
     expect(comingSoonPage).toContain('id="unlockToggle"');
-    expect(comingSoonPage).toContain("<footer>");
+    expect(comingSoonPage).toContain("<footer");
     expect(comingSoonPage.indexOf('id="waitlist"')).toBeLessThan(comingSoonPage.indexOf('id="unlockToggle"'));
   });
 
-  it("ships screenshot narratives and FAQ on the full page", () => {
+  it("ships the single-screen beta hero", () => {
     expect(comingSoonPage).toContain("/coming-soon.css");
-    expect(comingSoonPage).toContain("/marketing/record-preview.png");
-    expect(comingSoonPage).toContain("/marketing/local-library.png");
-    expect(comingSoonPage).toContain("/marketing/clip-editor.jpg");
-    expect(comingSoonPage).toContain("/marketing/share-privacy.png");
-    expect(comingSoonPage).toContain("/marketing/social-explore-or-following.png");
-    expect(comingSoonPage).toContain("/marketing/overlay-pack-or-scene.png");
-    expect(comingSoonPage).toContain("Capture instantly.");
-    expect(comingSoonPage).toContain('id="faq"');
-    expect(comingSoonPage).toContain("When beta opens.");
+    expect(comingSoonPage).toContain('class="laptop"');
+    expect(comingSoonPage).toContain("/marketing/hero-laptop.png");
+    expect(COMING_SOON_PUBLIC_PATHS.has("/marketing/hero-laptop.png")).toBe(true);
+    expect(comingSoonPage).not.toContain('id="faq"');
+    expect(comingSoonPage).not.toContain('id="waitlist-cta-form"');
     expect(comingSoonPage).toContain('class="waitlist"');
-    expect(comingSoonPage).toContain('id="waitlist-cta-form"');
     expect(comingSoonPage).toContain("/coming-soon.js");
     expect(comingSoonJs).toContain('querySelectorAll("form.waitlist")');
     expect(comingSoonJs).toContain("/v1/waitlist");

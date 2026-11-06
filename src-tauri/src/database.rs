@@ -27,6 +27,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (14, include_str!("../migrations/014_clip_tags.sql")),
     (15, include_str!("../migrations/015_release_local.sql")),
     (16, include_str!("../migrations/016_clip_capture.sql")),
+    (17, include_str!("../migrations/017_recording_markers.sql")),
 ];
 
 pub fn database_path(app: &AppHandle) -> AppResult<PathBuf> {

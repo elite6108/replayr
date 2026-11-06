@@ -358,8 +358,10 @@ impl AudioRuntime {
         self.inner.desktop_control.set_enabled(desktop);
         if let Ok(clients) = self.inner.isolated.lock() {
             for client in clients.iter() {
-                let allow = client.key.starts_with("game:") && game && !desktop;
-                client.capture.control().set_enabled(allow);
+                client
+                    .capture
+                    .control()
+                    .set_enabled(composed_isolated_allowed(&client.key, game, desktop));
             }
         }
         if !desktop {
@@ -1181,9 +1183,33 @@ fn normalize_device_id(id: &str) -> String {
     }
 }
 
+/// Which per-app captures feed a composed recording. Desktop loopback already carries every app,
+/// so with desktop on the per-app captures stay out of the mix rather than summing a process
+/// twice. Discord and extra-app clients only exist when Settings turned them on.
+pub(crate) fn composed_isolated_allowed(key: &str, game: bool, desktop: bool) -> bool {
+    if desktop {
+        return false;
+    }
+    if key.starts_with("game:") {
+        return game;
+    }
+    key.starts_with("discord:") || key.starts_with("extra:")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn composed_routing_keeps_discord_and_extras_without_double_mixing() {
+        assert!(composed_isolated_allowed("game:42", true, false));
+        assert!(!composed_isolated_allowed("game:42", false, false));
+        assert!(composed_isolated_allowed("discord:7", false, false));
+        assert!(composed_isolated_allowed("extra:spotify:9", false, false));
+        for key in ["game:42", "discord:7", "extra:spotify:9"] {
+            assert!(!composed_isolated_allowed(key, true, true), "{key} is already in desktop audio");
+        }
+    }
 
     #[test]
     fn apply_disabled_mic_returns_without_wasapi() {

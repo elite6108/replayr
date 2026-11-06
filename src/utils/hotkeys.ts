@@ -3,6 +3,7 @@ export const HOTKEY_ACTIONS = [
   "toggleRecording",
   "regionScreenshot",
   "screenshot",
+  "bookmark",
 ] as const;
 
 export type HotkeyAction = (typeof HOTKEY_ACTIONS)[number];
@@ -12,6 +13,7 @@ export const DEFAULT_HOTKEYS: Record<HotkeyAction, string> = {
   toggleRecording: "CommandOrControl+F9",
   regionScreenshot: "CommandOrControl+PrintScreen",
   screenshot: "CommandOrControl+F11",
+  bookmark: "CommandOrControl+F8",
 };
 
 export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
@@ -21,11 +23,12 @@ export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
   // Saves the last Instant Replay frame. Labelled apart from the drag-to-select screenshot so the
   // two are not confused in Settings.
   screenshot: "Save Replay Frame",
+  bookmark: "Bookmark Moment (while recording)",
 };
 
 /** Hand-mirrored with `HotkeyFailure` in src-tauri/src/hotkeys.rs. */
 export interface HotkeyFailure {
-  action: "save_replay" | "toggle_recording" | "screenshot" | "region_screenshot";
+  action: "save_replay" | "toggle_recording" | "screenshot" | "region_screenshot" | "bookmark";
   combo: string;
   reason:
     | { kind: "invalid"; detail: string }
@@ -38,6 +41,7 @@ const RUST_ACTION: Record<HotkeyAction, HotkeyFailure["action"]> = {
   toggleRecording: "toggle_recording",
   regionScreenshot: "region_screenshot",
   screenshot: "screenshot",
+  bookmark: "bookmark",
 };
 
 /** The registration failure for one action, if the OS refused it. */

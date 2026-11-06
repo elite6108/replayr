@@ -98,6 +98,7 @@ function AppShell() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/waitlist" element={<WaitlistToComingSoon />} />
+          <Route path="/coming-soon" element={<ComingSoonStatic />} />
           <Route path="/features" element={<FeaturesPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/creators" element={<CreatorsPage />} />
@@ -225,6 +226,13 @@ function webScreen(pathname: string): string {
 function WaitlistToComingSoon() {
   useEffect(() => {
     window.location.replace(`/coming-soon${window.location.search}`);
+  }, []);
+  return null;
+}
+
+function ComingSoonStatic() {
+  useEffect(() => {
+    window.location.replace(`/coming-soon.html${window.location.search}${window.location.hash}`);
   }, []);
   return null;
 }

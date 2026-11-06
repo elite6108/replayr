@@ -1,3 +1,4 @@
+import { comingSoonContentSecurityPolicy } from "./contentSecurity";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { requireServiceRole, serviceRest } from "./shared";
@@ -42,6 +43,7 @@ export const COMING_SOON_PUBLIC_PATHS = new Set([
   "/marketing/clip-editor.jpg",
   "/marketing/social-explore-or-following.png",
   "/marketing/overlay-pack-or-scene.png",
+  "/marketing/hero-laptop.png",
   "/replayr-logo.png",
   "/replayr-mark.png",
   "/favicon.png",
@@ -344,20 +346,7 @@ export async function handleWaitlistPages(request: Request, env: Env): Promise<R
 }
 
 export function comingSoonSecurityHeaders(headers: Headers = new Headers(), https = false): Headers {
-  const csp = [
-    "default-src 'self'",
-    "base-uri 'self'",
-    "object-src 'none'",
-    "frame-ancestors 'none'",
-    "img-src 'self' data: https:",
-    "media-src 'self' blob: https:",
-    "font-src 'self' data: https://fonts.gstatic.com",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "script-src 'self'",
-    "connect-src 'self' https://replayr.tv https://www.replayr.tv",
-    "form-action 'self'",
-  ].join("; ");
-  headers.set("Content-Security-Policy", csp);
+  headers.set("Content-Security-Policy", comingSoonContentSecurityPolicy());
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("X-Frame-Options", "DENY");
@@ -429,59 +418,49 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
 }
 
-/** Embedded copy of web/public/coming-soon.html — keeps the gate working if assets miss. */
+/** Embedded copy of the beta hero — keeps the gate working if assets miss. */
 export function comingSoonFallbackHtml(): string {
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Replayr — Beta waitlist</title>
-    <meta name="description" content="Join the Replayr beta waitlist. Instant Replay clips stay on your PC. Early emails get access when beta opens." />
+    <title>Replayr — Your best plays, already captured</title>
+    <meta name="description" content="Replayr keeps the last few minutes of your game ready. One hotkey saves what just happened. Join the beta. Windows first, free at launch." />
     <meta name="robots" content="index,follow" />
     <link rel="canonical" href="https://replayr.tv/coming-soon" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <style>
-      :root{color-scheme:dark;--bg:#07080b;--text:#f2f4f7;--muted:#8b93a1;--accent:#7fd0ef;--ok:#8ed9a4;--border:rgba(255,255,255,.08);--font:"Outfit","Segoe UI",system-ui,sans-serif}
-      *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:var(--font);color:var(--text);background:var(--bg)}
-      a{color:var(--accent);text-decoration:none}.wrap{width:min(1320px,calc(100% - 32px));margin:0 auto}
-      header{padding:18px 0 4px;display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
-      .hero{padding:28px 0 36px}
-      .eyebrow{margin:0 0 10px;color:var(--muted);font-size:.72rem;font-weight:650;letter-spacing:.16em;text-transform:uppercase}
-      h1{margin:0 0 12px;font-size:clamp(2.1rem,7vw,3.8rem);line-height:1.02}
-      .accent{color:var(--accent)}
-      .lede,.trust,.price-teaser{margin:0 0 14px;color:var(--muted);line-height:1.5}
-      .price-teaser{color:var(--text)}.trust{font-size:.88rem}
-      .waitlist,.gate{display:flex;flex-wrap:wrap;gap:10px;max-width:520px}
-      .gate{display:none;margin-top:12px}.gate.is-open{display:flex}
-      .waitlist input,.gate input{flex:1 1 220px;min-width:0;border-radius:999px;border:1px solid var(--border);background:#0c1118;color:var(--text);font:inherit;padding:13px 18px}
-      .waitlist button,.gate button,.header-cta{border:0;border-radius:999px;background:var(--accent);color:#061018;font:inherit;font-weight:650;padding:13px 20px;cursor:pointer}
-      .header-cta{display:inline-flex;text-decoration:none;padding:9px 16px;font-size:.9rem}
+      :root{color-scheme:dark;--bg:#101415;--ink:#f5f7f4;--mint:#76f8de;--muted:#a8b0ae}
+      *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+      body{background:radial-gradient(58% 78% at 86% 18%,rgba(47,107,98,.45),transparent 68%),var(--bg)}
+      a{color:inherit;text-decoration:none}.wrap{width:min(720px,calc(100% - 40px));margin:0 auto;padding:48px 0 32px}
+      .kicker{display:flex;align-items:center;gap:10px;letter-spacing:.16em;font-size:.72rem;font-weight:650;color:rgba(245,247,244,.72)}
+      .mark{width:8px;height:8px;background:var(--mint)}
+      h1{margin:18px 0;font-size:clamp(2.6rem,8vw,4.4rem);line-height:.9;letter-spacing:-.04em}
+      .mint{color:var(--mint)}
+      .lede,.trust{color:var(--muted);line-height:1.5}.trust{font-size:.88rem}
+      .waitlist,.gate{display:flex;flex-wrap:wrap;gap:10px;max-width:460px;margin-top:18px}
+      .gate{display:none}.gate.is-open{display:flex}
+      .waitlist input,.gate input{flex:1 1 180px;min-width:0;height:48px;border-radius:10px;border:1px solid #303636;background:#202626;color:var(--ink);padding:0 16px}
+      .waitlist button,.gate button{border:0;border-radius:10px;background:var(--mint);color:#0c1614;font-weight:700;height:48px;padding:0 16px;cursor:pointer}
       .waitlist.is-done{display:none}
-      .confirm{display:none;max-width:520px;padding:16px 18px;border-radius:16px;border:1px solid rgba(142,217,164,.28)}
-      .confirm.is-open{display:block}.confirm strong{color:var(--ok)}
-      .shot{margin:28px 0 0;border-radius:18px;overflow:hidden;border:1px solid var(--border)}
-      .shot img{display:block;width:100%;height:auto}
-      .plan .price{font-weight:650}
-      .access-link{border:0;background:transparent;color:var(--muted);font:inherit;cursor:pointer;padding:0}
-      footer{padding:24px 0 40px;color:var(--muted);border-top:1px solid var(--border)}
+      .confirm{display:none;margin-top:14px;padding:14px 16px;border-radius:12px;border:1px solid rgba(118,248,222,.35)}
+      .confirm.is-open{display:block}.confirm strong{color:var(--mint)}
+      .pipeline{margin-top:36px;letter-spacing:.16em;font-size:.68rem;color:rgba(245,247,244,.45)}
+      .access-link{border:0;background:transparent;color:rgba(245,247,244,.45);font:inherit;cursor:pointer;padding:0}
+      footer{display:flex;flex-wrap:wrap;gap:12px 16px;margin-top:12px;color:rgba(245,247,244,.38);font-size:.78rem}
     </style>
   </head>
   <body>
     <div class="wrap">
-      <header>
-        <a href="/coming-soon" aria-label="Replayr"><img src="/replayr-logo.png" alt="Replayr" width="140" height="32" /></a>
-        <a class="header-follow" href="https://x.com/Replayr_TV">Follow us</a>
-        <a class="header-cta" href="#waitlist-cta">Join waitlist</a>
-      </header>
-      <section class="hero">
-        <p class="eyebrow">Beta waitlist</p>
-        <h1>Your best plays, <span class="accent">already captured.</span></h1>
-        <p class="lede">Replayr keeps a rolling buffer while you play, so the moment is there before you realize it. Save it, edit it, and share only when you want.</p>
-        <div class="signup">
+      <p class="kicker"><span class="mark"></span>GAMEPLAY HAPPENS ONCE. KEEP IT.</p>
+      <h1>YOUR BEST PLAYS,<br>ALREADY<br><span class="mint">CAPTURED.</span></h1>
+      <p class="lede">Replayr keeps the last few minutes of your game ready. Something incredible happens? One hotkey saves what just happened.</p>
+      <div class="signup">
         <form class="waitlist" id="waitlist" autocomplete="on">
-          <input type="email" name="email" required placeholder="Email address" aria-label="Email" autocomplete="email" />
-          <button type="submit">Join the waitlist</button>
+          <input type="email" name="email" required placeholder="Your email address" aria-label="Email" autocomplete="email" />
+          <button type="submit">Join the beta</button>
         </form>
         <div class="confirm" id="waitConfirm" role="status">
           <strong>You're on the list.</strong>
@@ -489,29 +468,13 @@ export function comingSoonFallbackHtml(): string {
         </div>
         <p class="msg" id="waitMsg" role="status"></p>
         <p class="trust">No spam. Just launch updates and early access.</p>
-        <p class="price-teaser">Free at launch · Windows first · Premium $6.99/mo</p>
-        </div>
-        <figure class="shot">
-          <img src="/instant-replay.png" alt="Replayr Instant Replay workspace with clip buffer and sources" width="1600" height="1000" />
-        </figure>
-      </section>
-      <section class="cta-band" id="waitlist-cta">
-        <h2>Be there when Replayr opens.</h2>
-        <p>Join the waitlist for early access, launch updates, and a first look at new creator features. Early emails get beta access when it opens.</p>
-        <form class="waitlist" id="waitlist-cta-form" autocomplete="on">
-          <input type="email" name="email" required placeholder="Email address" aria-label="Email" autocomplete="email" />
-          <button type="submit">Join the waitlist</button>
-        </form>
-      </section>
-      <section class="pricing" aria-label="Pricing">
-        <div class="plan"><strong>Free</strong><div class="price">$0</div></div>
-        <div class="plan"><strong>Premium</strong><div class="price">$6.99/mo</div></div>
-      </section>
+        <p class="trust">Windows first · Free at launch</p>
+      </div>
+      <p class="pipeline">CAPTURE — KEEP — EDIT — SHARE — RELIVE</p>
       <footer>
-        <span>© Replayr</span>
+        <button type="button" class="access-link" id="unlockToggle">Already have access?</button>
         <a href="/terms">Terms</a>
         <a href="/privacy">Privacy</a>
-        <button type="button" class="access-link" id="unlockToggle">Already have access?</button>
         <form class="gate" id="gate" hidden autocomplete="current-password">
           <input type="password" name="password" required placeholder="Access password" aria-label="Access password" />
           <button type="submit">Enter site</button>

@@ -137,11 +137,14 @@ export async function fetchOwnClips(accessToken: string): Promise<CloudClip[]> {
   return clips;
 }
 
-export async function fetchGames(): Promise<CloudGame[]> {
-  const { data, error } = await getSupabase()
-    .from("games")
-    .select("id, slug, name, publisher, cover_url, icon_url, process_names")
-    .order("name");
+export async function fetchGames(): Promise<CloudGame[] | null> {
+  const { data, error } = await getSupabase().auth.getSession();
   if (error) throw error;
-  return data ?? [];
+  const token = data.session?.access_token;
+  if (!token) return null;
+  const response = await fetch(`${publicApiUrl()}/v1/games/catalog`, {
+    headers: { accept: "application/json", authorization: `Bearer ${token}` },
+  });
+  const body = await readApiJson<{ games?: CloudGame[] }>(response, "Could not load the game catalog");
+  return body.games ?? [];
 }

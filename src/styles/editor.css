@@ -1191,6 +1191,29 @@
   pointer-events: none;
 }
 
+.editor-marker {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: #f0c36e;
+  transform: translate(-50%, -50%) rotate(45deg);
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 3;
+}
+
+.editor-marker:hover,
+.editor-marker:focus-visible {
+  background: #ffd98f;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(240, 195, 110, 0.35);
+}
+
 .editor-ruler {
   position: relative;
   color: var(--editor-muted);

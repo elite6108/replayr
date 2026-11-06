@@ -1016,6 +1016,18 @@
   font-size: 12px;
 }
 
+.studio-record-copy .btn {
+  margin-top: 8px;
+}
+
+.studio-icon-btn.studio-output-gear {
+  width: auto;
+  display: inline-flex;
+  gap: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
 .studio-output-pop {
   margin-top: 10px;
   padding-top: 10px;

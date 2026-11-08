@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { importBestIgdbMainGame } from "./gameImport";
 import { HttpError } from "./http";
 import { serviceRest } from "./shared";
 import {
@@ -8,6 +9,8 @@ import {
   parseGameDraft,
   parseSteamSearch,
   searchTerm,
+  baseWindowTitle,
+  pickBestTitleMatch,
   slugifyGameName,
   steamDirectoryName,
   steamHeaderUrl,
@@ -29,6 +32,7 @@ type GameRow = {
   process_names: string[] | null;
   catalog_source: string | null;
   status?: "confirmed" | "pending";
+  aliases?: string[] | null;
 };
 
 type ObservationRow = {
@@ -293,15 +297,58 @@ export async function matchSteamTitle(env: Env, processName: string, windowTitle
     "/rpc/match_steam_app",
     { p_title: title },
   );
-  if (matches.length !== 1) return null;
-  const official = steamDirectoryName(matches[0].name);
-  if (!official || official.toLowerCase() !== title.toLowerCase()) return null;
-  const byProcess = await findGameByProcess(env, process);
-  if (byProcess) {
-    return confirmedSteamGame(byProcess, official);
+  const official = matches.length === 1 ? steamDirectoryName(matches[0].name) : null;
+  if (matches.length === 1 && official && official.toLowerCase() === title.toLowerCase()) {
+    const byProcess = await findGameByProcess(env, process);
+    const steamGame = byProcess
+      ? confirmedSteamGame(byProcess, official)
+      : confirmedSteamGame(await gameBySlug(env, slugifyGameName(official)), official);
+    if (steamGame) return steamGame;
   }
-  const existing = await gameBySlug(env, slugifyGameName(official));
-  return confirmedSteamGame(existing, official);
+  return resolveCatalogTitle(env, title);
+}
+
+async function resolveCatalogTitle(env: Env, title: string): Promise<CatalogGame | null> {
+  const base = baseWindowTitle(title);
+  const existing = await confirmedByTitle(env, base);
+  if (existing) return existing;
+  const slug = await importBestIgdbMainGame(env, base).catch(() => null);
+  if (!slug) return null;
+  const saved = await gameBySlug(env, slug);
+  if (!saved || saved.status === "pending") return null;
+  return toCatalogGame(saved);
+}
+
+async function confirmedByTitle(env: Env, name: string): Promise<CatalogGame | null> {
+  const exact = await confirmedByExactName(env, name);
+  if (exact) return exact;
+  const term = encodeURIComponent(name.replace(/[%_,*()]/g, " ").trim());
+  if (!term) return null;
+  try {
+    const rows = await serviceRest<GameRow[]>(
+      env,
+      "GET",
+      `/games?select=${GAME_COLUMNS},aliases&status=eq.confirmed&name=ilike.*${term}*&limit=12`,
+    );
+    const best = pickBestTitleMatch(
+      name,
+      rows.filter((row) => row.status !== "pending").map((row) => ({ ...row, aliases: row.aliases ?? [] })),
+    );
+    return best ? toCatalogGame(best) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function confirmedByExactName(env: Env, name: string): Promise<CatalogGame | null> {
+  const rows = await serviceRest<GameRow[]>(
+    env,
+    "GET",
+    `/games?select=${GAME_COLUMNS}&status=eq.confirmed&name=ilike.${encodeURIComponent(name)}&limit=2`,
+  );
+  const hit = rows.filter((row) => row.status !== "pending" && row.name.toLowerCase() === name.toLowerCase());
+  if (hit.length !== 1) return null;
+  return toCatalogGame(hit[0]);
 }
 
 function confirmedSteamGame(row: GameRow | null, official: string): CatalogGame | null {

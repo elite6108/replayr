@@ -38,6 +38,8 @@ for (const key of [
   "RESEND_REPLY_TO",
   "OPENAI_API_KEY",
   "EXPO_ACCESS_TOKEN",
+  "TWITCH_CLIENT_ID",
+  "TWITCH_CLIENT_SECRET",
 ]) {
   const value = env[key] || existing[key];
   if (value) vars[key] = value;

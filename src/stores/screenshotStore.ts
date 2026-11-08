@@ -228,9 +228,10 @@ export async function attachScreenshotListeners(): Promise<void> {
 }
 
 async function answerScreenshotSession(requestId: number, forceRefresh: boolean): Promise<void> {
-  let accessToken: string | null = null;
+  const stored = useAuthStore.getState().session?.access_token ?? null;
+  let accessToken: string | null = !forceRefresh ? stored : null;
   try {
-    if (supabaseConfigured()) {
+    if (!accessToken && supabaseConfigured()) {
       const supabase = getSupabase();
       const { data } = forceRefresh ? await supabase.auth.refreshSession() : await supabase.auth.getSession();
       accessToken = data.session?.access_token ?? null;

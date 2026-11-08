@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  baseWindowTitle,
   cleanWindowTitle,
+  pickBestTitleMatch,
   isDeniedProcess,
   parseCatalogWrite,
   parseGameDraft,
@@ -18,6 +20,22 @@ const HASH = "a".repeat(64);
 
 describe("game catalog", () => {
   it("keeps a known title and rejects launchers, browsers, and one sighting", () => {
+    expect(baseWindowTitle("H1Z1 v0.23.4.161178 id=5ec3a7ce")).toBe("H1Z1");
+    expect(baseWindowTitle("Left 4 Dead 2")).toBe("Left 4 Dead 2");
+    expect(
+      pickBestTitleMatch("H1Z1", [
+        { name: "Just Survive", aliases: ["H1Z1"] },
+        { name: "Z1: Battle Royale", aliases: ["H1Z1"] },
+        { name: "H1Z1", aliases: ["Z1 Battle Royale"] },
+      ])?.name,
+    ).toBe("H1Z1");
+    expect(
+      pickBestTitleMatch("elden ring", [{ name: "Elden Ring Nightreign" }, { name: "Elden Ring" }])?.name,
+    ).toBe("Elden Ring");
+    expect(pickBestTitleMatch("The Witcher 3", [{ name: "The Witcher 3: Wild Hunt" }])?.name).toBe(
+      "The Witcher 3: Wild Hunt",
+    );
+    expect(pickBestTitleMatch("Totally Unrelated", [{ name: "Elden Ring" }])).toBeNull();
     expect(cleanWindowTitle("  Hood   Warfare  ")).toBe("Hood Warfare");
     expect(cleanWindowTitle("ELDEN RING™")).toBe("ELDEN RING");
     expect(steamDirectoryName("Hades II")).toBe("Hades II");

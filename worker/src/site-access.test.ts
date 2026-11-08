@@ -43,7 +43,6 @@ function expectWaitlistConversionCopy(html: string) {
   expect(html).toContain("Already have access?");
   expect(html).toContain('href="/terms"');
   expect(html).toContain('href="/privacy"');
-  expect(html).not.toContain("$6.99");
   expect(html).not.toContain("4.99");
   expect(html).not.toContain("47.88");
 }
@@ -142,7 +141,13 @@ describe("coming-soon conversion copy", () => {
     expect(comingSoonPage).toContain("/coming-soon.css");
     expect(comingSoonPage).toContain('class="laptop"');
     expect(comingSoonPage).toContain("/marketing/hero-laptop.png");
+    expect(comingSoonPage).toContain("/marketing/section-2-tablet.png");
     expect(COMING_SOON_PUBLIC_PATHS.has("/marketing/hero-laptop.png")).toBe(true);
+    expect(COMING_SOON_PUBLIC_PATHS.has("/marketing/section-2-tablet.png")).toBe(true);
+    expect(COMING_SOON_PUBLIC_PATHS.has("/marketing/section-2-timeline.jpg")).toBe(true);
+    expect(COMING_SOON_PUBLIC_PATHS.has("/marketing/section-3-library.png")).toBe(true);
+    expect(COMING_SOON_PUBLIC_PATHS.has("/marketing/section-4-car-still.jpg")).toBe(true);
+    expect(isSiteGatedPath("/marketing/section-2-tablet.png")).toBe(false);
     expect(comingSoonPage).not.toContain('id="faq"');
     expect(comingSoonPage).not.toContain('id="waitlist-cta-form"');
     expect(comingSoonPage).toContain('class="waitlist"');

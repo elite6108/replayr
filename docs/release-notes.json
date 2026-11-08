@@ -1,4 +1,8 @@
 {
+  "0.1.80": [
+    "A game you are playing is matched to IGDB, including when the window title adds a version.",
+    "Deleting or syncing a screenshot no longer tells a signed-in account to sign in."
+  ],
   "0.1.79": [
     "The live output stays on screen while you record, instead of flickering."
   ],

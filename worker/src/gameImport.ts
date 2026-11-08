@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { pickBestTitleMatch } from "./gameCatalog";
 import { serviceRest } from "./shared";
 
 const IGDB_PAGE = 50;
@@ -52,7 +53,7 @@ async function importIgdbPage(env: Env): Promise<void> {
       },
       body: [
         "fields id,name,slug,alternative_names.name,cover.url,external_games.category,external_games.uid;",
-        "where category = 0 & version_parent = null;",
+        "where game_type = 0 & version_parent = null;",
         `limit ${IGDB_PAGE};`,
         `offset ${offset};`,
       ].join(" "),
@@ -69,6 +70,55 @@ async function importIgdbPage(env: Env): Promise<void> {
     await sleep(300);
   }
   await writeState(env, "igdb", String(offset));
+}
+
+/** Search IGDB for the closest main game and store it. Returns the catalog slug. */
+export async function importBestIgdbMainGame(env: Env, name: string): Promise<string | null> {
+  if (!env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET) return null;
+  const token = await twitchAccessToken(env);
+  if (!token) return null;
+  const query = name.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim();
+  if (query.length < 2) return null;
+  const response = await fetch("https://api.igdb.com/v4/games", {
+    method: "POST",
+    headers: {
+      "client-id": env.TWITCH_CLIENT_ID,
+      authorization: `Bearer ${token}`,
+      accept: "application/json",
+    },
+    body: [
+      `search "${query}";`,
+      "fields id,name,slug,alternative_names.name,cover.url,external_games.category,external_games.uid;",
+      "where game_type = 0 & version_parent = null;",
+      "limit 8;",
+    ].join(" "),
+  });
+  if (!response.ok) return null;
+  const rows = (await response.json()) as IgdbGame[];
+  const best = pickBestTitleMatch(
+    query,
+    rows.flatMap((row) => {
+      const title = row.name?.trim();
+      if (!title) return [];
+      return [
+        {
+          row,
+          name: title,
+          aliases: (row.alternative_names ?? []).flatMap((item) => (item.name?.trim() ? [item.name.trim()] : [])),
+        },
+      ];
+    }),
+  );
+  if (!best) return null;
+  await upsertIgdbGame(env, best.row);
+  const id = best.row.id;
+  if (typeof id !== "number") return null;
+  const saved = await serviceRest<{ slug: string }[]>(
+    env,
+    "GET",
+    `/games?igdb_id=eq.${id}&select=slug&limit=1`,
+  );
+  return saved[0]?.slug ?? null;
 }
 
 async function upsertIgdbGame(env: Env, row: IgdbGame): Promise<void> {

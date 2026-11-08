@@ -121,7 +121,15 @@ fn write_missing_thumb(
 /// File deletion goes through the same allow-list as "reveal in folder": a database row is never
 /// enough on its own to delete an arbitrary path.
 #[tauri::command]
-pub fn screenshot_delete(app: AppHandle, id: String, delete_file: bool, delete_cloud: Option<bool>) -> AppResult<()> {
+pub async fn screenshot_delete(app: AppHandle, id: String, delete_file: bool, delete_cloud: Option<bool>) -> AppResult<()> {
+    // The session reply is another command from this same window. Waiting on the IPC thread
+    // blocks that reply, the wait times out, and a signed-in user is told to sign in.
+    tauri::async_runtime::spawn_blocking(move || screenshot_delete_blocking(app, id, delete_file, delete_cloud))
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+fn screenshot_delete_blocking(app: AppHandle, id: String, delete_file: bool, delete_cloud: Option<bool>) -> AppResult<()> {
     let record = find(&app, &id)?;
     let drop_cloud = delete_cloud.unwrap_or(false);
     if drop_cloud {
@@ -205,7 +213,13 @@ pub fn screenshot_provide_session(request_id: u64, access_token: Option<String>,
 }
 
 #[tauri::command]
-pub fn screenshot_retry_upload(app: AppHandle, id: String) -> AppResult<ScreenshotRecord> {
+pub async fn screenshot_retry_upload(app: AppHandle, id: String) -> AppResult<ScreenshotRecord> {
+    tauri::async_runtime::spawn_blocking(move || screenshot_retry_upload_blocking(app, id))
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+fn screenshot_retry_upload_blocking(app: AppHandle, id: String) -> AppResult<ScreenshotRecord> {
     let record = find(&app, &id)?;
     if record.file_path.is_empty() {
         return Err(AppError::Message("That screenshot is only in the cloud.".into()));
@@ -282,7 +296,13 @@ pub fn screenshot_export(app: AppHandle, id: String, dest: String) -> AppResult<
 }
 
 #[tauri::command]
-pub fn screenshot_sync_cloud(app: AppHandle) -> AppResult<Vec<ScreenshotRecord>> {
+pub async fn screenshot_sync_cloud(app: AppHandle) -> AppResult<Vec<ScreenshotRecord>> {
+    tauri::async_runtime::spawn_blocking(move || screenshot_sync_cloud_blocking(app))
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?
+}
+
+fn screenshot_sync_cloud_blocking(app: AppHandle) -> AppResult<Vec<ScreenshotRecord>> {
     let Some(session) = super::session::broker().request(&app, false, super::session::SESSION_TIMEOUT) else {
         return screenshot_list(app, None);
     };

@@ -141,6 +141,69 @@ export function steamDirectoryName(value: string): string | null {
   return cleaned;
 }
 
+export interface TitleCandidate {
+  name: string;
+  aliases?: string[];
+}
+
+function comparableTitle(value: string): string {
+  return value
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/** How closely a catalog or IGDB name matches a window title. Exact names beat aliases. */
+export function titleMatchScore(query: string, name: string): number {
+  const left = comparableTitle(query);
+  const right = comparableTitle(name);
+  if (left.length < 2 || right.length < 2) return 0;
+  if (left === right) return 100;
+  if (right.startsWith(`${left} `) || left.startsWith(`${right} `)) return 90;
+  if (Math.min(left.length, right.length) >= 4 && (right.includes(left) || left.includes(right))) return 75;
+  const tokens = left.split(" ").filter((token) => token.length >= 3);
+  const rightTokens = new Set(right.split(" "));
+  if (tokens.length > 0 && tokens.every((token) => rightTokens.has(token))) return 60;
+  return 0;
+}
+
+/**
+ * Best IGDB or catalog row for a window title.
+ * A name match outranks the same text stored only as an alias, so "H1Z1" stays H1Z1
+ * when other games list it as an old name.
+ */
+export function pickBestTitleMatch<T extends TitleCandidate>(query: string, candidates: T[]): T | null {
+  const ranked = candidates
+    .map((candidate, index) => {
+      const nameScore = titleMatchScore(query, candidate.name);
+      const aliasScore = (candidate.aliases ?? []).reduce(
+        (best, alias) => Math.max(best, Math.max(0, titleMatchScore(query, alias) - 4)),
+        0,
+      );
+      return { candidate, index, score: Math.max(nameScore, aliasScore) };
+    })
+    .filter((item) => item.score >= 60)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        Math.abs(a.candidate.name.length - query.length) - Math.abs(b.candidate.name.length - query.length) ||
+        a.index - b.index,
+    );
+  return ranked[0]?.candidate ?? null;
+}
+
+/** Drop a trailing client build stamp, keeping the game name. */
+export function baseWindowTitle(value: string): string {
+  const stripped = value
+    .replace(/\s+id=[0-9a-f]{6,}\b/gi, "")
+    .replace(/\s+v\d+(?:\.\d+){1,}\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return stripped.length >= 2 ? stripped : value;
+}
+
 export function cleanWindowTitle(value: string): string | null {
   if (/[\u0000-\u001f]/.test(value)) return null;
   const collapsed = value.replace(/[™®©]/g, "").replace(/\s+/g, " ").trim();

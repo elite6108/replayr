@@ -17,7 +17,8 @@ This README is the operator and developer map.
 
 - [Hard rules](#hard-rules-read-these-first)
 - [How to start](#how-to-start)
-- [How the product is split](#how-the-product-is-split)
+- [How everything works](#how-everything-works)
+- [Publishing](#publishing)
 - [Current status](#current-status)
 - [Capture, Instant Replay, and Record](#capture-instant-replay-and-record)
 - [Local and cloud library](#local-and-cloud-library)
@@ -27,13 +28,15 @@ This README is the operator and developer map.
 - [Website and mobile](#website-and-mobile)
 - [Admin](#admin)
 - [Desktop internals developers hit](#desktop-internals-developers-hit)
+- [Cloudflare](#cloudflare)
+- [Database](#database)
 - [Windows download and updates](#windows-download-and-updates)
 - [macOS DMG](#macos-dmg)
 - [Required software](#required-software)
 - [Environment](#environment)
 - [Setup](#setup)
 - [Commands](#commands)
-- [Data](#data)
+- [Local data](#local-data)
 - [Directory layout](#directory-layout)
 - [What is not done yet](#what-is-not-done-yet)
 - [Security rules to keep](#security-rules-to-keep)
@@ -83,9 +86,13 @@ The app window **opens immediately**. Settings and auth load in the background (
 
 Mobile (separate): `npm run mobile:start`. Website-only: worker + `web:dev` is enough.
 
-## How the product is split
+## How everything works
 
 Treat these as separate systems. The React UI never records, encodes, or retries uploads. It calls Tauri commands and renders state.
+
+One request path in production: the desktop app, the website, and the phone all call `https://www.replayr.tv`. That hostname is the Cloudflare Worker. The Worker checks the Supabase JWT, reads and writes Postgres, and mints short-lived R2 URLs. Video bytes go from the desktop straight to R2. Postgres stores accounts, clip rows, social data, and quota. It never stores the MP4.
+
+Locally the same split is three processes. The desktop talks to the Worker on port 8787. The website on port 5174 is only the Vite UI and proxies `/v1` to that Worker. Signing in always goes to Supabase Auth, even on localhost.
 
 ```mermaid
 flowchart LR
@@ -346,6 +353,143 @@ PowerShell often breaks `vcvars` paths that contain `(x86)`. Use `cmd.exe`:
 "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && npm run tauri:dev
 ```
 
+## Publishing
+
+Four ship paths. They do not share binaries. A website deploy does not ship a Windows update unless `web/public/releases/` already contains the signed installer and `latest.json`. A TestFlight build does not change the desktop updater.
+
+| Ship | What users get | Where it runs |
+| --- | --- | --- |
+| Signed Windows update | `Replayr.exe` plus `latest.json` on the Worker | This Windows machine |
+| Website | `https://www.replayr.tv` (SPA + API + downloads) | `npm run web:deploy` from this repo |
+| TestFlight | iOS cloud app (`tv.elite.replay`) | EAS, then App Store Connect |
+| macOS DMG | GitHub Release tag `macos` | [macOS DMG](#macos-dmg) workflow, not `tauri:build` |
+
+### Signed Windows update
+
+The updater endpoint is `https://www.replayr.tv/releases/latest.json` (`plugins.updater.endpoints` in `src-tauri/tauri.conf.json`). The manifest signature must match the exact bytes of `https://www.replayr.tv/releases/Replayr.exe`. Installed builds check Settings → Updates. `tauri:dev` does not.
+
+1. Bump `version` in `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `replay` package entry in `src-tauri/Cargo.lock`. Add notes for that version in `docs/release-notes.json`. `installer:stage` copies that file to `web/public/releases/release-notes.json`.
+2. Build the NSIS bundle on Windows with a local `.env` (MSVC environment required). Production desktop builds should use `VITE_PUBLIC_APP_URL=https://www.replayr.tv` so the installed app talks to production, not port 8787.
+
+```bat
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && npm run tauri:build
+```
+
+3. Sign the new setup. The private key is `.tauri/updater.key` (no password). `--password=` is empty on purpose. Sign the setup file itself, not a copy you will later replace.
+
+```powershell
+npx @tauri-apps/cli signer sign --private-key-path .tauri/updater.key --password= -- path\to\Replayr_x.y.z_x64-setup.exe
+```
+
+4. Stage and deploy the Worker, which also publishes the website and the installer:
+
+```bash
+npm run installer:stage
+npm run web:deploy
+```
+
+`installer:stage` copies the setup whose filename contains the current `tauri.conf.json` version to `web/public/releases/Replayr.exe` and writes `latest.json` from that file’s `.sig`. It searches `src-tauri/target` and the Cursor cargo sandbox cache. It fails if the signature is missing. Never invent a signature.
+
+`web/public/releases/*.exe`, `*.dmg`, `*.sig`, and `latest.json` are gitignored. Deploy uploads whatever the website build copied into `web/dist/releases/`. Keep `Replayr.exe` in `web/public/releases/` on every website deploy, or the live Windows download disappears.
+
+5. Check the live files before telling anyone to update:
+
+- `https://www.replayr.tv/releases/latest.json` is JSON with the new `version` and a `windows-x86_64.signature`. It must not be the website HTML.
+- `https://www.replayr.tv/releases/Replayr.exe` downloads.
+- An older installed build shows the update in Settings, then **Restart to update**.
+
+Signing-key rules are under [Windows download and updates](#windows-download-and-updates).
+
+### Publish the website
+
+The public site is not a separate host. `npm run web:deploy` builds `web/` and deploys the Cloudflare Worker `replay-api`. Wrangler serves `web/dist` as Workers Assets on `replayr.tv` and `www.replayr.tv`, and the Worker code is the API.
+
+```bash
+npm run web:deploy
+```
+
+That script builds the site, then runs `wrangler deploy` with `PUBLIC_APP_URL=https://www.replayr.tv` and `--keep-vars`, so other Worker vars and secrets stay. You need a Wrangler login that can deploy `replay-api` on the `replayr.tv` zone.
+
+Before deploying:
+
+- `web/public/releases/Replayr.exe` and `latest.json` are the Windows files you intend to keep live. The website build copies `web/public/` into `web/dist/`.
+- Vite embeds `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from the repo `.env` at build time. Those are the client anon key, never the service-role key.
+- Do not put R2 keys, Stripe keys, or `SUPABASE_SERVICE_ROLE_KEY` in any `VITE_` variable.
+
+After deploying:
+
+- `https://www.replayr.tv/v1/health` returns `{"ok":true,"storage":true}`.
+- `/` is the gated marketing site. `/auth/desktop`, `/auth/callback`, `/v1/*`, `/releases/*`, `/c/*`, and `/f/*` stay open without the coming-soon cookie.
+- `/releases/latest.json` is still JSON.
+
+Worker source is `worker/`. Routes, the asset binding, rate limits, and the hourly cron live in `worker/wrangler.toml`. Production secrets are Worker secrets, not the gitignored `.env.cloudflare` file. Local `npm run worker:dev` copies `.env` and `.env.cloudflare` into `worker/.dev.vars` and forces `PUBLIC_APP_URL` to `http://127.0.0.1:8787`.
+
+### TestFlight
+
+iOS is the Expo app in `mobile/`. Capture stays on Windows. This repo is edited on Windows; the iOS binary is built by EAS, not a local Simulator.
+
+Identifiers already in the repo:
+
+| Item | Value |
+| --- | --- |
+| Bundle id | `tv.elite.replay` |
+| EAS owner / slug | `elite6108` / `replayr` |
+| EAS project | `90989ccf-3954-4736-b4e6-8602e8f7d1a0` |
+| App Store Connect app | `6804367755` (`mobile/eas.json` → `submit.production.ios.ascAppId`) |
+| Production profile | `environment: production`, `autoIncrement: true`, `EXPO_PUBLIC_APP_URL=https://www.replayr.tv` |
+
+1. From `mobile/`, confirm `eas login` and that the EAS **production** environment has `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` (same Supabase project as desktop). Never put the service-role key or R2 keys in EAS env.
+2. Build:
+
+```bash
+cd mobile
+npx eas-cli build --platform ios --profile production
+```
+
+The production profile uses an iOS `m-medium` builder and increments the build number from App Store Connect (`appVersionSource: remote`). `ITSAppUsesNonExemptEncryption` is already `false` in `mobile/app.json`.
+
+3. Submit that build to TestFlight:
+
+```bash
+npx eas-cli submit --platform ios --profile production --latest
+```
+
+4. In App Store Connect, wait until the build finishes processing, then add internal testers. The first external TestFlight group needs Beta App Review.
+5. Supabase Auth redirect allowlist must include `tv.elite.replay://auth/callback` and `https://www.replayr.tv/auth/callback`. Sign in with Apple has to be enabled in Supabase before shipping, because the app also offers Google, Discord, and X.
+
+`runtimeVersion` is the app version (`appVersion` policy). `eas update` can ship JavaScript that matches a binary already installed from TestFlight. It cannot add native entitlements. Push (staff board → Expo → APNs) needs a new production build after the Push Notifications capability is on the App ID, plus Worker secret `EXPO_ACCESS_TOKEN`.
+
+Local phone dev is separate: `npm run mobile:start`. Use `EXPO_PUBLIC_APP_URL=https://www.replayr.tv` on a device. `127.0.0.1` is the phone itself.
+
+## Cloudflare
+
+Production origin is the Worker **`replay-api`** (`worker/wrangler.toml`). `workers_dev` is false. Routes are `replayr.tv/*` and `www.replayr.tv/*`.
+
+| Piece | Role |
+| --- | --- |
+| Worker code (`worker/src`) | `/v1/*` API, share routes, coming-soon gate, updater manifest guard, Mac DMG redirect |
+| Workers Assets | `web/dist`, binding `ASSETS`, SPA fallback. `run_worker_first` so the gate runs before the SPA |
+| R2 | MP4s. Keys `clips/{user_id}/{clip_id}/original.mp4`. The Worker mints presigned PUT/GET with the S3 credentials. The desktop uploads straight to R2 |
+| Rate limits | Namespaces `1001`–`1020` in `wrangler.toml`. Missing binding fails closed |
+| Cron | `15 * * * *` (abort expired multipart uploads and other scheduled work). Local dev does not fire it; `curl http://127.0.0.1:8787/cdn-cgi/local/scheduled` triggers one run |
+| Secrets | `SUPABASE_SERVICE_ROLE_KEY`, R2 keys, Stripe, Bunny, Resend, `SITE_ACCESS_PASSWORD`, and the rest listed at the bottom of `wrangler.toml`. Set on the Worker. Never `VITE_` / `EXPO_PUBLIC_` |
+
+Local Worker: `npm run worker:dev` → `http://127.0.0.1:8787`. Health: `{"ok":true,"storage":true}` means the Worker can see R2.
+
+Deploy only through `npm run web:deploy` when you mean to publish the site and API together. `wrangler deploy` from `worker/` without a fresh `web/dist` can publish a stale or placeholder site. `--keep-vars` on the root deploy script keeps dashboard vars that are not in the command.
+
+## Database
+
+Supabase is Auth plus Postgres. There is one project for desktop, website, and mobile. The anon key is safe to embed. The service-role key lives only on the Worker.
+
+Video never goes in Postgres. A clip row points at an R2 object. Apply every file in `supabase/migrations/` in filename order (SQL editor, or `supabase db push` after the CLI is linked to the project). There is no `supabase/config.toml` in this repo.
+
+What Postgres holds: `plans`, `profiles`, `user_storage`, `games`, `clips`, `upload_sessions`, folders and members, follows, blocks, conversations, likes and comments, posts, billing, announcements, waitlist, staff boards, analytics events and daily aggregates. `handle_new_user` creates `profiles` and `user_storage`.
+
+Visibility is `public`, `unlisted`, or `private`. Status is `uploading`, `processing`, `ready`, `failed`, or `deleted`. RLS lets clients list **public + ready** clips and their own rows. Unlisted playback is the Worker reading one row with the service role. Likes and comments are service-role writes. Admin is `app_metadata.role = admin` on `auth.users`, then sign out and back in.
+
+Auth redirect allowlist: `https://www.replayr.tv/auth/desktop`, `https://www.replayr.tv/auth/callback`, and `tv.elite.replay://auth/callback`.
+
 ## Windows download and updates
 
 Public download: **[Replayr.exe](https://www.replayr.tv/releases/Replayr.exe)** (NSIS current-user, no wizard). `src-tauri/windows/nsis-hooks.nsh` forces a silent extract, skips auto shortcuts, and launches the app. Desktop shortcuts are created from onboarding / Settings.
@@ -366,33 +510,7 @@ Paste `.tauri/updater.key.pub` into `pubkey`. Never commit the private key. If i
 
 `TAURI_SIGNING_PRIVATE_KEY` is the **key contents**. `TAURI_SIGNING_PRIVATE_KEY_PATH` is the **file path**. `tauri build` often still fails to see the path env on this machine; sign the NSIS setup after the bundle exists.
 
-### Ship a Windows update
-
-1. Bump `version` in `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `replay` package entry in `src-tauri/Cargo.lock`. Add notes in `docs/release-notes.json` and `web/public/releases/release-notes.json`.
-2. Build the NSIS bundle on a Windows machine that has a local `.env` (MSVC env required):
-
-```bat
-"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && npm run tauri:build
-```
-
-3. Sign the new setup (empty password is `--password=` with nothing after `=`):
-
-```powershell
-npx @tauri-apps/cli signer sign --private-key-path .tauri/updater.key --password= -- path\to\Replayr_x.y.z_x64-setup.exe
-```
-
-4. Stage and deploy:
-
-```bash
-npm run installer:stage
-npm run web:deploy
-```
-
-`installer:stage` copies the setup whose filename contains the **current** `tauri.conf.json` version to `web/public/releases/Replayr.exe` and writes `latest.json` from that file’s `.sig`. It searches `src-tauri/target` and the Cursor cargo sandbox cache. It **fails** if the signature is missing — never invent one. The signature must be of the exact bytes that will be at `https://www.replayr.tv/releases/Replayr.exe`.
-
-`web/public/releases/*.exe`, `*.dmg`, `*.sig`, and `latest.json` are gitignored. Deploy uploads whatever is in `web/dist/releases/` after the website build. Always keep `Replayr.exe` in that folder when deploying, or the live Windows download disappears.
-
-Installed builds older than the live `latest.json` version should show the update in Settings. `tauri:dev` will not.
+The ship steps are [Signed Windows update](#signed-windows-update). Installed builds older than the live `latest.json` version should show the update in Settings. `tauri:dev` will not.
 
 ## macOS DMG
 
@@ -485,11 +603,11 @@ cargo test
 
 Worker health: `http://127.0.0.1:8787/v1/health` → `{"ok":true,"storage":true}`.
 
-## Data
+## Local data
 
-**Postgres:** `plans`, `profiles`, `user_storage`, `games`, `clips`, `upload_sessions`, `creator_applications`, `clip_likes`, `clip_comments`, `follows`, `blocks`, folders + members + activity, conversations, billing, announcements, waitlist, analytics events and daily aggregates. Video never goes in Postgres. Apply every file in `supabase/migrations/` in order. Likes/comments have RLS enabled and **no client policies** — Worker service-role only. Triggers keep `clips.like_count` / `comment_count`.
+Postgres is [Database](#database). Likes and comments have RLS enabled and no client policies (Worker service-role only). Triggers keep `clips.like_count` and `comment_count`.
 
-**SQLite (desktop):** `settings`, `local_clips`, `upload_queue`, `games`. Migrations in `src-tauri/migrations/`.
+**SQLite (desktop):** `settings`, `local_clips`, `upload_queue`, `games`. Migrations in `src-tauri/migrations/`. Auth tokens are not stored here. The session is a DPAPI-protected file under app data.
 
 ## Directory layout
 

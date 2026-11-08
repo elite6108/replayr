@@ -65,6 +65,21 @@ name = "WRITE_5_RATE_LIMITER"
 namespace_id = "1010"
 simple = { limit = 5, period = 60 }
 
+[[ratelimits]]
+name = "PLAYBACK_RATE_LIMITER"
+namespace_id = "1011"
+simple = { limit = 120, period = 60 }
+
+[[ratelimits]]
+name = "GAME_SEARCH_RATE_LIMITER"
+namespace_id = "1012"
+simple = { limit = 30, period = 60 }
+
+[[ratelimits]]
+name = "ACCOUNT_DELETE_RATE_LIMITER"
+namespace_id = "1013"
+simple = { limit = 5, period = 60 }
+
 [assets]
 directory = "../web/dist"
 binding = "ASSETS"

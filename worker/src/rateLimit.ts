@@ -46,11 +46,47 @@ export async function assertDistributedRateLimit(
   windowMs = 60_000,
 ): Promise<void> {
   const key = clientKey(request, suffix, userId);
-  // Each isolate keeps its own window even when a Cloudflare limiter is bound.
+  // Each isolate keeps its own window, then the shared Cloudflare limiter must allow it.
   if (!allowRateLimit(key, fallbackLimit, windowMs)) {
     throw new HttpError(429, "Slow down. Try again in a moment.");
   }
-  if (!binding) return;
+  if (!binding) throw new HttpError(503, "Rate limiting is not configured.");
   const result = await binding.limit({ key });
   if (!result.success) throw new HttpError(429, "Slow down. Try again in a moment.");
+}
+
+type RateLimiterBinding = { limit(input: { key: string }): Promise<{ success: boolean }> };
+
+/** Allow-all binding for route tests. Production requests fail closed when a binding is missing. */
+export function allowAllLimiters(): {
+  ANALYTICS_RATE_LIMITER: RateLimiterBinding;
+  ANALYTICS_REVEAL_RATE_LIMITER: RateLimiterBinding;
+  SITE_ACCESS_RATE_LIMITER: RateLimiterBinding;
+  WAITLIST_RATE_LIMITER: RateLimiterBinding;
+  AI_TRANSCRIBE_RATE_LIMITER: RateLimiterBinding;
+  WRITE_60_RATE_LIMITER: RateLimiterBinding;
+  WRITE_30_RATE_LIMITER: RateLimiterBinding;
+  WRITE_20_RATE_LIMITER: RateLimiterBinding;
+  WRITE_10_RATE_LIMITER: RateLimiterBinding;
+  WRITE_5_RATE_LIMITER: RateLimiterBinding;
+  PLAYBACK_RATE_LIMITER: RateLimiterBinding;
+  GAME_SEARCH_RATE_LIMITER: RateLimiterBinding;
+  ACCOUNT_DELETE_RATE_LIMITER: RateLimiterBinding;
+} {
+  const binding = { limit: async () => ({ success: true }) };
+  return {
+    ANALYTICS_RATE_LIMITER: binding,
+    ANALYTICS_REVEAL_RATE_LIMITER: binding,
+    SITE_ACCESS_RATE_LIMITER: binding,
+    WAITLIST_RATE_LIMITER: binding,
+    AI_TRANSCRIBE_RATE_LIMITER: binding,
+    WRITE_60_RATE_LIMITER: binding,
+    WRITE_30_RATE_LIMITER: binding,
+    WRITE_20_RATE_LIMITER: binding,
+    WRITE_10_RATE_LIMITER: binding,
+    WRITE_5_RATE_LIMITER: binding,
+    PLAYBACK_RATE_LIMITER: binding,
+    GAME_SEARCH_RATE_LIMITER: binding,
+    ACCOUNT_DELETE_RATE_LIMITER: binding,
+  };
 }

@@ -1,8 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { accountDeleteConfirmed, assertAccountDeleteAllowed } from "./billing";
+import { accountDeleteConfirmed, assertAccountDeleteAllowed, oauthReauthIsFresh } from "./billing";
 import { cors } from "./http";
+import worker from "./index";
+import { allowAllLimiters } from "./rateLimit";
 import { inviteEmailIsConfirmed } from "./staffAuth";
 import type { Env } from "./env";
+
+describe("oauth reauth", () => {
+  it("accepts a provider sign-in from the last ten minutes only", () => {
+    const now = Date.now();
+    expect(oauthReauthIsFresh(jwt({ amr: [{ method: "oauth", timestamp: Math.floor(now / 1000) }] }), now)).toBe(true);
+    expect(oauthReauthIsFresh(jwt({ amr: [{ method: "password", timestamp: Math.floor(now / 1000) }] }), now)).toBe(false);
+    expect(
+      oauthReauthIsFresh(jwt({ amr: [{ method: "google", timestamp: Math.floor(now / 1000) - 11 * 60 }] }), now),
+    ).toBe(false);
+  });
+});
 
 describe("account delete confirm", () => {
   it("requires the DELETE confirm body", () => {
@@ -36,12 +49,113 @@ describe("account delete password", () => {
       }
       return new Response(JSON.stringify({ error: "invalid" }), { status: 400 });
     });
-    await expect(assertAccountDeleteAllowed(env, "user-1", { password: "wrong-password" })).rejects.toMatchObject({
+    await expect(assertAccountDeleteAllowed(env, "user-1", "token", { password: "wrong-password" })).rejects.toMatchObject({
       status: 401,
     });
     expect(hosts).not.toContain("api.stripe.com");
   });
+
+  it("rejects a missing identity list before any billing call", async () => {
+    const hosts: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      hosts.push(new URL(String(input)).hostname);
+      return new Response(JSON.stringify({ email: "player@replayr.tv" }), { status: 200 });
+    });
+    await expect(assertAccountDeleteAllowed(env, "user-1", freshOAuthToken(), {})).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(hosts).not.toContain("api.stripe.com");
+  });
+
+  it("rejects an empty identity list before any billing call", async () => {
+    const hosts: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      hosts.push(new URL(String(input)).hostname);
+      return new Response(JSON.stringify({ email: "player@replayr.tv", identities: [] }), { status: 200 });
+    });
+    await expect(assertAccountDeleteAllowed(env, "user-1", freshOAuthToken(), {})).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(hosts).not.toContain("api.stripe.com");
+  });
+
+  it("rejects an OAuth account until the provider sign-in is fresh", async () => {
+    const hosts: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      hosts.push(url.hostname);
+      return new Response(JSON.stringify({ identities: [{ provider: "google" }] }), { status: 200 });
+    });
+    const stale = jwt({ amr: [{ method: "oauth", timestamp: Math.floor(Date.now() / 1000) - 11 * 60 }] });
+    await expect(assertAccountDeleteAllowed(env, "user-1", stale, {})).rejects.toMatchObject({
+      status: 401,
+      message: "Sign in with your provider again, then delete the account.",
+    });
+    expect(hosts).not.toContain("api.stripe.com");
+    await expect(assertAccountDeleteAllowed(env, "user-1", freshOAuthToken(), {})).resolves.toBeUndefined();
+    expect(hosts).not.toContain("api.stripe.com");
+  });
+
+  it("rate limits deletion before the identity check or Stripe", async () => {
+    const hosts: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      hosts.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.includes("/auth/v1/user")) {
+        return new Response(JSON.stringify({ id: "11111111-1111-4111-8111-111111111111" }), { status: 200 });
+      }
+      return new Response("[]", { status: 200 });
+    });
+    const response = await worker.fetch(deleteRequest(), deleteEnv({ ACCOUNT_DELETE_RATE_LIMITER: undefined }), {
+      waitUntil() {},
+    });
+    expect(response.status).toBe(503);
+    expect(hosts.some((call) => call.includes("/admin/users/") || call.includes("api.stripe.com"))).toBe(false);
+
+    const denied = await worker.fetch(
+      deleteRequest(),
+      deleteEnv({ ACCOUNT_DELETE_RATE_LIMITER: { limit: async () => ({ success: false }) } }),
+      { waitUntil() {} },
+    );
+    expect(denied.status).toBe(429);
+    expect(hosts.some((call) => call.includes("/admin/users/") || call.includes("api.stripe.com"))).toBe(false);
+  });
 });
+
+function jwt(payload: unknown): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const body = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `e30.${body}.sig`;
+}
+
+function freshOAuthToken(): string {
+  return jwt({ amr: [{ method: "oauth", timestamp: Math.floor(Date.now() / 1000) }] });
+}
+
+function deleteRequest(): Request {
+  return new Request("https://replayr.tv/v1/account/delete", {
+    method: "POST",
+    headers: { authorization: "Bearer token", "content-type": "application/json" },
+    body: JSON.stringify({ confirm: "DELETE" }),
+  });
+}
+
+function deleteEnv(overrides: Partial<Env> = {}): Env {
+  return {
+    SUPABASE_URL: "https://example.supabase.co",
+    SUPABASE_ANON_KEY: "anon",
+    SUPABASE_SERVICE_ROLE_KEY: "service",
+    R2_ACCOUNT_ID: "account",
+    R2_ACCESS_KEY_ID: "access",
+    R2_SECRET_ACCESS_KEY: "secret",
+    R2_BUCKET_NAME: "clips",
+    PUBLIC_APP_URL: "https://replayr.tv",
+    ...allowAllLimiters(),
+    ...overrides,
+  };
+}
 
 describe("production cors", () => {
   it("allows localhost origins only when the worker is local", () => {

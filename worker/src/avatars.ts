@@ -48,7 +48,7 @@ export async function handleAvatars(request: Request, env: Env, url: URL): Promi
 }
 
 async function uploadAvatar(request: Request, env: Env, url: URL): Promise<Response> {
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   await assertDistributedRateLimit(request, env.WRITE_10_RATE_LIMITER, "avatar-upload", 10, user.id);
   requireR2(env);
   const declared = (request.headers.get("content-type") || "").toLowerCase().split(";")[0]!.trim();

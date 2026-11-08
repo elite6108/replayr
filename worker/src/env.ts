@@ -11,6 +11,9 @@ export interface Env {
   WRITE_20_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
   WRITE_10_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
   WRITE_5_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  PLAYBACK_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  GAME_SEARCH_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  ACCOUNT_DELETE_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;

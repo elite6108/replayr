@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "./env";
+import { allowAllLimiters } from "./rateLimit";
 import { handleWaitlist } from "./site-access";
 import {
   buildWaitlistAiUserPrompt,
@@ -23,6 +24,7 @@ function env(overrides: Partial<Env> = {}): Env {
     R2_BUCKET_NAME: "clips",
     PUBLIC_APP_URL: "https://replayr.tv",
     RESEND_API_KEY: "re_test",
+    ...allowAllLimiters(),
     ...overrides,
   };
 }

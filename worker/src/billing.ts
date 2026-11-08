@@ -506,14 +506,47 @@ export function accountDeleteConfirmed(body: unknown): boolean {
   return (body as { confirm?: unknown }).confirm === "DELETE";
 }
 
+const OAUTH_PROVIDERS = new Set(["google", "apple", "discord", "twitter"]);
+const OAUTH_AMR_METHODS = new Set(["oauth", "google", "apple", "discord", "twitter", "x"]);
+const OAUTH_REAUTH_MS = 10 * 60 * 1000;
+
 export function hasEmailPasswordIdentity(user: { identities?: Array<{ provider?: string }> } | null): boolean {
   return Boolean(user?.identities?.some((identity) => identity.provider === "email"));
 }
 
-/** Email/password accounts must prove the password before anything is deleted. */
+/** The access token was already accepted by Supabase. This only reads its amr claim. */
+export function oauthReauthIsFresh(token: string, nowMs: number): boolean {
+  const payload = jwtPayload(token);
+  if (!Array.isArray(payload?.amr)) return false;
+  for (const entry of payload.amr) {
+    if (!entry || typeof entry !== "object") continue;
+    const method = String((entry as { method?: unknown }).method ?? "").toLowerCase();
+    const timestamp = Number((entry as { timestamp?: unknown }).timestamp);
+    if (!OAUTH_AMR_METHODS.has(method) || !Number.isFinite(timestamp)) continue;
+    const at = timestamp > 10_000_000_000 ? timestamp : timestamp * 1000;
+    if (at <= nowMs + 5_000 && nowMs - at <= OAUTH_REAUTH_MS) return true;
+  }
+  return false;
+}
+
+function jwtPayload(token: string): { amr?: unknown } | null {
+  const part = token.split(".")[1];
+  if (!part) return null;
+  try {
+    const padded = part.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = padded.length % 4 === 0 ? "" : "=".repeat(4 - (padded.length % 4));
+    const value = JSON.parse(atob(padded + pad)) as { amr?: unknown };
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Email/password accounts must prove the password. OAuth accounts must have just signed in with the provider. */
 export async function assertAccountDeleteAllowed(
   env: Env,
   userId: string,
+  accessToken: string,
   body: { password?: unknown },
 ): Promise<void> {
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
@@ -523,17 +556,30 @@ export async function assertAccountDeleteAllowed(
   });
   if (!response.ok) throw new HttpError(401, "Session expired. Sign in again.");
   const account = (await response.json()) as { email?: string | null; identities?: Array<{ provider?: string }> };
-  if (!hasEmailPasswordIdentity(account)) return;
-  const password = typeof body.password === "string" ? body.password : "";
-  const email = account.email?.trim() ?? "";
-  if (!password || !email) throw new HttpError(400, "Enter your password to delete this account.");
-  const check = await fetch(`${env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-    method: "POST",
-    headers: { apikey: env.SUPABASE_ANON_KEY, "content-type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  await check.text().catch(() => undefined);
-  if (!check.ok) throw new HttpError(401, "That password is not correct.");
+  const identities = account.identities;
+  if (!Array.isArray(identities) || identities.length === 0) {
+    throw new HttpError(401, "Sign in again before deleting this account.");
+  }
+  if (hasEmailPasswordIdentity(account)) {
+    const password = typeof body.password === "string" ? body.password : "";
+    const email = account.email?.trim() ?? "";
+    if (!password || !email) throw new HttpError(400, "Enter your password to delete this account.");
+    const check = await fetch(`${env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: { apikey: env.SUPABASE_ANON_KEY, "content-type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    await check.text().catch(() => undefined);
+    if (!check.ok) throw new HttpError(401, "That password is not correct.");
+    return;
+  }
+  const providers = identities.map((identity) => identity.provider ?? "");
+  if (providers.some((provider) => !OAUTH_PROVIDERS.has(provider))) {
+    throw new HttpError(401, "Sign in again before deleting this account.");
+  }
+  if (!oauthReauthIsFresh(accessToken, Date.now())) {
+    throw new HttpError(401, "Sign in with your provider again, then delete the account.");
+  }
 }
 
 /** Stops billing before an account is removed. A Stripe failure deletes nothing. */

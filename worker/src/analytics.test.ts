@@ -16,7 +16,7 @@ import {
 import { isAuthoritativeFinancialEvent, isServerAuthoritativeEvent } from "./analyticsDictionary";
 import type { Env } from "./env";
 import { HttpError } from "./http";
-import { clearRateLimitBuckets } from "./rateLimit";
+import { allowAllLimiters, clearRateLimitBuckets } from "./rateLimit";
 
 const CLIP_ID = "11111111-1111-1111-1111-111111111111";
 const USER_ID = "22222222-2222-2222-2222-222222222222";
@@ -33,6 +33,7 @@ function testEnv(overrides: Partial<Env> = {}): Env {
     PUBLIC_APP_URL: "https://www.replayr.tv",
     ANALYTICS_SUBJECT_KEY: "test-analytics-subject-key-at-least-32-characters",
     ANALYTICS_SUBJECT_KEY_VERSION: "1",
+    ...allowAllLimiters(),
     ...overrides,
   };
 }

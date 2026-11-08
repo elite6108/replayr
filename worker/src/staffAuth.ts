@@ -81,7 +81,7 @@ export function assertPermission(actor: StaffActor, key: StaffPermission): void 
 }
 
 export async function requireStaffActor(request: Request, env: Env): Promise<StaffActor> {
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   if (!env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new HttpError(503, "Staff API is not configured.");
   }

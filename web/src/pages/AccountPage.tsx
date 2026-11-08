@@ -4,6 +4,7 @@ import { Seo } from "../components/Seo";
 import { SocialAvatar } from "../components/SocialAvatar";
 import { deleteOwnAvatar, uploadOwnAvatar } from "../lib/avatars";
 import { deleteAccount } from "../lib/api";
+import { oauthProvider, oauthReauthIsFresh } from "../lib/oauthReauth";
 import { isAdminSession } from "../lib/admin";
 import { fetchBillingStatus, startCheckout, startPortal, type BillingStatus } from "../lib/billing";
 import { useAuth } from "../lib/auth";
@@ -35,6 +36,7 @@ export function AccountPage() {
   const [analyticsConsent, setAnalyticsConsent] = useState<AnalyticsConsent>("unset");
   const [deletePassword, setDeletePassword] = useState("");
   const emailPassword = session?.user.identities?.some((identity) => identity.provider === "email") ?? false;
+  const provider = oauthProvider(session?.user.identities);
 
   useEffect(() => {
     if (!userId || !session?.access_token) return;
@@ -74,6 +76,37 @@ export function AccountPage() {
       window.location.href = await startCheckout(session.access_token, "month");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not start checkout.");
+      setBusy(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!session?.access_token) return;
+    if (!window.confirm("Delete this Replayr account and all cloud clips? This cannot be undone.")) return;
+    if (!window.confirm("Delete the account forever?")) return;
+    if (emailPassword && !deletePassword) {
+      setError("Enter your password to delete this account.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      if (!emailPassword && provider && !oauthReauthIsFresh(session.access_token)) {
+        const { error: oauthError } = await getSupabase().auth.signInWithOAuth({
+          provider,
+          options: {
+            redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/account")}`,
+            queryParams: { prompt: "login" },
+          },
+        });
+        if (oauthError) throw oauthError;
+        return;
+      }
+      await deleteAccount(session.access_token, emailPassword ? deletePassword : undefined);
+      await signOut();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not delete this account.");
+    } finally {
       setBusy(false);
     }
   }
@@ -298,35 +331,14 @@ export function AccountPage() {
             />
           </label>
         ) : null}
+        {provider ? (
+          <p className="muted">You'll sign in with your provider again before this account is deleted.</p>
+        ) : null}
         <button
           className="btn danger"
           type="button"
           disabled={busy || !session?.access_token}
-          onClick={() => {
-            if (
-              !session?.access_token ||
-              !window.confirm("Delete this Replayr account and all cloud clips? This cannot be undone.")
-            ) {
-              return;
-            }
-            if (!window.confirm("Delete the account forever?")) return;
-            if (emailPassword && !deletePassword) {
-              setError("Enter your password to delete this account.");
-              return;
-            }
-            void (async () => {
-              setBusy(true);
-              setError(null);
-              try {
-                await deleteAccount(session.access_token, emailPassword ? deletePassword : undefined);
-                await signOut();
-              } catch (caught) {
-                setError(caught instanceof Error ? caught.message : "Could not delete this account.");
-              } finally {
-                setBusy(false);
-              }
-            })();
-          }}
+          onClick={() => void onDelete()}
         >
           {busy ? "Working…" : "Delete account"}
         </button>

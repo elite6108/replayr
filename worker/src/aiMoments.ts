@@ -106,6 +106,47 @@ export function mp4HasFtyp(bytes: Uint8Array): boolean {
   return findBox(bytes, 0, bytes.length, "ftyp") != null;
 }
 
+/** 320 kbps. A larger mdat cannot be audio of the declared duration. */
+const MAX_AUDIO_BYTES_PER_SECOND = 40_000;
+
+/**
+ * Duration to reserve before transcription. mvhd, each track mdhd, and stts must
+ * agree within two seconds, and mdat must fit that duration at 320 kbps.
+ */
+export function billableAudioMs(bytes: Uint8Array): number | null {
+  const movieMs = mp4DurationMs(bytes);
+  if (movieMs == null) return null;
+  const moov = findBox(bytes, 0, bytes.length, "moov");
+  if (!moov) return null;
+  const traks = childBoxes(bytes, moov.start, moov.end).filter((box) => box.type === "trak");
+  if (traks.length === 0) return null;
+  const durations = [movieMs];
+  for (const trak of traks) {
+    const mdia = childBoxes(bytes, trak.start, trak.end).find((box) => box.type === "mdia");
+    if (!mdia) return null;
+    const mdhd = childBoxes(bytes, mdia.start, mdia.end).find((box) => box.type === "mdhd");
+    if (!mdhd) return null;
+    const media = mediaHeader(bytes.subarray(mdhd.start, mdhd.end));
+    if (!media) return null;
+    durations.push(media.durationMs);
+    const minf = childBoxes(bytes, mdia.start, mdia.end).find((box) => box.type === "minf");
+    const stbl = minf ? childBoxes(bytes, minf.start, minf.end).find((box) => box.type === "stbl") : undefined;
+    const stts = stbl ? childBoxes(bytes, stbl.start, stbl.end).find((box) => box.type === "stts") : undefined;
+    if (!stts) return null;
+    const samplesMs = sampleTableMs(bytes.subarray(stts.start, stts.end), media.timescale);
+    if (samplesMs == null) return null;
+    durations.push(samplesMs);
+  }
+  const max = Math.max(...durations);
+  const min = Math.min(...durations);
+  if (!Number.isFinite(max) || !Number.isFinite(min) || max - min > 2_000) return null;
+  const mdatBytes = childBoxes(bytes, 0, bytes.length)
+    .filter((box) => box.type === "mdat")
+    .reduce((sum, box) => sum + (box.end - box.start), 0);
+  if (mdatBytes > Math.max(1, Math.ceil(max / 1000)) * MAX_AUDIO_BYTES_PER_SECOND) return null;
+  return max;
+}
+
 /** Every upload needs an MP4 ftyp. Duration and size limits stay on plans that have them. */
 export function uploadObjectHeaderError(
   bytes: Uint8Array | null,
@@ -524,7 +565,7 @@ async function quota(request: Request, env: Env): Promise<Response> {
 }
 
 async function transcribe(request: Request, env: Env): Promise<Response> {
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   await assertDistributedRateLimit(request, env.AI_TRANSCRIBE_RATE_LIMITER, "ai-transcribe", 4, user.id);
   await assertPremium(env, user.id);
   if (!env.OPENAI_API_KEY) throw new HttpError(503, "AI moments are not configured.");
@@ -551,10 +592,10 @@ async function transcribe(request: Request, env: Env): Promise<Response> {
   try {
     const collected: TranscriptSegment[] = [];
     let offset = 0;
-    let billedMs = 0;
+    let providerMs = 0;
     for (const part of parts) {
       const heard = await whisper(env, part.bytes);
-      billedMs += Math.max(part.durationMs, heard.durationMs);
+      providerMs += heard.durationMs;
       for (const segment of heard.segments) {
         const startMs = offset + segment.startMs;
         const endMs = offset + segment.endMs;
@@ -569,12 +610,9 @@ async function transcribe(request: Request, env: Env): Promise<Response> {
       offset += part.durationMs;
       if (collected.length >= MAX_STORED_SEGMENTS) break;
     }
-    const actual = Math.max(1, Math.ceil(Math.min(billedMs, MAX_CLIP_MS) / 1000));
+    const actual = Math.max(1, Math.ceil(providerMs / 1000));
     if (actual < reserved) {
       await rpc(env, "refund_ai_seconds", { p_user_id: user.id, p_seconds: reserved - actual });
-      outstanding = actual;
-    } else if (actual > reserved) {
-      await rpc(env, "note_ai_seconds", { p_user_id: user.id, p_seconds: actual - reserved });
       outstanding = actual;
     }
     const stored = await insertTranscript(env, user.id, hash, durationMs, collected);
@@ -594,7 +632,7 @@ async function transcribe(request: Request, env: Env): Promise<Response> {
 }
 
 async function rank(request: Request, env: Env): Promise<Response> {
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   await assertDistributedRateLimit(request, env.WRITE_10_RATE_LIMITER, "ai-rank", 10, user.id);
   await assertPremium(env, user.id);
   const body = (await request.json().catch(() => null)) as { transcriptId?: unknown; format?: unknown } | null;
@@ -674,7 +712,7 @@ async function readAudioParts(request: Request): Promise<{ bytes: Uint8Array; du
     total += file.size;
     if (total > MAX_TOTAL_BYTES) throw new HttpError(400, "That clip's audio is too large to transcribe.");
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const durationMs = mp4DurationMs(bytes);
+    const durationMs = billableAudioMs(bytes);
     if (durationMs == null || durationMs < 500) throw new HttpError(400, "That audio file could not be read.");
     parts.push({ bytes, durationMs });
   }
@@ -881,6 +919,61 @@ function concat(parts: Uint8Array[]): Uint8Array {
     offset += part.length;
   }
   return out;
+}
+
+function childBoxes(
+  bytes: Uint8Array,
+  start: number,
+  end: number,
+): { type: string; start: number; end: number }[] {
+  const boxes: { type: string; start: number; end: number }[] = [];
+  let offset = start;
+  while (offset + 8 <= end) {
+    let size = readU32(bytes, offset);
+    let header = 8;
+    if (size === 1) {
+      if (offset + 16 > end) break;
+      size = readU64(bytes, offset + 8);
+      header = 16;
+    } else if (size === 0) {
+      size = end - offset;
+    }
+    if (size < header || offset + size > end) break;
+    boxes.push({ type: ascii(bytes, offset + 4), start: offset + header, end: offset + size });
+    offset += size;
+  }
+  return boxes;
+}
+
+function mediaHeader(body: Uint8Array): { timescale: number; durationMs: number } | null {
+  const version = body[0];
+  if (version === 0 && body.length >= 20) {
+    const timescale = readU32(body, 12);
+    const duration = readU32(body, 16);
+    if (timescale === 0) return null;
+    return { timescale, durationMs: Math.round((duration / timescale) * 1000) };
+  }
+  if (version === 1 && body.length >= 32) {
+    const timescale = readU32(body, 20);
+    const duration = readU64(body, 24);
+    if (timescale === 0) return null;
+    return { timescale, durationMs: Math.round((duration / timescale) * 1000) };
+  }
+  return null;
+}
+
+function sampleTableMs(body: Uint8Array, timescale: number): number | null {
+  if (body.length < 8 || timescale <= 0) return null;
+  const count = readU32(body, 4);
+  if (count > 10_000 || body.length < 8 + count * 8) return null;
+  let ticks = 0;
+  for (let index = 0; index < count; index += 1) {
+    const samples = readU32(body, 8 + index * 8);
+    const delta = readU32(body, 12 + index * 8);
+    ticks += samples * delta;
+    if (!Number.isFinite(ticks) || ticks > Number.MAX_SAFE_INTEGER) return null;
+  }
+  return Math.round((ticks / timescale) * 1000);
 }
 
 function boxType(bytes: Uint8Array, offset: number, end: number, type: string): boolean {

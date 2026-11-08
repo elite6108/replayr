@@ -12,6 +12,7 @@ import { formatBytes, planLabel } from "@/lib/format";
 import { publicShareUrl } from "@/lib/supabase";
 import { useSocialUnread } from "@/lib/socialUnread";
 import { getSupabase } from "@/lib/supabase";
+import { oauthProvider, oauthReauthIsFresh, signInWithProviderAgain } from "@/lib/oauthReauth";
 import { colors } from "@/lib/theme";
 import {
   getMobileAnalyticsConsent,
@@ -126,7 +127,12 @@ export default function SettingsScreen() {
     setBusy(true);
     setError(null);
     try {
-      await deleteAccount(session.access_token, emailPassword ? deletePassword : undefined);
+      let token = session.access_token;
+      const provider = oauthProvider(session.user.identities);
+      if (!emailPassword && provider && !oauthReauthIsFresh(token)) {
+        token = await signInWithProviderAgain(provider);
+      }
+      await deleteAccount(token, emailPassword ? deletePassword : undefined);
       await signOut();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not delete this account.");
@@ -271,7 +277,11 @@ export default function SettingsScreen() {
         <SettingsRow
           icon="trash-outline"
           title={busy ? "Deleting…" : "Delete account"}
-          subtitle="Removes cloud clips and this login."
+          subtitle={
+            emailPassword
+              ? "Removes cloud clips and this login."
+              : "Signs you in with your provider again, then removes cloud clips and this login."
+          }
           danger
           last
           onPress={confirmDelete}

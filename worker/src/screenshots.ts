@@ -192,7 +192,7 @@ async function createScreenshot(
   activeDelete = deps.deleteObject;
   let user: AuthUser;
   try {
-    user = await requireUser(request, env);
+    user = await requireUser(request, env, { fresh: true });
   } catch (caught) {
     if (caught instanceof HttpError && caught.status === 401) {
       throw new HttpError(401, caught.message, "unauthorized");

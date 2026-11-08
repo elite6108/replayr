@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "./http";
-import { clearRateLimitBuckets } from "./rateLimit";
+import { allowAllLimiters, clearRateLimitBuckets } from "./rateLimit";
 import { isSiteGatedPath } from "./site-access";
 import {
   handleScreenshotApi,
@@ -34,6 +34,7 @@ function testEnv(): Env {
     R2_SECRET_ACCESS_KEY: "secret",
     R2_BUCKET_NAME: "clips",
     PUBLIC_APP_URL: "https://www.replayr.tv",
+    ...allowAllLimiters(),
   };
 }
 

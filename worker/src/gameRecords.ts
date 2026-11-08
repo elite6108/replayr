@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
-import { assertDistributedRateLimit, assertRateLimit } from "./rateLimit";
-import { isClipUuid, optionalUser, requireUser, serviceRest, serviceRestCount } from "./shared";
+import { assertDistributedRateLimit } from "./rateLimit";
+import { isClipUuid, optionalUser, requireUser, serviceRest } from "./shared";
 import {
   cleanSearchTerm,
   matchStatusForSource,
@@ -116,7 +116,7 @@ export async function resolveClipGame(env: Env, hint: CaptureHint): Promise<stri
 }
 
 export async function searchGames(request: Request, env: Env, url: URL): Promise<Response> {
-  assertRateLimit(request, "game-search", 30);
+  await assertDistributedRateLimit(request, env.GAME_SEARCH_RATE_LIMITER, "game-search", 30);
   const term = cleanSearchTerm(url.searchParams.get("q"));
   if (!term) return json({ games: [] });
   const encoded = encodeURIComponent(term);
@@ -163,7 +163,7 @@ export async function listDetectionCatalog(request: Request, env: Env): Promise<
 }
 
 export async function createPendingGame(request: Request, env: Env): Promise<Response> {
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   await assertDistributedRateLimit(request, env.WRITE_10_RATE_LIMITER, "game-create", 10, user.id);
   const body = (await request.json().catch(() => null)) as { name?: string } | null;
   const raw = typeof body?.name === "string" ? body.name.replace(/[\u0000-\u001f]/g, "").replace(/\s+/g, " ").trim() : "";
@@ -177,14 +177,21 @@ export async function createPendingGame(request: Request, env: Env): Promise<Res
     const rows = await serviceRest<GameRow[]>(env, "GET", `/games?id=eq.${existingId}&select=${GAME_PUBLIC}&limit=1`);
     if (rows[0]) return json({ game: toPublicGame(rows[0]), created: false });
   }
-  const open = await serviceRestCount(
-    env,
-    `/games?created_by=eq.${user.id}&status=eq.pending&catalog_source=eq.user&select=id`,
-  );
-  if (open >= PENDING_GAME_CAP) {
-    return json({ error: "You already have 10 games waiting for review." }, 429);
+  let slug: string;
+  try {
+    slug = await serviceRest<string>(env, "POST", "/rpc/create_user_pending_game", {
+      p_user_id: user.id,
+      p_slug_base: pendingSlugBase(title),
+      p_name: raw.slice(0, 80),
+      p_alias: title,
+    });
+  } catch (caught) {
+    const text = caught instanceof HttpError ? caught.message : "";
+    if (/pending game cap/i.test(text)) {
+      return json({ error: `You already have ${PENDING_GAME_CAP} games waiting for review.` }, 429);
+    }
+    throw caught;
   }
-  const slug = await insertPendingGame(env, title, raw.slice(0, 80), user.id);
   const rows = await serviceRest<GameRow[]>(env, "GET", `/games?slug=eq.${encodeURIComponent(slug)}&select=${GAME_PUBLIC}&limit=1`);
   const game = rows[0];
   if (!game) return json({ error: "Could not add that game." }, 500);
@@ -284,34 +291,8 @@ function blockedExeName(title: string): boolean {
   return exe !== null && ["discord.exe", "chrome.exe", "firefox.exe", "spotify.exe", "steam.exe"].includes(exe);
 }
 
-async function insertPendingGame(env: Env, title: string, displayName: string, userId: string): Promise<string> {
-  const base = title.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "game";
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
-    try {
-      await serviceRest(
-        env,
-        "POST",
-        "/games",
-        {
-          slug,
-          name: displayName,
-          aliases: [title],
-          status: "pending",
-          catalog_source: "user",
-          created_by: userId,
-          process_names: [],
-        },
-        "return=minimal",
-      );
-      return slug;
-    } catch (caught) {
-      const text = caught instanceof HttpError ? caught.message : "";
-      if (caught instanceof HttpError && (caught.status === 409 || /duplicate|unique/i.test(text))) continue;
-      throw caught;
-    }
-  }
-  throw new HttpError(500, "Could not add that game.");
+function pendingSlugBase(title: string): string {
+  return title.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "game";
 }
 
 function toMatchGame(row: GameRow): MatchGame {

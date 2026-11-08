@@ -18,7 +18,7 @@ import { captureFromBody, createPendingGame, listDetectionCatalog, resolveClipGa
 import { webContentSecurityPolicy } from "./contentSecurity";
 import { cors, HttpError, json } from "./http";
 import { recordProductEvent } from "./metrics";
-import { assertDistributedRateLimit, assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit } from "./rateLimit";
 import {
   anonymousAuthor,
   loadAuthors,
@@ -599,7 +599,7 @@ function withWebSecurityHeaders(response: Response, request?: Request): Response
 }
 
 async function createUpload(request: Request, env: Env): Promise<Response> {
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   await assertDistributedRateLimit(request, env.WRITE_10_RATE_LIMITER, "upload-create", 10, user.id);
   requireR2(env);
   const body = (await request.json()) as UploadBody;
@@ -981,7 +981,7 @@ async function completeUpload(
   clipId: string,
   ctx: { waitUntil(task: Promise<unknown>): void },
 ): Promise<Response> {
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   requireR2(env);
   await releaseExpiredUploads(env, user.id);
   const body = (await request.json()) as CompleteBody;
@@ -1210,7 +1210,8 @@ async function deleteAccount(request: Request, env: Env): Promise<Response> {
     throw new HttpError(400, "Confirm account deletion with DELETE.");
   }
   const user = await requireUser(request, env, { fresh: true });
-  await assertAccountDeleteAllowed(env, user.id, (body ?? {}) as { password?: unknown });
+  await assertDistributedRateLimit(request, env.ACCOUNT_DELETE_RATE_LIMITER, "account-delete", 5, user.id);
+  await assertAccountDeleteAllowed(env, user.id, user.token, (body ?? {}) as { password?: unknown });
   await cancelActiveSubscription(env, user.id);
   const serviceKey = requireServiceRole(env);
   requireR2(env);
@@ -1559,7 +1560,7 @@ async function getPlayback(
   slug: string,
   ctx: { waitUntil(task: Promise<unknown>): void },
 ): Promise<Response> {
-  assertRateLimit(request, "playback", 120);
+  await assertDistributedRateLimit(request, env.PLAYBACK_RATE_LIMITER, "playback", 120);
   const clip = await lookupPlayback(request, env, slug);
   if (!clip || !ownedObjectKey(clip.user_id, clip.storage_key)) {
     return json({ error: "That clip is not available." }, 404);

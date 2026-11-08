@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { applyShortPicks, applyWindowPicks, handleAiMoments, mp4DurationMs, mp4HasFtyp, mp4HeaderFacts, parseRankJson, planShorts, sanitizeMoments, speechWindows, TRANSCRIPTION_LIMIT_SECONDS, uploadObjectHeaderError } from "./aiMoments";
+import { applyShortPicks, applyWindowPicks, billableAudioMs, handleAiMoments, mp4DurationMs, mp4HasFtyp, mp4HeaderFacts, parseRankJson, planShorts, sanitizeMoments, speechWindows, TRANSCRIPTION_LIMIT_SECONDS, uploadObjectHeaderError } from "./aiMoments";
 import { freeUploadHeaderError } from "./billing";
 import type { Env } from "./env";
 import { HttpError } from "./http";
-import { clearRateLimitBuckets } from "./rateLimit";
+import { allowAllLimiters, clearRateLimitBuckets } from "./rateLimit";
 
 const USER = "11111111-1111-4111-8111-111111111111";
 
@@ -24,6 +24,7 @@ function env(): Env {
     R2_BUCKET_NAME: "clips",
     PUBLIC_APP_URL: "https://replayr.tv",
     OPENAI_API_KEY: "sk-test",
+    ...allowAllLimiters(),
   };
 }
 
@@ -49,6 +50,31 @@ function sampleAudio(): Uint8Array {
   mvhd.set(u32(1000), 12);
   mvhd.set(u32(2000), 16);
   return concat([box("ftyp", new Uint8Array(8)), box("moov", box("mvhd", mvhd))]);
+}
+
+/** Speech part whose mvhd, mdhd, and stts agree. mdat stays inside 320 kbps. */
+function speechAudio(mvhdMs = 2000, mdhdMs = 2000, mdatBytes = 32): Uint8Array {
+  const mvhd = new Uint8Array(20);
+  mvhd.set(u32(1000), 12);
+  mvhd.set(u32(mvhdMs), 16);
+  const mdhd = new Uint8Array(20);
+  mdhd.set(u32(1000), 12);
+  mdhd.set(u32(mdhdMs), 16);
+  const stts = new Uint8Array(16);
+  stts.set(u32(1), 4);
+  stts.set(u32(1), 8);
+  stts.set(u32(mdhdMs), 12);
+  return concat([
+    box("ftyp", new Uint8Array(8)),
+    box(
+      "moov",
+      concat([
+        box("mvhd", mvhd),
+        box("trak", box("mdia", concat([box("mdhd", mdhd), box("minf", box("stbl", box("stts", stts)))]))),
+      ]),
+    ),
+    box("mdat", new Uint8Array(mdatBytes)),
+  ]);
 }
 
 function concat(parts: Uint8Array[]): Uint8Array {
@@ -121,6 +147,13 @@ describe("moment bounds", () => {
     expect(uploadObjectHeaderError(sampleAudio(), capped, 130_000)).toMatch(/limited to/);
     expect(uploadObjectHeaderError(sampleAudio(), capped, 20_000)).toMatch(/could not be checked/);
     expect(uploadObjectHeaderError(ftypOnly, premiumPlan, 9_999_999)).toBeNull();
+  });
+
+  it("bills only audio whose headers agree and whose payload fits the duration", () => {
+    expect(billableAudioMs(speechAudio())).toBe(2000);
+    expect(billableAudioMs(speechAudio(2000, 10_000))).toBeNull();
+    expect(billableAudioMs(speechAudio(2000, 2000, 80_001))).toBeNull();
+    expect(billableAudioMs(sampleAudio())).toBeNull();
   });
 
   it("rejects a free upload that is over 1080p or unreadable", () => {
@@ -269,11 +302,31 @@ describe("ai moment routes", () => {
     expect((caught as HttpError).message).toMatch(/limit reached/i);
     expect(calls.some((call) => call.includes("api.openai.com"))).toBe(false);
   });
+
+  it("rejects a short movie header that disagrees with the track before calling OpenAI", async () => {
+    const calls: string[] = [];
+    stubWorker(calls, { plan: "pro" });
+    const caught = await postAudio("mismatch-token", speechAudio(2000, 10_000)).catch((error: unknown) => error);
+    expect(caught).toBeInstanceOf(HttpError);
+    expect((caught as HttpError).status).toBe(400);
+    expect(calls.some((call) => call.includes("api.openai.com"))).toBe(false);
+    expect(calls.some((call) => call.includes("reserve_ai_seconds"))).toBe(false);
+  });
+
+  it("does not record provider time that was never reserved", async () => {
+    const calls: string[] = [];
+    stubWorker(calls, { plan: "pro", whisperDuration: 30 });
+    const caught = await postAudio("over-token").catch((error: unknown) => error);
+    expect(caught).toBeInstanceOf(HttpError);
+    expect(calls.some((call) => call.includes("api.openai.com"))).toBe(true);
+    expect(calls.some((call) => call.includes("note_ai_seconds"))).toBe(false);
+    expect(calls.filter((call) => call.includes("/rpc/reserve_ai_seconds"))).toHaveLength(1);
+  });
 });
 
-function postAudio(token: string): Promise<Response> {
+function postAudio(token: string, bytes = speechAudio()): Promise<Response> {
   const form = new FormData();
-  form.set("part", new File([sampleAudio()], "speech.m4a", { type: "audio/mp4" }));
+  form.set("part", new File([bytes], "speech.m4a", { type: "audio/mp4" }));
   return handleAiMoments(
     new Request("https://replayr.tv/v1/ai/moments/transcribe", {
       method: "POST",
@@ -291,6 +344,7 @@ function stubWorker(
     plan: "pro" | "free";
     transcript?: { id: string; duration_ms: number; segments: { startMs: number; endMs: number; text: string }[] };
     whisperStatus?: number;
+    whisperDuration?: number;
     quotaFull?: boolean;
   },
 ) {
@@ -320,6 +374,12 @@ function stubWorker(
       }
       if (url.includes("/rpc/refund_ai_seconds") || url.includes("/rpc/note_ai_seconds")) return json(0);
       if (url.includes("api.openai.com/v1/audio/transcriptions")) {
+        if (options.whisperDuration != null) {
+          return json({
+            duration: options.whisperDuration,
+            segments: [{ start: 0, end: 1, text: "hello" }],
+          });
+        }
         return new Response("no", { status: options.whisperStatus ?? 200 });
       }
       return json([]);

@@ -40,6 +40,16 @@ describe("assertDistributedRateLimit", () => {
       status: 429,
     });
   });
+
+  it("rejects the request when no limiter is configured", async () => {
+    clearRateLimitBuckets();
+    const request = new Request("https://replayr.tv/v1/clips/abcdef", {
+      headers: { "cf-connecting-ip": "203.0.113.12" },
+    });
+    await expect(assertDistributedRateLimit(request, undefined, "playback", 120)).rejects.toMatchObject({
+      status: 503,
+    });
+  });
 });
 
 describe("mapPool (inline)", () => {

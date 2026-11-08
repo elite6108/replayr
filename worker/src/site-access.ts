@@ -32,6 +32,17 @@ export function isOAuthHandoff(url: URL): boolean {
   return url.pathname === "/" && url.searchParams.has("code");
 }
 
+/** Send a homepage OAuth return to the desktop handoff instead of the marketing app. */
+export function oauthRootRedirect(url: URL): string | null {
+  if (url.pathname !== "/") return null;
+  const hasCode = url.searchParams.has("code");
+  const hasError = url.searchParams.has("error") || url.searchParams.has("error_description");
+  if (!hasCode && !hasError) return null;
+  const target = new URL("/auth/desktop", url.origin);
+  target.search = url.search;
+  return `${target.pathname}${target.search}`;
+}
+
 /** Static files the locked coming-soon page needs (must stay ungated). */
 export const COMING_SOON_PUBLIC_PATHS = new Set([
   "/coming-soon.html",

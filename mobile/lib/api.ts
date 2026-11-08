@@ -337,7 +337,7 @@ export async function fetchBillingStatus(accessToken: string): Promise<BillingSt
   return readApiJson<BillingStatus>(response, "Could not load billing.");
 }
 
-export async function deleteAccount(accessToken: string): Promise<void> {
+export async function deleteAccount(accessToken: string, password?: string): Promise<void> {
   const response = await fetch(apiUrl("/v1/account/delete"), {
     method: "POST",
     headers: {
@@ -345,7 +345,7 @@ export async function deleteAccount(accessToken: string): Promise<void> {
       authorization: `Bearer ${accessToken}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ confirm: "DELETE" }),
+    body: JSON.stringify({ confirm: "DELETE", ...(password ? { password } : {}) }),
   });
   if (!response.ok) throw new Error(await readApiError(response, "Could not delete this account."));
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Linking from "expo-linking";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -43,6 +43,8 @@ export default function SettingsScreen() {
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [friendCount, setFriendCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deletePassword, setDeletePassword] = useState("");
+  const emailPassword = session?.user.identities?.some((identity) => identity.provider === "email") ?? false;
   const [busy, setBusy] = useState(false);
   const [analyticsConsent, setAnalyticsConsent] = useState<AnalyticsConsent>("unset");
 
@@ -117,10 +119,14 @@ export default function SettingsScreen() {
 
   async function onDelete() {
     if (!session?.access_token) return;
+    if (emailPassword && !deletePassword) {
+      setError("Enter your password to delete this account.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await deleteAccount(session.access_token);
+      await deleteAccount(session.access_token, emailPassword ? deletePassword : undefined);
       await signOut();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not delete this account.");
@@ -251,6 +257,17 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.card}>
+        {emailPassword ? (
+          <TextInput
+            value={deletePassword}
+            onChangeText={setDeletePassword}
+            secureTextEntry
+            autoComplete="current-password"
+            placeholder="Password to delete this account"
+            placeholderTextColor={colors.muted}
+            style={styles.deletePassword}
+          />
+        ) : null}
         <SettingsRow
           icon="trash-outline"
           title={busy ? "Deleting…" : "Delete account"}
@@ -364,6 +381,16 @@ const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: colors.bg, padding: 16, gap: 12, justifyContent: "center" },
   title: { color: colors.text, fontSize: 28, fontWeight: "800" },
   muted: { color: colors.muted, fontSize: 13, lineHeight: 18 },
+  deletePassword: {
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    margin: 12,
+    marginBottom: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
   hero: {
     flexDirection: "row",
     alignItems: "center",

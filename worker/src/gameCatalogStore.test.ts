@@ -56,7 +56,7 @@ describe("public game confirmation", () => {
     expect(calls.some((call) => call.method === "PATCH" || call.method === "POST" && call.path === "/games")).toBe(false);
   });
 
-  it("stores a new Steam game as pending and does not return it for detection", async () => {
+  it("does not insert or return a pending Steam game", async () => {
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       const path = url.pathname.replace("/rest/v1", "");
@@ -66,16 +66,26 @@ describe("public game confirmation", () => {
         return jsonResponse([{ app_id: 70, name: "Hades II", cover_url: null }]);
       }
       if (path === "/rpc/game_by_process") return jsonResponse([]);
-      if (path === "/games" && init?.method === "POST") {
-        return jsonResponse([{ ...(body as object), id: "game-2" }]);
+      if (path.startsWith("/games") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse([
+          {
+            id: "game-2",
+            slug: "hades-ii",
+            name: "Hades II",
+            publisher: null,
+            cover_url: null,
+            process_names: ["hades2.exe"],
+            catalog_source: "steam",
+            status: "pending",
+          },
+        ]);
       }
       return jsonResponse([]);
     });
 
     const game = await matchSteamTitle(env, "Hades2.exe", "Hades II");
     expect(game).toBeNull();
-    const insert = calls.find((call) => call.method === "POST" && call.path === "/games");
-    expect(insert?.body).toMatchObject({ status: "pending", process_names: ["hades2.exe"] });
+    expect(calls.some((call) => call.method === "POST" && call.path === "/games")).toBe(false);
   });
 
   it("stores a play report without promoting the process", async () => {

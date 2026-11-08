@@ -46,7 +46,7 @@ import {
   type PublicClipRow,
 } from "./shared";
 import { handleAiMoments, uploadObjectHeaderError } from "./aiMoments";
-import { accountDeleteConfirmed, assertUploadAllowed, cancelActiveSubscription, handleBilling, loadStatus } from "./billing";
+import { accountDeleteConfirmed, assertAccountDeleteAllowed, assertUploadAllowed, cancelActiveSubscription, handleBilling, loadStatus } from "./billing";
 import { handleFolders } from "./folders";
 import { handlePublicFolders } from "./folderPublic";
 import { handlePosts } from "./posts";
@@ -69,6 +69,7 @@ import {
   handleWaitlistPages,
   hasValidSiteAccess,
   isOAuthHandoff,
+  oauthRootRedirect,
   isPublicAppPath,
   isSiteGatedPath,
   isStaffUiAssetPath,
@@ -485,6 +486,16 @@ async function route(
     !(await hasValidSiteAccess(request, env))
   ) {
     return json({ error: "Not found." }, 404);
+  }
+
+  if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/") {
+    const handoff = oauthRootRedirect(url);
+    if (handoff) {
+      return new Response(null, {
+        status: 302,
+        headers: { location: handoff, "cache-control": "no-store" },
+      });
+    }
   }
 
   // Coming-soon gate: marketing SPA stays hidden until the site-access cookie is set.
@@ -1059,7 +1070,7 @@ async function completeUpload(
 
   const billing = await loadStatus(env, user.id);
   const prefix = await readObjectPrefix(env, objectKey, 512 * 1024);
-  const reason = uploadObjectHeaderError(prefix, billing);
+  const reason = uploadObjectHeaderError(prefix, billing, body.durationMs);
   if (reason) {
     await deleteOwnedObject(env, user.id, objectKey);
     const reserved = replacing ? Math.max(0, expected - oldSize) : expected;
@@ -1199,6 +1210,7 @@ async function deleteAccount(request: Request, env: Env): Promise<Response> {
     throw new HttpError(400, "Confirm account deletion with DELETE.");
   }
   const user = await requireUser(request, env, { fresh: true });
+  await assertAccountDeleteAllowed(env, user.id, (body ?? {}) as { password?: unknown });
   await cancelActiveSubscription(env, user.id);
   const serviceKey = requireServiceRole(env);
   requireR2(env);

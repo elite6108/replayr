@@ -327,9 +327,13 @@ function optionalText(value: unknown, max: number): string | null | Error {
   return cleaned;
 }
 
+const STAFF_COVER_HOSTS = new Set([...STEAM_COVER_HOSTS, "images.igdb.com"]);
+
 export function staffCoverUrl(value: string): { ok: true; value: string } | { ok: false; error: string } {
   const parsed = publicHttpsUrl(value);
-  if (!parsed) return { ok: false, error: "Cover art must be an https link." };
+  if (!parsed || !STAFF_COVER_HOSTS.has(parsed.hostname)) {
+    return { ok: false, error: "Cover art must be an https link." };
+  }
   return { ok: true, value: parsed.toString() };
 }
 

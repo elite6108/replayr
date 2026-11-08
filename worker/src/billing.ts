@@ -506,6 +506,36 @@ export function accountDeleteConfirmed(body: unknown): boolean {
   return (body as { confirm?: unknown }).confirm === "DELETE";
 }
 
+export function hasEmailPasswordIdentity(user: { identities?: Array<{ provider?: string }> } | null): boolean {
+  return Boolean(user?.identities?.some((identity) => identity.provider === "email"));
+}
+
+/** Email/password accounts must prove the password before anything is deleted. */
+export async function assertAccountDeleteAllowed(
+  env: Env,
+  userId: string,
+  body: { password?: unknown },
+): Promise<void> {
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key || !env.SUPABASE_URL) throw new HttpError(503, "Account deletion is not configured.");
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
+    headers: { apikey: key, authorization: `Bearer ${key}` },
+  });
+  if (!response.ok) throw new HttpError(401, "Session expired. Sign in again.");
+  const account = (await response.json()) as { email?: string | null; identities?: Array<{ provider?: string }> };
+  if (!hasEmailPasswordIdentity(account)) return;
+  const password = typeof body.password === "string" ? body.password : "";
+  const email = account.email?.trim() ?? "";
+  if (!password || !email) throw new HttpError(400, "Enter your password to delete this account.");
+  const check = await fetch(`${env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: { apikey: env.SUPABASE_ANON_KEY, "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  await check.text().catch(() => undefined);
+  if (!check.ok) throw new HttpError(401, "That password is not correct.");
+}
+
 /** Stops billing before an account is removed. A Stripe failure deletes nothing. */
 export async function cancelActiveSubscription(env: Env, userId: string): Promise<void> {
   if (!env.STRIPE_SECRET_KEY) return;
@@ -531,7 +561,7 @@ function sanitizeReturnUrl(value: string | undefined, origin: string): string | 
   if (!value) return null;
   try {
     const url = new URL(value);
-    if (url.protocol === "replayr:") return value;
+    if (url.protocol === "replayr:" && (url.hostname === "billing" || url.hostname === "auth-callback")) return value;
     if (url.origin === origin) return value;
     if (url.hostname === "replayr.tv" || url.hostname === "www.replayr.tv") return value;
     return null;

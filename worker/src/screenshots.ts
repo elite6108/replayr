@@ -473,9 +473,7 @@ async function serveScreenshotPng(request: Request, env: Env, slug: string): Pro
   headers.set("content-disposition", "inline");
   headers.set("content-security-policy", "default-src 'none'; sandbox");
   headers.set("x-robots-tag", "noindex");
-  headers.set("cache-control", "public, max-age=300");
-  const etag = upstream.headers.get("etag");
-  if (etag) headers.set("etag", etag);
+  headers.set("cache-control", "private, max-age=300");
   const length = upstream.headers.get("content-length");
   if (length) headers.set("content-length", length);
   return new Response(request.method === "HEAD" ? null : upstream.body, { status: 200, headers });

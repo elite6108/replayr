@@ -38,9 +38,14 @@
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ email, source: "coming-soon" }),
         });
+        const body = await response.json().catch(() => ({}));
         if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
           throw new Error(body.error || "Could not save that email.");
+        }
+        if (body.delivery && body.delivery.sent === false) {
+          msg.className = "msg";
+          msg.textContent = "Your address is saved. The confirmation email could not be sent.";
+          return;
         }
         waitlistForms.forEach((node) => {
           node.classList.add("is-done");

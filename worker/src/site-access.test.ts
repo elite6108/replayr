@@ -10,6 +10,7 @@ import {
   handleWaitlistPages,
   isComingSoonPath,
   isOAuthHandoff,
+  oauthRootRedirect,
   isPublicAppPath,
   isSiteGatedPath,
   isStaffUiAssetPath,
@@ -181,10 +182,16 @@ describe("public text files", () => {
 });
 
 describe("isOAuthHandoff", () => {
-  it("treats a homepage return with a code as an OAuth handoff", () => {
+  it("sends a homepage OAuth return to the desktop handoff", () => {
     expect(isOAuthHandoff(new URL("https://www.replayr.tv/?code=abc"))).toBe(true);
     expect(isOAuthHandoff(new URL("https://www.replayr.tv/"))).toBe(false);
     expect(isOAuthHandoff(new URL("https://www.replayr.tv/auth/callback?code=abc"))).toBe(true);
     expect(isOAuthHandoff(new URL("https://www.replayr.tv/library?code=abc"))).toBe(false);
+    expect(oauthRootRedirect(new URL("https://www.replayr.tv/?code=abc"))).toBe("/auth/desktop?code=abc");
+    expect(oauthRootRedirect(new URL("https://www.replayr.tv/?error=access_denied&error_description=no"))).toBe(
+      "/auth/desktop?error=access_denied&error_description=no",
+    );
+    expect(oauthRootRedirect(new URL("https://www.replayr.tv/"))).toBeNull();
+    expect(oauthRootRedirect(new URL("https://www.replayr.tv/library?code=abc"))).toBeNull();
   });
 });

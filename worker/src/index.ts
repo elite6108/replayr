@@ -16,7 +16,7 @@ import { ingestGameObservation, matchSteamGame } from "./gameCatalogAdmin";
 import { importGamesBatch } from "./gameImport";
 import { captureFromBody, createPendingGame, listDetectionCatalog, resolveClipGame, searchGames, setClipGame } from "./gameRecords";
 import { webContentSecurityPolicy } from "./contentSecurity";
-import { cors, HttpError, json } from "./http";
+import { cors, HttpError, json, localPublicApp } from "./http";
 import { recordProductEvent } from "./metrics";
 import { assertDistributedRateLimit } from "./rateLimit";
 import {
@@ -162,22 +162,24 @@ export default {
       url.protocol = "https:";
       return Response.redirect(url.toString(), 301);
     }
+    const localDev = localPublicApp(env.PUBLIC_APP_URL);
     if (request.method === "OPTIONS") {
-      return cors(new Response(null, { status: 204 }), request);
+      return cors(new Response(null, { status: 204 }), request, localDev);
     }
     try {
       observeLiveVisitor(request, env, url, ctx);
-      return cors(await route(request, env, url, ctx), request);
+      return cors(await route(request, env, url, ctx), request, localDev);
     } catch (caught) {
       if (caught instanceof HttpError) {
         return cors(
           json(caught.code ? { error: caught.message, code: caught.code } : { error: caught.message }, caught.status),
           request,
+          localDev,
         );
       }
       const message = caught instanceof Error ? caught.message : "Worker failed.";
       ctx.waitUntil(recordWorkerError(env, message, url.pathname));
-      return cors(json({ error: "Something went wrong." }, 500), request);
+      return cors(json({ error: "Something went wrong." }, 500), request, localDev);
     }
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: { waitUntil(task: Promise<unknown>): void }) {

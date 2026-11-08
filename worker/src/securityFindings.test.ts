@@ -289,8 +289,14 @@ describe("production cors", () => {
       new Response("ok"),
       new Request("https://replayr.tv/v1/health", { headers: { origin: "https://tauri.localhost" } }),
     );
+    const devRoute = cors(
+      new Response("ok"),
+      new Request("http://replayr.tv/v1/health", { headers: { origin: "http://localhost:1420" } }),
+      true,
+    );
     expect(production.headers.get("access-control-allow-origin")).toBeNull();
     expect(local.headers.get("access-control-allow-origin")).toBe("http://localhost:1420");
+    expect(devRoute.headers.get("access-control-allow-origin")).toBe("http://localhost:1420");
     expect(app.headers.get("access-control-allow-origin")).toBe("https://tauri.localhost");
   });
 });

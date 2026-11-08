@@ -76,7 +76,12 @@ export function RecordingPreview({
     width: 0,
     height: 0,
   });
+  const previewSource = useRef(preview.source);
+  previewSource.current = preview.source;
   const reportStatus = useCallback((status: { live: boolean; label: string; source: string; width?: number; height?: number }) => {
+    // A new layer reports "none" before its first frame. Treating that as the
+    // output going away unmounts the composed preview and mounts it again.
+    if (status.source === "none" && previewSource.current === "composed") return;
     setPreview((prev) => {
       const next: PreviewStatusFields = {
         live: status.live,

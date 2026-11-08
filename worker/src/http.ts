@@ -28,12 +28,28 @@ const LOCAL_DEV_ORIGINS = new Set([
   "http://127.0.0.1:8081",
 ]);
 
-function originAllowed(origin: string, request?: Request): boolean {
-  if (APP_ORIGINS.has(origin)) return true;
-  if (!request || !LOCAL_DEV_ORIGINS.has(origin)) return false;
+function isLocalHostname(host: string) {
+  return host === "localhost" || host === "127.0.0.1";
+}
+
+export function localPublicApp(value: string | undefined) {
+  if (!value) return false;
   try {
-    const host = new URL(request.url).hostname;
-    return host === "localhost" || host === "127.0.0.1";
+    return isLocalHostname(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function originAllowed(origin: string, request?: Request, localDev = false): boolean {
+  if (APP_ORIGINS.has(origin)) return true;
+  if (!LOCAL_DEV_ORIGINS.has(origin)) return false;
+  // `wrangler dev` rewrites request.url to the production route, so the
+  // hostname check alone rejects the desktop and website while developing.
+  if (localDev) return true;
+  if (!request) return false;
+  try {
+    return isLocalHostname(new URL(request.url).hostname);
   } catch {
     return false;
   }
@@ -59,10 +75,10 @@ export function json(body: unknown, status = 200) {
   });
 }
 
-export function cors(response: Response, request?: Request) {
+export function cors(response: Response, request?: Request, localDev = false) {
   const headers = new Headers(response.headers);
   const origin = request?.headers.get("origin");
-  if (origin && originAllowed(origin, request)) {
+  if (origin && originAllowed(origin, request, localDev)) {
     headers.set("access-control-allow-origin", origin);
     headers.set("vary", "Origin");
     headers.set("access-control-expose-headers", "location, content-disposition, content-type");

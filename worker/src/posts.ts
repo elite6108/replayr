@@ -1,6 +1,7 @@
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { presentPublicClips, PUBLIC_CLIP_SELECT, requireUser, serviceRest, type PublicClipRow } from "./shared";
+import { assertAcceptableText } from "./moderationTerms";
 import { resolveUserProfileAccess, toSocialUser, type ProfileRow } from "./social";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -76,6 +77,7 @@ async function createPost(request: Request, env: Env): Promise<Response> {
   const body = (await request.json()) as { body?: string; clipId?: string };
   const text = typeof body.body === "string" ? body.body.trim() : "";
   if (text.length < 1 || text.length > 500) throw new HttpError(400, "Write a post between 1 and 500 characters.");
+  await assertAcceptableText(env, text);
   let clipId: string | null = null;
   if (typeof body.clipId === "string" && body.clipId) {
     if (!UUID.test(body.clipId)) throw new HttpError(400, "That clip could not be attached.");

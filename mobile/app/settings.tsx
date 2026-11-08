@@ -4,6 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Linking from "expo-linking";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Avatar } from "@/components/Avatar";
+import { BlockedAccounts } from "@/components/BlockedAccounts";
 import { Notice } from "@/components/ui";
 import { deleteAccount, fetchBillingStatus, type BillingStatus } from "@/lib/api";
 import { fetchFollowing } from "@/lib/api.follows";
@@ -315,6 +316,12 @@ export default function SettingsScreen() {
           />
         </View>
         <SettingsRow
+          icon="mail-outline"
+          title="Contact support"
+          subtitle="support@replayr.tv"
+          onPress={() => void Linking.openURL("mailto:support@replayr.tv")}
+        />
+        <SettingsRow
           icon="shield-outline"
           title="Privacy"
           onPress={() => void Linking.openURL("https://www.replayr.tv/privacy")}
@@ -326,6 +333,7 @@ export default function SettingsScreen() {
           onPress={() => void Linking.openURL("https://www.replayr.tv/terms")}
         />
       </View>
+      <BlockedAccounts token={token} />
     </ScrollView>
   );
 }

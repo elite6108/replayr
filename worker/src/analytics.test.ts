@@ -163,7 +163,7 @@ describe("parseClientAnalyticsEvents", () => {
 
 describe("ingestClientAnalytics", () => {
   it("accepts a consented authenticated analytics event without storing a user id", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/auth/v1/user")) {
         return new Response(JSON.stringify({ id: USER_ID, email: "player@example.com" }), { status: 200 });
@@ -181,8 +181,8 @@ describe("ingestClientAnalytics", () => {
     expect(response.status).toBe(202);
     const body = (await response.json()) as { accepted: number };
     expect(body.accepted).toBe(1);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    const sent = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as {
+    const sentCall = fetchMock.mock.calls.find((call) => String(call[1]?.body ?? "").includes("p_event_name"));
+    const sent = JSON.parse(String(sentCall?.[1]?.body)) as {
       p_event_name: string;
       p_environment: string;
       p_user_id: string | null;

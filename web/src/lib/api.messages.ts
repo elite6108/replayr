@@ -46,6 +46,7 @@ export type ChatMessage = {
   createdAt: string;
   sender: SocialUser;
   clip: MessageClip | null;
+  removed?: boolean;
 };
 
 export type ConversationSummary = {
@@ -58,6 +59,7 @@ export type ConversationSummary = {
   members: Array<SocialUser & { role: ConversationRole }>;
   lastMessage: ChatMessage | null;
   unreadCount: number;
+  blocked?: boolean;
 };
 
 export type ConversationsResponse = {
@@ -222,6 +224,7 @@ export function conversationTitle(conversation: ConversationSummary, myId: strin
 
 export function lastMessagePreview(message: ChatMessage | null): string {
   if (!message) return "No messages yet";
+  if (message.removed) return "Message removed";
   const text = message.body?.trim();
   if (text) return text;
   if (message.clip) return message.clip.title || "Sent a clip";

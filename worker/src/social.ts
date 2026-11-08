@@ -16,6 +16,7 @@ import {
   acceptIncomingFollow,
   blockTargetById,
   declineIncomingFollow,
+  unblockTargetById,
   emptyFollowState,
   followStateFromIndex,
   followTarget,
@@ -44,15 +45,17 @@ import type {
   SocialUser,
 } from "./social-types";
 import { fanOutInboxPush } from "./socialPush";
+import { assertAcceptableText } from "./moderationTerms";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const USERNAME = /^[A-Za-z0-9_]{3,24}$/;
 const MAX_GROUP = 32;
 const MESSAGE_LIMIT_MAX = 100;
-const PROFILE_SELECT = "id,username,display_name,avatar_url,is_verified,bio,clip_count,created_at,is_private";
+const PROFILE_SELECT =
+  "id,username,display_name,avatar_url,is_verified,bio,clip_count,created_at,is_private,suspended_at";
 const FRIENDSHIP_SELECT = "id,user_a,user_b,requested_by,blocked_by,status,created_at,updated_at";
 const CONVERSATION_SELECT = "id,type,title,created_by,dm_user_a,dm_user_b,created_at,updated_at";
-const MESSAGE_SELECT = "id,conversation_id,sender_id,body,clip_id,created_at";
+const MESSAGE_SELECT = "id,conversation_id,sender_id,body,clip_id,created_at,removed_at";
 const CLIP_CARD_SELECT =
   "id,user_id,slug,title,duration_ms,visibility,thumbnail_key,games(name,slug)";
 
@@ -66,6 +69,7 @@ export type ProfileRow = {
   clip_count?: number;
   created_at?: string;
   is_private?: boolean;
+  suspended_at?: string | null;
 };
 
 type FriendshipRow = {
@@ -104,6 +108,7 @@ type MessageRow = {
   body: string | null;
   clip_id: string | null;
   created_at: string;
+  removed_at?: string | null;
 };
 
 type ClipCardRow = {
@@ -152,6 +157,7 @@ export async function handleSocial(request: Request, env: Env, url: URL): Promis
 
   const block = path.match(/^\/v1\/friends\/([^/]+)\/block$/);
   if (block?.[1] && method === "POST") return blockUser(request, env, block[1]);
+  if (block?.[1] && method === "DELETE") return unblockById(request, env, block[1]);
   const unfriend = path.match(/^\/v1\/friends\/([^/]+)$/);
   if (unfriend?.[1] && method === "DELETE") return unfriendUser(request, env, unfriend[1]);
 
@@ -319,6 +325,12 @@ async function blockUser(request: Request, env: Env, userId: string): Promise<Re
   return json({ ok: true });
 }
 
+async function unblockById(request: Request, env: Env, userId: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  await unblockTargetById(env, user.id, userId);
+  return json({ ok: true });
+}
+
 async function searchUsers(request: Request, env: Env, url: URL): Promise<Response> {
   const user = await requireUser(request, env);
   const raw = (url.searchParams.get("q") || "").trim().toLowerCase();
@@ -330,7 +342,7 @@ async function searchUsers(request: Request, env: Env, url: URL): Promise<Respon
   const rows = await serviceRest<ProfileRow[]>(
     env,
     "GET",
-    `/profiles?username_normalized=like.*${encodeURIComponent(like)}*&username=not.is.null&select=${PROFILE_SELECT}&limit=20`,
+    `/profiles?username_normalized=like.*${encodeURIComponent(like)}*&username=not.is.null&suspended_at=is.null&select=${PROFILE_SELECT}&limit=20`,
   );
   const index = await loadFollowIndex(env, user.id);
   const users = [];
@@ -464,6 +476,8 @@ export async function resolveUserProfileAccess(
   const profile = rows[0];
   if (!profile) throw new HttpError(404, "That account was not found.");
   const viewer = await optionalUser(request, env);
+  if (profile.suspended_at && viewer?.id !== profile.id) throw new HttpError(404, "That account was not found.");
+  if (profile.suspended_at && viewer?.id === profile.id) throw new HttpError(403, "This account is suspended.");
   const follow =
     viewer && viewer.id !== profile.id ? await loadFollowState(env, viewer.id, profile.id) : emptyFollowState();
   if (follow.blocked) throw new HttpError(404, "That account was not found.");
@@ -587,6 +601,7 @@ async function createConversation(request: Request, env: Env): Promise<Response>
     await requireMutualFollow(env, user.id, memberId);
   }
   const title = optionalTitle(body.title);
+  if (title) await assertAcceptableText(env, title);
   const conversationId = crypto.randomUUID();
   await serviceRest(env, "POST", "/conversations", {
     id: conversationId,
@@ -716,6 +731,8 @@ async function postMessage(request: Request, env: Env, conversationId: string): 
   const clipId = typeof body.clipId === "string" ? body.clipId : "";
   if (!text && !clipId) throw new HttpError(400, "Send text and/or a clip.");
   if (text.length > 2000) throw new HttpError(400, "Messages must be 2000 characters or fewer.");
+  if (conversation.blocked) throw new HttpError(403, "You cannot message that account.");
+  if (text) await assertAcceptableText(env, text);
   let clip: ClipCardRow | null = null;
   if (clipId) {
     requireUuid(clipId);
@@ -768,6 +785,7 @@ async function sendClip(request: Request, env: Env, slug: string): Promise<Respo
   const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
   requireUuid(conversationId);
   const conversation = await loadVisibleConversation(request, env, conversationId);
+  if (conversation.blocked) throw new HttpError(403, "You cannot message that account.");
   const clip = await lookupPlaybackRaw(env, slug);
   if (!clip) throw new HttpError(404, "That clip is not available.");
   const sendable = await loadSendableClip(env, clip.id, user.id);
@@ -930,10 +948,13 @@ async function presentConversationsBatch(
   for (const conversation of conversations) {
     const members = memberships.filter((row) => row.conversation_id === conversation.id);
     if (!members.some((row) => row.user_id === userId)) continue;
+    let blocked = false;
     if (conversation.type === "dm") {
       const otherId = conversation.dm_user_a === userId ? conversation.dm_user_b : conversation.dm_user_a;
       if (!otherId) continue;
-      if (!followStateFromIndex(followIdx, otherId).mutual) continue;
+      const state = followStateFromIndex(followIdx, otherId);
+      if (!state.mutual && !state.blocked) continue;
+      blocked = state.blocked;
     }
     const lastRow = lastByConversation.get(conversation.id) ?? null;
     const lastMessage = lastRow ? lastMessageById.get(lastRow.id) ?? null : null;
@@ -965,6 +986,7 @@ async function presentConversationsBatch(
       }),
       lastMessage,
       unreadCount,
+      blocked,
     });
   }
   return out;
@@ -1011,7 +1033,8 @@ async function presentMessages(env: Env, rows: MessageRow[]): Promise<ChatMessag
     id: row.id,
     conversationId: row.conversation_id,
     senderId: row.sender_id,
-    body: row.body,
+    body: row.removed_at ? null : row.body,
+    removed: Boolean(row.removed_at),
     createdAt: row.created_at,
     sender: people.get(row.sender_id) ?? {
       id: row.sender_id,
@@ -1020,7 +1043,7 @@ async function presentMessages(env: Env, rows: MessageRow[]): Promise<ChatMessag
       avatarUrl: null,
       verified: false,
     },
-    clip: row.clip_id ? clips.get(row.clip_id) ?? null : null,
+    clip: row.removed_at || !row.clip_id ? null : clips.get(row.clip_id) ?? null,
   }));
 }
 

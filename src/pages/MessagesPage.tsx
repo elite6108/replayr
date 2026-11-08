@@ -1,12 +1,14 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AuthCard } from "../components/common/AuthCard";
+import { SafetyActions } from "../components/common/SafetyActions";
 import { EmptyState } from "../components/common/EmptyState";
 import { PageHeader } from "../components/common/PageHeader";
 import { ProfileAvatarLink } from "../components/common/ProfileAvatarLink";
 import { SocialAvatar } from "../components/common/SocialAvatar";
 import { IconFriends, IconSearch } from "../components/icons";
 import { fetchFriends } from "../services/api.friends";
+import { unblockUser } from "../services/api.safety";
 import {
   addConversationMembers,
   createConversation,
@@ -390,6 +392,51 @@ export function MessagesPage() {
                     </div>
                   </div>
                 </div>
+                {selected.type === "dm" && conversationPeer(selected, user.id).id !== user.id ? (
+                  <div className="row">
+                    {selected.blocked ? (
+                      <button
+                        className="btn sm"
+                        type="button"
+                        onClick={() => {
+                          const peerId = conversationPeer(selected, user.id).id;
+                          void unblockUser(token, peerId)
+                            .then(() => {
+                              setConversations((current) =>
+                                current.map((item) =>
+                                  item.type === "dm" && item.members.some((member) => member.id === peerId)
+                                    ? { ...item, blocked: false }
+                                    : item,
+                                ),
+                              );
+                            })
+                            .catch((caught) => {
+                              setError(caught instanceof Error ? caught.message : "Could not unblock that account.");
+                            });
+                        }}
+                      >
+                        Unblock
+                      </button>
+                    ) : (
+                      <SafetyActions
+                        targetType="profile"
+                        targetId={conversationPeer(selected, user.id).id}
+                        subjectUserId={conversationPeer(selected, user.id).id}
+                        showBlock
+                        onBlocked={() => {
+                          const peerId = conversationPeer(selected, user.id).id;
+                          setConversations((current) =>
+                            current.map((item) =>
+                              item.type === "dm" && item.members.some((member) => member.id === peerId)
+                                ? { ...item, blocked: true }
+                                : item,
+                            ),
+                          );
+                        }}
+                      />
+                    )}
+                  </div>
+                ) : null}
                 {selected.type === "group" ? (
                   <div className="row">
                     <button className="btn sm" type="button" onClick={() => { setInviting(true); setCreatingGroup(false); setPicked([]); }}>
@@ -424,8 +471,12 @@ export function MessagesPage() {
                         {!mine ? <ProfileAvatarLink person={message.sender} size="sm" /> : null}
                         <div className={`bubble ${mine ? "mine" : ""}`}>
                           {!mine ? <span className="bubble-name">{message.sender.displayName}</span> : null}
-                          {message.body ? <p>{message.body}</p> : null}
-                          {message.clip ? <ClipBubble clip={message.clip} /> : null}
+                          {message.removed ? <p className="muted">Message removed</p> : null}
+                          {!message.removed && message.body ? <p>{message.body}</p> : null}
+                          {!message.removed && message.clip ? <ClipBubble clip={message.clip} /> : null}
+                          {!mine && !message.removed ? (
+                            <SafetyActions targetType="message" targetId={message.id} subjectUserId={message.senderId} />
+                          ) : null}
                           <time className="muted">{formatClipDate(message.createdAt)}</time>
                         </div>
                       </article>
@@ -433,6 +484,9 @@ export function MessagesPage() {
                   })
                 )}
               </div>
+              {selected.blocked ? (
+                <p className="muted">You blocked this account. Unblock them to send a message.</p>
+              ) : (
               <form className="composer" onSubmit={(event) => void send(event)}>
                 <input
                   value={draft}
@@ -446,6 +500,7 @@ export function MessagesPage() {
                   Send
                 </button>
               </form>
+              )}
             </>
           )}
         </section>
@@ -552,6 +607,7 @@ function conversationTitle(conversation: ConversationSummary, me: string) {
 
 function lastMessagePreview(message: ChatMessage | null) {
   if (!message) return "No messages yet";
+  if (message.removed) return "Message removed";
   if (message.body) return message.body;
   if (message.clip) return message.clip.title || "Sent a clip";
   return "Message";

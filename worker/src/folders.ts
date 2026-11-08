@@ -2,6 +2,7 @@ import { observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { requireR2, requireUser, serviceRest, signedOwnedUrl } from "./shared";
+import { assertAcceptableText } from "./moderationTerms";
 import { toSocialUser, type ProfileRow } from "./social";
 import type {
   Folder,
@@ -331,6 +332,8 @@ async function createFolder(request: Request, env: Env): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as { name?: unknown; description?: unknown };
   const name = parseName(body.name);
   const description = parseDescription(body.description);
+  await assertAcceptableText(env, name);
+  if (description) await assertAcceptableText(env, description);
   const rows = await serviceRest<FolderRow[]>(
     env,
     "POST",
@@ -369,6 +372,8 @@ async function updateFolder(request: Request, env: Env, folderId: string): Promi
   const patch: Record<string, unknown> = {};
   if (body.name !== undefined) patch.name = parseName(body.name);
   if (body.description !== undefined) patch.description = parseDescription(body.description);
+  if (typeof patch.name === "string") await assertAcceptableText(env, patch.name);
+  if (typeof patch.description === "string") await assertAcceptableText(env, patch.description);
   if (Object.keys(patch).length === 0) {
     const memberships = await loadFolderClipRows(env, [folderId]);
     return json({ folder: await presentFolderDetail(env, access.folder, access.role, memberships) });

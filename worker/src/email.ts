@@ -312,6 +312,36 @@ function waitlistFrame(title: string, content: string, links: WaitlistEmailLinks
 </html>`;
 }
 
+export function moderationReportEmail(input: {
+  targetType: string;
+  reason: string;
+  queueUrl: string;
+}): Omit<ReplayrEmail, "to" | "idempotencyKey"> {
+  const safeType = escapeHtml(input.targetType);
+  const safeReason = escapeHtml(input.reason);
+  const safeUrl = escapeHtml(input.queueUrl);
+  return {
+    subject: `Replayr report: ${input.targetType}`,
+    text: [
+      "A player submitted a content report.",
+      "",
+      `Type: ${input.targetType}`,
+      `Reason: ${input.reason}`,
+      "",
+      `Open the queue: ${input.queueUrl}`,
+      "",
+      "Review open reports within 24 hours. The report body stays in the admin queue.",
+    ].join("\n"),
+    html: emailFrame(
+      "New content report",
+      `<p>A player submitted a content report.</p>
+       <p>Type: <strong>${safeType}</strong><br>Reason: <strong>${safeReason}</strong></p>
+       ${emailButton("Open the queue", safeUrl)}
+       <p class="muted">Review open reports within 24 hours. The report body stays in the admin queue.</p>`,
+    ),
+  };
+}
+
 function emailFrame(title: string, content: string): string {
   return `<!doctype html>
 <html>

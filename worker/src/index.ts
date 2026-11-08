@@ -1,4 +1,7 @@
 import { handleAvatars } from "./avatars";
+import { assertAcceptableText } from "./moderationTerms";
+import { handleUserModeration } from "./moderation";
+import { blockedEitherWay, loadFollowIndex } from "./follows";
 import { handleAdmin } from "./admin";
 import { handleStaff, notifyStaffTaskDueSoon } from "./staff";
 import { drainWaitlistCampaigns } from "./waitlistAdmin";
@@ -327,11 +330,14 @@ async function route(
       /^\/v1\/posts\/[^/]+$/.test(url.pathname) ||
       /^\/v1\/clips\/[^/]+\/send$/.test(url.pathname) ||
       /^\/v1\/clips\/[^/]+\/like$/.test(url.pathname) ||
-      /^\/v1\/clips\/[^/]+\/comments(\/[^/]+)?$/.test(url.pathname))
+      /^\/v1\/clips\/[^/]+\/comments(\/[^/]+)?$/.test(url.pathname) ||
+      url.pathname === "/v1/reports")
   ) {
     await assertDistributedRateLimit(request, env.WRITE_60_RATE_LIMITER, "social-write", 60);
     await requireUser(request, env, { fresh: true });
   }
+  const userModeration = await handleUserModeration(request, env, url, ctx);
+  if (userModeration) return userModeration;
   const posts = await handlePosts(request, env, url);
   if (posts) return posts;
   const social = await handleSocial(request, env, url);
@@ -601,6 +607,15 @@ function withWebSecurityHeaders(response: Response, request?: Request): Response
   });
 }
 
+async function clipTitle(env: Env, value: string | null | undefined): Promise<string | null> {
+  if (typeof value !== "string") return null;
+  const title = value.trim();
+  if (!title) return null;
+  if (title.length > 120) throw new HttpError(400, "Clip names must be 120 characters or fewer.");
+  await assertAcceptableText(env, title);
+  return title;
+}
+
 async function createUpload(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env, { fresh: true });
   await assertDistributedRateLimit(request, env.WRITE_10_RATE_LIMITER, "upload-create", 10, user.id);
@@ -668,7 +683,7 @@ async function createUpload(request: Request, env: Env): Promise<Response> {
     capture_launcher_kind: capture.launcherKind,
     capture_launcher_id: capture.launcherId,
     capture_title: capture.title,
-    title: body.title ?? null,
+    title: await clipTitle(env, body.title),
     storage_key: key,
     thumbnail_key: thumbKey,
     duration_ms: body.durationMs ?? null,
@@ -1605,6 +1620,7 @@ async function getPlayback(
     playbackUrl: signed.url,
     thumbnailUrl,
     author: extra?.author ?? anonymousAuthor(),
+    authorId: clip.user_id,
     likeCount: extra?.likeCount ?? clip.like_count ?? 0,
     commentCount: extra?.commentCount ?? clip.comment_count ?? 0,
     liked: extra?.liked ?? false,
@@ -1648,17 +1664,20 @@ async function listClipComments(request: Request, env: Env, slug: string): Promi
     `/clip_comments?clip_id=eq.${clip.id}&select=id,user_id,body,created_at&order=created_at.asc&limit=80`,
   );
   const viewer = await optionalUser(request, env);
+  const blocked = viewer ? (await loadFollowIndex(env, viewer.id)).blocked : new Set<string>();
+  const visible = rows.filter((row) => !viewer || row.user_id === viewer.id || !blocked.has(row.user_id));
   const authors = await loadAuthors(
     env,
-    rows.map((row) => row.user_id),
+    visible.map((row) => row.user_id),
   );
   return json({
-    comments: rows.map((row) => ({
+    comments: visible.map((row) => ({
       id: row.id,
       body: row.body,
       createdAt: row.created_at,
       mine: viewer?.id === row.user_id,
       canDelete: viewer?.id === row.user_id || viewer?.id === clip.user_id,
+      authorId: row.user_id,
       author: authors.get(row.user_id) ?? anonymousAuthor(),
     })),
   });
@@ -1672,6 +1691,10 @@ async function addClipComment(request: Request, env: Env, slug: string): Promise
   if (body.length < 1 || body.length > 500) {
     throw new HttpError(400, "Comments must be 1–500 characters.");
   }
+  if (user.id !== clip.user_id && (await blockedEitherWay(env, user.id, clip.user_id))) {
+    throw new HttpError(403, "You cannot comment on that clip.");
+  }
+  await assertAcceptableText(env, body);
   await serviceRest(env, "POST", "/clip_comments", { clip_id: clip.id, user_id: user.id, body });
   if (clip.user_id !== user.id) {
     await insertNotifications(env, [

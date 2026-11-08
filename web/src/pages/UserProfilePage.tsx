@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ClipThumb } from "../components/ClipThumb";
 import { Seo } from "../components/Seo";
 import { SocialAvatar } from "../components/SocialAvatar";
+import { SafetyActions } from "../components/SafetyActions";
 import {
   acceptFriendRequest,
   cancelFriendRequest,
@@ -215,6 +216,12 @@ export function UserProfilePage() {
                         Message
                       </button>
                     ) : null}
+                    <SafetyActions
+                      targetType="profile"
+                      targetId={profile.user.id}
+                      subjectUserId={profile.user.id}
+                      showBlock
+                    />
                   </>
                 )}
               </div>
@@ -309,6 +316,9 @@ export function UserProfilePage() {
                           <article className="feed-card">
                             <p>{post.body}</p>
                             <p className="muted">{new Date(post.createdAt).toLocaleString()}</p>
+                            {!mine ? (
+                              <SafetyActions targetType="post" targetId={post.id} subjectUserId={profile.user.id} />
+                            ) : null}
                             {mine && token ? (
                               <button
                                 className="btn"

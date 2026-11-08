@@ -16,6 +16,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Avatar } from "@/components/Avatar";
+import { ReportContentSheet } from "@/components/ReportContentSheet";
 import {
   deleteClipComment,
   fetchClipComments,
@@ -44,6 +45,7 @@ export function CommentsSheet({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reporting, setReporting] = useState<ClipComment | null>(null);
 
   useEffect(() => {
     if (!visible || !slug) return;
@@ -103,6 +105,7 @@ export function CommentsSheet({
   }
 
   return (
+    <>
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView style={styles.wrap} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Pressable style={styles.backdrop} onPress={onClose} />
@@ -129,6 +132,11 @@ export function CommentsSheet({
                     <Ionicons name="trash-outline" size={16} color={colors.muted} />
                   </Pressable>
                 ) : null}
+                {token && !comment.mine ? (
+                  <Pressable onPress={() => setReporting(comment)} hitSlop={8} accessibilityLabel="Report comment">
+                    <Ionicons name="flag-outline" size={16} color={colors.muted} />
+                  </Pressable>
+                ) : null}
               </View>
             ))}
           </ScrollView>
@@ -149,6 +157,15 @@ export function CommentsSheet({
         </View>
       </KeyboardAvoidingView>
     </Modal>
+    {reporting ? (
+      <ReportContentSheet
+        targetType="comment"
+        targetId={reporting.id}
+        subjectUserId={reporting.authorId}
+        onClose={() => setReporting(null)}
+      />
+    ) : null}
+    </>
   );
 }
 

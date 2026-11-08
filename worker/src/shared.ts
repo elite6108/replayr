@@ -65,7 +65,14 @@ interface ClipAuthor {
 }
 
 const AUTH_CACHE_TTL_MS = 45_000;
+const ACCOUNT_GATE_TTL_MS = 15_000;
 const authUserCache = new Map<string, { user: AuthUser; expiresAt: number }>();
+const accountGateCache = new Map<string, { suspended: boolean; expiresAt: number }>();
+
+export function clearAccountGate(userId?: string): void {
+  if (userId) accountGateCache.delete(userId);
+  else accountGateCache.clear();
+}
 
 export async function requireUser(
   request: Request,
@@ -80,7 +87,9 @@ export async function requireUser(
   if (options?.fresh) authUserCache.delete(token);
   const cached = options?.fresh ? undefined : authUserCache.get(token);
   if (cached && cached.expiresAt > Date.now()) {
-    return { ...cached.user, token };
+    const user = { ...cached.user, token };
+    await assertAccountActive(env, user.id);
+    return user;
   }
   const response = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     headers: {
@@ -113,7 +122,31 @@ export async function requireUser(
       if (entry.expiresAt <= now) authUserCache.delete(key);
     }
   }
+  await assertAccountActive(env, authUser.id);
   return authUser;
+}
+
+async function assertAccountActive(env: Env, userId: string): Promise<void> {
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) return;
+  const cached = accountGateCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (cached.suspended) throw new HttpError(403, "This account is suspended.");
+    return;
+  }
+  const rows = await serviceRest<Array<{ suspended_at?: string | null }>>(
+    env,
+    "GET",
+    `/profiles?id=eq.${userId}&select=suspended_at`,
+  );
+  const suspended = Boolean(rows[0]?.suspended_at);
+  accountGateCache.set(userId, { suspended, expiresAt: Date.now() + ACCOUNT_GATE_TTL_MS });
+  if (accountGateCache.size > 2_000) {
+    const now = Date.now();
+    for (const [key, entry] of accountGateCache) {
+      if (entry.expiresAt <= now) accountGateCache.delete(key);
+    }
+  }
+  if (suspended) throw new HttpError(403, "This account is suspended.");
 }
 
 export async function optionalUser(request: Request, env: Env): Promise<AuthUser | null> {

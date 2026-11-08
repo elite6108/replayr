@@ -62,5 +62,13 @@ describe("admin route permission map", () => {
     expect(permissionForAdminRoute("POST", "/v1/admin/analytics/users/search")).toBe("analytics.users.view");
     expect(permissionForAdminRoute("POST", "/v1/admin/analytics/users/export/pdf")).toBe("analytics.users.view");
     expect(permissionForAdminRoute("GET", "/v1/admin/analytics/traffic")).toBe("analytics.view");
+    expect(permissionForAdminRoute("GET", "/v1/admin/moderation/reports")).toBe("moderation.view");
+    expect(permissionForAdminRoute("POST", "/v1/admin/moderation/reports/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/resolve")).toBe(
+      "moderation.act",
+    );
+    expect(permissionForAdminRoute("GET", "/v1/admin/moderation/terms")).toBe("moderation.terms");
+    expect(permissionForAdminRoute("PATCH", "/v1/admin/moderation/terms/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")).toBe(
+      "moderation.terms",
+    );
   });
 });

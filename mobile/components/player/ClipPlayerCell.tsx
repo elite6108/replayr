@@ -21,6 +21,7 @@ import { clipShareUrl, getSupabase } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
 import { saveWatchProgress } from "@/lib/watchProgress";
 import { PlayerMoreSheet } from "./PlayerMoreSheet";
+import { ReportContentSheet } from "@/components/ReportContentSheet";
 
 function pausePlayer(instance: VideoPlayer) {
   try {
@@ -118,7 +119,7 @@ function ReadyCell({
   const fallbackDuration = (clip.durationMs ?? 0) / 1000;
   const router = useRouter();
   const shareable = clipAllowsSocial(clip.visibility);
-  const canManage = Boolean(userId && clipId);
+  const canManage = Boolean(clip.mine && clipId);
   const feedMode = getClipFeed()?.source === "foryou" ? "foryou" : getClipFeed()?.source === "library" ? "single" : "single";
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(fallbackDuration);
@@ -132,6 +133,7 @@ function ReadyCell({
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [morePanel, setMorePanel] = useState<"menu" | "visibility" | "delete">("menu");
   const player = useVideoPlayer(clip.playbackUrl, (instance) => {
     instance.loop = true;
@@ -408,6 +410,14 @@ function ReadyCell({
               : undefined
           }
           onVisibility={(visibility) => void setVisibility(visibility)}
+          onReport={
+            token && clipId && clip.mine !== true
+              ? () => {
+                  setMoreOpen(false);
+                  setReportOpen(true);
+                }
+              : undefined
+          }
           onDelete={() => {
             if (!token || !clipId) return;
             pausePlayer(player);
@@ -421,6 +431,14 @@ function ReadyCell({
             setMoreOpen(false);
             setMorePanel("menu");
           }}
+        />
+      ) : null}
+      {reportOpen && clipId ? (
+        <ReportContentSheet
+          targetType="clip"
+          targetId={clipId}
+          subjectUserId={clip.authorId}
+          onClose={() => setReportOpen(false)}
         />
       ) : null}
       <CommentsSheet

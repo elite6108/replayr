@@ -29,13 +29,7 @@ export async function handleAvatars(request: Request, env: Env, url: URL): Promi
 
   if (method === "DELETE" && path === "/v1/me/avatar") {
     const user = await requireUser(request, env);
-    const previous = await serviceRest<Array<{ avatar_url: string | null }>>(
-      env,
-      "GET",
-      `/profiles?id=eq.${user.id}&select=avatar_url`,
-    );
-    await serviceRest(env, "PATCH", `/profiles?id=eq.${user.id}`, { avatar_url: null });
-    await deletePreviousAvatar(env, user.id, previous[0]?.avatar_url, null);
+    await clearUserAvatar(env, user.id);
     return json({ ok: true });
   }
 
@@ -115,6 +109,17 @@ function objectNameFromAvatarUrl(value: string | null | undefined): string | nul
   } catch {
     return null;
   }
+}
+
+export async function clearUserAvatar(env: Env, userId: string): Promise<void> {
+  const previous = await serviceRest<Array<{ avatar_url: string | null }>>(
+    env,
+    "GET",
+    `/profiles?id=eq.${userId}&select=avatar_url`,
+  );
+  if (!previous[0]?.avatar_url) return;
+  await serviceRest(env, "PATCH", `/profiles?id=eq.${userId}`, { avatar_url: null });
+  await deletePreviousAvatar(env, userId, previous[0].avatar_url, null);
 }
 
 async function deletePreviousAvatar(env: Env, userId: string, previousUrl: string | null | undefined, keepKey: string | null) {

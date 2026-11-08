@@ -176,6 +176,7 @@ export type ChatMessage = {
   createdAt: string;
   sender: SocialUser;
   clip: MessageClip | null;
+  removed?: boolean;
 };
 
 export type ConversationSummary = {
@@ -188,6 +189,35 @@ export type ConversationSummary = {
   members: Array<SocialUser & { role: ConversationRole }>;
   lastMessage: ChatMessage | null;
   unreadCount: number;
+  blocked?: boolean;
+};
+
+export const REPORT_TARGET_TYPES = ["clip", "comment", "post", "profile", "message", "screenshot"] as const;
+export type ReportTargetType = (typeof REPORT_TARGET_TYPES)[number];
+
+export const REPORT_REASONS = [
+  "spam",
+  "harassment",
+  "hate",
+  "sexual",
+  "violence",
+  "self_harm",
+  "impersonation",
+  "other",
+] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+export type ContentReportResult = {
+  ok: true;
+  alreadyReported: boolean;
+};
+
+export type BlockedAccount = SocialUser & {
+  blockedAt: string;
+};
+
+export type BlockedAccountsResponse = {
+  users: BlockedAccount[];
 };
 
 export type ConversationsResponse = {

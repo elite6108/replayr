@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ClipThumb } from "../components/ClipThumb";
+import { SafetyActions } from "../components/SafetyActions";
 import { Seo } from "../components/Seo";
 import { ProfileAvatarLink } from "../components/ProfileAvatarLink";
 import { fetchFriends, personName, type Friend } from "../lib/api.friends";
@@ -21,6 +22,7 @@ import {
 import { useAuth } from "../lib/auth";
 import { useSocialUnread } from "../lib/socialUnread";
 import { formatClipDate, formatDurationMs } from "../lib/format";
+import { unblockUser } from "../lib/api.safety";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
 
 function mergeById(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
@@ -430,10 +432,54 @@ export function MessagesPage() {
                       Leave
                     </button>
                   </div>
-                ) : peer?.username ? (
-                  <Link className="btn" to={`/u/${encodeURIComponent(peer.username)}`}>
-                    Profile
-                  </Link>
+                ) : peer && peer.id !== myId ? (
+                  <div className="row">
+                    {peer.username ? (
+                      <Link className="btn" to={`/u/${encodeURIComponent(peer.username)}`}>
+                        Profile
+                      </Link>
+                    ) : null}
+                    {active?.blocked ? (
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={threadBusy}
+                        onClick={() => {
+                          void unblockUser(token, peer.id)
+                            .then(() => {
+                              setConversations((current) =>
+                                current.map((item) =>
+                                  item.type === "dm" && item.members.some((member) => member.id === peer.id)
+                                    ? { ...item, blocked: false }
+                                    : item,
+                                ),
+                              );
+                            })
+                            .catch((caught) => {
+                              setError(caught instanceof Error ? caught.message : "Could not unblock that account.");
+                            });
+                        }}
+                      >
+                        Unblock
+                      </button>
+                    ) : (
+                      <SafetyActions
+                        targetType="profile"
+                        targetId={peer.id}
+                        subjectUserId={peer.id}
+                        showBlock
+                        onBlocked={() => {
+                          setConversations((current) =>
+                            current.map((item) =>
+                              item.type === "dm" && item.members.some((member) => member.id === peer.id)
+                                ? { ...item, blocked: true }
+                                : item,
+                            ),
+                          );
+                        }}
+                      />
+                    )}
+                  </div>
                 ) : null}
               </header>
 
@@ -472,8 +518,9 @@ export function MessagesPage() {
                       ) : null}
                       <div className="chat-bubble">
                         {!mine ? <strong>{personName(message.sender)}</strong> : null}
-                        {message.body ? <p>{message.body}</p> : null}
-                        {message.clip ? (
+                        {message.removed ? <p className="muted">Message removed</p> : null}
+                        {!message.removed && message.body ? <p>{message.body}</p> : null}
+                        {!message.removed && message.clip ? (
                           <Link className="clip-bubble" to={`/c/${message.clip.slug}`}>
                             <div className="clip-thumb">
                               <ClipThumb
@@ -492,12 +539,18 @@ export function MessagesPage() {
                           </Link>
                         ) : null}
                         <time className="muted">{formatClipDate(message.createdAt)}</time>
+                        {!mine && !message.removed ? (
+                          <SafetyActions targetType="message" targetId={message.id} subjectUserId={message.senderId} />
+                        ) : null}
                       </div>
                     </article>
                   );
                 })}
               </div>
 
+              {active?.blocked ? (
+                <p className="muted">You blocked this account. Unblock them to send a message.</p>
+              ) : (
               <form className="message-composer" onSubmit={(event) => void send(event)}>
                 <input
                   value={draft}
@@ -510,6 +563,7 @@ export function MessagesPage() {
                   Send
                 </button>
               </form>
+              )}
             </>
           )}
         </section>

@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { ReportContentSheet } from "@/components/ReportContentSheet";
 import { fetchPublicScreenshot, type PublicScreenshot } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { saveScreenshotToPhotos, shareClipUrl } from "@/lib/media";
 import { screenshotImageUrl, screenshotShareUrl } from "@/lib/supabase";
 import { colors } from "@/lib/theme";
@@ -21,6 +23,8 @@ export default function ScreenshotScreen() {
   const [shot, setShot] = useState<PublicScreenshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const { session } = useAuth();
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +68,16 @@ export default function ScreenshotScreen() {
           >
             <Ionicons name="share-outline" size={24} color={colors.text} />
           </Pressable>
+          {session && shot?.id && shot.authorId !== session.user.id ? (
+            <Pressable
+              onPress={() => setReporting(true)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Report"
+            >
+              <Ionicons name="flag-outline" size={22} color={colors.text} />
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => void save()}
             disabled={busy || !shot}
@@ -80,6 +94,14 @@ export default function ScreenshotScreen() {
       ) : (
         <Image source={{ uri: screenshotImageUrl(slug) }} style={styles.image} contentFit="contain" />
       )}
+      {reporting && shot?.id ? (
+        <ReportContentSheet
+          targetType="screenshot"
+          targetId={shot.id}
+          subjectUserId={shot.authorId}
+          onClose={() => setReporting(false)}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

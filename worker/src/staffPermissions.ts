@@ -23,6 +23,9 @@ export const STAFF_PERMISSIONS = [
   "clips.view",
   "clips.delete",
   "screenshots.delete",
+  "moderation.view",
+  "moderation.act",
+  "moderation.terms",
   "creators.view",
   "creators.review",
   "announcements.view",
@@ -136,5 +139,11 @@ export function permissionForAdminRoute(method: string, path: string): StaffPerm
   if (path === "/v1/admin/analytics/live") return "analytics.live";
   if (path.startsWith("/v1/admin/analytics")) return "analytics.view";
   if (path === "/v1/admin/games" || path.startsWith("/v1/admin/games/")) return "games.manage";
+  if (path === "/v1/admin/moderation/reports" && method === "GET") return "moderation.view";
+  if (/^\/v1\/admin\/moderation\/reports\/[^/]+\/resolve$/.test(path) && method === "POST") return "moderation.act";
+  if (/^\/v1\/admin\/moderation\/users\/[^/]+\/unsuspend$/.test(path) && method === "POST") return "moderation.act";
+  if (path === "/v1/admin/moderation/terms" && method === "GET") return "moderation.terms";
+  if (path === "/v1/admin/moderation/terms" && method === "POST") return "moderation.terms";
+  if (/^\/v1\/admin\/moderation\/terms\/[^/]+$/.test(path) && method === "PATCH") return "moderation.terms";
   return "admin.access";
 }

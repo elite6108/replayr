@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { PageHeader } from "../components/common/PageHeader";
 import { PlayerVideo } from "../components/common/ReplayrWatermark";
 import { SendClipSheet } from "../components/common/SendClipSheet";
+import { SafetyActions } from "../components/common/SafetyActions";
 import { ExploreCreatorCard } from "../components/explore/ExploreCreatorCard";
 import { GameCategoryRow } from "../components/explore/GameCategoryRow";
 import { SearchToolbar } from "../components/ui/SearchToolbar";
@@ -317,6 +318,7 @@ function PublicClipPanel({
             <a className="btn" href={clipShareUrl(clip.slug)} target="_blank" rel="noreferrer">
               Open link
             </a>
+            {signedIn ? <SafetyActions targetType="clip" targetId={clip.id} /> : null}
           </div>
           {error ? <p className="error-text">{error}</p> : null}
           <ul className="comment-list">
@@ -324,6 +326,9 @@ function PublicClipPanel({
               <li key={comment.id}>
                 <strong>{formatHandle(comment.author)}</strong>
                 <span>{comment.body}</span>
+                {!comment.mine && token ? (
+                  <SafetyActions targetType="comment" targetId={comment.id} subjectUserId={comment.authorId} />
+                ) : null}
                 {comment.canDelete && token ? (
                   <button
                     className="btn ghost"

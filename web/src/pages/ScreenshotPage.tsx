@@ -3,9 +3,12 @@ import { Link, useParams } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { OpenInReplayrBanner } from "../components/OpenInReplayrBanner";
 import { fetchPublicScreenshot, type PublicScreenshot } from "../lib/api";
+import { SafetyActions } from "../components/SafetyActions";
+import { useAuth } from "../lib/auth";
 
 export function ScreenshotPage() {
   const { slug = "" } = useParams();
+  const { session } = useAuth();
   const [shot, setShot] = useState<PublicScreenshot | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,6 +58,9 @@ export function ScreenshotPage() {
           <p className="muted" style={{ marginTop: 16 }}>
             {shot.width}×{shot.height}
           </p>
+          {session && shot.id && shot.authorId !== session.user.id ? (
+            <SafetyActions targetType="screenshot" targetId={shot.id} subjectUserId={shot.authorId} showBlock />
+          ) : null}
           <p>
             <Link className="btn primary" to="/">
               Captured with Replayr

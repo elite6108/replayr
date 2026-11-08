@@ -17,6 +17,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-rou
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Notifications from "expo-notifications";
+import { confirmBlockAccount, ReportContentSheet } from "@/components/ReportContentSheet";
 import { ProfileAvatarLink } from "@/components/ProfileAvatarLink";
 import { ClipThumb } from "@/components/ClipThumb";
 import { Notice } from "@/components/ui";
@@ -33,6 +34,7 @@ import {
   type ConversationSummary,
   type MessageClip,
 } from "@/lib/api.messages";
+import { unblockUser } from "@/lib/api.safety";
 import { useAuth } from "@/lib/auth";
 import { targetFromPushData } from "@/lib/registerStaffPush";
 import { useSocialUnread } from "@/lib/socialUnread";
@@ -76,6 +78,7 @@ export default function ThreadScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [report, setReport] = useState<{ type: "profile" | "message"; id: string; userId?: string } | null>(null);
 
   const title = conversation ? conversationTitle(conversation, userId) : "Chat";
   const peer = conversation ? conversationPeer(conversation, userId) : null;
@@ -313,7 +316,38 @@ export default function ThreadScreen() {
                     <Ionicons name="exit-outline" size={22} color={colors.text} />
                   </Pressable>
                 )
-              : undefined,
+              : conversation?.type === "dm" && peer && token && peer.id !== userId
+                ? () => (
+                    <View style={{ flexDirection: "row", gap: 16, paddingRight: 4 }}>
+                      <Pressable
+                        onPress={() => setReport({ type: "profile", id: peer.id, userId: peer.id })}
+                        hitSlop={8}
+                        accessibilityLabel="Report"
+                      >
+                        <Ionicons name="flag-outline" size={20} color={colors.text} />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          if (conversation.blocked) {
+                            void unblockUser(token, peer.id)
+                              .then(() => setConversation((current) => (current ? { ...current, blocked: false } : current)))
+                              .catch((caught: unknown) =>
+                                Alert.alert("Could not unblock", caught instanceof Error ? caught.message : "Try again."),
+                              );
+                            return;
+                          }
+                          confirmBlockAccount(token, peer.id, () =>
+                            setConversation((current) => (current ? { ...current, blocked: true } : current)),
+                          );
+                        }}
+                        hitSlop={8}
+                        accessibilityLabel={conversation.blocked ? "Unblock" : "Block"}
+                      >
+                        <Ionicons name={conversation.blocked ? "lock-open-outline" : "ban-outline"} size={20} color={colors.text} />
+                      </Pressable>
+                    </View>
+                  )
+                : undefined,
         }}
       />
       <Notice tone="danger">{error}</Notice>
@@ -338,10 +372,29 @@ export default function ThreadScreen() {
               message={item}
               mine={item.senderId === userId}
               onClip={(clip) => router.push({ pathname: "/c/[slug]", params: { slug: clip.slug } })}
+              onReport={
+                item.senderId === userId || item.removed
+                  ? undefined
+                  : () => setReport({ type: "message", id: item.id, userId: item.senderId })
+              }
             />
           )}
         />
       )}
+      {report ? (
+        <ReportContentSheet
+          targetType={report.type}
+          targetId={report.id}
+          subjectUserId={report.userId}
+          onClose={() => setReport(null)}
+          onBlocked={() => setConversation((current) => (current ? { ...current, blocked: true } : current))}
+        />
+      ) : null}
+      {conversation?.blocked ? (
+        <View style={[styles.composer, { paddingBottom: keyboardOpen ? 10 : Math.max(insets.bottom, 10) }]}>
+          <Text style={styles.muted}>You blocked this account. Unblock them to send a message.</Text>
+        </View>
+      ) : (
       <View style={[styles.composer, { paddingBottom: keyboardOpen ? 10 : Math.max(insets.bottom, 10) }]}>
         <TextInput
           ref={inputRef}
@@ -365,6 +418,7 @@ export default function ThreadScreen() {
           <Ionicons name="send" size={16} color={colors.onAccent} />
         </Pressable>
       </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -373,10 +427,12 @@ function Bubble({
   message,
   mine,
   onClip,
+  onReport,
 }: {
   message: ChatMessage;
   mine: boolean;
   onClip: (clip: MessageClip) => void;
+  onReport?: () => void;
 }) {
   return (
     <View style={[styles.bubbleWrap, mine && styles.bubbleMine]}>
@@ -390,7 +446,8 @@ function Bubble({
       ) : null}
       <View style={[styles.bubble, mine ? styles.mine : styles.theirs]}>
         {!mine ? <Text style={styles.sender}>{socialName(message.sender)}</Text> : null}
-        {message.clip ? (
+        {message.removed ? <Text style={[styles.body, mine && styles.mineText]}>Message removed</Text> : null}
+        {!message.removed && message.clip ? (
           <Pressable style={styles.clip} onPress={() => onClip(message.clip!)}>
             <ClipThumb title={message.clip.title || "Clip"} thumbnailUrl={message.clip.thumbnailUrl} radius={12} />
             <Text style={[styles.clipTitle, mine && styles.mineText]} numberOfLines={2}>
@@ -402,7 +459,12 @@ function Bubble({
             </Text>
           </Pressable>
         ) : null}
-        {message.body ? <Text style={[styles.body, mine && styles.mineText]}>{message.body}</Text> : null}
+        {!message.removed && message.body ? <Text style={[styles.body, mine && styles.mineText]}>{message.body}</Text> : null}
+        {onReport ? (
+          <Pressable onPress={onReport} hitSlop={8} accessibilityLabel="Report message">
+            <Ionicons name="flag-outline" size={14} color={colors.muted} />
+          </Pressable>
+        ) : null}
         <Text style={[styles.stamp, mine && styles.mineMeta]}>{formatTimeAgo(message.createdAt)}</Text>
       </View>
     </View>

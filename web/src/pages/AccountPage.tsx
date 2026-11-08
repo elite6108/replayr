@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { BlockedAccounts } from "../components/BlockedAccounts";
 import { Seo } from "../components/Seo";
 import { SocialAvatar } from "../components/SocialAvatar";
 import { deleteOwnAvatar, uploadOwnAvatar } from "../lib/avatars";
@@ -7,6 +8,7 @@ import { deleteAccount } from "../lib/api";
 import { oauthProvider, oauthReauthIsFresh } from "../lib/oauthReauth";
 import { isAdminSession } from "../lib/admin";
 import { fetchBillingStatus, startCheckout, startPortal, type BillingStatus } from "../lib/billing";
+import { SUPPORT_EMAIL } from "../lib/branding";
 import { useAuth } from "../lib/auth";
 import { formatBytes, planLabel } from "../lib/format";
 import { getSupabase } from "../lib/supabase";
@@ -296,6 +298,14 @@ export function AccountPage() {
           </p>
         </div>
       ) : null}
+      <section>
+        <h2>Support</h2>
+        <p className="muted">Questions about your account, a report, or a charge.</p>
+        <a className="btn" href={`mailto:${SUPPORT_EMAIL}`}>
+          {SUPPORT_EMAIL}
+        </a>
+      </section>
+      <BlockedAccounts />
       <div className="row">
         {profile?.username ? (
           <Link className="btn" to={`/u/${encodeURIComponent(profile.username)}`}>

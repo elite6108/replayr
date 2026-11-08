@@ -372,6 +372,109 @@ export function fetchWaitlistCampaigns(token: string) {
   return adminFetch<{ campaigns: WaitlistCampaign[] }>("/v1/admin/waitlist/campaigns", token);
 }
 
+export interface ModerationPerson {
+  id: string;
+  username: string | null;
+  displayName: string;
+  suspended: boolean;
+}
+
+export interface ModerationReport {
+  id: string;
+  status: "open" | "actioned" | "dismissed";
+  reason: string;
+  details: string | null;
+  createdAt: string;
+  ageHours: number;
+  overdue: boolean;
+  targetType: string;
+  targetId: string;
+  preview: string;
+  targetPath: string | null;
+  reporter: ModerationPerson;
+  targetUser: ModerationPerson | null;
+  resolution: string | null;
+  resolvedAt: string | null;
+}
+
+export type ModerationResolveAction = "dismiss" | "remove_content" | "suspend_user" | "remove_and_suspend";
+
+export interface ModerationTerm {
+  id: string;
+  term: string;
+  normalized: string;
+  category: "profanity" | "slur" | "sexual" | "threat" | "other";
+  note: string | null;
+  createdAt: string;
+  retiredAt: string | null;
+}
+
+export function fetchModerationReports(
+  token: string,
+  params: { status?: "open" | "actioned" | "dismissed" | "all"; page?: number } = {},
+) {
+  const query = new URLSearchParams();
+  if (params.status) query.set("status", params.status);
+  if (params.page) query.set("page", String(params.page));
+  const suffix = query.toString() ? `?${query}` : "";
+  return adminFetch<{
+    reports: ModerationReport[];
+    total: number;
+    openTotal: number;
+    page: number;
+    limit: number;
+    slaHours: number;
+  }>(`/v1/admin/moderation/reports${suffix}`, token);
+}
+
+export function resolveModerationReport(
+  token: string,
+  reportId: string,
+  body: { action: ModerationResolveAction; note?: string },
+) {
+  return adminFetch<{ ok: boolean; status: string }>(`/v1/admin/moderation/reports/${reportId}/resolve`, token, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function unsuspendModerationUser(token: string, userId: string) {
+  return adminFetch<{ ok: boolean }>(`/v1/admin/moderation/users/${userId}/unsuspend`, token, { method: "POST" });
+}
+
+export function fetchModerationTerms(
+  token: string,
+  params: { q?: string; category?: string; state?: "active" | "retired" | "all"; page?: number } = {},
+) {
+  const query = new URLSearchParams();
+  if (params.q) query.set("q", params.q);
+  if (params.category) query.set("category", params.category);
+  if (params.state) query.set("state", params.state);
+  if (params.page) query.set("page", String(params.page));
+  const suffix = query.toString() ? `?${query}` : "";
+  return adminFetch<{ terms: ModerationTerm[]; total: number; page: number; limit: number }>(
+    `/v1/admin/moderation/terms${suffix}`,
+    token,
+  );
+}
+
+export function createModerationTerm(
+  token: string,
+  body: { term: string; category: ModerationTerm["category"]; note?: string },
+) {
+  return adminFetch<{ term: ModerationTerm }>("/v1/admin/moderation/terms", token, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function setModerationTermRetired(token: string, termId: string, retired: boolean) {
+  return adminFetch<{ term: ModerationTerm }>(`/v1/admin/moderation/terms/${termId}`, token, {
+    method: "PATCH",
+    body: JSON.stringify({ retired }),
+  });
+}
+
 export function sendWaitlistCampaign(
   token: string,
   body: {

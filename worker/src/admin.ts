@@ -28,6 +28,7 @@ import { deleteBunnyAssetForClip } from "./watermark";
 import { assertPermission, requireStaffActor, type StaffActor } from "./staffAuth";
 import { permissionForAdminRoute } from "./staffPermissions";
 import { handleAnalyticsUserAdmin } from "./analyticsUserAdmin";
+import { handleModerationAdmin } from "./moderation";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PLAN_SLUGS = new Set(["free", "pro", "pro_plus"]);
@@ -119,6 +120,8 @@ export async function handleAdmin(
   const staff = await requireStaffActor(request, env);
   await authorizeAdminRoute(staff, request, url);
   const actor: AdminActor = { id: staff.userId, serviceKey: staff.serviceKey, requestId: staff.requestId };
+  const moderation = await handleModerationAdmin(request, env, url, staff);
+  if (moderation) return moderation;
   const waitlist = await handleWaitlistAdmin(request, env, url, staff, ctx);
   if (waitlist) return waitlist;
   const announcements = await handleAdminAnnouncements(request, env, url, actor);

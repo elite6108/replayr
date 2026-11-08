@@ -25,6 +25,7 @@ export type ChatMessage = {
   createdAt: string;
   sender: SocialUser;
   clip: MessageClip | null;
+  removed?: boolean;
 };
 
 export type ConversationSummary = {
@@ -37,6 +38,7 @@ export type ConversationSummary = {
   members: Array<SocialUser & { role: ConversationRole }>;
   lastMessage: ChatMessage | null;
   unreadCount: number;
+  blocked?: boolean;
 };
 
 export type ConversationsResponse = {
@@ -103,6 +105,7 @@ export function threadHref(conversationId: string): Href {
 
 export function lastMessagePreview(message: ChatMessage | null) {
   if (!message) return "No messages yet";
+  if (message.removed) return "Message removed";
   if (message.body?.trim()) return message.body.trim();
   if (message.clip) return message.clip.title || "Sent a clip";
   return "No messages yet";

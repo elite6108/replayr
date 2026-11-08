@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Avatar } from "@/components/Avatar";
+import { confirmBlockAccount, ReportContentSheet } from "@/components/ReportContentSheet";
 import { ClipThumb } from "@/components/ClipThumb";
 import { Button, Notice } from "@/components/ui";
 import {
@@ -41,6 +42,7 @@ export function UserProfileView({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<"clips" | "posts">("clips");
+  const [report, setReport] = useState<{ type: "profile" | "post"; id: string } | null>(null);
   const [draft, setDraft] = useState("");
   const [attachId, setAttachId] = useState("");
 
@@ -205,6 +207,16 @@ export function UserProfileView({
               {follow.mutual ? (
                 <Button label="Message" kind="primary" disabled={busy} onPress={() => void openDm()} />
               ) : null}
+              {token ? (
+                <>
+                  <Button label="Report" disabled={busy} onPress={() => setReport({ type: "profile", id: profile.user.id })} />
+                  <Button
+                    label="Block"
+                    disabled={busy}
+                    onPress={() => confirmBlockAccount(token, profile.user.id)}
+                  />
+                </>
+              ) : null}
             </>
           )}
         </View>
@@ -299,6 +311,9 @@ export function UserProfileView({
                     <View key={post.id} style={styles.clip}>
                       <Text style={styles.clipTitle}>{post.body}</Text>
                       <Text style={styles.muted}>{new Date(post.createdAt).toLocaleString()}</Text>
+                      {!mine && token ? (
+                        <Button label="Report" onPress={() => setReport({ type: "post", id: post.id })} />
+                      ) : null}
                       {mine && token ? (
                         <Button
                           label="Delete"
@@ -324,6 +339,14 @@ export function UserProfileView({
           )}
         </>
       )}
+      {report && profile ? (
+        <ReportContentSheet
+          targetType={report.type}
+          targetId={report.id}
+          subjectUserId={profile.user.id}
+          onClose={() => setReport(null)}
+        />
+      ) : null}
     </ScrollView>
   );
 }

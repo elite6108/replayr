@@ -247,6 +247,11 @@ function TermsBody() {
         <li>Malware, phishing, or attacks on our infrastructure or other users.</li>
         <li>Bypass plan limits, scrape the service, or impersonate Replayr.</li>
       </ul>
+      <p>
+        Replayr has no tolerance for objectionable content. Text is filtered before it is posted. People can report
+        clips, comments, posts, profiles, messages, and screenshots, and can block other accounts. Reports are
+        reviewed within 24 hours.
+      </p>
       <p>We may remove content or close accounts that violate this section.</p>
 
       <h2>8. Cloud storage and plans</h2>

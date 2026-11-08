@@ -28,6 +28,7 @@ export interface ClipComment {
   createdAt: string;
   mine: boolean;
   canDelete: boolean;
+  authorId?: string;
   author: ClipAuthor;
 }
 

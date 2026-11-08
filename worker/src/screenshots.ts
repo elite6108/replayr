@@ -364,13 +364,15 @@ async function publicScreenshot(env: Env, slug: string): Promise<Response> {
   const rows = await serviceRest<ScreenshotRow[]>(
     env,
     "GET",
-    `/screenshots?slug=eq.${slug}&status=eq.ready&select=id,slug,width,height,file_size_bytes,created_at,status`,
+    `/screenshots?slug=eq.${slug}&status=eq.ready&select=id,user_id,slug,width,height,file_size_bytes,created_at,status`,
   );
   const row = rows[0];
   if (!row || row.status !== "ready") {
     throw new HttpError(404, "That screenshot was not found.");
   }
   return json({
+    id: row.id,
+    authorId: row.user_id,
     slug: row.slug,
     width: row.width,
     height: row.height,

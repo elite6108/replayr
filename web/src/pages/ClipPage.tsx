@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { ClipSocial } from "../components/ClipSocial";
 import { OpenInReplayrBanner } from "../components/OpenInReplayrBanner";
 import { SendClipSheet } from "../components/SendClipSheet";
+import { SafetyActions } from "../components/SafetyActions";
 import { Seo } from "../components/Seo";
 import { PlayerVideo } from "../components/ReplayrWatermark";
 import { downloadCloudClip, fetchPlayback, type PlaybackClip } from "../lib/api";
@@ -112,6 +113,9 @@ export function ClipPage() {
               <button className="btn" type="button" onClick={() => setSendOpen(true)}>
                 Send
               </button>
+            ) : null}
+            {session && clip.id && clip.mine === false ? (
+              <SafetyActions targetType="clip" targetId={clip.id} subjectUserId={clip.authorId} showBlock />
             ) : null}
           </div>
           {downloadProgress ? (

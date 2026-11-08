@@ -5,6 +5,7 @@ import { AdminAuditPage } from "./AdminAuditPage";
 import { AdminBillingPage } from "./AdminBillingPage";
 import { AdminCreatorsPage } from "./AdminCreatorsPage";
 import { AdminErrorsPage } from "./AdminErrorsPage";
+import { AdminModerationPage } from "./moderation/AdminModerationPage";
 import { AdminGamesPage } from "./AdminGamesPage";
 import { AdminLayout } from "./AdminLayout";
 import { AdminOverviewPage } from "./AdminOverviewPage";
@@ -67,6 +68,7 @@ export function AdminApp() {
         <Route path="billing" element={<AdminBillingPage />} />
         <Route path="announcements" element={<AdminAnnouncementsPage />} />
         <Route path="errors" element={<AdminErrorsPage />} />
+        <Route path="moderation" element={<AdminModerationPage />} />
         <Route path="games" element={<AdminGamesPage />} />
         <Route path="analytics" element={<AnalyticsHub />}>
           <Route index element={<AnalyticsOverviewPage />} />

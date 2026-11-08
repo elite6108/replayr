@@ -13,6 +13,7 @@ export interface ClipComment {
   createdAt: string;
   mine: boolean;
   canDelete: boolean;
+  authorId?: string;
   author: ClipAuthor;
 }
 
@@ -28,6 +29,8 @@ export interface PlaybackClip {
   playbackUrl: string;
   thumbnailUrl?: string | null;
   author?: ClipAuthor;
+  authorId?: string;
+  mine?: boolean;
   likeCount?: number;
   commentCount?: number;
   liked?: boolean;
@@ -235,6 +238,8 @@ export async function fetchPublicScreenshot(slug: string): Promise<PublicScreens
 }
 
 export interface PublicScreenshot {
+  id?: string;
+  authorId?: string;
   slug: string;
   width: number;
   height: number;

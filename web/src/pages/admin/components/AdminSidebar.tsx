@@ -9,6 +9,7 @@ import {
   IconErrors,
   IconGames,
   IconOverview,
+  IconShield,
   IconUsers,
 } from "./adminIcons";
 
@@ -39,6 +40,9 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
     can("users.billing.edit") ? { to: "/admin/billing", label: "Billing", end: true, icon: IconBilling } : null,
     can("announcements.view") ? { to: "/admin/announcements", label: "Announcements", end: true, icon: IconAnnouncements } : null,
     can("errors.view") ? { to: "/admin/errors", label: "Errors", end: true, icon: IconErrors } : null,
+    can("moderation.view") || can("moderation.act") || can("moderation.terms")
+      ? { to: "/admin/moderation", label: "Moderation", end: true, icon: IconShield }
+      : null,
     can("games.manage") ? { to: "/admin/games", label: "Games", end: true, icon: IconGames } : null,
     can("analytics.view") ? { to: "/admin/analytics", label: "Analytics", icon: IconChart } : null,
     can("staff.access") || can("staff.members.view") || can("staff.roles.view") || can("audit.view")

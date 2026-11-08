@@ -77,6 +77,15 @@ export function AdminPage() {
         >
           Open web console
         </button>
+        <button
+          className="btn"
+          type="button"
+          onClick={() => {
+            void import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(`${consoleUrl()}/moderation`));
+          }}
+        >
+          Moderation queue
+        </button>
       </PageHeader>
       <div className="tabs admin-tabs" role="tablist">
         {(

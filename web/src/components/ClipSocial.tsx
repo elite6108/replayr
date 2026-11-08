@@ -10,6 +10,7 @@ import {
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { formatCount, formatHandle } from "../lib/format";
+import { SafetyActions } from "./SafetyActions";
 
 export function ClipSocial({
   slug,
@@ -139,6 +140,9 @@ export function ClipSocial({
                   <button className="btn ghost" type="button" onClick={() => void remove(comment)}>
                     Delete
                   </button>
+                ) : null}
+                {!comment.mine ? (
+                  <SafetyActions targetType="comment" targetId={comment.id} subjectUserId={comment.authorId} />
                 ) : null}
               </li>
             ))}

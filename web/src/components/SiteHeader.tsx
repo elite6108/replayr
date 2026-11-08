@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { isAdminSession } from "../lib/admin";
 import { useAuth } from "../lib/auth";
-import { WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
+import { SUPPORT_EMAIL, WINDOWS_DOWNLOAD_PATH } from "../lib/branding";
 import { useStaffPermissions } from "../lib/staff";
 import { useSocialUnread } from "../lib/socialUnread";
 import { AppDownloadLink } from "./analytics/AppDownloadLink";
@@ -56,6 +56,7 @@ export function SiteHeader() {
           <a href={home ? "#how" : "/#how"} onClick={closeMenu}>How it works</a>
           <NavLink to="/library" onClick={closeMenu}>Library</NavLink>
           <a href={home ? "#pricing" : "/#pricing"} onClick={closeMenu}>Pricing</a>
+          <a href={`mailto:${SUPPORT_EMAIL}`} onClick={closeMenu}>Help</a>
           {signedIn ? (
             <>
               <NavLink className="nav-with-pip" to="/friends" onClick={closeMenu}>

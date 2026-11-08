@@ -14,6 +14,7 @@ export function PlayerMoreSheet({
   onEdit,
   onVisibility,
   onDelete,
+  onReport,
   onClose,
 }: {
   title: string;
@@ -25,6 +26,7 @@ export function PlayerMoreSheet({
   onEdit?: () => void;
   onVisibility: (visibility: "public" | "unlisted" | "private") => void;
   onDelete: () => void;
+  onReport?: () => void;
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -65,6 +67,7 @@ export function PlayerMoreSheet({
                 <Row label="Delete" danger onPress={() => onPanel("delete")} />
               </>
             ) : null}
+            {onReport ? <Row label="Report" onPress={onReport} /> : null}
             <Row label="Cancel" muted onPress={onClose} />
           </>
         ) : null}

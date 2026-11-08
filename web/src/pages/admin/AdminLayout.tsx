@@ -19,6 +19,7 @@ const pagePermission = (pathname: string): string | null => {
   if (pathname.startsWith("/admin/creators")) return "creators.view";
   if (pathname.startsWith("/admin/announcements")) return "announcements.view";
   if (pathname.startsWith("/admin/errors")) return "errors.view";
+  if (pathname.startsWith("/admin/moderation")) return null;
   if (pathname.startsWith("/admin/staff")) return "staff.members.view";
   if (pathname.startsWith("/admin/roles")) return "staff.roles.view";
   if (pathname.startsWith("/admin/audit")) return "audit.view";
@@ -28,6 +29,7 @@ const pagePermission = (pathname: string): string | null => {
 
 function canOpenAdminPath(pathname: string, can: (key: string) => boolean, canAny: (...keys: string[]) => boolean) {
   if (pathname === "/admin/people") return canAny("users.view", "waitlist.view", "creators.view");
+  if (pathname.startsWith("/admin/moderation")) return canAny("moderation.view", "moderation.act", "moderation.terms");
   if (pathname === "/admin/library") return canAny("clips.view", "users.quota.edit");
   const permission = pagePermission(pathname);
   return permission ? can(permission) : false;

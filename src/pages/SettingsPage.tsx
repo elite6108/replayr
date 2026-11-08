@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
-import { publicSiteUrl, APP_NAME } from "../branding";
+import { publicSiteUrl, APP_NAME, SUPPORT_EMAIL } from "../branding";
+import { BlockedAccounts } from "../components/settings/BlockedAccounts";
 import { CloudSettings } from "../components/settings/CloudSettings";
 import { PageHeader } from "../components/common/PageHeader";
 import { IrEncoderDetails } from "../components/common/IrEncoderDetails";
@@ -460,6 +461,21 @@ function GeneralPane({
           ) : null}
         </div>
       </div>
+
+      <div className="settings-group">
+        <div className="settings-group-label">Support</div>
+        <div className="setting-row">
+          <span>
+            Contact support
+            <small>{SUPPORT_EMAIL}</small>
+          </span>
+          <a className="settings-link" href={`mailto:${SUPPORT_EMAIL}`}>
+            Email
+          </a>
+        </div>
+      </div>
+
+      <BlockedAccounts />
 
       <div className="settings-group">
         <div className="settings-group-label">Legal</div>

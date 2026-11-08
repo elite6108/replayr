@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { PageHeader } from "../components/common/PageHeader";
 import { PlayerVideo } from "../components/common/ReplayrWatermark";
+import { SafetyActions } from "../components/common/SafetyActions";
 import { SocialAvatar } from "../components/common/SocialAvatar";
 import { clipShareUrl } from "../branding";
 import {
@@ -184,6 +185,12 @@ export function UserProfilePage() {
                           Message
                         </button>
                       ) : null}
+                      <SafetyActions
+                        targetType="profile"
+                        targetId={profile.user.id}
+                        subjectUserId={profile.user.id}
+                        showBlock
+                      />
                     </>
                   )}
                 </div>
@@ -292,6 +299,9 @@ export function UserProfilePage() {
                   <article className="panel" key={post.id}>
                     <p>{post.body}</p>
                     <p className="muted">{new Date(post.createdAt).toLocaleString()}</p>
+                    {!mine && token ? (
+                      <SafetyActions targetType="post" targetId={post.id} subjectUserId={profile.user.id} />
+                    ) : null}
                     {mine && token ? (
                       <button
                         className="btn"

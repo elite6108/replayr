@@ -74,6 +74,7 @@ export async function handleFollows(request: Request, env: Env, url: URL): Promi
   const decline = path.match(/^\/v1\/follow-requests\/([^/]+)$/);
   if (decline?.[1] && method === "DELETE") return declineFollowRequest(request, env, decline[1]);
 
+  if (path === "/v1/blocks" && method === "GET") return listBlockedAccounts(request, env);
   if (path === "/v1/follows/requests" && method === "GET") return listFollowRequests(request, env);
   if (path === "/v1/following" && method === "GET") return listFollowing(request, env, url);
   if (path === "/v1/followers" && method === "GET") return listFollowers(request, env, url);
@@ -268,6 +269,48 @@ export async function blockTargetById(env: Env, actorId: string, targetId: strin
   } catch {
     // Block is already authoritative for authorization.
   }
+}
+
+export async function blockedEitherWay(env: Env, left: string, right: string): Promise<boolean> {
+  if (!left || !right || left === right) return false;
+  const rows = await serviceRest<Array<{ blocker_id: string }>>(
+    env,
+    "GET",
+    `/blocks?or=(and(blocker_id.eq.${left},blocked_id.eq.${right}),and(blocker_id.eq.${right},blocked_id.eq.${left}))&select=blocker_id&limit=1`,
+  );
+  return rows.length > 0;
+}
+
+export async function listBlockedAccounts(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const rows = await serviceRest<Array<{ blocked_id: string; created_at: string }>>(
+    env,
+    "GET",
+    `/blocks?blocker_id=eq.${user.id}&select=blocked_id,created_at&order=created_at.desc&limit=200`,
+  );
+  if (rows.length === 0) return json({ users: [] });
+  const profiles = await serviceRest<FollowProfile[]>(
+    env,
+    "GET",
+    `/profiles?id=in.(${rows.map((row) => row.blocked_id).join(",")})&select=${PROFILE_SELECT}`,
+  );
+  const byId = new Map(profiles.map((profile) => [profile.id, profile]));
+  return json({
+    users: rows.flatMap((row) => {
+      const profile = byId.get(row.blocked_id);
+      if (!profile) return [];
+      return [
+        {
+          id: profile.id,
+          username: profile.username,
+          displayName: profile.display_name || profile.username || "Player",
+          avatarUrl: profile.avatar_url,
+          verified: Boolean(profile.is_verified),
+          blockedAt: row.created_at,
+        },
+      ];
+    }),
+  });
 }
 
 export async function unblockTargetById(env: Env, actorId: string, targetId: string): Promise<void> {

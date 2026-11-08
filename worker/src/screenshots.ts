@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
-import { assertDistributedRateLimit, assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit } from "./rateLimit";
 import {
   objectUrl,
   r2Client,
@@ -385,7 +385,7 @@ async function deleteOwnedScreenshot(
   ctx: WaitCtx,
   id: string,
 ): Promise<Response> {
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   if (!UUID.test(id)) throw new HttpError(400, "That screenshot was not found.");
   const key = await rpc<string | null>(env, "delete_screenshot", { p_user_id: user.id, p_id: id });
   observeServerAnalytics(env, SERVER_ANALYTICS_EVENTS.screenshotDeleted, {
@@ -408,7 +408,7 @@ async function serveScreenshotPage(
   const found = await lookupReady(env, slug);
   if (!found) {
     try {
-      assertRateLimit(request, "screenshot-miss", 30);
+      await assertDistributedRateLimit(request, env.PUBLIC_MISS_RATE_LIMITER, "screenshot-miss", 30);
     } catch (caught) {
       if (caught instanceof HttpError && caught.status === 429) {
         throw new HttpError(429, caught.message, "rate_limited");
@@ -448,7 +448,7 @@ async function serveScreenshotPng(request: Request, env: Env, slug: string): Pro
   const row = await lookupReady(env, slug);
   if (!row || !ownedScreenshotKey(row.user_id, row.storage_key)) {
     try {
-      assertRateLimit(request, "screenshot-miss", 30);
+      await assertDistributedRateLimit(request, env.PUBLIC_MISS_RATE_LIMITER, "screenshot-miss", 30);
     } catch (caught) {
       if (caught instanceof HttpError && caught.status === 429) {
         throw new HttpError(429, caught.message, "rate_limited");

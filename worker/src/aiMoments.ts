@@ -106,12 +106,12 @@ export function mp4HasFtyp(bytes: Uint8Array): boolean {
   return findBox(bytes, 0, bytes.length, "ftyp") != null;
 }
 
-/** 320 kbps. A larger mdat cannot be audio of the declared duration. */
+/** 320 kbps. The whole part, including container and trailing bytes, must fit the duration. */
 const MAX_AUDIO_BYTES_PER_SECOND = 40_000;
 
 /**
  * Duration to reserve before transcription. mvhd, each track mdhd, and stts must
- * agree within two seconds, and mdat must fit that duration at 320 kbps.
+ * agree within two seconds, and the entire part must fit that duration at 320 kbps.
  */
 export function billableAudioMs(bytes: Uint8Array): number | null {
   const movieMs = mp4DurationMs(bytes);
@@ -140,10 +140,7 @@ export function billableAudioMs(bytes: Uint8Array): number | null {
   const max = Math.max(...durations);
   const min = Math.min(...durations);
   if (!Number.isFinite(max) || !Number.isFinite(min) || max - min > 2_000) return null;
-  const mdatBytes = childBoxes(bytes, 0, bytes.length)
-    .filter((box) => box.type === "mdat")
-    .reduce((sum, box) => sum + (box.end - box.start), 0);
-  if (mdatBytes > Math.max(1, Math.ceil(max / 1000)) * MAX_AUDIO_BYTES_PER_SECOND) return null;
+  if (bytes.length > Math.max(1, Math.ceil(max / 1000)) * MAX_AUDIO_BYTES_PER_SECOND) return null;
   return max;
 }
 

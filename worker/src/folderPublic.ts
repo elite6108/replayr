@@ -3,7 +3,7 @@ import { recordFolderPublicDownloadEvent } from "./analyticsDownloads";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
 import { recordProductEvent } from "./metrics";
-import { assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit } from "./rateLimit";
 import {
   FOLDER_SELECT,
   FOLDER_UUID,
@@ -57,17 +57,17 @@ export async function handlePublicFolders(request: Request, env: Env, url: URL):
   if (!url.pathname.startsWith("/v1/public/folders")) return null;
   const download = url.pathname.match(/^\/v1\/public\/folders\/([^/]+)\/clips\/([^/]+)\/download$/);
   if (download?.[1] && download[2] && request.method === "GET") {
-    assertRateLimit(request, "public-folder-download", 20);
+    await assertDistributedRateLimit(request, env.PUBLIC_FOLDER_DOWNLOAD_RATE_LIMITER, "public-folder-download", 20);
     return publicFolderDownload(env, download[1], download[2]);
   }
   const playback = url.pathname.match(/^\/v1\/public\/folders\/([^/]+)\/clips\/([^/]+)\/playback$/);
   if (playback?.[1] && playback[2] && request.method === "GET") {
-    assertRateLimit(request, "public-folder-play", 60);
+    await assertDistributedRateLimit(request, env.PUBLIC_FOLDER_PLAY_RATE_LIMITER, "public-folder-play", 60);
     return publicFolderPlayback(env, playback[1], playback[2]);
   }
   const one = url.pathname.match(/^\/v1\/public\/folders\/([^/]+)$/);
   if (one?.[1] && request.method === "GET") {
-    assertRateLimit(request, "public-folder", 60);
+    await assertDistributedRateLimit(request, env.PUBLIC_FOLDER_RATE_LIMITER, "public-folder", 60);
     return getPublicFolder(env, one[1]);
   }
   return json({ error: NOT_FOUND }, 404);

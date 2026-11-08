@@ -582,7 +582,12 @@ export async function assertAccountDeleteAllowed(
   }
 }
 
-/** Stops billing before an account is removed. A Stripe failure deletes nothing. */
+/**
+ * Stops billing before an account is removed. A Stripe failure deletes nothing.
+ * The Stripe customer, invoices, and charges stay. Account deletion does not call
+ * DELETE /v1/customers. The local billing_customers row is removed only because
+ * its user id cascades when the auth user is deleted.
+ */
 export async function cancelActiveSubscription(env: Env, userId: string): Promise<void> {
   if (!env.STRIPE_SECRET_KEY) return;
   const rows = await serviceRest<SubscriptionRow[]>(

@@ -6,7 +6,7 @@ import { isExpoPushToken } from "./push";
 export async function handlePush(request: Request, env: Env, url: URL): Promise<Response | null> {
   if (!url.pathname.startsWith("/v1/push")) return null;
   if (url.pathname !== "/v1/push/tokens") throw new HttpError(404, "Not found.");
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
 
   if (request.method === "POST") {
     const body = (await request.json().catch(() => ({}))) as { expoPushToken?: string; platform?: string };

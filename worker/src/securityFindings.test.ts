@@ -10,7 +10,14 @@ describe("oauth reauth", () => {
   it("accepts a provider sign-in from the last ten minutes only", () => {
     const now = Date.now();
     expect(oauthReauthIsFresh(jwt({ amr: [{ method: "oauth", timestamp: Math.floor(now / 1000) }] }), now)).toBe(true);
+    expect(oauthReauthIsFresh(jwt({ iat: Math.floor(now / 1000) }), now)).toBe(false);
     expect(oauthReauthIsFresh(jwt({ amr: [{ method: "password", timestamp: Math.floor(now / 1000) }] }), now)).toBe(false);
+    expect(
+      oauthReauthIsFresh(
+        jwt({ iat: Math.floor(now / 1000), amr: [{ method: "oauth", timestamp: Math.floor(now / 1000) - 11 * 60 }] }),
+        now,
+      ),
+    ).toBe(false);
     expect(
       oauthReauthIsFresh(jwt({ amr: [{ method: "google", timestamp: Math.floor(now / 1000) - 11 * 60 }] }), now),
     ).toBe(false);
@@ -79,6 +86,34 @@ describe("account delete password", () => {
     expect(hosts).not.toContain("api.stripe.com");
   });
 
+  it("accepts a recent oauth claim without a password grant", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ identities: [{ provider: "google" }] }), { status: 200 });
+    });
+    await expect(assertAccountDeleteAllowed(env, "user-1", freshOAuthToken(), {})).resolves.toBeUndefined();
+    expect(calls.some((call) => call.includes("grant_type=password") || call.includes("api.stripe.com"))).toBe(false);
+  });
+
+  it("rejects missing or stale provider metadata before Stripe", async () => {
+    const hosts: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      hosts.push(new URL(String(input)).hostname);
+      return new Response(JSON.stringify({ identities: [{ provider: "google" }] }), { status: 200 });
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const tokens = [
+      jwt({ iat: now }),
+      jwt({ amr: [{ method: "password", timestamp: now }] }),
+      jwt({ iat: now, amr: [{ method: "oauth", timestamp: now - 11 * 60 }] }),
+    ];
+    for (const token of tokens) {
+      await expect(assertAccountDeleteAllowed(env, "user-1", token, {})).rejects.toMatchObject({ status: 401 });
+    }
+    expect(hosts).not.toContain("api.stripe.com");
+  });
+
   it("rejects an OAuth account until the provider sign-in is fresh", async () => {
     const hosts: string[] = [];
     vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
@@ -119,6 +154,44 @@ describe("account delete password", () => {
     );
     expect(denied.status).toBe(429);
     expect(hosts.some((call) => call.includes("/admin/users/") || call.includes("api.stripe.com"))).toBe(false);
+  });
+
+  it("cancels the subscription and keeps the Stripe customer", async () => {
+    const stripe: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("api.stripe.com")) {
+        stripe.push(`${method} ${new URL(url).pathname}`);
+        return new Response("{}", { status: 200 });
+      }
+      if (url.includes("/auth/v1/user") && !url.includes("/admin/")) {
+        return new Response(JSON.stringify({ id: "11111111-1111-4111-8111-111111111111" }), { status: 200 });
+      }
+      if (url.includes("/admin/users/") && method === "DELETE") return new Response(null, { status: 200 });
+      if (url.includes("/admin/users/")) {
+        return new Response(JSON.stringify({ identities: [{ provider: "google" }] }), { status: 200 });
+      }
+      if (url.includes("/billing_subscriptions")) {
+        return new Response(JSON.stringify([{ stripe_subscription_id: "sub_123", status: "active" }]), { status: 200 });
+      }
+      return new Response("[]", { status: 200 });
+    });
+    const response = await worker.fetch(
+      new Request("https://replayr.tv/v1/account/delete", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${freshOAuthToken()}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ confirm: "DELETE" }),
+      }),
+      deleteEnv({ STRIPE_SECRET_KEY: "sk_test" }),
+      { waitUntil() {} },
+    );
+    expect(response.status).toBe(200);
+    expect(stripe).toEqual(["DELETE /v1/subscriptions/sub_123"]);
+    expect(stripe.some((call) => call.includes("/v1/customers"))).toBe(false);
   });
 });
 

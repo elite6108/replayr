@@ -77,6 +77,12 @@ function speechAudio(mvhdMs = 2000, mdhdMs = 2000, mdatBytes = 32): Uint8Array {
   ]);
 }
 
+function withTrailer(audio: Uint8Array, extra: number): Uint8Array {
+  const padded = new Uint8Array(audio.length + extra);
+  padded.set(audio);
+  return padded;
+}
+
 function concat(parts: Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
   let offset = 0;
@@ -153,6 +159,7 @@ describe("moment bounds", () => {
     expect(billableAudioMs(speechAudio())).toBe(2000);
     expect(billableAudioMs(speechAudio(2000, 10_000))).toBeNull();
     expect(billableAudioMs(speechAudio(2000, 2000, 80_001))).toBeNull();
+    expect(billableAudioMs(withTrailer(speechAudio(), 80_000))).toBeNull();
     expect(billableAudioMs(sampleAudio())).toBeNull();
   });
 
@@ -301,6 +308,16 @@ describe("ai moment routes", () => {
     expect((caught as HttpError).status).toBe(403);
     expect((caught as HttpError).message).toMatch(/limit reached/i);
     expect(calls.some((call) => call.includes("api.openai.com"))).toBe(false);
+  });
+
+  it("rejects trailing bytes the duration cannot hold before calling OpenAI", async () => {
+    const calls: string[] = [];
+    stubWorker(calls, { plan: "pro" });
+    const caught = await postAudio("trailer-token", withTrailer(speechAudio(), 80_000)).catch((error: unknown) => error);
+    expect(caught).toBeInstanceOf(HttpError);
+    expect((caught as HttpError).status).toBe(400);
+    expect(calls.some((call) => call.includes("api.openai.com"))).toBe(false);
+    expect(calls.some((call) => call.includes("reserve_ai_seconds"))).toBe(false);
   });
 
   it("rejects a short movie header that disagrees with the track before calling OpenAI", async () => {

@@ -14,6 +14,13 @@ export interface Env {
   PLAYBACK_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
   GAME_SEARCH_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
   ACCOUNT_DELETE_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  PRESENCE_ANON_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  PRESENCE_AUTH_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  PUBLIC_FOLDER_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  PUBLIC_FOLDER_PLAY_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  PUBLIC_FOLDER_DOWNLOAD_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  PUBLIC_MISS_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  PUBLIC_FEED_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;

@@ -1,7 +1,11 @@
-// Local capacity probe for playback URL signing and game search.
-// Refuses any host other than localhost or 127.0.0.1. This is not a hosted capacity number.
+// Local capacity probe. Refuses any host other than localhost or 127.0.0.1.
+// Presence and upload continuation are omitted unless --include-writes is passed,
+// because a local worker can still be pointed at a hosted database.
+// This is not a hosted capacity number.
 
-const base = process.argv[2] ?? "http://127.0.0.1:8787";
+const args = process.argv.slice(2).filter((arg) => arg !== "--include-writes");
+const includeWrites = process.argv.includes("--include-writes");
+const base = args[0] ?? "http://127.0.0.1:8787";
 const origin = new URL(base);
 if (origin.hostname !== "localhost" && origin.hostname !== "127.0.0.1") {
   console.error("Refusing to load-test a non-local host.");
@@ -10,13 +14,31 @@ if (origin.hostname !== "localhost" && origin.hostname !== "127.0.0.1") {
 
 const requests = 40;
 const concurrency = 8;
-const paths = ["/v1/games/search?q=replay", "/v1/clips/abcdef"];
+const probes = [
+  { method: "GET", path: "/v1/games/search?q=replay" },
+  { method: "GET", path: "/v1/clips/abcdef" },
+  { method: "GET", path: "/v1/games/catalog" },
+];
+if (includeWrites) {
+  probes.push(
+    { method: "POST", path: "/v1/presence/ping", body: JSON.stringify({ path: "/" }) },
+    {
+      method: "POST",
+      path: "/v1/clips/11111111-1111-4111-8111-111111111111/upload-parts",
+      body: JSON.stringify({ partNumbers: [1] }),
+    },
+  );
+}
 
-async function probe(path) {
+async function probe(item) {
   const started = performance.now();
-  const response = await fetch(new URL(path, origin));
+  const response = await fetch(new URL(item.path, origin), {
+    method: item.method,
+    headers: item.body ? { "content-type": "application/json" } : undefined,
+    body: item.body,
+  });
   await response.arrayBuffer().catch(() => undefined);
-  return { path, status: response.status, ms: performance.now() - started };
+  return { path: item.path, status: response.status, ms: performance.now() - started };
 }
 
 function percentile(values, ratio) {
@@ -26,14 +48,14 @@ function percentile(values, ratio) {
   return sorted[index];
 }
 
-for (const path of paths) {
+for (const item of probes) {
   const results = [];
   let next = 0;
   async function worker() {
     while (next < requests) {
       const current = next;
       next += 1;
-      results[current] = await probe(path);
+      results[current] = await probe(item);
     }
   }
   const started = performance.now();
@@ -44,7 +66,8 @@ for (const path of paths) {
   const times = results.map((result) => result.ms);
   console.log(
     JSON.stringify({
-      target: new URL(path, origin).toString(),
+      target: new URL(item.path, origin).toString(),
+      method: item.method,
       requests,
       concurrency,
       elapsedMs: Math.round(elapsed),

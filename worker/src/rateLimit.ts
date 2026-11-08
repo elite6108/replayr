@@ -72,6 +72,13 @@ export function allowAllLimiters(): {
   PLAYBACK_RATE_LIMITER: RateLimiterBinding;
   GAME_SEARCH_RATE_LIMITER: RateLimiterBinding;
   ACCOUNT_DELETE_RATE_LIMITER: RateLimiterBinding;
+  PRESENCE_ANON_RATE_LIMITER: RateLimiterBinding;
+  PRESENCE_AUTH_RATE_LIMITER: RateLimiterBinding;
+  PUBLIC_FOLDER_RATE_LIMITER: RateLimiterBinding;
+  PUBLIC_FOLDER_PLAY_RATE_LIMITER: RateLimiterBinding;
+  PUBLIC_FOLDER_DOWNLOAD_RATE_LIMITER: RateLimiterBinding;
+  PUBLIC_MISS_RATE_LIMITER: RateLimiterBinding;
+  PUBLIC_FEED_RATE_LIMITER: RateLimiterBinding;
 } {
   const binding = { limit: async () => ({ success: true }) };
   return {
@@ -88,5 +95,12 @@ export function allowAllLimiters(): {
     PLAYBACK_RATE_LIMITER: binding,
     GAME_SEARCH_RATE_LIMITER: binding,
     ACCOUNT_DELETE_RATE_LIMITER: binding,
+    PRESENCE_ANON_RATE_LIMITER: binding,
+    PRESENCE_AUTH_RATE_LIMITER: binding,
+    PUBLIC_FOLDER_RATE_LIMITER: binding,
+    PUBLIC_FOLDER_PLAY_RATE_LIMITER: binding,
+    PUBLIC_FOLDER_DOWNLOAD_RATE_LIMITER: binding,
+    PUBLIC_MISS_RATE_LIMITER: binding,
+    PUBLIC_FEED_RATE_LIMITER: binding,
   };
 }

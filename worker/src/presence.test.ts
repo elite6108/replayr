@@ -11,7 +11,7 @@ import {
   hashVisitorKey,
 } from "./presence";
 import type { Env } from "./env";
-import { clearRateLimitBuckets } from "./rateLimit";
+import { allowAllLimiters, clearRateLimitBuckets } from "./rateLimit";
 
 function testEnv(overrides: Partial<Env> = {}): Env {
   return {
@@ -23,6 +23,7 @@ function testEnv(overrides: Partial<Env> = {}): Env {
     R2_SECRET_ACCESS_KEY: "secret",
     R2_BUCKET_NAME: "clips",
     PUBLIC_APP_URL: "https://www.replayr.tv",
+    ...allowAllLimiters(),
     ...overrides,
   };
 }

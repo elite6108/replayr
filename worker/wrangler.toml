@@ -14,6 +14,29 @@ zone_name = "replayr.tv"
 [vars]
 PUBLIC_APP_URL = "http://127.0.0.1:8787"
 
+# Required production bindings. Deploy this file with the Worker. A missing binding
+# fails closed with 503 before that route signs a URL, writes a row, or calls a provider.
+# ANALYTICS_RATE_LIMITER 1001 — analytics ingest, 60/min
+# ANALYTICS_REVEAL_RATE_LIMITER 1002 — admin analytics reveal, 10/min
+# SITE_ACCESS_RATE_LIMITER 1003 — coming-soon password, 10/min
+# WAITLIST_RATE_LIMITER 1004 — waitlist signup, 10/min
+# AI_TRANSCRIBE_RATE_LIMITER 1005 — transcription requests, 4/min
+# WRITE_60_RATE_LIMITER 1006 — social and folder mutations, 60/min
+# WRITE_30_RATE_LIMITER 1007 — catalog, steam match, observations, screenshot upload, 30/min
+# WRITE_20_RATE_LIMITER 1008 — clip game assignment, 20/min
+# WRITE_10_RATE_LIMITER 1009 — uploads, avatars, pending games, AI rank, 10/min
+# WRITE_5_RATE_LIMITER 1010 — checkout, 5/min
+# PLAYBACK_RATE_LIMITER 1011 — clip playback URLs, 120/min
+# GAME_SEARCH_RATE_LIMITER 1012 — game search, 30/min
+# ACCOUNT_DELETE_RATE_LIMITER 1013 — account deletion, 5/min
+# PRESENCE_ANON_RATE_LIMITER 1014 — anonymous presence, 20/min
+# PRESENCE_AUTH_RATE_LIMITER 1015 — signed-in presence, 40/min
+# PUBLIC_FOLDER_RATE_LIMITER 1016 — public folder page, 60/min
+# PUBLIC_FOLDER_PLAY_RATE_LIMITER 1017 — public folder playback URLs, 60/min
+# PUBLIC_FOLDER_DOWNLOAD_RATE_LIMITER 1018 — public folder downloads, 20/min
+# PUBLIC_MISS_RATE_LIMITER 1019 — clip-embed and screenshot misses, 30/min
+# PUBLIC_FEED_RATE_LIMITER 1020 — public clip feed, 120/min
+
 [[ratelimits]]
 name = "ANALYTICS_RATE_LIMITER"
 namespace_id = "1001"
@@ -79,6 +102,41 @@ simple = { limit = 30, period = 60 }
 name = "ACCOUNT_DELETE_RATE_LIMITER"
 namespace_id = "1013"
 simple = { limit = 5, period = 60 }
+
+[[ratelimits]]
+name = "PRESENCE_ANON_RATE_LIMITER"
+namespace_id = "1014"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "PRESENCE_AUTH_RATE_LIMITER"
+namespace_id = "1015"
+simple = { limit = 40, period = 60 }
+
+[[ratelimits]]
+name = "PUBLIC_FOLDER_RATE_LIMITER"
+namespace_id = "1016"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "PUBLIC_FOLDER_PLAY_RATE_LIMITER"
+namespace_id = "1017"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "PUBLIC_FOLDER_DOWNLOAD_RATE_LIMITER"
+namespace_id = "1018"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "PUBLIC_MISS_RATE_LIMITER"
+namespace_id = "1019"
+simple = { limit = 30, period = 60 }
+
+[[ratelimits]]
+name = "PUBLIC_FEED_RATE_LIMITER"
+namespace_id = "1020"
+simple = { limit = 120, period = 60 }
 
 [assets]
 directory = "../web/dist"

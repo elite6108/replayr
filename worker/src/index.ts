@@ -328,6 +328,7 @@ async function route(
       /^\/v1\/clips\/[^/]+\/comments(\/[^/]+)?$/.test(url.pathname))
   ) {
     await assertDistributedRateLimit(request, env.WRITE_60_RATE_LIMITER, "social-write", 60);
+    await requireUser(request, env, { fresh: true });
   }
   const posts = await handlePosts(request, env, url);
   if (posts) return posts;
@@ -882,7 +883,7 @@ interface ContinuePartsBody {
 }
 
 async function continueUploadParts(request: Request, env: Env, clipId: string): Promise<Response> {
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   requireR2(env);
   const body = (await request.json()) as ContinuePartsBody;
   const clips = await serviceRest<ClipRow[]>(
@@ -1378,6 +1379,7 @@ async function listGameClips(request: Request, env: Env, slug: string): Promise<
 }
 
 async function listPublicClips(request: Request, env: Env, url: URL): Promise<Response> {
+  await assertDistributedRateLimit(request, env.PUBLIC_FEED_RATE_LIMITER, "public-feed", 120);
   const rawPage = Number(url.searchParams.get("page"));
   const rawLimit = Number(url.searchParams.get("limit"));
   const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1;

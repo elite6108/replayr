@@ -1,7 +1,7 @@
 import { coarseCountry } from "./analytics";
 import type { Env } from "./env";
 import { json } from "./http";
-import { assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit } from "./rateLimit";
 import { optionalUser, serviceRest } from "./shared";
 import { hashAnonymousAnalyticsId } from "./analyticsPrivacy";
 
@@ -153,7 +153,13 @@ function coarseUserAgent(value: string | null): string | null {
 export async function handlePresence(request: Request, env: Env, url: URL): Promise<Response | null> {
   if (url.pathname !== "/v1/presence/ping" || request.method !== "POST") return null;
   const user = await optionalUser(request, env);
-  assertRateLimit(request, "presence", user ? PRESENCE_AUTH_LIMIT : PRESENCE_ANON_LIMIT, user?.id);
+  await assertDistributedRateLimit(
+    request,
+    user ? env.PRESENCE_AUTH_RATE_LIMITER : env.PRESENCE_ANON_RATE_LIMITER,
+    user ? "presence-auth" : "presence-anon",
+    user ? PRESENCE_AUTH_LIMIT : PRESENCE_ANON_LIMIT,
+    user?.id,
+  );
   const payload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const path = sanitizePath(payload?.path) || "/";
   await touchLiveVisitor(request, env, {

@@ -1,6 +1,9 @@
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
+import { assertProviderPromptCompleted } from "./oauthReauthPolicy";
 import { getSupabase } from "./supabase";
+
+export { assertProviderPromptCompleted, providerPromptCompleted } from "./oauthReauthPolicy";
 
 const OAUTH_PROVIDERS = ["google", "apple", "discord", "twitter"] as const;
 const OAUTH_AMR_METHODS = new Set(["oauth", "google", "apple", "discord", "twitter", "x"]);
@@ -53,6 +56,7 @@ export async function signInWithProviderAgain(provider: OAuthProvider): Promise<
   if (!data.url) throw new Error("Could not start social sign-in.");
   const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
   if (result.type !== "success") {
+    assertProviderPromptCompleted(result.type);
     throw new Error("Sign in with your provider again, then delete the account.");
   }
   const params = authParams(result.url);

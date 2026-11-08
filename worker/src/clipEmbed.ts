@@ -1,5 +1,5 @@
 import { HttpError } from "./http";
-import { assertRateLimit } from "./rateLimit";
+import { assertDistributedRateLimit } from "./rateLimit";
 import {
   lookupPlaybackRaw,
   objectUrl,
@@ -173,7 +173,7 @@ export async function serveClipEmbedAsset(
   const key = clip ? (kind === "video" ? clip.storage_key : clip.thumbnail_key) : null;
   if (!clip || !ownedObjectKey(clip.user_id, key)) {
     try {
-      assertRateLimit(request, "clip-embed-miss", 30);
+      await assertDistributedRateLimit(request, env.PUBLIC_MISS_RATE_LIMITER, "clip-embed-miss", 30);
     } catch (caught) {
       if (caught instanceof HttpError && caught.status === 429) {
         return new Response(null, { status: 429 });

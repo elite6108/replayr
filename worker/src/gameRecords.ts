@@ -199,7 +199,7 @@ export async function createPendingGame(request: Request, env: Env): Promise<Res
 }
 
 export async function setClipGame(request: Request, env: Env, clipId: string): Promise<Response> {
-  const user = await requireUser(request, env);
+  const user = await requireUser(request, env, { fresh: true });
   await assertDistributedRateLimit(request, env.WRITE_20_RATE_LIMITER, "clip-game", 20, user.id);
   if (!isClipUuid(clipId)) return json({ error: "Clip not found." }, 404);
   const body = (await request.json().catch(() => null)) as { gameId?: string } | null;

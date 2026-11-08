@@ -46,7 +46,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test lib/editProject.test.ts",
+    "test": "node --test lib/editProject.test.ts lib/oauthReauthPolicy.test.ts",
     "start": "node scripts/start.mjs",
     "start:tunnel": "npx expo start --tunnel",
     "android": "expo start --android",

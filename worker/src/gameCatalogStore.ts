@@ -298,25 +298,16 @@ export async function matchSteamTitle(env: Env, processName: string, windowTitle
   if (!official || official.toLowerCase() !== title.toLowerCase()) return null;
   const byProcess = await findGameByProcess(env, process);
   if (byProcess) {
-    return byProcess.name.toLowerCase() === official.toLowerCase() ? toCatalogGame(byProcess) : null;
+    return confirmedSteamGame(byProcess, official);
   }
-  const slug = slugifyGameName(official);
-  const existing = await gameBySlug(env, slug);
-  if (existing) {
-    if (existing.name.toLowerCase() !== official.toLowerCase()) return null;
-    return toCatalogGame(existing);
-  }
-  const cover = steamHeaderUrl(matches[0].app_id) ?? null;
-  await insertGame(env, {
-    slug,
-    name: official,
-    publisher: null,
-    cover_url: cover,
-    process_names: [process],
-    catalog_source: "steam",
-    status: "pending",
-  });
-  return null;
+  const existing = await gameBySlug(env, slugifyGameName(official));
+  return confirmedSteamGame(existing, official);
+}
+
+function confirmedSteamGame(row: GameRow | null, official: string): CatalogGame | null {
+  if (!row || row.status === "pending") return null;
+  if (row.name.toLowerCase() !== official.toLowerCase()) return null;
+  return toCatalogGame(row);
 }
 
 async function upsertDetectedProcess(

@@ -116,6 +116,11 @@ describe("moment bounds", () => {
     );
     expect(uploadObjectHeaderError(null, premiumPlan)).toBe("Upload must be an MP4 file.");
     expect(uploadObjectHeaderError(sampleAudio(), free)).toMatch(/could not be checked/);
+    const capped = { maxClipDurationMs: 120_000, maxUploadQuality: "original" as const };
+    expect(uploadObjectHeaderError(sampleAudio(), capped, 2_000)).toBeNull();
+    expect(uploadObjectHeaderError(sampleAudio(), capped, 130_000)).toMatch(/limited to/);
+    expect(uploadObjectHeaderError(sampleAudio(), capped, 20_000)).toMatch(/could not be checked/);
+    expect(uploadObjectHeaderError(ftypOnly, premiumPlan, 9_999_999)).toBeNull();
   });
 
   it("rejects a free upload that is over 1080p or unreadable", () => {

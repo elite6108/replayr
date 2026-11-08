@@ -110,9 +110,19 @@ export function mp4HasFtyp(bytes: Uint8Array): boolean {
 export function uploadObjectHeaderError(
   bytes: Uint8Array | null,
   status: Pick<BillingStatus, "maxClipDurationMs" | "maxUploadQuality">,
+  reportedDurationMs?: number | null,
 ): string | null {
   if (!bytes || !mp4HasFtyp(bytes)) return "Upload must be an MP4 file.";
-  return freeUploadHeaderError(status, mp4HeaderFacts(bytes));
+  const facts = mp4HeaderFacts(bytes);
+  const headerError = freeUploadHeaderError(status, facts);
+  if (headerError) return headerError;
+  if (status.maxClipDurationMs == null || reportedDurationMs == null || !Number.isFinite(reportedDurationMs)) return null;
+  const reportedError = freeUploadHeaderError(status, { ...facts, durationMs: reportedDurationMs });
+  if (reportedError) return reportedError;
+  if (facts.durationMs != null && Math.abs(facts.durationMs - reportedDurationMs) > 2_000) {
+    return "This clip could not be checked against the free plan, so it was not saved.";
+  }
+  return null;
 }
 
 export function mp4HeaderFacts(bytes: Uint8Array): { durationMs: number | null; width: number | null; height: number | null } {

@@ -96,6 +96,8 @@ describe("game catalog", () => {
     expect(parseCatalogWrite({ name: "Hood Warfare", processNames: ["chrome.exe"] })).toMatchObject({ ok: false });
     expect(parseCatalogWrite({ name: "Hood Warfare", processNames: ["hoodwarfare.exe"], coverUrl: "http://cdn.cloudflare.steamstatic.com/x.jpg" })).toMatchObject({ ok: false });
     expect(staffCoverUrl("https://127.0.0.1/cover.jpg").ok).toBe(false);
+    expect(staffCoverUrl("https://evil.example/cover.jpg").ok).toBe(false);
+    expect(staffCoverUrl("https://images.igdb.com/igdb/image/upload/t_cover_big/co.jpg").ok).toBe(true);
     const saved = parseCatalogWrite({
       name: "Hood Warfare",
       publisher: "Example",

@@ -33,6 +33,8 @@ export function AccountPage() {
   const [busy, setBusy] = useState(false);
   const [usernameDraft, setUsernameDraft] = useState("");
   const [analyticsConsent, setAnalyticsConsent] = useState<AnalyticsConsent>("unset");
+  const [deletePassword, setDeletePassword] = useState("");
+  const emailPassword = session?.user.identities?.some((identity) => identity.provider === "email") ?? false;
 
   useEffect(() => {
     if (!userId || !session?.access_token) return;
@@ -284,6 +286,18 @@ export function AccountPage() {
         <button className="btn" type="button" onClick={() => void signOut()}>
           Sign out
         </button>
+        {emailPassword ? (
+          <label className="field">
+            Password
+            <input
+              type="password"
+              value={deletePassword}
+              onChange={(event) => setDeletePassword(event.target.value)}
+              autoComplete="current-password"
+              placeholder="Required to delete this account"
+            />
+          </label>
+        ) : null}
         <button
           className="btn danger"
           type="button"
@@ -296,11 +310,15 @@ export function AccountPage() {
               return;
             }
             if (!window.confirm("Delete the account forever?")) return;
+            if (emailPassword && !deletePassword) {
+              setError("Enter your password to delete this account.");
+              return;
+            }
             void (async () => {
               setBusy(true);
               setError(null);
               try {
-                await deleteAccount(session.access_token);
+                await deleteAccount(session.access_token, emailPassword ? deletePassword : undefined);
                 await signOut();
               } catch (caught) {
                 setError(caught instanceof Error ? caught.message : "Could not delete this account.");

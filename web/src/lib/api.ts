@@ -288,7 +288,7 @@ export interface ScreenshotUsage {
   trimAfter: string | null;
 }
 
-export async function deleteAccount(accessToken: string): Promise<void> {
+export async function deleteAccount(accessToken: string, password?: string): Promise<void> {
   const response = await fetch(apiUrl("/v1/account/delete"), {
     method: "POST",
     headers: {
@@ -296,7 +296,7 @@ export async function deleteAccount(accessToken: string): Promise<void> {
       authorization: `Bearer ${accessToken}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ confirm: "DELETE" }),
+    body: JSON.stringify({ confirm: "DELETE", ...(password ? { password } : {}) }),
   });
   if (response.ok) return;
   throw new Error(await readApiError(response, "Could not delete this account."));

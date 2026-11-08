@@ -78,7 +78,8 @@ function PrivacyBody() {
         Gameplay video, microphone, game audio, and desktop audio are captured locally when you turn those sources on.
         Settings, the local library, and the Instant Replay buffer live on disk on that PC. We do not stream that
         capture to our servers in the background. The Windows app can send the foreground process name and window
-        title so a game can be recognized. It does not send the contents of the game.
+        title so a game can be recognized, plus a hash of this install. It does not send the player’s name or the
+        contents of the game.
       </p>
       <h3>Technical data</h3>
       <p>
@@ -87,7 +88,9 @@ function PrivacyBody() {
         or third-party analytics scripts. While a replayr.tv tab is visible, including the waitlist page, the site
         sends a first-party presence ping about every 25 seconds. The ping includes an anonymous browser id, the page
         path, and your account when you are signed in. Staff use those pings for the admin live view. They are not
-        sold and they are not an advertising identifier.
+        sold and they are not an advertising identifier. The site and apps also send first-party product events, such
+        as a page view or an upload, and first-party error reports that include the error message and stack. Those
+        reports do not include the contents of a clip.
       </p>
 
       <h2>4. How we use it</h2>
@@ -119,8 +122,8 @@ function PrivacyBody() {
           <strong>Cloudflare</strong> — the API worker, the website, and object storage for uploaded files.
         </li>
         <li>
-          <strong>Google, Discord, or X</strong> — only if you choose that sign-in. They send us the account details
-          their OAuth flow provides (typically email and a stable id).
+          <strong>Google, Apple, Discord, or X</strong> — only if you choose that sign-in. They send us the account
+          details their OAuth flow provides (typically email and a stable id).
         </li>
         <li>
           <strong>Stripe</strong> — payment details when you subscribe to Premium. Replayr stores the subscription

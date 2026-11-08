@@ -48,10 +48,11 @@ export async function attachSteamMatch(
         publisher?: string | null;
         coverUrl?: string | null;
         processNames?: string[];
+        status?: string;
       } | null;
     };
     const game = body.game;
-    if (!game?.slug || !game.name) return null;
+    if (!game?.slug || !game.name || game.status !== "confirmed") return null;
     steamRetryAt.set(key, Date.now() + 24 * 60 * 60 * 1000);
     return syncGames([
       {

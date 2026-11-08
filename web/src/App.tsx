@@ -65,6 +65,7 @@ function AppShell() {
   const token = session?.access_token;
   const admin = location.pathname.startsWith("/admin") || location.pathname.startsWith("/staff");
   const messages = location.pathname.startsWith("/messages");
+  const marketingHome = location.pathname === "/";
   useEffect(() => {
     noteWebPresencePath();
   }, [location.pathname, location.search]);
@@ -93,7 +94,7 @@ function AppShell() {
     return <Navigate to={`${dest}${location.search}${location.hash}`} replace />;
   }
   return (
-      <div className={`site${admin ? " site-admin" : ""}${messages ? " site-messages" : ""}`}>
+      <div className={`site${admin ? " site-admin" : ""}${messages ? " site-messages" : ""}${marketingHome ? " site-marketing-home" : ""}`}>
         <SiteHeader />
         <AnnouncementHost />
         <Routes>
@@ -201,7 +202,7 @@ function AppShell() {
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-        {admin || messages ? null : <SiteFooter />}
+        {admin || messages || marketingHome ? null : <SiteFooter />}
       </div>
   );
 }

@@ -1,0 +1,12 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Bold Duotone / Video, Audio, Sound / Play Circle">
+<path id="Subtract" d="M47.6667 26C47.6667 37.9662 37.9662 47.6667 26 47.6667C14.0338 47.6667 4.33333 37.9662 4.33333 26C4.33333 14.0338 14.0338 4.33333 26 4.33333C37.9662 4.33333 47.6667 14.0338 47.6667 26Z" stroke="#34414C"/>
+<path id="Subtract_2" d="M33.3963 28.2944L23.1692 34.3326C21.523 35.3045 19.5 34.0395 19.5 32.0382V19.9618C19.5 17.9605 21.523 16.6955 23.1692 17.6674L33.3963 23.7056C35.0901 24.7056 35.0901 27.2944 33.3963 28.2944Z" fill="url(#paint0_linear_0_28)"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_28" x1="20.6067" y1="-14.4665" x2="36.3575" y2="-13.9183" gradientUnits="userSpaceOnUse">
+<stop stop-color="#02EBFC"/>
+<stop offset="1" stop-color="#0A9BF6"/>
+</linearGradient>
+</defs>
+</svg>

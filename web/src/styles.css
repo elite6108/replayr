@@ -2419,7 +2419,7 @@ body:has(.home-stage) {
   grid-template-columns: 232px minmax(0, 1fr);
   align-items: stretch;
   width: 100%;
-  min-height: calc(100vh - 72px);
+  min-height: calc(100vh - 96px);
   background: var(--admin-bg);
 }
 
@@ -2435,7 +2435,7 @@ body:has(.home-stage) {
   position: sticky;
   top: 0;
   align-self: start;
-  height: calc(100vh - 72px);
+  height: calc(100vh - 96px);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -7392,3 +7392,6 @@ button.ops-label {
   }
 }
 
+.site-marketing-home {
+  background: #05070c;
+}

@@ -99,6 +99,73 @@ describe("distributed hot paths", () => {
     expect(calls.some((call) => call.includes("r2.cloudflarestorage.com"))).toBe(false);
   });
 
+  it("still serves a found embed when the miss limiter is missing or denying", async () => {
+    const userId = "11111111-1111-4111-8111-111111111111";
+    const clipId = "22222222-2222-4222-8222-222222222222";
+    let missChecks = 0;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/clips?slug=eq.")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: clipId,
+              user_id: userId,
+              slug: "abcdef",
+              title: "Clip",
+              duration_ms: 1000,
+              width: 1920,
+              height: 1080,
+              file_size_bytes: 4,
+              visibility: "public",
+              status: "ready",
+              storage_key: `clips/${userId}/${clipId}/original.mp4`,
+              thumbnail_key: `clips/${userId}/${clipId}/thumb`,
+              like_count: 0,
+              comment_count: 0,
+              watermark: false,
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (url.includes("r2.cloudflarestorage.com")) {
+        const range = init?.headers && new Headers(init.headers).get("range");
+        if (range) {
+          return new Response(new Uint8Array([1]), {
+            status: 206,
+            headers: { "content-range": "bytes 0-0/4", "content-length": "1" },
+          });
+        }
+        return new Response(new Uint8Array([0, 0, 0, 1]), { status: 200, headers: { "content-length": "4" } });
+      }
+      return new Response("[]", { status: 200 });
+    });
+    const missing = await serveClipEmbedAsset(
+      new Request("https://replayr.tv/c/abcdef/video.mp4"),
+      env({ PUBLIC_MISS_RATE_LIMITER: undefined }),
+      "abcdef",
+      "video",
+    );
+    expect(missing.status).toBe(200);
+    expect(missing.headers.get("content-type")).toBe("video/mp4");
+    const ranged = await serveClipEmbedAsset(
+      new Request("https://replayr.tv/c/abcdef/video.mp4", { headers: { range: "bytes=0-0" } }),
+      env({
+        PUBLIC_MISS_RATE_LIMITER: {
+          limit: async () => {
+            missChecks += 1;
+            return { success: false };
+          },
+        },
+      }),
+      "abcdef",
+      "video",
+    );
+    expect(ranged.status).toBe(206);
+    expect(missChecks).toBe(0);
+  });
+
   it("does not sign a missing embed when the miss limiter is missing", async () => {
     const hosts: string[] = [];
     vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {

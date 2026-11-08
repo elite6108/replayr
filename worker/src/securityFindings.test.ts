@@ -86,17 +86,25 @@ describe("account delete password", () => {
     expect(hosts).not.toContain("api.stripe.com");
   });
 
-  it("accepts a recent oauth claim without a password grant", async () => {
+  it("accepts a fresh oauth claim for every supported provider", async () => {
+    const providers = ["google", "apple", "discord", "twitter"];
     const calls: string[] = [];
-    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
-      calls.push(String(input));
-      return new Response(JSON.stringify({ identities: [{ provider: "google" }] }), { status: 200 });
+    let index = 0;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(`${init?.method ?? "GET"} ${String(input)}`);
+      const provider = providers[index] ?? "google";
+      index += 1;
+      return new Response(JSON.stringify({ identities: [{ provider }] }), { status: 200 });
     });
-    await expect(assertAccountDeleteAllowed(env, "user-1", freshOAuthToken(), {})).resolves.toBeUndefined();
+    for (const provider of providers) {
+      expect(provider).toMatch(/google|apple|discord|twitter/);
+      await expect(assertAccountDeleteAllowed(env, "user-1", freshOAuthToken(), {})).resolves.toBeUndefined();
+    }
     expect(calls.some((call) => call.includes("grant_type=password") || call.includes("api.stripe.com"))).toBe(false);
+    expect(calls.some((call) => call.startsWith("DELETE") && call.includes("/admin/users/"))).toBe(false);
   });
 
-  it("rejects missing or stale provider metadata before Stripe", async () => {
+  it("rejects missing, stale, or invalid provider metadata before Stripe", async () => {
     const hosts: string[] = [];
     vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
       hosts.push(new URL(String(input)).hostname);
@@ -106,12 +114,49 @@ describe("account delete password", () => {
     const tokens = [
       jwt({ iat: now }),
       jwt({ amr: [{ method: "password", timestamp: now }] }),
+      jwt({ amr: [{ method: "otp", timestamp: now }] }),
+      jwt({ amr: "oauth" }),
       jwt({ iat: now, amr: [{ method: "oauth", timestamp: now - 11 * 60 }] }),
     ];
     for (const token of tokens) {
       await expect(assertAccountDeleteAllowed(env, "user-1", token, {})).rejects.toMatchObject({ status: 401 });
     }
     expect(hosts).not.toContain("api.stripe.com");
+  });
+
+  it("does not cancel a subscription when provider metadata is rejected", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push(`${method} ${url}`);
+      if (url.includes("/auth/v1/user") && !url.includes("/admin/")) {
+        return new Response(JSON.stringify({ id: "11111111-1111-4111-8111-111111111111" }), { status: 200 });
+      }
+      if (url.includes("/admin/users/")) {
+        return new Response(JSON.stringify({ identities: [{ provider: "google" }] }), { status: 200 });
+      }
+      if (url.includes("/billing_subscriptions")) {
+        return new Response(JSON.stringify([{ stripe_subscription_id: "sub_123", status: "active" }]), { status: 200 });
+      }
+      return new Response("[]", { status: 200 });
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const response = await worker.fetch(
+      new Request("https://replayr.tv/v1/account/delete", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${jwt({ amr: [{ method: "otp", timestamp: now }] })}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ confirm: "DELETE" }),
+      }),
+      deleteEnv({ STRIPE_SECRET_KEY: "sk_test" }),
+      { waitUntil() {} },
+    );
+    expect(response.status).toBe(401);
+    expect(calls.some((call) => call.includes("api.stripe.com") || call.includes("/billing_subscriptions"))).toBe(false);
+    expect(calls.some((call) => call.startsWith("DELETE") && call.includes("/admin/users/"))).toBe(false);
   });
 
   it("rejects an OAuth account until the provider sign-in is fresh", async () => {

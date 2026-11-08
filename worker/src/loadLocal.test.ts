@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "./env";
 import { listDetectionCatalog, searchGames } from "./gameRecords";
+import { handlePublicFolders } from "./folderPublic";
 import worker from "./index";
 import { handlePresence } from "./presence";
 import { allowAllLimiters, clearRateLimitBuckets } from "./rateLimit";
@@ -189,6 +190,77 @@ describe("local measurements", () => {
     expect(report.search.errors).toBe(0);
     expect(report.presence.errors).toBe(0);
     expect(report.uploads.errors).toBe(0);
+  });
+
+  it("measures public folder page, playback, and download without a hosted target", async () => {
+    const folderId = "33333333-3333-4333-8333-333333333333";
+    const token = "abcdefghijABCDEFGHIJ12";
+    const folder = {
+      id: folderId,
+      owner_id: USER,
+      name: "Public",
+      description: null,
+      visibility: "public_link",
+      allow_downloads: true,
+      allow_public_downloads: true,
+      public_enabled: true,
+      public_slug: null,
+      public_token_hash: "hash",
+      public_token_version: 1,
+      public_enabled_at: new Date().toISOString(),
+      cover_clip_id: CLIP,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    const clip = {
+      id: CLIP,
+      user_id: USER,
+      title: "Clip",
+      status: "ready",
+      visibility: "public",
+      duration_ms: 1000,
+      created_at: new Date().toISOString(),
+      storage_key: `clips/${USER}/${CLIP}/original.mp4`,
+      thumbnail_key: `clips/${USER}/${CLIP}/thumb`,
+    };
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/folders?")) return json([folder]);
+      if (url.includes("/folder_clips")) {
+        return json([{ folder_id: folderId, clip_id: CLIP, added_by: USER, position: 0, created_at: clip.created_at }]);
+      }
+      if (url.includes("/clips?")) return json([clip]);
+      if (url.includes("/profiles?")) {
+        return json([{ id: USER, username: "player", display_name: "Player", avatar_url: null, is_verified: false }]);
+      }
+      return json([]);
+    });
+    const base = env();
+
+    async function time(path: string): Promise<{ ms: number; status: number }> {
+      const started = performance.now();
+      const response = await handlePublicFolders(new Request(`https://replayr.tv${path}`), base, new URL(`https://replayr.tv${path}`));
+      return { ms: performance.now() - started, status: response?.status ?? 0 };
+    }
+
+    const page = await Promise.all(Array.from({ length: 8 }, () => time(`/v1/public/folders/${token}`)));
+    const playback = await Promise.all(
+      Array.from({ length: 8 }, () => time(`/v1/public/folders/${token}/clips/${CLIP}/playback`)),
+    );
+    const download = await Promise.all(
+      Array.from({ length: 8 }, () => time(`/v1/public/folders/${token}/clips/${CLIP}/download`)),
+    );
+    const report = {
+      measurement: "public-folders",
+      note: "Mocked local timing, not hosted capacity.",
+      page: summarize(page, 200),
+      playback: summarize(playback, 200),
+      download: summarize(download, 200),
+    };
+    console.log(JSON.stringify(report));
+    expect(report.page.errors).toBe(0);
+    expect(report.playback.errors).toBe(0);
+    expect(report.download.errors).toBe(0);
   });
 });
 

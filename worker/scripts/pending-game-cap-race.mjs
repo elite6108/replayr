@@ -13,12 +13,19 @@ if (parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
   process.exit(1);
 }
 
-const migrationPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../supabase/migrations/20261108032000_games_column_revoke_and_pending_cap.sql",
-);
-const migrationSql = readFileSync(migrationPath, "utf8");
+const migrationDir = join(dirname(fileURLToPath(import.meta.url)), "../../supabase/migrations");
+const wideGrantSql = readFileSync(join(migrationDir, "20261105120200_games_public_columns.sql"), "utf8");
+const migrationSql = readFileSync(join(migrationDir, "20261108032000_games_column_revoke_and_pending_cap.sql"), "utf8");
 const userId = "11111111-1111-4111-8111-111111111111";
+
+async function columnPrivileges(client) {
+  const result = await client.query(`
+    select
+      has_column_privilege('anon', 'public.games', 'steam_app_id', 'SELECT') as anon_steam,
+      has_column_privilege('anon', 'public.games', 'name', 'SELECT') as anon_name
+  `);
+  return result.rows[0];
+}
 
 const admin = new pg.Client({ connectionString: databaseUrl });
 await admin.connect();
@@ -100,33 +107,23 @@ try {
   let upgrade;
   try {
     await client.query("begin");
-    await client.query(
-      "grant select (catalog_source, igdb_id, steam_app_id, aliases) on table public.games to anon, authenticated",
-    );
-    await client.query("revoke select on table public.games from public, anon, authenticated");
-    await client.query(`
-      grant select (id, slug, name, publisher, cover_url, icon_url, created_at, parent_game_id, status)
-      on table public.games to anon, authenticated
-    `);
-    const afterTableRevoke = await client.query(`
-      select
-        has_column_privilege('anon', 'public.games', 'steam_app_id', 'SELECT') as anon_steam,
-        has_column_privilege('anon', 'public.games', 'name', 'SELECT') as anon_name
-    `);
-    await client.query(
-      "revoke select (catalog_source, igdb_id, steam_app_id, aliases) on table public.games from public, anon, authenticated",
-    );
-    const afterColumnRevoke = await client.query(`
-      select
-        has_column_privilege('anon', 'public.games', 'steam_app_id', 'SELECT') as anon_steam,
-        has_column_privilege('anon', 'public.games', 'name', 'SELECT') as anon_name
-    `);
+    // A table-level SELECT covers every column. Revoking one column does not hide it.
+    // REVOKE SELECT ON TABLE does clear column grants, so the old expectation was wrong.
+    await client.query("grant select on table public.games to anon");
+    await client.query("revoke select (steam_app_id) on table public.games from anon");
+    const afterColumnRevoke = await columnPrivileges(client);
+    await client.query(wideGrantSql);
+    const afterWideGrant = await columnPrivileges(client);
+    await client.query(migrationSql);
+    const afterMigration = await columnPrivileges(client);
     await client.query("rollback");
     upgrade = {
-      tableRevokeLeavesSteam: afterTableRevoke.rows[0].anon_steam,
-      tableRevokeKeepsName: afterTableRevoke.rows[0].anon_name,
-      columnRevokeHidesSteam: afterColumnRevoke.rows[0].anon_steam === false,
-      columnRevokeKeepsName: afterColumnRevoke.rows[0].anon_name,
+      columnRevokeLeavesSteam: afterColumnRevoke.anon_steam,
+      columnRevokeKeepsName: afterColumnRevoke.anon_name,
+      wideGrantKeepsSteam: afterWideGrant.anon_steam,
+      wideGrantKeepsName: afterWideGrant.anon_name,
+      migrationHidesSteam: afterMigration.anon_steam === false,
+      migrationKeepsName: afterMigration.anon_name,
     };
   } finally {
     client.release();
@@ -149,10 +146,12 @@ try {
     report.privileges.auth_execute === false &&
     report.privileges.service_execute === true;
   const upgradeOk =
-    upgrade.tableRevokeLeavesSteam === true &&
-    upgrade.tableRevokeKeepsName === true &&
-    upgrade.columnRevokeHidesSteam === true &&
-    upgrade.columnRevokeKeepsName === true;
+    upgrade.columnRevokeLeavesSteam === true &&
+    upgrade.columnRevokeKeepsName === true &&
+    upgrade.wideGrantKeepsSteam === true &&
+    upgrade.wideGrantKeepsName === true &&
+    upgrade.migrationHidesSteam === true &&
+    upgrade.migrationKeepsName === true;
   if (report.inserted !== 10 || report.succeeded !== 10 || report.rejected !== 2 || !report.rejectedForCap || !privilegesOk || !upgradeOk) {
     process.exitCode = 1;
   }

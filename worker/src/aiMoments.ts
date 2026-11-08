@@ -545,6 +545,9 @@ export async function handleAiMoments(request: Request, env: Env, url: URL): Pro
 
 async function quota(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
+  // Stays per-isolate. This only reads the caller's own counters, and the paid
+  // transcription route is already on AI_TRANSCRIBE_RATE_LIMITER. A missing
+  // distributed binding here would fail that editor read closed.
   assertRateLimit(request, "ai-quota", 30, user.id);
   const status = await loadStatus(env, user.id);
   const usage = await usageRow(env, user.id);

@@ -14,10 +14,15 @@ if (origin.hostname !== "localhost" && origin.hostname !== "127.0.0.1") {
 
 const requests = 40;
 const concurrency = 8;
+const folder = "abcdefghijABCDEFGHIJ12";
+const folderClip = "22222222-2222-4222-8222-222222222222";
 const probes = [
   { method: "GET", path: "/v1/games/search?q=replay" },
   { method: "GET", path: "/v1/clips/abcdef" },
   { method: "GET", path: "/v1/games/catalog" },
+  { method: "GET", path: `/v1/public/folders/${folder}` },
+  { method: "GET", path: `/v1/public/folders/${folder}/clips/${folderClip}/playback` },
+  { method: "GET", path: `/v1/public/folders/${folder}/clips/${folderClip}/download` },
 ];
 if (includeWrites) {
   probes.push(

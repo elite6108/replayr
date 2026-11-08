@@ -16,6 +16,9 @@ PUBLIC_APP_URL = "http://127.0.0.1:8787"
 
 # Required production bindings. Deploy this file with the Worker. A missing binding
 # fails closed with 503 before that route signs a URL, writes a row, or calls a provider.
+# An exhausted limit returns 429. This file does not prove the live Worker has the
+# bindings. After deploy, from worker/, run `npx wrangler deployments status` and
+# confirm namespaces 1001-1020 are on the version that is serving.
 # ANALYTICS_RATE_LIMITER 1001 — analytics ingest, 60/min
 # ANALYTICS_REVEAL_RATE_LIMITER 1002 — admin analytics reveal, 10/min
 # SITE_ACCESS_RATE_LIMITER 1003 — coming-soon password, 10/min

@@ -1,4 +1,7 @@
 {
+  "0.1.79": [
+    "The live output stays on screen while you record, instead of flickering."
+  ],
   "0.1.78": [
     "AI transcription is limited to 50 minutes a month.",
     "Choosing a game for a clip no longer confirms that executable for everyone.",

@@ -2,13 +2,13 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
   height: var(--topbar);
-  padding: 0 0 0 16px;
+  padding: 0 0 0 38px;
   border-bottom: 0;
-  background: var(--topbar-bg);
+  background: #090d12;
   font-family: var(--font-chrome);
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   overflow: visible;
   z-index: 40;
   user-select: none;
@@ -29,9 +29,9 @@
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 20px;
   min-width: 0;
-  flex: 1 1 0;
+  flex: 1 1 auto;
   -webkit-app-region: drag;
   app-region: drag;
 }
@@ -56,45 +56,61 @@
 
 .topbar-brand {
   flex: 0 0 auto;
-  color: #f5f7fa;
-  font-size: 14px;
+  color: #ecf0f5;
+  font-size: 17px;
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.65px;
+  line-height: 25.5px;
+}
+
+.topbar-brand-dot {
+  color: #57e3dc;
+}
+
+.topbar-rule {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  background: #232c38;
 }
 
 .topbar-status {
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 7px;
-  color: rgba(220, 230, 245, 0.65);
+  gap: 9px;
+  color: #929daa;
 }
 
 .topbar-status-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: 3px;
   background: rgba(220, 230, 245, 0.35);
+  box-shadow: 0 0 0 4px transparent;
 }
 
 .topbar-status-dot.on {
-  background: #56e4ee;
+  background: #57e3dc;
+  box-shadow: 0 0 0 4px rgba(87, 227, 220, 0.05);
 }
 
 .topbar-sep {
-  color: rgba(255, 255, 255, 0.22);
+  color: #929daa;
 }
 
 .topbar-status .topbar-title {
-  color: #f5f7fa;
+  color: #bcc5d0;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
+  line-height: 16.5px;
 }
 
 .topbar-kicker {
-  font-size: 10px;
-  line-height: 1.15;
-  color: rgba(220, 230, 245, 0.65);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16.5px;
+  color: #929daa;
 }
 
 .topbar-title {
@@ -109,19 +125,20 @@
 .topbar-actions {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: 20px;
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .hotkey-chip-group {
   position: relative;
   display: flex;
-  align-items: stretch;
-  height: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 999px;
-  background: #111820;
+  align-items: center;
+  height: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 43px;
+  background: #111b2b;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -145,11 +162,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 100%;
-  padding: 0 8px 0 10px;
+  height: auto;
+  padding: 4px 9px 4px 5px;
   border: 0;
   background: transparent;
-  color: #f5f7fa;
+  color: #aab5c2;
 }
 
 .hotkey-chip:disabled {
@@ -158,39 +175,56 @@
 }
 
 .hotkey-chip kbd {
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: rgba(220, 230, 245, 0.55);
-  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
-  font-size: 9px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 23px;
+  height: 21px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom-width: 2px;
+  border-radius: 44px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #b9c2ce;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 500;
   letter-spacing: 0;
-  text-align: left;
+  line-height: 10px;
+  text-align: center;
 }
 
 .hotkey-chip .chip-copy {
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 1;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16.5px;
+  color: #aab5c2;
   white-space: nowrap;
 }
 
 .hotkey-chip-menu {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
   display: grid;
   place-items: center;
-  width: 24px;
-  margin-right: 2px;
+  width: 18px;
+  margin: 0;
   border: 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0 43px 43px 0;
   background: transparent;
-  color: rgba(220, 230, 245, 0.5);
+  color: #aab5c2;
+  opacity: 0;
+}
+
+.hotkey-chip-group:hover .hotkey-chip-menu,
+.hotkey-chip-group.open .hotkey-chip-menu {
+  opacity: 1;
 }
 
 .hotkey-chip-menu:hover {
-  color: #f5f7fa;
+  color: #ecf0f5;
 }
 
 .hotkey-chip-group.live .hotkey-chip,
@@ -229,31 +263,60 @@
   align-items: center;
   align-self: stretch;
   justify-content: flex-end;
-  gap: 8px;
-  flex: 1 1 0;
+  gap: 20px;
+  flex: 0 0 auto;
   min-width: 0;
+  margin-left: 0;
+  padding-left: 20px;
+  border-left: 1px solid #232c38;
 }
 
-.topbar-pill,
+.topbar-pill {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: #111b2b;
+  color: #ecf0f5;
+  font-size: 11px;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 .topbar-user {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding: 0 10px 0 6px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 999px;
-  background: #111820;
-  color: #f5f7fa;
+  gap: 9px;
+  height: auto;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #ecf0f5;
   text-decoration: none;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
 
 .topbar-user .avatar {
-  width: 22px;
-  height: 22px;
-  font-size: 8px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #385049;
+  font-size: 10px;
+}
+
+.topbar .badge.pro {
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 6px;
+  background: linear-gradient(90deg, #6c57e3 0%, #c984fb 27.958%, #b144af 49.371%, #7c307d 100%);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  line-height: 13.5px;
 }
 
 .topbar-spacer {
@@ -263,8 +326,10 @@
 .topbar-user-name {
   max-width: 140px;
   overflow: hidden;
-  font-weight: 500;
-  font-size: 10px;
+  font-weight: 400;
+  font-size: 11px;
+  line-height: 16.5px;
+  color: #ecf0f5;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -277,6 +342,32 @@
 
 .topbar .window-ctrl {
   width: 44px;
+}
+
+html[data-theme="light"] .topbar {
+  background: var(--topbar-bg);
+}
+
+html[data-theme="light"] .topbar-brand,
+html[data-theme="light"] .topbar-user,
+html[data-theme="light"] .topbar-user-name,
+html[data-theme="light"] .hotkey-chip .chip-copy {
+  color: var(--text);
+}
+
+html[data-theme="light"] .topbar-rule,
+html[data-theme="light"] .topbar-end {
+  border-color: var(--chrome-border);
+}
+
+html[data-theme="light"] .topbar-status,
+html[data-theme="light"] .topbar-kicker,
+html[data-theme="light"] .topbar-sep {
+  color: var(--text-muted);
+}
+
+html[data-theme="light"] .topbar-status .topbar-title {
+  color: var(--text);
 }
 
 @media (max-width: 900px) {

@@ -1,6 +1,23 @@
+img.asset {
+  display: block;
+  flex: none;
+  width: auto;
+  height: auto;
+  max-width: none;
+  pointer-events: none;
+}
+
 .brand-glyph {
   display: block;
   flex: 0 0 auto;
+  color: inherit;
+}
+
+.brand-glyph svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
 
 .brand-glyph-painted {

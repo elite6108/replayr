@@ -8,13 +8,13 @@ import logoMark from "../../assets/replayr-mark.png";
 import { SocialAvatar } from "../common/SocialAvatar";
 import {
   IconAdmin,
+  IconCapture,
   IconExplore,
   IconFriends,
   IconGames,
   IconHome,
   IconLibrary,
   IconMessages,
-  IconRecord,
   IconSettings,
   type IconProps,
 } from "../icons";
@@ -27,7 +27,7 @@ type Glyph = ComponentType<IconProps>;
 const items: { to: string; label: string; icon: Glyph; end?: boolean; live?: boolean; divideAfter?: boolean }[] = [
   { to: "/", label: "Home", icon: IconHome, end: true },
   { to: "/library", label: "Library", icon: IconLibrary },
-  { to: "/record", label: "Capture", icon: IconRecord, live: true },
+  { to: "/record", label: "Capture", icon: IconCapture, live: true },
   { to: "/explore", label: "Explore", icon: IconExplore },
   { to: "/games", label: "Games", icon: IconGames, divideAfter: true },
   { to: "/friends", label: "Following", icon: IconFriends },
@@ -77,7 +77,7 @@ export function NavRail() {
               {({ isActive }) => (
                 <>
                   <span className="nav-icon">
-                    <Glyph size={item.to === "/record" ? 24 : 22} weight={isActive ? "fill" : "regular"} />
+                    <Glyph size={24} weight={isActive ? "fill" : "regular"} />
                     {item.live && (detected || recording) ? <span className="nav-live" /> : null}
                     {item.to === "/friends" && friendsUnread ? <span className="nav-unread" title="Unread" /> : null}
                     {item.to === "/messages" && messagesUnread ? <span className="nav-unread" title="Unread" /> : null}
@@ -112,7 +112,7 @@ export function NavRail() {
         {({ isActive }) => (
           <>
             <span className="nav-icon">
-              <IconSettings size={18} weight={isActive ? "fill" : "regular"} />
+                <IconSettings size={24} weight={isActive ? "fill" : "regular"} />
               {updateReady ? <span className="nav-update" title="Update ready" /> : null}
             </span>
             <span>Settings</span>

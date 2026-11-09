@@ -1,4 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
+import viewLibraryArrow from "../assets/figma/home/arrow-right.svg";
 import { useEffect, useMemo, useState } from "react";
 import { ClipCard } from "../components/common/ClipCard";
 import { ClipGrid } from "../components/common/ClipGrid";
@@ -98,7 +99,8 @@ export function HomePage() {
                 </button>
               </div>
               <Link className="home-moments-link" to="/library">
-                View library →
+                View Library
+                <img src={viewLibraryArrow} alt="" draggable={false} />
               </Link>
             </div>
           </div>

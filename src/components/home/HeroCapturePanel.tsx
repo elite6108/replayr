@@ -1,20 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  IconCamera,
-  IconCheck,
-  IconClock,
-  IconFolder,
-  IconLightning,
-  IconLock,
-  IconMic,
-  IconMicOff,
-  IconMonitor,
-  IconRecordCircle,
-  IconSliders,
-  IconSpeaker,
-  IconSpeakerOff,
-} from "../icons";
+import boltIcon from "../../assets/figma/home/bolt.svg";
+import clockIcon from "../../assets/figma/home/clock.svg";
+import displayIcon from "../../assets/figma/home/display.svg";
+import folderIcon from "../../assets/figma/home/folder.svg";
+import detectedIcon from "../../assets/figma/home/game-detected.svg";
+import privateIcon from "../../assets/figma/home/private.svg";
+import recordIcon from "../../assets/figma/home/record.svg";
+import screenshotIcon from "../../assets/figma/home/screenshot.svg";
+import slidersIcon from "../../assets/figma/home/sliders.svg";
+import volumeIcon from "../../assets/figma/home/volume.svg";
 import { displayHotkey } from "../../utils/format";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { useRecordingStore } from "../../stores/recordingStore";
@@ -71,9 +66,16 @@ function resolutionLabel(value: AppSettings["resolution"]) {
 function axisLabel(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
-  if (minutes > 0 && rest === 0) return `-${minutes}:00`;
-  if (minutes > 0) return `-${minutes}:${String(rest).padStart(2, "0")}`;
-  return `-${seconds}s`;
+  if (minutes > 0 && rest === 0) return `−${String(minutes).padStart(2, "0")}:00`;
+  if (minutes > 0) return `−${minutes}:${String(rest).padStart(2, "0")}`;
+  return `−${seconds}s`;
+}
+
+const WAVE_OPACITY = [0.4, 0.4, 0.58, 0.4, 0.4, 0.58, 0.8];
+const WAVE_BARS = 64;
+
+function Asset({ src }: { src: string }) {
+  return <img className="asset" src={src} alt="" draggable={false} />;
 }
 
 export function HeroCapturePanel() {
@@ -96,8 +98,7 @@ export function HeroCapturePanel() {
   const saving = busy || replay.saving;
   const durationMs = replay.active ? replay.durationMs : settings.replayDurationSeconds * 1000;
   const bufferPct = durationMs > 0 ? Math.min(100, ((replay.active ? replay.bufferedMs : 0) / durationMs) * 100) : 0;
-  const ticks = 36;
-  const filled = Math.round((bufferPct / 100) * ticks);
+  const filledBars = Math.round((bufferPct / 100) * WAVE_BARS);
   const savePlace = friendlySavePlace(settings.saveLocation || "");
   const captureLabel = replay.saving ? "Saving…" : `Capture last ${replayShort(settings.replayDurationSeconds)}`;
   const span = Math.max(15, settings.replayDurationSeconds);
@@ -133,7 +134,7 @@ export function HeroCapturePanel() {
           </p>
           {detected && sessionStartedAt ? (
             <span className="hero-session-clock">
-              <IconClock size={13} />
+              <Asset src={clockIcon} />
               {sessionClock(sessionElapsedMs)}
             </span>
           ) : null}
@@ -141,7 +142,7 @@ export function HeroCapturePanel() {
         <div className="hero-session-copy">
           {detected ? (
             <span className="hero-session-flag">
-              <IconCheck size={11} weight="bold" />
+              <Asset src={detectedIcon} />
               Game detected
             </span>
           ) : null}
@@ -153,29 +154,24 @@ export function HeroCapturePanel() {
           </p>
           <div className="hero-session-meta">
             <span>
-              <IconMonitor size={13} />
+              <Asset src={displayIcon} />
               {resolutionLabel(settings.resolution)}
             </span>
+            <span>{settings.fps} FPS</span>
             <span>
-              <IconClock size={13} />
-              {settings.fps} FPS
-            </span>
-            <span>
-              {settings.gameAudioEnabled ? <IconSpeaker size={13} /> : <IconSpeakerOff size={13} />}
+              <Asset src={volumeIcon} />
               {settings.gameAudioEnabled ? "Game audio" : "Game audio off"}
             </span>
-            <span>
-              {settings.micEnabled ? <IconMic size={13} /> : <IconMicOff size={13} />}
-              {settings.micEnabled ? "Mic on" : "Mic off"}
-            </span>
+            <span>{settings.micEnabled ? "Mic on" : "Mic off"}</span>
           </div>
         </div>
         <Link className="hero-session-orb" to="/record" title="Open Capture" aria-label="Open Capture">
-          <IconSliders size={12} />
+          <Asset src={slidersIcon} />
         </Link>
       </article>
 
       <aside className="hero-replay-card">
+        <div className="hero-replay-main">
         <div className="hero-replay-head">
           <h2>Instant Replay</h2>
           <span className={`hero-replay-state ${replay.active ? "on" : ""}`}>
@@ -203,9 +199,13 @@ export function HeroCapturePanel() {
         </div>
         <div className="hero-replay-timeline">
           <div className="hero-replay-ticks" aria-hidden="true">
-            {Array.from({ length: ticks }, (_, index) => (
-              <span key={index} className={index < filled ? "on" : ""} />
+            {Array.from({ length: WAVE_BARS }, (_, index) => (
+              <span
+                key={index}
+                style={{ opacity: index < filledBars ? WAVE_OPACITY[index % WAVE_OPACITY.length] : 0.16 }}
+              />
             ))}
+            {filledBars > 0 ? <i className="hero-replay-now" style={{ left: `${(filledBars / WAVE_BARS) * 100}%` }} /> : null}
           </div>
           <div className="hero-replay-axis">
             <span>{axisLabel(span)}</span>
@@ -214,6 +214,8 @@ export function HeroCapturePanel() {
             <span>NOW</span>
           </div>
         </div>
+        </div>
+        <div className="hero-replay-actions">
         <button
           type="button"
           className="btn primary hero-replay-cta"
@@ -222,7 +224,7 @@ export function HeroCapturePanel() {
           onClick={() => void saveClip()}
         >
           <span className="hero-replay-cta-copy">
-            <IconLightning size={15} weight="fill" />
+            <Asset src={boltIcon} />
             {captureLabel}
           </span>
           <kbd>{displayHotkey(settings.hotkeys.saveReplay)}</kbd>
@@ -230,7 +232,7 @@ export function HeroCapturePanel() {
         <div className="hero-replay-secondary">
           <button type="button" className="hero-replay-ghost" disabled={saving} onClick={() => void (status.active ? stop() : start())}>
             <span className="hero-replay-ghost-copy">
-              <IconRecordCircle size={13} weight="fill" />
+              <Asset src={recordIcon} />
               {status.active ? "Stop" : "Record"}
             </span>
             <kbd>{displayHotkey(settings.hotkeys.toggleRecording)}</kbd>
@@ -242,21 +244,20 @@ export function HeroCapturePanel() {
             onClick={() => void takeScreenshot()}
           >
             <span className="hero-replay-ghost-copy">
-              <IconCamera size={13} />
+              <Asset src={screenshotIcon} />
               Screenshot
             </span>
             <kbd>{displayHotkey(settings.hotkeys.regionScreenshot)}</kbd>
           </button>
         </div>
         <div className="hero-replay-help">
-          <span title={savePlace}>
-            <IconFolder size={13} weight="fill" />
-            Saving to {savePlace}
-          </span>
-          <span>
-            <IconLock size={13} weight="fill" />
-            Private by default
-          </span>
+          <Asset src={folderIcon} />
+          <span>Saving to</span>
+          <strong title={settings.saveLocation || savePlace}>{savePlace}</strong>
+          <span aria-hidden="true">·</span>
+          <Asset src={privateIcon} />
+          <span>Private by default</span>
+        </div>
         </div>
       </aside>
     </section>

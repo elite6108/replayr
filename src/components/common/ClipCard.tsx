@@ -1,8 +1,18 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
+import clipCamIcon from "../../assets/figma/home/clip-cam.svg";
+import cloudIcon from "../../assets/figma/home/cloud.svg";
+import dateDot from "../../assets/figma/home/dot.svg";
+import displayIcon from "../../assets/figma/home/display.svg";
+import dotsIcon from "../../assets/figma/home/dots.svg";
+import penIcon from "../../assets/figma/home/pen.svg";
+import playIcon from "../../assets/figma/home/play.svg";
+import shareIcon from "../../assets/figma/home/share.svg";
+import starOffIcon from "../../assets/figma/home/star-off.svg";
+import starOnIcon from "../../assets/figma/home/star-on.svg";
 import type { LocalClip } from "../../types/clip";
 import { useCloudStore } from "../../stores/cloudStore";
-import { IconCloud, IconMonitor, IconMore, IconPencil, IconPlay, IconShare, IconStar } from "../icons";
+import { IconCloud, IconMore, IconPencil, IconPlay, IconShare, IconStar } from "../icons";
 import { findLinkedCloudClip, normalizeUploadStatus } from "../../utils/clips";
 import { formatDuration, formatLibraryWhen, formatRelativeTime, isVideoPath } from "../../utils/format";
 import { useDetectionStore } from "../../stores/detectionStore";
@@ -127,11 +137,12 @@ export function ClipCard({
           {thumb ? <img src={convertFileSrc(thumb)} alt="" loading="lazy" /> : <IconPlay size={22} />}
           <span className={`clip-play ${infoOpen ? "is-visible" : ""}`} aria-hidden="true">
             <span>
-              <IconPlay size={18} />
+              {variant === "home" ? <img className="asset" src={playIcon} alt="" draggable={false} /> : <IconPlay size={18} />}
             </span>
           </span>
           {variant === "home" ? (
             <span className="clip-type-badge">
+              <img className="asset" src={clipCamIcon} alt="" draggable={false} />
               {clip.captureKind === "recording" ? "Recording" : clip.captureKind === "screenshot" ? "Screenshot" : "Clip"}
             </span>
           ) : null}
@@ -183,18 +194,30 @@ export function ClipCard({
           </div>
         ) : null}
         <div className="clip-date">
-          {library ? formatLibraryWhen(clip.createdAt) : gameName ? `${gameName} · ${date}` : date}
+          {library ? (
+            formatLibraryWhen(clip.createdAt)
+          ) : variant === "home" && gameName ? (
+            <>
+              <span>{gameName}</span>
+              <img className="asset" src={dateDot} alt="" draggable={false} />
+              <span>{date}</span>
+            </>
+          ) : gameName ? (
+            `${gameName} · ${date}`
+          ) : (
+            date
+          )}
         </div>
         {library ? null : <div className="clip-tags">
           {onPc ? (
             <span>
-              {variant === "home" ? <IconMonitor size={12} /> : null}
+              {variant === "home" ? <img className="asset" src={displayIcon} alt="" draggable={false} /> : null}
               This PC
             </span>
           ) : null}
           {inCloud ? (
-            <span>
-              {variant === "home" ? <IconCloud size={12} /> : null}
+            <span className={variant === "home" ? "is-cloud" : undefined}>
+              {variant === "home" ? <img className="asset" src={cloudIcon} alt="" draggable={false} /> : <IconCloud size={12} />}
               Cloud
             </span>
           ) : null}
@@ -202,12 +225,12 @@ export function ClipCard({
         {library ? null : <div className="clip-footer-actions">
           {onEdit && isVideoPath(clip.filePath) ? (
             <button type="button" title="Edit" onClick={() => onEdit(clip)}>
-              <IconPencil size={14} />
+              {variant === "home" ? <img className="asset" src={penIcon} alt="" draggable={false} /> : <IconPencil size={14} />}
             </button>
           ) : null}
           {onCopyLink ? (
             <button type="button" title="Share" onClick={() => onCopyLink(clip)}>
-              <IconShare size={14} />
+              {variant === "home" ? <img className="asset" src={shareIcon} alt="" draggable={false} /> : <IconShare size={14} />}
             </button>
           ) : null}
           <button
@@ -218,7 +241,7 @@ export function ClipCard({
               setMenu({ x: rect.left, y: rect.bottom + 4 });
             }}
           >
-            <IconMore size={16} />
+            {variant === "home" ? <img className="asset" src={dotsIcon} alt="" draggable={false} /> : <IconMore size={16} />}
           </button>
         </div>}
       </div>
@@ -234,7 +257,11 @@ export function ClipCard({
         title={clip.favorite ? "Unfavorite" : "Favorite"}
         onClick={() => onFavorite(clip)}
       >
-        <IconStar size={14} fill={clip.favorite ? "currentColor" : "none"} />
+        {variant === "home" ? (
+          <img className="asset" src={clip.favorite ? starOnIcon : starOffIcon} alt="" draggable={false} />
+        ) : (
+          <IconStar size={14} fill={clip.favorite ? "currentColor" : "none"} />
+        )}
       </button>
       )}
       {menu ? (

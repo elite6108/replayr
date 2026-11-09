@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
+import chevronIcon from "../../assets/figma/home/chevron.svg";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { IconCaretRight } from "../icons";
 
 function qualityLabel(resolution: string, fps: number) {
   if (resolution === "auto") return `auto · ${fps} FPS`;
@@ -57,7 +57,7 @@ export function GameProfilesCard({ recentGameIds }: { recentGameIds: string[] })
                   {active ? <span className="pip on" /> : null}
                   {replayLabel(settings.replayDurationSeconds)} · {qualityLabel(settings.resolution, settings.fps)}
                 </span>
-                <IconCaretRight className="game-profile-chevron" size={13} />
+                <img className="asset game-profile-chevron" src={chevronIcon} alt="" draggable={false} />
               </Link>
             );
           })}

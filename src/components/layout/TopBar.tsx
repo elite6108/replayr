@@ -69,7 +69,11 @@ export function TopBar() {
     <header className="topbar">
       <WindowDragRegion className="topbar-drag" aria-label="Drag window" />
       <WindowDragRegion className="topbar-lead">
-        <div className="topbar-brand">{APP_NAME}.</div>
+        <div className="topbar-brand">
+          {APP_NAME}
+          <span className="topbar-brand-dot">.</span>
+        </div>
+        <span className="topbar-rule" aria-hidden="true" />
         <div className={`topbar-status ${detected ? "live" : ""}`}>
           <span className={`topbar-status-dot ${detected ? "on" : ""}`} />
           <span className="topbar-title">{detected ? snapshot.name : "Waiting for game"}</span>

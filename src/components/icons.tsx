@@ -2,7 +2,6 @@ import type { ComponentType, CSSProperties, SVGProps } from "react";
 import {
   ArrowCounterClockwise,
   ArrowsOut,
-  Bell,
   Camera,
   CalendarBlank,
   CaretLeft,
@@ -12,7 +11,6 @@ import {
   Clock,
   Cloud,
   CloudCheck,
-  Compass,
   Crosshair,
   Desktop,
   DotsSixVertical,
@@ -49,12 +47,16 @@ import {
   User,
   type IconWeight,
 } from "@phosphor-icons/react";
-import navFriends from "../assets/nav/friends.png";
-import navGames from "../assets/nav/games.png";
-import navHome from "../assets/nav/home.png";
-import navLibrary from "../assets/nav/library.png";
-import navMessages from "../assets/nav/messages.png";
+import bellIcon from "../assets/figma/home/bell.svg?raw";
+import navCapture from "../assets/figma/home/nav-capture.svg?raw";
+import navExplore from "../assets/figma/home/nav-explore.svg?raw";
+import navFollowing from "../assets/figma/home/nav-following.svg?raw";
+import navGames from "../assets/figma/home/nav-games.svg?raw";
+import navHome from "../assets/figma/home/nav-home.svg?raw";
+import navLibrary from "../assets/figma/home/nav-library.svg?raw";
+import navMessages from "../assets/figma/home/nav-messages.svg?raw";
 import navRecord from "../assets/nav/record.png";
+import navSettings from "../assets/figma/home/nav-settings.svg?raw";
 
 export type { IconWeight };
 
@@ -83,6 +85,20 @@ function phosphor(Icon: PhosphorIcon, props: IconProps) {
       aria-hidden="true"
       {...rest}
     />
+  );
+}
+
+function tintedGlyph(source: string, size: number) {
+  const open = source.match(/^<svg\b[^>]*>/)?.[0] ?? "<svg>";
+  const body = source.slice(open.length);
+  const tag = open
+    .replace(/\swidth="[^"]*"/, ` width="${size}"`)
+    .replace(/\sheight="[^"]*"/, ` height="${size}"`);
+  return (
+    tag +
+    body
+      .replace(/fill="(?!none\b)[^"]*"/g, 'fill="currentColor"')
+      .replace(/stroke="(?!none\b)[^"]*"/g, 'stroke="currentColor"')
   );
 }
 
@@ -115,17 +131,16 @@ function BrandGlyph({
   const style: CSSProperties = {
     width: size,
     height: size,
-    backgroundColor: color || "currentColor",
-    WebkitMaskImage: `url(${src})`,
-    maskImage: `url(${src})`,
-    WebkitMaskSize: "contain",
-    maskSize: "contain",
-    WebkitMaskRepeat: "no-repeat",
-    maskRepeat: "no-repeat",
-    WebkitMaskPosition: "center",
-    maskPosition: "center",
+    color,
   };
-  return <span aria-hidden="true" className={["brand-glyph", className].filter(Boolean).join(" ")} style={style} />;
+  return (
+    <span
+      aria-hidden="true"
+      className={["brand-glyph", className].filter(Boolean).join(" ")}
+      style={style}
+      dangerouslySetInnerHTML={{ __html: tintedGlyph(src, size) }}
+    />
+  );
 }
 
 export function IconHome(props: IconProps) {
@@ -140,16 +155,20 @@ export function IconRecord(props: IconProps) {
   return <BrandGlyph src={navRecord} size={props.size} className={props.className} painted />;
 }
 
+export function IconCapture(props: IconProps) {
+  return <BrandGlyph src={navCapture} size={props.size ?? 24} className={props.className} color={props.color} />;
+}
+
 export function IconClips(props: IconProps) {
   return phosphor(FilmStrip, props);
 }
 
 export function IconExplore(props: IconProps) {
-  return phosphor(Compass, props);
+  return <BrandGlyph src={navExplore} size={props.size ?? 24} className={props.className} color={props.color} />;
 }
 
 export function IconFriends(props: IconProps) {
-  return <BrandGlyph src={navFriends} size={props.size} className={props.className} color={props.color} />;
+  return <BrandGlyph src={navFollowing} size={props.size} className={props.className} color={props.color} />;
 }
 
 export function IconMessages(props: IconProps) {
@@ -165,7 +184,7 @@ export function IconAdmin(props: IconProps) {
 }
 
 export function IconSettings(props: IconProps) {
-  return phosphor(Gear, props);
+  return <BrandGlyph src={navSettings} size={props.size ?? 24} className={props.className} color={props.color} />;
 }
 
 export function IconProfile(props: IconProps) {
@@ -205,7 +224,7 @@ export function IconSearch(props: IconProps) {
 }
 
 export function IconBell(props: IconProps) {
-  return phosphor(Bell, props);
+  return <BrandGlyph src={bellIcon} size={props.size ?? 24} className={props.className} color={props.color} />;
 }
 
 export function IconEye(props: IconProps) {

@@ -1,9 +1,15 @@
 import { Link } from "react-router-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import arrowIcon from "../../assets/figma/home/arrow-sm.svg";
+import cameraIcon from "../../assets/figma/home/camera.svg";
+import clipsIcon from "../../assets/figma/home/clips.svg";
+import cloudCheckIcon from "../../assets/figma/home/cloud-check.svg";
+import dateDot from "../../assets/figma/home/dot.svg";
+import recordIcon from "../../assets/figma/home/record.svg";
 import type { LocalClip } from "../../types/clip";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { formatClipDate, formatDuration } from "../../utils/format";
-import { IconClips, IconCloudCheck, IconImage, IconMonitor, IconRecordCircle } from "../icons";
+import { IconMonitor } from "../icons";
 
 function playedLabel(ms: number | null | undefined) {
   if (!ms) return null;
@@ -48,29 +54,40 @@ export function LastSessionCard({
           <div className="last-session-copy">
             <strong>{title}</strong>
             <p className="muted">
-              {played ? `${played} played · Nothing left behind.` : "Nothing left behind."}
+              {played ? (
+                <>
+                  <span>{played} played</span>
+                  <img className="asset" src={dateDot} alt="" draggable={false} />
+                  <span>Nothing left behind.</span>
+                </>
+              ) : (
+                "Nothing left behind."
+              )}
             </p>
             <p className="last-session-stats">
               <span>
-                <IconClips size={12} />
-                {clipCount} {clipCount === 1 ? "clip" : "clips"}
+                <img className="asset" src={clipsIcon} alt="" draggable={false} />
+                <strong>{clipCount}</strong> {clipCount === 1 ? "clip" : "clips"}
               </span>
               <span>
-                <IconImage size={12} />
-                {screenshotCount} {screenshotCount === 1 ? "screenshot" : "screenshots"}
+                <img className="asset" src={cameraIcon} alt="" draggable={false} />
+                <strong>{screenshotCount}</strong> {screenshotCount === 1 ? "screenshot" : "screenshots"}
               </span>
               <span>
-                <IconRecordCircle size={12} />
-                {recordingCount} {recordingCount === 1 ? "recording" : "recordings"}
+                <img className="asset" src={recordIcon} alt="" draggable={false} />
+                <strong>{recordingCount}</strong> {recordingCount === 1 ? "recording" : "recordings"}
               </span>
             </p>
           </div>
           <div className="last-session-actions">
             <span className={`last-session-sync ${clip.cloudClipId ? "ok" : ""}`}>
-              {clip.cloudClipId ? <IconCloudCheck size={13} /> : <IconMonitor size={13} />}
+              {clip.cloudClipId ? <img className="asset" src={cloudCheckIcon} alt="" draggable={false} /> : <IconMonitor size={13} />}
               {clip.cloudClipId ? "Cloud sync complete" : "Saved on this PC"}
             </span>
-            <span className="last-session-open">Open session →</span>
+            <span className="last-session-open">
+              Open session
+              <img className="asset" src={arrowIcon} alt="" draggable={false} />
+            </span>
           </div>
         </Link>
       ) : (

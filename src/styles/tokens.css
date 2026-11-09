@@ -80,9 +80,9 @@ html[data-theme="dark"] {
   --hero-bg-idle: linear-gradient(180deg, rgba(9, 11, 16, 0.24), rgba(9, 11, 16, 0.78) 76%),
     radial-gradient(circle at 80% 12%, rgba(0, 216, 240, 0.12), transparent 38%), #12161d;
   --workspace-glow: none;
-  --rail: 64px;
+  --rail: 86px;
   --titlebar: 40px;
-  --topbar: 48px;
+  --topbar: 65px;
   --shell-header: var(--topbar);
   --aside: 280px;
   --radius: 20px;
@@ -97,8 +97,10 @@ html[data-theme="dark"] {
   --space-4: 18px;
   --space-5: 24px;
   --space-6: 32px;
-  --font: "Outfit", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --font-chrome: "Sora", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-chrome: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Clash Display", "Inter", "Segoe UI Variable Text", sans-serif;
+  --font-wordmark: "Azonix", "Clash Display", "Inter", sans-serif;
 }
 
 html[data-theme="light"] {

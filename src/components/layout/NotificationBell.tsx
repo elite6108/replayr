@@ -199,7 +199,7 @@ export function NotificationBell() {
         aria-controls={menuId}
         onClick={() => setOpen((value) => !value)}
       >
-        <IconBell size={18} />
+        <IconBell size={24} />
         {notificationsUnread > 0 ? <span className="nav-unread" aria-hidden="true" /> : null}
       </button>
       {open ? (

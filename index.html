@@ -7,15 +7,16 @@
       (function () {
         try {
           var stored = localStorage.getItem("replay.theme");
-          var pref = stored === "light" || stored === "system" || stored === "dark" ? stored : "dark";
+          var pref = stored === "light" || stored === "grey" || stored === "dark" || stored === "auto" || stored === "system" ? stored : "dark";
+          if (pref === "system") pref = "auto";
           var theme =
-            pref === "system"
+            pref === "auto"
               ? window.matchMedia("(prefers-color-scheme: dark)").matches
                 ? "dark"
                 : "light"
               : pref;
           document.documentElement.dataset.theme = theme;
-          document.documentElement.style.colorScheme = theme;
+          document.documentElement.style.colorScheme = theme === "light" ? "light" : "dark";
           document.documentElement.classList.add("theme-no-motion");
         } catch (e) {
           document.documentElement.dataset.theme = "dark";
@@ -24,7 +25,8 @@
       })();
     </script>
     <style>
-      html, body { background: #090b10; color: #f4f7fb; }
+      html, body { background: #090d12; color: #f4f7fb; }
+      html[data-theme="grey"], html[data-theme="grey"] body { background: #1c2430; color: #f4f6f8; }
       html[data-theme="light"], html[data-theme="light"] body { background: #f5f7fa; color: #10141c; }
     </style>
     <title>Replayr</title>

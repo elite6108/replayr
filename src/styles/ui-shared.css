@@ -151,13 +151,8 @@ img.asset {
 }
 
 .btn.danger {
-  border-color: #5a3030;
-  color: #f0c8c8;
-}
-
-html[data-theme="light"] .btn.danger {
-  border-color: #c48a8a;
-  color: #9a2e2e;
+  border-color: var(--danger-border);
+  color: var(--danger-text);
 }
 
 .btn.sm {
@@ -302,7 +297,7 @@ html[data-theme="light"] .btn.danger {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #5a5f68;
+  background: var(--text-muted);
   display: inline-block;
   flex: 0 0 auto;
 }

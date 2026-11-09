@@ -9,7 +9,7 @@ export type CodecPreference = "h264" | "h265" | "av1";
 export type AutoUploadMode = "off" | "favorites" | "all";
 export type CloudUploadWhen = "immediate" | "afterGame";
 export type BandwidthLimit = "unlimited" | "50" | "25" | "10" | "5" | "1" | "custom";
-export type ThemePreference = "dark" | "light" | "system";
+export type ThemePreference = "auto" | "light" | "grey" | "dark";
 
 export type WebcamPlacement = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 export type WebcamShape = "rectangle" | "rounded" | "circle";

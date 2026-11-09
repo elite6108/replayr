@@ -364,7 +364,7 @@
   aspect-ratio: 16 / 9;
   object-fit: cover;
   border-radius: 12px;
-  background: #0c0e14;
+  background: var(--surface-sunken);
 }
 
 .send-overlay {

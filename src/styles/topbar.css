@@ -6,7 +6,7 @@
   height: var(--topbar);
   padding: 0 0 0 38px;
   border-bottom: 0;
-  background: #090d12;
+  background: var(--topbar-bg);
   font-family: var(--font-chrome);
   letter-spacing: 0;
   overflow: visible;
@@ -56,7 +56,7 @@
 
 .topbar-brand {
   flex: 0 0 auto;
-  color: #ecf0f5;
+  color: var(--text);
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.65px;
@@ -64,14 +64,14 @@
 }
 
 .topbar-brand-dot {
-  color: #57e3dc;
+  color: var(--brand);
 }
 
 .topbar-rule {
   flex: 0 0 auto;
   width: 1px;
   height: 20px;
-  background: #232c38;
+  background: var(--line-soft);
 }
 
 .topbar-status {
@@ -79,28 +79,28 @@
   align-items: center;
   min-width: 0;
   gap: 9px;
-  color: #929daa;
+  color: var(--text-muted);
 }
 
 .topbar-status-dot {
   width: 6px;
   height: 6px;
   border-radius: 3px;
-  background: rgba(220, 230, 245, 0.35);
+  background: var(--status-dot);
   box-shadow: 0 0 0 4px transparent;
 }
 
 .topbar-status-dot.on {
-  background: #57e3dc;
+  background: var(--brand);
   box-shadow: 0 0 0 4px rgba(87, 227, 220, 0.05);
 }
 
 .topbar-sep {
-  color: #929daa;
+  color: var(--text-muted);
 }
 
 .topbar-status .topbar-title {
-  color: #bcc5d0;
+  color: var(--text);
   font-size: 11px;
   font-weight: 500;
   line-height: 16.5px;
@@ -110,7 +110,7 @@
   font-size: 11px;
   font-weight: 400;
   line-height: 16.5px;
-  color: #929daa;
+  color: var(--text-muted);
 }
 
 .topbar-title {
@@ -136,26 +136,26 @@
   display: flex;
   align-items: center;
   height: auto;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
   border-radius: 43px;
-  background: #111b2b;
+  background: var(--chip-bg);
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
 
 .hotkey-chip-group:hover,
 .hotkey-chip-group.open {
-  border-color: rgba(85, 225, 235, 0.18);
+  border-color: var(--brand-border);
 }
 
 .hotkey-chip-group.live {
-  border-color: #5a2a2a;
-  background: #2a1416;
+  border-color: var(--live-border);
+  background: var(--live-bg);
 }
 
 .hotkey-chip-group.live:hover,
 .hotkey-chip-group.live.open {
-  border-color: #7a3a3a;
+  border-color: var(--live-border-strong);
 }
 
 .hotkey-chip {
@@ -166,7 +166,7 @@
   padding: 4px 9px 4px 5px;
   border: 0;
   background: transparent;
-  color: #aab5c2;
+  color: var(--text-hover);
 }
 
 .hotkey-chip:disabled {
@@ -181,11 +181,11 @@
   min-width: 23px;
   height: 21px;
   padding: 0 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
   border-bottom-width: 2px;
   border-radius: 44px;
-  background: rgba(255, 255, 255, 0.02);
-  color: #b9c2ce;
+  background: var(--bg-hover);
+  color: var(--text-hover);
   font-family: inherit;
   font-size: 10px;
   font-weight: 500;
@@ -198,7 +198,7 @@
   font-size: 11px;
   font-weight: 400;
   line-height: 16.5px;
-  color: #aab5c2;
+  color: var(--text-hover);
   white-space: nowrap;
 }
 
@@ -214,7 +214,7 @@
   border: 0;
   border-radius: 0 43px 43px 0;
   background: transparent;
-  color: #aab5c2;
+  color: var(--text-hover);
   opacity: 0;
 }
 
@@ -224,13 +224,13 @@
 }
 
 .hotkey-chip-menu:hover {
-  color: #ecf0f5;
+  color: var(--text);
 }
 
 .hotkey-chip-group.live .hotkey-chip,
 .hotkey-chip-group.live .hotkey-chip kbd,
 .hotkey-chip-group.live .hotkey-chip-menu {
-  color: #ffd6d6;
+  color: var(--live-text);
 }
 
 .hotkey-chip-wrap {
@@ -268,7 +268,7 @@
   min-width: 0;
   margin-left: 0;
   padding-left: 20px;
-  border-left: 1px solid #232c38;
+  border-left: 1px solid var(--line-soft);
 }
 
 .topbar-pill {
@@ -276,10 +276,10 @@
   align-items: center;
   height: 28px;
   padding: 0 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #111b2b;
-  color: #ecf0f5;
+  background: var(--chip-bg);
+  color: var(--text);
   font-size: 11px;
   -webkit-app-region: no-drag;
   app-region: no-drag;
@@ -294,7 +294,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #ecf0f5;
+  color: var(--text);
   text-decoration: none;
   -webkit-app-region: no-drag;
   app-region: no-drag;
@@ -303,7 +303,7 @@
 .topbar-user .avatar {
   width: 28px;
   height: 28px;
-  border: 1px solid #385049;
+  border: 1px solid var(--avatar-ring);
   font-size: 10px;
 }
 
@@ -329,7 +329,7 @@
   font-weight: 400;
   font-size: 11px;
   line-height: 16.5px;
-  color: #ecf0f5;
+  color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -342,32 +342,6 @@
 
 .topbar .window-ctrl {
   width: 44px;
-}
-
-html[data-theme="light"] .topbar {
-  background: var(--topbar-bg);
-}
-
-html[data-theme="light"] .topbar-brand,
-html[data-theme="light"] .topbar-user,
-html[data-theme="light"] .topbar-user-name,
-html[data-theme="light"] .hotkey-chip .chip-copy {
-  color: var(--text);
-}
-
-html[data-theme="light"] .topbar-rule,
-html[data-theme="light"] .topbar-end {
-  border-color: var(--chrome-border);
-}
-
-html[data-theme="light"] .topbar-status,
-html[data-theme="light"] .topbar-kicker,
-html[data-theme="light"] .topbar-sep {
-  color: var(--text-muted);
-}
-
-html[data-theme="light"] .topbar-status .topbar-title {
-  color: var(--text);
 }
 
 @media (max-width: 900px) {

@@ -369,7 +369,7 @@ function GeneralPane({
         <div className="setting-row">
           <span className="setting-copy">
             Theme
-            <small>Dark is the Replayr default. System follows Windows.</small>
+            <small>Dark is the Replayr default. Auto follows Windows. Grey is the lighter dark.</small>
           </span>
           <ThemePicker
             value={parseThemePreference(settings.theme)}

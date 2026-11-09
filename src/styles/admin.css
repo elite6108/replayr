@@ -159,7 +159,7 @@
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: #1a2330;
+  background: var(--surface-sunken);
   display: grid;
   place-items: center;
   font-size: 11px;

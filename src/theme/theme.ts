@@ -1,12 +1,13 @@
 import type { ThemePreference } from "../types/settings";
 
 export type { ThemePreference };
-export type ResolvedTheme = "dark" | "light";
+export type ResolvedTheme = "dark" | "grey" | "light";
 
 export const THEME_STORAGE_KEY = "replay.theme";
 
 export function parseThemePreference(value: unknown): ThemePreference {
-  if (value === "light" || value === "system" || value === "dark") return value;
+  if (value === "system" || value === "auto") return "auto";
+  if (value === "light" || value === "grey" || value === "dark") return value;
   return "dark";
 }
 
@@ -15,8 +16,12 @@ export function systemPrefersDark(): boolean {
 }
 
 export function resolveTheme(preference: ThemePreference): ResolvedTheme {
-  if (preference === "system") return systemPrefersDark() ? "dark" : "light";
+  if (preference === "auto") return systemPrefersDark() ? "dark" : "light";
   return preference;
+}
+
+export function colorSchemeFor(theme: ResolvedTheme): "light" | "dark" {
+  return theme === "light" ? "light" : "dark";
 }
 
 export function readStoredThemePreference(): ThemePreference {
@@ -39,7 +44,7 @@ export function applyResolvedTheme(theme: ResolvedTheme, animate: boolean) {
   const root = document.documentElement;
   if (!animate) root.classList.add("theme-no-motion");
   root.dataset.theme = theme;
-  root.style.colorScheme = theme;
+  root.style.colorScheme = colorSchemeFor(theme);
   if (!animate) {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => root.classList.remove("theme-no-motion"));

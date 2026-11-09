@@ -10,10 +10,10 @@
 }
 
 .clip-card {
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--card-border);
   border-radius: 14px;
   overflow: hidden;
-  background: #0c1219;
+  background: var(--card-bg);
   box-shadow: none;
   transition: transform 160ms ease, border-color 160ms ease;
 }

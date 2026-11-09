@@ -23,7 +23,7 @@
   border: 1px solid transparent;
   text-decoration: none;
   color: inherit;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-card);
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
@@ -31,15 +31,6 @@
 .game-card:focus-visible {
   border-color: var(--accent-ring);
   transform: translateY(-3px);
-  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32), var(--glow-sm);
-}
-
-html[data-theme="light"] .game-card {
-  box-shadow: var(--shadow-card);
-}
-
-html[data-theme="light"] .game-card:hover,
-html[data-theme="light"] .game-card:focus-visible {
   box-shadow: var(--shadow-lift), var(--glow-sm);
 }
 
@@ -48,7 +39,7 @@ html[data-theme="light"] .game-card:focus-visible {
   width: 100%;
   aspect-ratio: 460 / 215;
   object-fit: cover;
-  background: #151922;
+  background: var(--surface-sunken);
 }
 
 .game-cover.fallback {
@@ -57,7 +48,7 @@ html[data-theme="light"] .game-card:focus-visible {
   font-size: 42px;
   font-weight: 700;
   color: var(--accent);
-  background: linear-gradient(180deg, var(--accent-dim), #151922);
+  background: linear-gradient(180deg, var(--accent-dim), var(--surface-sunken));
 }
 
 .game-card-meta {

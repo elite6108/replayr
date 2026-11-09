@@ -58,7 +58,7 @@
 }
 
 .studio-tab.is-active {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-hover);
   color: var(--text, #e9edf1);
 }
 
@@ -403,7 +403,7 @@
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: #10151d;
+  background: var(--bg-input);
   color: var(--text-hover);
   flex: 0 0 auto;
 }
@@ -570,7 +570,7 @@
 
 .studio-live,
 .studio-chip {
-  background: #10151d;
+  background: var(--bg-input);
   color: var(--text-muted);
 }
 
@@ -580,8 +580,8 @@
 }
 
 .studio-chip-composed {
-  color: #8fd0ef;
-  background: rgba(127, 208, 239, 0.12);
+  color: var(--brand);
+  background: var(--brand-soft);
 }
 
 .studio-preview-stage {
@@ -903,8 +903,8 @@
 .studio-mix-fader-input::-webkit-slider-runnable-track {
   width: 4px;
   border-radius: 99px;
-  background: #0b0e13;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--meter-track);
+  border: 1px solid var(--border);
 }
 
 .studio-mix-fader-input::-webkit-slider-thumb {
@@ -922,7 +922,7 @@
 .studio-mix-fader-input::-moz-range-track {
   width: 4px;
   border-radius: 99px;
-  background: #0b0e13;
+  background: var(--meter-track);
 }
 
 .studio-mix-fader-input::-moz-range-thumb {
@@ -939,7 +939,7 @@
   height: 8px;
   border-radius: 99px;
   overflow: hidden;
-  background: #0b0e13;
+  background: var(--meter-track);
 }
 
 .studio-meter-fill {
@@ -1006,7 +1006,7 @@
 }
 
 .studio-rec-clock {
-  color: #e07272;
+  color: var(--danger);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1045,7 +1045,7 @@
 }
 
 .studio-output-warn {
-  color: #f0c36e;
+  color: var(--warn);
 }
 
 .studio-modal-backdrop {
@@ -1061,8 +1061,8 @@
   width: min(420px, calc(100vw - 32px));
   padding: 14px 16px 16px;
   border-radius: 12px;
-  background: #16181d;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
 }
 
 .studio-modal input[type="text"],
@@ -1270,8 +1270,8 @@
   margin: 8px 0 0;
   padding: 6px 8px;
   border-radius: 8px;
-  background: rgba(240, 195, 110, 0.08);
-  color: #f0c36e;
+  background: var(--warn-bg);
+  color: var(--warn-text);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -1347,11 +1347,11 @@
 }
 
 .studio-ready.is-live {
-  color: #e07272;
+  color: var(--danger);
 }
 
 .studio-ready.is-live i {
-  background: #e07272;
+  background: var(--danger);
 }
 
 .record-dock-controls .record-orb,
@@ -1371,7 +1371,7 @@
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #10151d;
+  background: var(--bg-input);
 }
 
 .add-source-menu-head {

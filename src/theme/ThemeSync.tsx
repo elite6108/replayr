@@ -18,9 +18,9 @@ export function ThemeSync() {
     if (loaded) persistThemePreference(preference);
     applyResolvedTheme(resolveTheme(preference), booted.current);
     booted.current = true;
-    if (preference !== "system") return;
+    if (preference !== "auto") return;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => applyResolvedTheme(resolveTheme("system"), true);
+    const onChange = () => applyResolvedTheme(resolveTheme("auto"), true);
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);
   }, [loaded, setting]);

@@ -1,9 +1,10 @@
 import type { ThemePreference } from "../types/settings";
 
 const OPTIONS: { value: ThemePreference; label: string }[] = [
-  { value: "system", label: "System" },
-  { value: "dark", label: "Dark" },
+  { value: "auto", label: "Auto" },
   { value: "light", label: "Light" },
+  { value: "grey", label: "Grey" },
+  { value: "dark", label: "Dark" },
 ];
 
 export function ThemePicker({

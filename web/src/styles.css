@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/inter-latin.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
   --bg: #07080d;
@@ -149,13 +157,36 @@ a {
   letter-spacing: -0.03em;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+}
+
+.brand img {
+  display: block;
+  height: 32px;
+  width: auto;
+}
+
+.brand .replayr-logo-name {
+  font-size: 20px;
 }
 
 .brand-logo {
   display: block;
   height: 32px;
   width: auto;
+}
+
+.replayr-logo-name {
+  color: #ecf0f5;
+  font-family: Inter, "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.038em;
+  line-height: 1;
+}
+
+.replayr-logo-name span {
+  color: #57e3dc;
 }
 
 .brand-dot {

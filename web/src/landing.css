@@ -63,14 +63,13 @@
   gap: 12px;
 }
 
-.land-logo img:first-child {
+.land-logo img {
   height: 34px;
   width: auto;
 }
 
-.land-logo img:last-child {
-  height: 22px;
-  width: auto;
+.land-logo .replayr-logo-name {
+  font-size: 22px;
 }
 
 .land-nav-rule {
@@ -1046,9 +1045,19 @@
   gap: 24px;
 }
 
-.land-foot-card img {
+.land-foot-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.land-foot-logo img {
   height: 42px;
   width: auto;
+}
+
+.land-foot-logo .replayr-logo-name {
+  font-size: 26px;
 }
 
 .land-foot-card p {

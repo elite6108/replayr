@@ -285,7 +285,10 @@ export function HomePage() {
         <div className="land-foot-card">
           <div className="land-foot-top">
             <div>
-              <img src={`${asset}/footer-logo.svg`} alt="Replayr" />
+              <span className="land-foot-logo">
+                <img src="/replayr-mark.png" alt="" />
+                <span className="replayr-logo-name">Replayr<span>.</span></span>
+              </span>
               <p>Did you clip it?</p>
             </div>
             <nav aria-label="Footer">

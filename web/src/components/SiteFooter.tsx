@@ -1,12 +1,13 @@
 import { Link } from "react-router-dom";
-import { APP_NAME, SUPPORT_EMAIL } from "../lib/branding";
+import { SUPPORT_EMAIL } from "../lib/branding";
 
 export function SiteFooter() {
   return (
     <footer className="site-footer site-footer-home">
       <div className="site-footer-home-inner">
         <Link className="brand" to="/">
-          <img className="brand-logo" src="/replayr-logo.png" alt={APP_NAME} />
+          <img src="/replayr-mark.png" alt="" />
+          <span className="replayr-logo-name">Replayr<span>.</span></span>
         </Link>
         <p>© {new Date().getFullYear()} Replayr. Clipping happens on Windows.</p>
         <div className="site-footer-home-links">

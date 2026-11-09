@@ -47,8 +47,8 @@ export function SiteHeader() {
     <header className={`land-nav${menuOpen ? " is-open" : ""}`}>
       <div className="land-nav-left">
         <NavLink className="land-logo" to="/" end onClick={closeMenu}>
-          <img src={`${asset}/logo-mark.svg`} alt="" />
-          <img src={`${asset}/wordmark.svg`} alt="Replayr" />
+          <img src="/replayr-mark.png" alt="" />
+          <span className="replayr-logo-name">Replayr<span>.</span></span>
         </NavLink>
         <span className="land-nav-rule" aria-hidden="true" />
         <nav className="land-links" aria-label="Primary">

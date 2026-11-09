@@ -1,4 +1,7 @@
 {
+  "0.1.83": [
+    "Profile photos load on the installed app, and changing one can reach Replayr again."
+  ],
   "0.1.82": [
     "Choose Auto, Light, Grey, or Dark. Grey is a darker slate, and Light follows the rest of the app."
   ],

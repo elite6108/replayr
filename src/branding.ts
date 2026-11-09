@@ -4,7 +4,7 @@ export const SUPPORT_EMAIL = "support@replayr.tv";
 export const DEFAULT_PUBLIC_APP_URL = "https://replayr.tv";
 
 export function publicAppUrl(): string {
-  const fromEnv = import.meta.env.VITE_PUBLIC_APP_URL?.replace(/\/$/, "");
+  const fromEnv = import.meta.env.VITE_PUBLIC_APP_URL?.trim().replace(/\/$/, "");
   return fromEnv || DEFAULT_PUBLIC_APP_URL;
 }
 
@@ -12,14 +12,11 @@ export function publicApiUrl(): string {
   const url = publicAppUrl();
   try {
     const parsed = new URL(url);
-    if (parsed.hostname === "replayr.tv") {
-      parsed.hostname = "www.replayr.tv";
-      return parsed.origin;
-    }
+    if (parsed.hostname === "replayr.tv") parsed.hostname = "www.replayr.tv";
+    return parsed.origin;
   } catch {
-    /* keep configured origin */
+    return DEFAULT_PUBLIC_APP_URL;
   }
-  return url;
 }
 
 export function publicShareUrl(): string {

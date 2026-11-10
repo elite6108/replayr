@@ -122,10 +122,10 @@ describe("MRR", () => {
     expect(estimatedMrrCents([]).estimated).toBe(0);
     expect(estimatedMrrCents([]).allAuthoritative).toBe(false);
     const mrr = estimatedMrrCents([{ user_id: USER_A, status: "active", cancel_at_period_end: false }]);
-    expect(mrr.estimated).toBe(499);
+    expect(mrr.estimated).toBe(799);
     expect(mrr.allAuthoritative).toBe(false);
     expect(mrr.authoritative).toBeNull();
-    expect(estimatedArrCents(mrr.estimated)).toBe(5988);
+    expect(estimatedArrCents(mrr.estimated)).toBe(9588);
   });
 
   it("uses Stripe amount fields when present", () => {

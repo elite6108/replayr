@@ -14,6 +14,7 @@ import { openReplayrLink } from "@/lib/openReplayrLink";
 import { targetFromPushData } from "@/lib/registerStaffPush";
 import * as Notifications from "expo-notifications";
 import { installMobileTelemetry } from "@/lib/telemetry";
+import { MAX_CONTENT_WIDTH } from "@/lib/layout";
 import { colors } from "@/lib/theme";
 import {
   getMobileAnalyticsConsent,
@@ -44,8 +45,8 @@ function RootShell() {
   }, [pathname, token]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center" }}>
+      <View style={{ flex: 1, width: "100%", maxWidth: MAX_CONTENT_WIDTH }}>
         <Stack
           screenOptions={{
             headerTintColor: colors.accent,
@@ -71,7 +72,7 @@ function RootShell() {
               animation: "fade",
             }}
           />
-          <Stack.Screen name="game/[slug]" options={{ title: "Game" }} />
+          <Stack.Screen name="games/[slug]" options={{ title: "Game" }} />
           <Stack.Screen name="friends" options={{ title: "Following" }} />
           <Stack.Screen name="search" options={{ title: "Search" }} />
           <Stack.Screen name="u/[username]" options={{ title: "Profile" }} />
@@ -91,8 +92,8 @@ function RootShell() {
           <Stack.Screen name="folders" options={{ headerShown: false }} />
           <Stack.Screen name="auth/callback" options={{ title: "Signing in" }} />
         </Stack>
+        {shouldShowAppTabBar(pathname) ? <AppTabBar /> : null}
       </View>
-      {shouldShowAppTabBar(pathname) ? <AppTabBar /> : null}
     </View>
   );
 }

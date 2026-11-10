@@ -156,7 +156,7 @@ export function ClipPage() {
           {!session || billing?.ads ? (
             <aside className="house-ad">
               <strong>Replayr Premium</strong>
-              <p className="muted">Remove the watermark and upload original quality for $6.99/mo.</p>
+              <p className="muted">Remove the watermark and upload original quality for $7.99/mo.</p>
               <Link className="btn primary" to="/pricing">
                 Upgrade
               </Link>

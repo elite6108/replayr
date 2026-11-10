@@ -1,0 +1,48 @@
+## Phase 3 — Desktop upload + link copy
+- snip/session.rs: `SessionBroker { next: AtomicU64, pending: Mutex<HashMap<u64, SyncSender<Option<CloudSession>>>> }`.
+  Unknown requestIds are ignored; timeout → None.
+- snip/cloud.rs: static warm client (5 s connect, 60 s total). `warm(api_base)` pings when the snip
+  opens so TLS is ready by mouse-up. `upload(api_base, token, png) -> Result<CloudOk, CloudError>`
+  where CloudError = Unauthorized|TooLarge|Busy|RateLimited|Invalid|Network|Server, mapped from `code`.
+- In snip/mod.rs `save()`: after the local save, if signed in and auto_upload → mark local row
+  uploading → pull session → upload the in-memory PNG → on success copy the link (or the image if
+  copy_mode == "image") → row ready with cloud_id/slug/share_url → if replacedOldest, mark matching
+  local rows evicted → overlay LinkCopied / LinkCopiedReplacedOldest → emit `screenshot-updated`.
+  Failure → keep local, copy image, overlay UploadFailedImageCopied, row failed + upload_error.
+- Commands (+ app.toml): `screenshot_provide_session`, `screenshot_retry_upload`, `screenshot_sync_cloud`.
+- tracing timings per stage. Target: link in clipboard <1.5 s for 1080p regions on a warm connection.
+- Tests: CloudError mapping from JSON fixtures, apiBase allowlist, broker timeout, unknown requestId ignored.
+
+## Phase 4 — Library, Settings, usage, downgrade banner
+- Library page "Screenshots" tab (src/pages/LibraryPage.tsx) from screenshotStore: JPEG thumbnails
+  via the asset protocol (convertFileSrc), copy link/image, reveal, retry, delete (local and/or
+  cloud), usage bar ("7 / 10 images" or "2.1 GB / 15 GB").
+- Downgrade banner (desktop + web) when trimAfter is set.
+- Settings (src/pages/SettingsPage.tsx SECTIONS): "Screenshots" section — auto-upload, copy link vs
+  image, show overlay, folder. The hotkey already appears in Shortcuts.
+
+## Do not touch
+capture.rs (including screenshot(), save_dir, output_path, last_still), recording_compositor/**,
+encode_pump.rs, encode.rs, buffer.rs, ir_runtime.rs, ir_target.rs, preview/**, upload.rs and
+UPLOAD_GATE, the local_clips schema. Worker clip routes (createUpload, completeUpload,
+ownedObjectKey, deleteClip, cleanupExpiredUploadsGlobal), upload_sessions, add_storage_used_for,
+release_storage_used_for, apply_user_plan, the new-user trigger, the meaning of
+user_storage.storage_used_bytes. still.rs / camera/color.rs / disk.rs / paths.rs: read-only reuse.
+wrangler.toml: no R2 binding (it would change clip objectSize/deleteOwnedObject behaviour).
+
+## How to build and test (Windows)
+- Rust tests need MSVC env. From cmd.exe: call "C:\Program Files (x86)\Microsoft Visual
+  Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" && cd /d C:\Users\gordo\replayr\src-tauri && cargo test --lib
+  Currently 310 pass. 5 known pre-existing failures, unrelated — do not "fix" them as part of this:
+  audio::a_closed_session_accepts_no_audio, camera::ring::prune_keeps_replay_window_and_locked_files,
+  editor::clamps_to_duration, library::reset_stale_uploads_clears_in_flight,
+  recording_compositor::transforms::webcam_corner_is_deterministic.
+- Frontend: npm run typecheck && npm run build (no frontend test runner).
+- Worker: cd worker && npm test.
+- App: from a vcvars64 cmd shell, npm run tauri:dev. If beforeDevCommand fails, a stale node process holds port 1420.
+- src-tauri/app.manifest + src-tauri/tests/loader.rs make cargo test runnable. Do not delete either.
+- Hand-mirror every Rust ↔ TS settings/DTO type; there is no codegen.
+
+Work phase by phase, run the tests after each, and report what you verified vs. what still needs manual QA
+
+</user_query>

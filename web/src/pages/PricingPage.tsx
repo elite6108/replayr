@@ -74,7 +74,7 @@ export function PricingPage() {
     <main className="page marketing">
       <Seo
         title="Pricing — Replayr"
-        description="Replayr is free to capture on Windows. Premium is $6.99 a month for 100 GB, original-quality uploads, and no watermark."
+        description="Replayr is free to capture on Windows. Premium is $7.99 a month for 100 GB, original-quality uploads, and no watermark."
       />
       <p className="eyebrow">Cloud storage</p>
       <h1>Free to clip. Premium when the library grows.</h1>
@@ -99,7 +99,7 @@ export function PricingPage() {
         </article>
         <article className="card pricing-card featured">
           <h2>Premium</h2>
-          <p className="price">$6.99</p>
+          <p className="price">$7.99</p>
           <p className="muted pricing-cadence">per month</p>
           <ul>
             <li>{premium ? formatBytes(premium.storage_limit_bytes) : "100 GB"} cloud storage</li>

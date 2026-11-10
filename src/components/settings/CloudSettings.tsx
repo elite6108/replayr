@@ -91,7 +91,7 @@ export function CloudSettings({
         <div className="setting-row">
           <span className="setting-copy">
             Replayr Premium
-            <small>$6.99/mo · 100 GB, original uploads, no watermark</small>
+            <small>$7.99/mo · 100 GB, original uploads, no watermark</small>
           </span>
           <Link className="settings-link" to="/profile">
             Upgrade

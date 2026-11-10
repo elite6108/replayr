@@ -23,13 +23,17 @@ const advertisedSurfaces = [
   "mobile/app/c/[slug].web.tsx",
   "mobile/app/settings.tsx",
   "mobile/components/player/ClipPlayerCell.tsx",
+  "web/src/pages/HomePage.tsx",
+  "web/public/coming-soon.html",
 ] as const;
 
 describe("premium pricing copy", () => {
-  it("advertises $6.99 monthly and hides yearly / $47.88 / Save 20%", () => {
+  it("advertises $7.99 monthly and hides yearly / $47.88 / Save 20%", () => {
     for (const rel of advertisedSurfaces) {
       const text = read(rel);
-      expect(text, rel).toContain("$6.99");
+      expect(text, rel).toContain("$7.99");
+      expect(text, rel).not.toContain("$6.99");
+      expect(text, rel).not.toContain("$5.59");
       expect(text, rel).not.toContain("4.99");
       expect(text, rel).not.toContain("47.88");
       expect(text, rel).not.toContain("Save 20%");
@@ -40,7 +44,7 @@ describe("premium pricing copy", () => {
   it("keeps the website pricing page monthly-only", () => {
     const page = read("web/src/pages/PricingPage.tsx");
     expect(page).toContain('startCheckout(session.access_token, "month")');
-    expect(page).toContain("Premium is $6.99 a month");
+    expect(page).toContain("Premium is $7.99 a month");
     expect(page).toContain("per month");
     expect(page).not.toContain('"year"');
     expect(page).not.toMatch(/interval|yearly|billed annually/i);
@@ -48,7 +52,7 @@ describe("premium pricing copy", () => {
 
   it("keeps Terms on monthly Premium only", () => {
     const terms = read("web/src/pages/LegalPage.tsx");
-    expect(terms).toContain("Replayr Premium is $6.99 per month");
+    expect(terms).toContain("Replayr Premium is $7.99 per month");
     expect(terms).not.toMatch(/year|annually|47\.88|Save 20%/i);
   });
 });

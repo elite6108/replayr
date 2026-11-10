@@ -35,10 +35,13 @@ function configValue(key) {
   return match?.[1] || "";
 }
 
-function findPrice(productId, interval) {
+function findPrice(productId, interval, unitAmount) {
   const body = JSON.parse(stripe(["prices", "list", "--product", productId, "--limit", "20"]));
   return (body.data || []).find(
-    (price) => price.recurring?.interval === interval && price.active !== false,
+    (price) =>
+      price.recurring?.interval === interval &&
+      price.active !== false &&
+      (unitAmount == null || price.unit_amount === unitAmount),
   );
 }
 
@@ -68,7 +71,7 @@ if (existing) {
   productId = created.id;
 }
 
-let monthly = findPrice(productId, "month");
+let monthly = findPrice(productId, "month", 799);
 if (!monthly) {
   monthly = JSON.parse(
     stripe([
@@ -80,7 +83,7 @@ if (!monthly) {
       "--currency",
       "usd",
       "--unit-amount",
-      "499",
+      "799",
       "--recurring.interval",
       "month",
     ]),

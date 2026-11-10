@@ -7,7 +7,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { Image } from "expo-image";
@@ -33,6 +32,7 @@ import {
 import { seedClipFeed } from "@/lib/clipFeed";
 import { useAuth } from "@/lib/auth";
 import { formatCount, formatDurationMs, formatHandle, formatTimeAgo } from "@/lib/format";
+import { useContentWidth } from "@/lib/layout";
 import { shareClipUrl } from "@/lib/media";
 import { clipShareUrl } from "@/lib/supabase";
 import { colors, gameGlow } from "@/lib/theme";
@@ -40,7 +40,7 @@ import { listContinueWatching, type WatchItem } from "@/lib/watchProgress";
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  const width = useContentWidth();
   const { session } = useAuth();
   const token = session?.access_token;
   const userId = session?.user.id;
@@ -163,7 +163,7 @@ export default function HomeScreen() {
       >
         {showAd ? (
           <Pressable style={styles.houseAd} onPress={() => router.push("/account")}>
-            <Text style={styles.houseAdTitle}>Replayr Premium — $6.99/mo</Text>
+            <Text style={styles.houseAdTitle}>Replayr Premium — $7.99/mo</Text>
             <Text style={styles.houseAdCopy}>100 GB, original uploads, and no Replayr.tv watermark.</Text>
           </Pressable>
         ) : null}

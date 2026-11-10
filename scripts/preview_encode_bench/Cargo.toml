@@ -1,0 +1,8 @@
+﻿[package]
+name = "preview_encode_bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+jpeg-encoder = "0.6"
+png = "0.17"

@@ -129,7 +129,7 @@ Server events (Stripe/webhook only; clients cannot write `subscription.*`):
 
 `pricing.viewed` is a client web event on the pricing page.
 
-**Estimated MRR** uses Stripe `amount_cents` + interval when present, else $4.99 monthly / $3.99 yearly. Always labeled Estimated. Not Revenue. **Estimated ARR** = Estimated MRR × 12.
+**Estimated MRR** uses Stripe `amount_cents` + interval when present, else $7.99 monthly / $3.99 yearly. Always labeled Estimated. Not Revenue. **Estimated ARR** = Estimated MRR × 12.
 
 Free → paid is cohort-based (signup/activation → paid within 7/30 days). Immature windows are null.
 

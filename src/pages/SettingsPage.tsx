@@ -226,7 +226,7 @@ function AccountPane({
               ? billing.cancelAtPeriodEnd
                 ? "Cancels at period end"
                 : "100 GB · original uploads · no watermark"
-              : "$6.99/mo · 100 GB, original uploads, no watermark"}
+              : "$7.99/mo · 100 GB, original uploads, no watermark"}
           </small>
         </span>
         {billing?.premium ? (

@@ -19,6 +19,7 @@ import { rebuildAnalyticsDaily } from "./analyticsRollup";
 import { handleAdminAnnouncements } from "./announcements";
 import { handleGameCatalogAdmin } from "./gameCatalogAdmin";
 import { handleWaitlistAdmin } from "./waitlistAdmin";
+import { monthlyRecurringCents } from "./analyticsRevenue";
 import { applyPlan, stripeForm } from "./billing";
 import { listAdminErrors, openErrorCount, resolveAdminError } from "./errors";
 import { ownedObjectKey, type Env } from "./shared";
@@ -339,11 +340,20 @@ async function listPlans(env: Env, actor: AdminActor): Promise<Response> {
 
 async function billingOverview(env: Env, actor: AdminActor): Promise<Response> {
   const [subs, grants, events, settings] = await Promise.all([
-    serviceRest<{ status: string; stripe_price_id: string | null; cancel_at_period_end: boolean }[]>(
+    serviceRest<
+      {
+        status: string;
+        stripe_price_id: string | null;
+        cancel_at_period_end: boolean;
+        amount_cents: number | null;
+        billing_interval: string | null;
+        interval_count: number | null;
+      }[]
+    >(
       env,
       actor,
       "GET",
-      "/billing_subscriptions?select=status,stripe_price_id,cancel_at_period_end",
+      "/billing_subscriptions?select=status,stripe_price_id,cancel_at_period_end,amount_cents,billing_interval,interval_count",
     ),
     restCount(env, actor, "/billing_grants?revoked_at=is.null&select=id"),
     serviceRest<
@@ -356,7 +366,6 @@ async function billingOverview(env: Env, actor: AdminActor): Promise<Response> {
       "/app_settings?id=eq.1&select=watermark_enabled,ads_enabled",
     ),
   ]);
-  const monthly = env.STRIPE_PRICE_PREMIUM_MONTHLY;
   const yearly = env.STRIPE_PRICE_PREMIUM_YEARLY;
   let mrrCents = 0;
   let premium = 0;
@@ -369,9 +378,13 @@ async function billingOverview(env: Env, actor: AdminActor): Promise<Response> {
     if (sub.status === "active" || sub.status === "trialing" || sub.status === "past_due") {
       premium += 1;
       if (sub.cancel_at_period_end) canceling += 1;
-      if (yearly && sub.stripe_price_id === yearly) mrrCents += 399;
-      else if (monthly && sub.stripe_price_id === monthly) mrrCents += 499;
-      else mrrCents += 499;
+      mrrCents += monthlyRecurringCents({
+        amount_cents: sub.amount_cents,
+        billing_interval: sub.billing_interval,
+        interval_count: sub.interval_count,
+        stripe_price_id: sub.stripe_price_id,
+        yearlyPriceId: yearly,
+      }).cents;
     }
   }
   const usedRows = await serviceRest<{ storage_used_bytes: number }[]>(

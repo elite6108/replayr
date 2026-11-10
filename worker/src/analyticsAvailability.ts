@@ -177,7 +177,7 @@ export const ANALYTICS_METRIC_CATALOG: MetricCatalogEntry[] = [
   {
     key: "estimated_mrr_cents",
     availability: "AVAILABLE_ESTIMATE",
-    notes: "Estimate only. Uses Stripe amount_cents when present, else $4.99 / $3.99. mrr_is_estimate is always true. Not Revenue.",
+    notes: "Estimate only. Uses Stripe amount_cents when present, else $7.99 monthly / $3.99 yearly. mrr_is_estimate is always true. Not Revenue.",
   },
   {
     key: "top_games",

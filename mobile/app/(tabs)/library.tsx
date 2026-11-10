@@ -8,7 +8,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { Image } from "expo-image";
@@ -28,6 +27,7 @@ import { seedClipFeed } from "@/lib/clipFeed";
 import { ScreenshotLibraryGrid } from "@/components/ScreenshotLibraryGrid";
 import { useAuth } from "@/lib/auth";
 import { formatDurationMs, formatTimeAgo } from "@/lib/format";
+import { useContentWidth } from "@/lib/layout";
 import { useSocialUnread } from "@/lib/socialUnread";
 import { colors } from "@/lib/theme";
 
@@ -73,7 +73,7 @@ export default function LibraryScreen() {
   const foldersPaneRef = useRef<FoldersLibraryPaneHandle>(null);
   const params = useLocalSearchParams<{ pane?: string | string[] }>();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const width = useContentWidth();
   const { session } = useAuth();
   const { notificationsUnread } = useSocialUnread();
   const token = session?.access_token;

@@ -15,7 +15,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -33,6 +32,7 @@ import {
   listIncomingFolderInvites,
   listSharedFolders,
 } from "@/lib/api.folders";
+import { useContentWidth } from "@/lib/layout";
 import type { Folder, FolderInvite } from "@/lib/social-types";
 import { colors } from "@/lib/theme";
 
@@ -57,7 +57,7 @@ export const FoldersLibraryPane = forwardRef<
 >(function FoldersLibraryPane({ token, query = "", onTotalChange, onSortChange }, ref) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const width = useContentWidth();
   const cardWidth = Math.floor((width - 32 - GRID_GAP) / 2);
   const [mine, setMine] = useState<Folder[]>([]);
   const [shared, setShared] = useState<Folder[]>([]);

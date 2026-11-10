@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +12,7 @@ import { Redirect, useRouter, type Href } from "expo-router";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { Image } from "expo-image";
+import { Ionicons } from "@expo/vector-icons";
 import { SocialAuthRow } from "@/components/SocialAuthRow";
 import { Button, Field, Notice } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
@@ -55,6 +57,8 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const needsAgreement = mode === "up" && !agreed;
   const scrollRef = useRef<ScrollView>(null);
 
   function revealField() {
@@ -209,8 +213,33 @@ export default function SignInScreen() {
             }}
           />
         </View>
+        {mode === "up" ? (
+          <View style={styles.agreeRow}>
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: agreed }}
+              accessibilityLabel="I agree to the Terms and Community Guidelines"
+              hitSlop={8}
+              onPress={() => setAgreed((value) => !value)}
+              style={[styles.agreeBox, agreed && styles.agreeBoxOn]}
+            >
+              {agreed ? <Ionicons name="checkmark" size={16} color={colors.onAccent} /> : null}
+            </Pressable>
+            <Text style={styles.agreeText}>
+              <Text onPress={() => setAgreed((value) => !value)}>I agree to the </Text>
+              <Text style={styles.link} onPress={() => void Linking.openURL("https://www.replayr.tv/terms")}>
+                Terms and Community Guidelines
+              </Text>
+              <Text onPress={() => setAgreed((value) => !value)}> and have read the </Text>
+              <Text style={styles.link} onPress={() => void Linking.openURL("https://www.replayr.tv/privacy")}>
+                Privacy Policy
+              </Text>
+              .
+            </Text>
+          </View>
+        ) : null}
         <SocialAuthRow
-          disabled={busy}
+          disabled={busy || needsAgreement}
           onProvider={(provider) => void startSocial(provider)}
           onAppleError={setError}
           onAppleBusy={(next) => {
@@ -267,7 +296,7 @@ export default function SignInScreen() {
         <Button
           label={busy ? "Working…" : mode === "in" ? "Sign in" : "Create account"}
           kind="primary"
-          disabled={busy}
+          disabled={busy || needsAgreement}
           onPress={() => void onSubmit()}
         />
         <Button label="Back" onPress={() => router.back()} />
@@ -314,4 +343,18 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 28, fontWeight: "700" },
   muted: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   row: { flexDirection: "row", gap: 8 },
+  agreeRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  agreeBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.muted,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  agreeBoxOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  agreeText: { flex: 1, color: colors.muted, fontSize: 14, lineHeight: 20 },
+  link: { color: colors.accent, textDecorationLine: "underline" },
 });

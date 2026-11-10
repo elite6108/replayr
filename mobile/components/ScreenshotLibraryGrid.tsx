@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, SectionList, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Pressable, SectionList, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ClipThumb } from "@/components/ClipThumb";
 import { fetchScreenshots, type CloudScreenshot } from "@/lib/api";
 import { screenshotImageUrl } from "@/lib/supabase";
 import { formatSectionLabel, formatTimeAgo } from "@/lib/format";
+import { useContentWidth } from "@/lib/layout";
 import { colors } from "@/lib/theme";
 
 const PAGE_SIZE = 24;
@@ -20,7 +21,7 @@ export function ScreenshotLibraryGrid({
   onTotalChange?: (total: number) => void;
 }) {
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  const width = useContentWidth();
   const cardWidth = Math.floor((width - 32 - GAP) / 2);
   const [shots, setShots] = useState<CloudScreenshot[]>([]);
   const [total, setTotal] = useState(0);

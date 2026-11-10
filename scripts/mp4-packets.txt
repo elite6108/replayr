@@ -1,0 +1,186 @@
+﻿================================================================================
+C:\Users\gordo\Videos\Project Replay\clip-1788121553.mp4
+
+clip-1788121553.mp4 vide packets=526 timescale=60000
+first 20:
+  #1 pts=0 (0.0000s) dts=0 (0.0000s) dur=1000 flags=K size=87501
+  #2 pts=1000 (0.0167s) dts=1000 (0.0167s) dur=1000 flags=_ size=10467
+  #3 pts=2000 (0.0333s) dts=2000 (0.0333s) dur=1000 flags=_ size=10804
+  #4 pts=3000 (0.0500s) dts=3000 (0.0500s) dur=1000 flags=_ size=12217
+  #5 pts=4000 (0.0667s) dts=4000 (0.0667s) dur=1000 flags=_ size=11695
+  #6 pts=5000 (0.0833s) dts=5000 (0.0833s) dur=1000 flags=_ size=10034
+  #7 pts=6000 (0.1000s) dts=6000 (0.1000s) dur=1000 flags=_ size=12491
+  #8 pts=7000 (0.1167s) dts=7000 (0.1167s) dur=1000 flags=_ size=13160
+  #9 pts=8000 (0.1333s) dts=8000 (0.1333s) dur=1000 flags=_ size=12845
+  #10 pts=9000 (0.1500s) dts=9000 (0.1500s) dur=1000 flags=_ size=13746
+  #11 pts=10000 (0.1667s) dts=10000 (0.1667s) dur=1000 flags=_ size=13826
+  #12 pts=11000 (0.1833s) dts=11000 (0.1833s) dur=1000 flags=_ size=10862
+  #13 pts=12000 (0.2000s) dts=12000 (0.2000s) dur=1000 flags=_ size=13192
+  #14 pts=13000 (0.2167s) dts=13000 (0.2167s) dur=1000 flags=_ size=13099
+  #15 pts=14000 (0.2333s) dts=14000 (0.2333s) dur=1000 flags=_ size=13616
+  #16 pts=15000 (0.2500s) dts=15000 (0.2500s) dur=1000 flags=_ size=16303
+  #17 pts=16000 (0.2667s) dts=16000 (0.2667s) dur=1000 flags=_ size=13238
+  #18 pts=17000 (0.2833s) dts=17000 (0.2833s) dur=1000 flags=_ size=23255
+  #19 pts=18000 (0.3000s) dts=18000 (0.3000s) dur=1000 flags=_ size=41058
+  #20 pts=19000 (0.3167s) dts=19000 (0.3167s) dur=1000 flags=_ size=17940
+last 20:
+  #507 pts=505998 (8.4333s) dts=505998 (8.4333s) dur=1000 flags=_ size=10440
+  #508 pts=506998 (8.4500s) dts=506998 (8.4500s) dur=1000 flags=_ size=7614
+  #509 pts=507998 (8.4666s) dts=507998 (8.4666s) dur=1000 flags=_ size=8677
+  #510 pts=508998 (8.4833s) dts=508998 (8.4833s) dur=1000 flags=_ size=7906
+  #511 pts=509998 (8.5000s) dts=509998 (8.5000s) dur=1000 flags=_ size=8058
+  #512 pts=510998 (8.5166s) dts=510998 (8.5166s) dur=1000 flags=_ size=9211
+  #513 pts=511998 (8.5333s) dts=511998 (8.5333s) dur=1000 flags=_ size=8261
+  #514 pts=512998 (8.5500s) dts=512998 (8.5500s) dur=1000 flags=_ size=6618
+  #515 pts=513998 (8.5666s) dts=513998 (8.5666s) dur=1000 flags=_ size=8129
+  #516 pts=514998 (8.5833s) dts=514998 (8.5833s) dur=1000 flags=_ size=8663
+  #517 pts=515998 (8.6000s) dts=515998 (8.6000s) dur=1000 flags=_ size=8581
+  #518 pts=516998 (8.6166s) dts=516998 (8.6166s) dur=1000 flags=_ size=2272
+  #519 pts=517998 (8.6333s) dts=517998 (8.6333s) dur=1000 flags=_ size=2353
+  #520 pts=518998 (8.6500s) dts=518998 (8.6500s) dur=1000 flags=_ size=6166
+  #521 pts=519998 (8.6666s) dts=519998 (8.6666s) dur=1000 flags=_ size=2178
+  #522 pts=520998 (8.6833s) dts=520998 (8.6833s) dur=1000 flags=_ size=4662
+  #523 pts=521998 (8.7000s) dts=521998 (8.7000s) dur=1000 flags=_ size=4729
+  #524 pts=522998 (8.7166s) dts=522998 (8.7166s) dur=1000 flags=_ size=3894
+  #525 pts=523998 (8.7333s) dts=523998 (8.7333s) dur=1000 flags=_ size=18106
+  #526 pts=524998 (8.7500s) dts=524998 (8.7500s) dur=1000 flags=_ size=8576
+
+clip-1788121553.mp4 soun packets=411 timescale=48000
+first 20:
+  #1 pts=0 (0.0000s) dts=0 (0.0000s) dur=1024 flags=_ size=512
+  #2 pts=1024 (0.0213s) dts=1024 (0.0213s) dur=1024 flags=_ size=559
+  #3 pts=2048 (0.0427s) dts=2048 (0.0427s) dur=1024 flags=_ size=651
+  #4 pts=3072 (0.0640s) dts=3072 (0.0640s) dur=1024 flags=_ size=605
+  #5 pts=4096 (0.0853s) dts=4096 (0.0853s) dur=1024 flags=_ size=565
+  #6 pts=5120 (0.1067s) dts=5120 (0.1067s) dur=1024 flags=_ size=551
+  #7 pts=6144 (0.1280s) dts=6144 (0.1280s) dur=1024 flags=_ size=564
+  #8 pts=7168 (0.1493s) dts=7168 (0.1493s) dur=1024 flags=_ size=524
+  #9 pts=8192 (0.1707s) dts=8192 (0.1707s) dur=1024 flags=_ size=474
+  #10 pts=9216 (0.1920s) dts=9216 (0.1920s) dur=1024 flags=_ size=478
+  #11 pts=10240 (0.2133s) dts=10240 (0.2133s) dur=1024 flags=_ size=487
+  #12 pts=11264 (0.2347s) dts=11264 (0.2347s) dur=1024 flags=_ size=499
+  #13 pts=12288 (0.2560s) dts=12288 (0.2560s) dur=1024 flags=_ size=499
+  #14 pts=13312 (0.2773s) dts=13312 (0.2773s) dur=1024 flags=_ size=484
+  #15 pts=14336 (0.2987s) dts=14336 (0.2987s) dur=1024 flags=_ size=542
+  #16 pts=15360 (0.3200s) dts=15360 (0.3200s) dur=1024 flags=_ size=473
+  #17 pts=16384 (0.3413s) dts=16384 (0.3413s) dur=1024 flags=_ size=488
+  #18 pts=17408 (0.3627s) dts=17408 (0.3627s) dur=1024 flags=_ size=503
+  #19 pts=18432 (0.3840s) dts=18432 (0.3840s) dur=1024 flags=_ size=494
+  #20 pts=19456 (0.4053s) dts=19456 (0.4053s) dur=1024 flags=_ size=561
+last 20:
+  #392 pts=400384 (8.3413s) dts=400384 (8.3413s) dur=1024 flags=_ size=645
+  #393 pts=401408 (8.3627s) dts=401408 (8.3627s) dur=1024 flags=_ size=592
+  #394 pts=402432 (8.3840s) dts=402432 (8.3840s) dur=1024 flags=_ size=566
+  #395 pts=403456 (8.4053s) dts=403456 (8.4053s) dur=1024 flags=_ size=547
+  #396 pts=404480 (8.4267s) dts=404480 (8.4267s) dur=1024 flags=_ size=534
+  #397 pts=405504 (8.4480s) dts=405504 (8.4480s) dur=1024 flags=_ size=526
+  #398 pts=406528 (8.4693s) dts=406528 (8.4693s) dur=1024 flags=_ size=528
+  #399 pts=407552 (8.4907s) dts=407552 (8.4907s) dur=1024 flags=_ size=388
+  #400 pts=408576 (8.5120s) dts=408576 (8.5120s) dur=1024 flags=_ size=396
+  #401 pts=409600 (8.5333s) dts=409600 (8.5333s) dur=1024 flags=_ size=448
+  #402 pts=410624 (8.5547s) dts=410624 (8.5547s) dur=1024 flags=_ size=462
+  #403 pts=411648 (8.5760s) dts=411648 (8.5760s) dur=1024 flags=_ size=521
+  #404 pts=412672 (8.5973s) dts=412672 (8.5973s) dur=1024 flags=_ size=568
+  #405 pts=413696 (8.6187s) dts=413696 (8.6187s) dur=1024 flags=_ size=565
+  #406 pts=414720 (8.6400s) dts=414720 (8.6400s) dur=1024 flags=_ size=487
+  #407 pts=415744 (8.6613s) dts=415744 (8.6613s) dur=1024 flags=_ size=440
+  #408 pts=416768 (8.6827s) dts=416768 (8.6827s) dur=1024 flags=_ size=442
+  #409 pts=417792 (8.7040s) dts=417792 (8.7040s) dur=1024 flags=_ size=460
+  #410 pts=418816 (8.7253s) dts=418816 (8.7253s) dur=1024 flags=_ size=459
+  #411 pts=419840 (8.7467s) dts=419840 (8.7467s) dur=1024 flags=_ size=617
+
+interleave: video 0.0000..8.7666s audio 0.0000..8.7680s lead=-1.4ms
+keyframes=12 avg_gop_s=0.732 first_keys=1,61,121,122,182,242,243,303
+================================================================================
+C:\Users\gordo\Videos\Project Replay\clip-1788121589.compose-diag.mp4
+
+clip-1788121589.compose-diag.mp4 vide packets=1640 timescale=60000
+first 20:
+  #1 pts=0 (0.0000s) dts=0 (0.0000s) dur=1000 flags=K size=96592
+  #2 pts=1000 (0.0167s) dts=1000 (0.0167s) dur=1000 flags=_ size=13749
+  #3 pts=2000 (0.0333s) dts=2000 (0.0333s) dur=1000 flags=_ size=9800
+  #4 pts=3000 (0.0500s) dts=3000 (0.0500s) dur=1000 flags=_ size=11037
+  #5 pts=4000 (0.0667s) dts=4000 (0.0667s) dur=1000 flags=_ size=11874
+  #6 pts=5000 (0.0833s) dts=5000 (0.0833s) dur=1000 flags=_ size=8145
+  #7 pts=6000 (0.1000s) dts=6000 (0.1000s) dur=1000 flags=_ size=11098
+  #8 pts=7000 (0.1167s) dts=7000 (0.1167s) dur=1000 flags=_ size=10167
+  #9 pts=8000 (0.1333s) dts=8000 (0.1333s) dur=1000 flags=_ size=15123
+  #10 pts=9000 (0.1500s) dts=9000 (0.1500s) dur=1000 flags=_ size=11720
+  #11 pts=10000 (0.1667s) dts=10000 (0.1667s) dur=1000 flags=_ size=17041
+  #12 pts=11000 (0.1833s) dts=11000 (0.1833s) dur=1000 flags=_ size=14703
+  #13 pts=12000 (0.2000s) dts=12000 (0.2000s) dur=1000 flags=_ size=14213
+  #14 pts=13000 (0.2167s) dts=13000 (0.2167s) dur=1000 flags=_ size=14013
+  #15 pts=14000 (0.2333s) dts=14000 (0.2333s) dur=1000 flags=_ size=24104
+  #16 pts=15000 (0.2500s) dts=15000 (0.2500s) dur=1000 flags=_ size=22752
+  #17 pts=16000 (0.2667s) dts=16000 (0.2667s) dur=1000 flags=_ size=21311
+  #18 pts=17000 (0.2833s) dts=17000 (0.2833s) dur=1000 flags=_ size=19872
+  #19 pts=18000 (0.3000s) dts=18000 (0.3000s) dur=1000 flags=_ size=12752
+  #20 pts=19000 (0.3167s) dts=19000 (0.3167s) dur=1000 flags=_ size=19160
+last 20:
+  #1621 pts=1620000 (27.0000s) dts=1620000 (27.0000s) dur=1000 flags=K size=151189
+  #1622 pts=1621000 (27.0167s) dts=1621000 (27.0167s) dur=1000 flags=_ size=14099
+  #1623 pts=1622000 (27.0333s) dts=1622000 (27.0333s) dur=1000 flags=_ size=12144
+  #1624 pts=1623000 (27.0500s) dts=1623000 (27.0500s) dur=1000 flags=_ size=18665
+  #1625 pts=1624000 (27.0667s) dts=1624000 (27.0667s) dur=1000 flags=_ size=12024
+  #1626 pts=1625000 (27.0833s) dts=1625000 (27.0833s) dur=1000 flags=_ size=15679
+  #1627 pts=1626000 (27.1000s) dts=1626000 (27.1000s) dur=1000 flags=_ size=15573
+  #1628 pts=1627000 (27.1167s) dts=1627000 (27.1167s) dur=1000 flags=_ size=30900
+  #1629 pts=1628000 (27.1333s) dts=1628000 (27.1333s) dur=1000 flags=_ size=23584
+  #1630 pts=1629000 (27.1500s) dts=1629000 (27.1500s) dur=1000 flags=_ size=94773
+  #1631 pts=1630000 (27.1667s) dts=1630000 (27.1667s) dur=1000 flags=_ size=32114
+  #1632 pts=1631000 (27.1833s) dts=1631000 (27.1833s) dur=1000 flags=_ size=37923
+  #1633 pts=1632000 (27.2000s) dts=1632000 (27.2000s) dur=1000 flags=_ size=27775
+  #1634 pts=1633000 (27.2167s) dts=1633000 (27.2167s) dur=1000 flags=_ size=27770
+  #1635 pts=1634000 (27.2333s) dts=1634000 (27.2333s) dur=1000 flags=_ size=18978
+  #1636 pts=1635000 (27.2500s) dts=1635000 (27.2500s) dur=1000 flags=_ size=14658
+  #1637 pts=1636000 (27.2667s) dts=1636000 (27.2667s) dur=1000 flags=_ size=18135
+  #1638 pts=1637000 (27.2833s) dts=1637000 (27.2833s) dur=1000 flags=_ size=23734
+  #1639 pts=1638000 (27.3000s) dts=1638000 (27.3000s) dur=1000 flags=_ size=79241
+  #1640 pts=1639000 (27.3167s) dts=1639000 (27.3167s) dur=1000 flags=_ size=17498
+
+clip-1788121589.compose-diag.mp4 soun packets=1282 timescale=48000
+first 20:
+  #1 pts=0 (0.0000s) dts=0 (0.0000s) dur=1024 flags=_ size=512
+  #2 pts=1024 (0.0213s) dts=1024 (0.0213s) dur=1024 flags=_ size=532
+  #3 pts=2048 (0.0427s) dts=2048 (0.0427s) dur=1024 flags=_ size=552
+  #4 pts=3072 (0.0640s) dts=3072 (0.0640s) dur=1024 flags=_ size=555
+  #5 pts=4096 (0.0853s) dts=4096 (0.0853s) dur=1024 flags=_ size=532
+  #6 pts=5120 (0.1067s) dts=5120 (0.1067s) dur=1024 flags=_ size=618
+  #7 pts=6144 (0.1280s) dts=6144 (0.1280s) dur=1024 flags=_ size=482
+  #8 pts=7168 (0.1493s) dts=7168 (0.1493s) dur=1024 flags=_ size=497
+  #9 pts=8192 (0.1707s) dts=8192 (0.1707s) dur=1024 flags=_ size=499
+  #10 pts=9216 (0.1920s) dts=9216 (0.1920s) dur=1024 flags=_ size=501
+  #11 pts=10240 (0.2133s) dts=10240 (0.2133s) dur=1024 flags=_ size=523
+  #12 pts=11264 (0.2347s) dts=11264 (0.2347s) dur=1024 flags=_ size=510
+  #13 pts=12288 (0.2560s) dts=12288 (0.2560s) dur=1024 flags=_ size=513
+  #14 pts=13312 (0.2773s) dts=13312 (0.2773s) dur=1024 flags=_ size=510
+  #15 pts=14336 (0.2987s) dts=14336 (0.2987s) dur=1024 flags=_ size=520
+  #16 pts=15360 (0.3200s) dts=15360 (0.3200s) dur=1024 flags=_ size=552
+  #17 pts=16384 (0.3413s) dts=16384 (0.3413s) dur=1024 flags=_ size=521
+  #18 pts=17408 (0.3627s) dts=17408 (0.3627s) dur=1024 flags=_ size=503
+  #19 pts=18432 (0.3840s) dts=18432 (0.3840s) dur=1024 flags=_ size=524
+  #20 pts=19456 (0.4053s) dts=19456 (0.4053s) dur=1024 flags=_ size=505
+last 20:
+  #1263 pts=1292286 (26.9226s) dts=1292286 (26.9226s) dur=1024 flags=_ size=572
+  #1264 pts=1293310 (26.9440s) dts=1293310 (26.9440s) dur=1024 flags=_ size=453
+  #1265 pts=1294334 (26.9653s) dts=1294334 (26.9653s) dur=1024 flags=_ size=471
+  #1266 pts=1295358 (26.9866s) dts=1295358 (26.9866s) dur=1024 flags=_ size=478
+  #1267 pts=1296382 (27.0080s) dts=1296382 (27.0080s) dur=1024 flags=_ size=479
+  #1268 pts=1297406 (27.0293s) dts=1297406 (27.0293s) dur=1024 flags=_ size=526
+  #1269 pts=1298430 (27.0506s) dts=1298430 (27.0506s) dur=1024 flags=_ size=583
+  #1270 pts=1299454 (27.0720s) dts=1299454 (27.0720s) dur=1024 flags=_ size=495
+  #1271 pts=1300478 (27.0933s) dts=1300478 (27.0933s) dur=1024 flags=_ size=519
+  #1272 pts=1301502 (27.1146s) dts=1301502 (27.1146s) dur=1024 flags=_ size=444
+  #1273 pts=1302526 (27.1360s) dts=1302526 (27.1360s) dur=1024 flags=_ size=483
+  #1274 pts=1303550 (27.1573s) dts=1303550 (27.1573s) dur=1024 flags=_ size=494
+  #1275 pts=1304574 (27.1786s) dts=1304574 (27.1786s) dur=1024 flags=_ size=494
+  #1276 pts=1305598 (27.2000s) dts=1305598 (27.2000s) dur=1024 flags=_ size=522
+  #1277 pts=1306622 (27.2213s) dts=1306622 (27.2213s) dur=1024 flags=_ size=524
+  #1278 pts=1307646 (27.2426s) dts=1307646 (27.2426s) dur=1024 flags=_ size=492
+  #1279 pts=1308670 (27.2640s) dts=1308670 (27.2640s) dur=1024 flags=_ size=504
+  #1280 pts=1309694 (27.2853s) dts=1309694 (27.2853s) dur=1024 flags=_ size=497
+  #1281 pts=1310718 (27.3066s) dts=1310718 (27.3066s) dur=1024 flags=_ size=571
+  #1282 pts=1311742 (27.3280s) dts=1311742 (27.3280s) dur=1024 flags=_ size=479
+
+interleave: video 0.0000..27.3333s audio 0.0000..27.3493s lead=-16.0ms
+keyframes=55 avg_gop_s=0.500 first_keys=1,31,61,91,121,151,181,211

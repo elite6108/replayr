@@ -2,12 +2,11 @@ import { StyleSheet, View } from "react-native";
 import { AppleSignInButton } from "@/components/AppleSignInButton";
 import { SocialIconButton } from "@/components/SocialIconButton";
 
-type SocialProvider = "google" | "discord" | "twitter";
+type SocialProvider = "google" | "discord";
 
 const PROVIDERS: { id: SocialProvider; label: string; icon?: "logo-google" | "logo-discord"; mark?: string }[] = [
   { id: "google", label: "Continue with Google", icon: "logo-google" },
   { id: "discord", label: "Continue with Discord", icon: "logo-discord" },
-  { id: "twitter", label: "Continue with X", mark: "X" },
 ];
 
 export function SocialAuthRow({
@@ -37,12 +36,6 @@ export function SocialAuthRow({
         icon={PROVIDERS[1].icon}
         disabled={disabled}
         onPress={() => onProvider("discord")}
-      />
-      <SocialIconButton
-        label={PROVIDERS[2].label}
-        mark={PROVIDERS[2].mark}
-        disabled={disabled}
-        onPress={() => onProvider("twitter")}
       />
     </View>
   );

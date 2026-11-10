@@ -40,7 +40,6 @@ const questions = [
 
 export function HomePage() {
   const [open, setOpen] = useState(0);
-  const [yearly, setYearly] = useState(false);
 
   useEffect(() => {
     if (!document.getElementById("land-display")) {
@@ -203,17 +202,9 @@ export function HomePage() {
                 <span>Most popular</span>
                 <p>For players who never want to leave a moment behind.</p>
               </header>
-              <div className="land-price-row">
-                <p className="land-price-figure">
-                  {yearly ? "$5.59" : "$6.99"} <span>per month</span>
-                </p>
-                <div className="land-bill" role="group" aria-label="Premium billing period">
-                  <button type="button" className={yearly ? "" : "is-on"} onClick={() => setYearly(false)}>Monthly</button>
-                  <button type="button" className={yearly ? "is-on" : ""} onClick={() => setYearly(true)}>
-                    Yearly <em>−20%</em>
-                  </button>
-                </div>
-              </div>
+              <p className="land-price-figure">
+                $7.99 <span>per month</span>
+              </p>
               <Link className="land-btn land-price-cta" to="/pricing">Start your 7-day trial</Link>
               <p className="land-trial">Try Premium free for 7 days.</p>
               <p className="land-storage"><b>100 GB</b> cloud storage</p>

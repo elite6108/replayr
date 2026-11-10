@@ -279,7 +279,7 @@ function ReadyCell({
       {active ? <PlayerTopChrome top={insets.top} mode={feedMode} /> : null}
       {showAd ? (
         <Pressable style={[styles.houseAd, { top: insets.top + 56 }]} onPress={() => router.push("/account")}>
-          <Text style={styles.houseAdTitle}>Replayr Premium — $6.99/mo</Text>
+          <Text style={styles.houseAdTitle}>Replayr Premium — $7.99/mo</Text>
           <Text style={styles.houseAdCopy}>Remove the watermark · original quality</Text>
         </Pressable>
       ) : null}

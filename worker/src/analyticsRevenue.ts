@@ -2,7 +2,7 @@ import type { UtcDay } from "./analyticsDates";
 
 export const PAID_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
 export const CHURNED_SUBSCRIPTION_STATUSES = ["canceled", "unpaid", "incomplete_expired"] as const;
-export const ESTIMATED_MONTHLY_MRR_CENTS = 499;
+export const ESTIMATED_MONTHLY_MRR_CENTS = 799;
 export const ESTIMATED_YEARLY_MRR_CENTS = 399;
 export const MIN_CORRELATION_SAMPLE = 10;
 

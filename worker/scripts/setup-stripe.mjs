@@ -59,7 +59,7 @@ const product = await stripe(secret, "POST", "/v1/products", {
 const monthly = await stripe(secret, "POST", "/v1/prices", {
   product: product.id,
   currency: "usd",
-  unit_amount: "499",
+  unit_amount: "799",
   "recurring[interval]": "month",
 });
 const yearly = await stripe(secret, "POST", "/v1/prices", {

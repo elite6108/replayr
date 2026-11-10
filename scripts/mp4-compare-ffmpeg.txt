@@ -1,0 +1,311 @@
+﻿================================================================================
+C:\Users\gordo\Videos\Project Replay\clip-1788121589.compose-diag.mp4
+bytes=41148134 order=ftyp,uuid,mdat,moov moov_before_mdat=false
+/ftyp @ 0 size=24 major_brand="mp42" compatible_brands=["mp41","isom"]
+/uuid @ 24 size=39 uuid="5ca708fb328e4205a861650eca0a9596"
+/mdat @ 63 size=41133540
+/moov @ 41133603 size=14531
+/moov/mvhd @ 41133611 size=108 timescale=48000 duration=1312765 duration_sec=27.349270833333332 version=0
+/moov/trak @ 41133719 size=8365
+/moov/trak/tkhd @ 41133727 size=92 duration=1311999 track_id=1 width=1920 height=1080 version=0 enabled=true in_movie=false
+/moov/trak/mdia @ 41133819 size=8265
+/moov/trak/mdia/mdhd @ 41133827 size=32 timescale=60000 duration=1639999 duration_sec=27.333316666666665 version=0
+/moov/trak/mdia/hdlr @ 41133859 size=45 handler="vide"
+/moov/trak/mdia/minf @ 41133904 size=8180
+/moov/trak/mdia/minf/vmhd @ 41133912 size=20
+/moov/trak/mdia/minf/dinf @ 41133932 size=36
+/moov/trak/mdia/minf/dinf/dref @ 41133940 size=28
+/moov/trak/mdia/minf/stbl @ 41133968 size=8116
+/moov/trak/mdia/minf/stbl/stsd @ 41133976 size=148 entry_count=1 version=0
+/moov/trak/mdia/minf/stbl/stsd/avc3 @ 41133992 size=132 width=1920 height=1080 compressor="AVC Coding"
+/moov/trak/mdia/minf/stbl/stsd/avc3/avcC @ 41134078 size=46 AVCProfileIndication=77 AVCLevelIndication=50 sps=["674d4032958901e0089f9610000003001000000788be26"] pps=["68ee3c80"]
+/moov/trak/mdia/minf/stbl/stts @ 41134124 size=24 entry_count=1 version=0 sample_count_sum=1640 first_entries=[{"count":1640,"delta":1000}] last_entry={"count":1640,"delta":1000}
+/moov/trak/mdia/minf/stbl/stsc @ 41134148 size=760 entry_count=62 first_entries=[{"first_chunk":1,"samples_per_chunk":18,"sample_description_index":1},{"first_chunk":2,"samples_per_chunk":20,"sample_description_index":1},{"first_chunk":3,"samples_per_chunk":19,"sample_description_index":1},{"first_chunk":4,"samples_per_chunk":20,"sample_description_index":1},{"first_chunk":5,"samples_per_chunk":19,"sample_description_index":1},{"first_chunk":6,"samples_per_chunk":18,"sample_description_index":1},{"first_chunk":7,"samples_per_chunk":20,"sample_description_index":1},{"first_chunk":8,"samples_per_chunk":19,"sample_description_index":1}] last_entry={"first_chunk":86,"samples_per_chunk":8,"sample_description_index":1}
+/moov/trak/mdia/minf/stbl/stsz @ 41134908 size=6580 sample_count=1640 constant_sample_size=0 payload_bytes_sum=40476930
+/moov/trak/mdia/minf/stbl/stco @ 41141488 size=360 entry_count=86 first_offsets=[79,355249,840251,1219094,1616578,2044837,2387455,2942221] last_offset=40902225 min_offset=79 max_offset=40902225
+/moov/trak/mdia/minf/stbl/stss @ 41141848 size=236 entry_count=55
+/moov/trak @ 41142084 size=5981
+/moov/trak/tkhd @ 41142092 size=92 duration=1312765 track_id=2 width=0 height=0 version=0 enabled=true in_movie=false
+/moov/trak/mdia @ 41142184 size=5881
+/moov/trak/mdia/mdhd @ 41142192 size=32 timescale=48000 duration=1312765 duration_sec=27.349270833333332 version=0
+/moov/trak/mdia/hdlr @ 41142224 size=45 handler="soun"
+/moov/trak/mdia/minf @ 41142269 size=5796
+/moov/trak/mdia/minf/smhd @ 41142277 size=16
+/moov/trak/mdia/minf/dinf @ 41142293 size=36
+/moov/trak/mdia/minf/dinf/dref @ 41142301 size=28
+/moov/trak/mdia/minf/stbl @ 41142329 size=5736
+/moov/trak/mdia/minf/stbl/stsd @ 41142337 size=100 entry_count=1 version=0
+/moov/trak/mdia/minf/stbl/stsd/mp4a @ 41142353 size=84 channel_count=2 sample_rate=48000
+/moov/trak/mdia/minf/stbl/stsd/mp4a/esds @ 41142389 size=48 version=0
+/moov/trak/mdia/minf/stbl/stts @ 41142437 size=56 entry_count=5 version=0 sample_count_sum=1282 first_entries=[{"count":626,"delta":1024},{"count":1,"delta":1023},{"count":624,"delta":1024},{"count":1,"delta":1023},{"count":30,"delta":1024}] last_entry={"count":30,"delta":1024}
+/moov/trak/mdia/minf/stbl/ctts @ 41142493 size=24 entry_count=1 version=0 sample_count_sum=1282 first_entries=[{"count":1282,"delta":0}] last_entry={"count":1282,"delta":0}
+/moov/trak/mdia/minf/stbl/stsc @ 41142517 size=40 entry_count=2 first_entries=[{"first_chunk":1,"samples_per_chunk":15,"sample_description_index":1},{"first_chunk":86,"samples_per_chunk":7,"sample_description_index":1}] last_entry={"first_chunk":86,"samples_per_chunk":7,"sample_description_index":1}
+/moov/trak/mdia/minf/stbl/stsz @ 41142557 size=5148 sample_count=1282 constant_sample_size=0 payload_bytes_sum=656594
+/moov/trak/mdia/minf/stbl/stco @ 41147705 size=360 entry_count=86 first_offsets=[347393,832444,1211473,1608719,2037261,2379873,2934255,3532242] last_offset=41130014 min_offset=347393 max_offset=41130014
+/moov/udta @ 41148065 size=69
+/moov/udta/meta @ 41148073 size=53 version=0
+/moov/udta/meta/hdlr @ 41148085 size=33 handler="mdir"
+/moov/udta/meta/ilst @ 41148118 size=8
+/moov/udta/Xtra @ 41148126 size=8
+-- chunk offsets --
+[
+  {
+    "track": null,
+    "kind": "stco",
+    "count": 86,
+    "first": [
+      79,
+      355249,
+      840251,
+      1219094,
+      1616578,
+      2044837,
+      2387455,
+      2942221
+    ],
+    "last": 40902225,
+    "min": 79,
+    "max": 40902225,
+    "mdat": [
+      71,
+      41133603
+    ],
+    "outside_mdat": []
+  },
+  {
+    "track": null,
+    "kind": "stco",
+    "count": 86,
+    "first": [
+      347393,
+      832444,
+      1211473,
+      1608719,
+      2037261,
+      2379873,
+      2934255,
+      3532242
+    ],
+    "last": 41130014,
+    "min": 347393,
+    "max": 41130014,
+    "mdat": [
+      71,
+      41133603
+    ],
+    "outside_mdat": []
+  }
+]
+================================================================================
+C:\Users\gordo\Videos\Project Replay\clip-1788121589.ffmpeg-faststart.mp4
+bytes=41165717 order=ftyp,moov,free,mdat moov_before_mdat=true
+/ftyp @ 0 size=32 major_brand="isom" compatible_brands=["isom","iso2","avc1","mp41"]
+/moov @ 32 size=32145
+/moov/mvhd @ 40 size=108 timescale=1000 duration=27350 duration_sec=27.35 version=0
+/moov/trak @ 148 size=21089
+/moov/trak/tkhd @ 156 size=92 duration=27334 track_id=1 width=1920 height=1080 version=0 enabled=true in_movie=true
+/moov/trak/edts @ 248 size=36
+/moov/trak/edts/elst @ 256 size=28 entry_count=1 version=0 entries=[{"segment_duration":27334,"media_time":0,"media_rate":1}]
+/moov/trak/mdia @ 284 size=20953
+/moov/trak/mdia/mdhd @ 292 size=32 timescale=60000 duration=1639999 duration_sec=27.333316666666665 version=0
+/moov/trak/mdia/hdlr @ 324 size=45 handler="vide"
+/moov/trak/mdia/minf @ 369 size=20868
+/moov/trak/mdia/minf/vmhd @ 377 size=20
+/moov/trak/mdia/minf/dinf @ 397 size=36
+/moov/trak/mdia/minf/dinf/dref @ 405 size=28
+/moov/trak/mdia/minf/stbl @ 433 size=20804
+/moov/trak/mdia/minf/stbl/stsd @ 441 size=184 entry_count=1 version=0
+/moov/trak/mdia/minf/stbl/stsd/avc3 @ 457 size=168 width=1920 height=1080 compressor="AVC Coding"
+/moov/trak/mdia/minf/stbl/stsd/avc3/avcC @ 543 size=46 AVCProfileIndication=77 AVCLevelIndication=50 sps=["674d4032958901e0089f9610000003001000000788be26"] pps=["68ee3c80"]
+/moov/trak/mdia/minf/stbl/stsd/avc3/pasp @ 589 size=16
+/moov/trak/mdia/minf/stbl/stsd/avc3/btrt @ 605 size=20 avgBitrate=11846913 maxBitrate=11846913
+/moov/trak/mdia/minf/stbl/stts @ 625 size=32 entry_count=2 version=0 sample_count_sum=1640 first_entries=[{"count":1639,"delta":1000},{"count":1,"delta":999}] last_entry={"count":1,"delta":999}
+/moov/trak/mdia/minf/stbl/stss @ 657 size=236 entry_count=55
+/moov/trak/mdia/minf/stbl/stsc @ 893 size=8620 entry_count=717 first_entries=[{"first_chunk":1,"samples_per_chunk":1,"sample_description_index":1},{"first_chunk":5,"samples_per_chunk":2,"sample_description_index":1},{"first_chunk":6,"samples_per_chunk":1,"sample_description_index":1},{"first_chunk":9,"samples_per_chunk":2,"sample_description_index":1},{"first_chunk":10,"samples_per_chunk":1,"sample_description_index":1},{"first_chunk":12,"samples_per_chunk":2,"sample_description_index":1},{"first_chunk":13,"samples_per_chunk":1,"sample_description_index":1},{"first_chunk":16,"samples_per_chunk":2,"sample_description_index":1}] last_entry={"first_chunk":1281,"samples_per_chunk":1,"sample_description_index":1}
+/moov/trak/mdia/minf/stbl/stsz @ 9513 size=6580 sample_count=1640 constant_sample_size=0 payload_bytes_sum=40476930
+/moov/trak/mdia/minf/stbl/stco @ 16093 size=5144 entry_count=1282 first_offsets=[32193,129297,143578,153930,165522,186073,197789,208438] last_offset=41147740 min_offset=32193 max_offset=41147740
+/moov/trak @ 21237 size=10842
+/moov/trak/tkhd @ 21245 size=92 duration=27350 track_id=2 width=0 height=0 version=0 enabled=true in_movie=true
+/moov/trak/edts @ 21337 size=36
+/moov/trak/edts/elst @ 21345 size=28 entry_count=1 version=0 entries=[{"segment_duration":27350,"media_time":0,"media_rate":1}]
+/moov/trak/mdia @ 21373 size=10706
+/moov/trak/mdia/mdhd @ 21381 size=32 timescale=48000 duration=1312766 duration_sec=27.349291666666666 version=0
+/moov/trak/mdia/hdlr @ 21413 size=45 handler="soun"
+/moov/trak/mdia/minf @ 21458 size=10621
+/moov/trak/mdia/minf/smhd @ 21466 size=16
+/moov/trak/mdia/minf/dinf @ 21482 size=36
+/moov/trak/mdia/minf/dinf/dref @ 21490 size=28
+/moov/trak/mdia/minf/stbl @ 21518 size=10561
+/moov/trak/mdia/minf/stbl/stsd @ 21526 size=123 entry_count=1 version=0
+/moov/trak/mdia/minf/stbl/stsd/mp4a @ 21542 size=107 channel_count=2 sample_rate=48000
+/moov/trak/mdia/minf/stbl/stsd/mp4a/esds @ 21578 size=51 version=0
+/moov/trak/mdia/minf/stbl/stsd/mp4a/btrt @ 21629 size=20 avgBitrate=192061 maxBitrate=192061
+/moov/trak/mdia/minf/stbl/stts @ 21649 size=56 entry_count=5 version=0 sample_count_sum=1282 first_entries=[{"count":626,"delta":1024},{"count":1,"delta":1023},{"count":624,"delta":1024},{"count":1,"delta":1023},{"count":30,"delta":1024}] last_entry={"count":30,"delta":1024}
+/moov/trak/mdia/minf/stbl/stsc @ 21705 size=28 entry_count=1 first_entries=[{"first_chunk":1,"samples_per_chunk":1,"sample_description_index":1}] last_entry={"first_chunk":1,"samples_per_chunk":1,"sample_description_index":1}
+/moov/trak/mdia/minf/stbl/stsz @ 21733 size=5148 sample_count=1282 constant_sample_size=0 payload_bytes_sum=656594
+/moov/trak/mdia/minf/stbl/stco @ 26881 size=5144 entry_count=1282 first_offsets=[128785,143046,153378,164967,185541,197171,207956,223561] last_offset=41165238 min_offset=128785 max_offset=41165238
+/moov/trak/mdia/minf/stbl/sgpd @ 32025 size=26
+/moov/trak/mdia/minf/stbl/sbgp @ 32051 size=28
+/moov/udta @ 32079 size=98
+/moov/udta/meta @ 32087 size=90 version=0
+/moov/udta/meta/hdlr @ 32099 size=33 handler="mdir"
+/moov/udta/meta/ilst @ 32132 size=45
+/free @ 32177 size=8
+/mdat @ 32185 size=41133532
+-- chunk offsets --
+[
+  {
+    "track": null,
+    "kind": "stco",
+    "count": 1282,
+    "first": [
+      32193,
+      129297,
+      143578,
+      153930,
+      165522,
+      186073,
+      197789,
+      208438
+    ],
+    "last": 41147740,
+    "min": 32193,
+    "max": 41147740,
+    "mdat": [
+      32193,
+      41165717
+    ],
+    "outside_mdat": []
+  },
+  {
+    "track": null,
+    "kind": "stco",
+    "count": 1282,
+    "first": [
+      128785,
+      143046,
+      153378,
+      164967,
+      185541,
+      197171,
+      207956,
+      223561
+    ],
+    "last": 41165238,
+    "min": 128785,
+    "max": 41165238,
+    "mdat": [
+      32193,
+      41165717
+    ],
+    "outside_mdat": []
+  }
+]
+================================================================================
+FIRST TREE LINE DIFF
+A: /ftyp @ 0 size=24 major_brand="mp42" compatible_brands=["mp41","isom"]
+B: /ftyp @ 0 size=32 major_brand="isom" compatible_brands=["isom","iso2","avc1","mp41"]
+A: /uuid @ 24 size=39 uuid="5ca708fb328e4205a861650eca0a9596"
+B: /moov @ 32 size=32145
+A: /mdat @ 63 size=41133540
+B: /moov/mvhd @ 40 size=108 timescale=1000 duration=27350 duration_sec=27.35 version=0
+A: /moov @ 41133603 size=14531
+B: /moov/trak @ 148 size=21089
+A: /moov/mvhd @ 41133611 size=108 timescale=48000 duration=1312765 duration_sec=27.349270833333332 version=0
+B: /moov/trak/tkhd @ 156 size=92 duration=27334 track_id=1 width=1920 height=1080 version=0 enabled=true in_movie=true
+A: /moov/trak @ 41133719 size=8365
+B: /moov/trak/edts @ 248 size=36
+A: /moov/trak/tkhd @ 41133727 size=92 duration=1311999 track_id=1 width=1920 height=1080 version=0 enabled=true in_movie=false
+B: /moov/trak/edts/elst @ 256 size=28 entry_count=1 version=0 entries=[{"segment_duration":27334,"media_time":0,"media_rate":1}]
+A: /moov/trak/mdia @ 41133819 size=8265
+B: /moov/trak/mdia @ 284 size=20953
+A: /moov/trak/mdia/mdhd @ 41133827 size=32 timescale=60000 duration=1639999 duration_sec=27.333316666666665 version=0
+B: /moov/trak/mdia/mdhd @ 292 size=32 timescale=60000 duration=1639999 duration_sec=27.333316666666665 version=0
+A: /moov/trak/mdia/hdlr @ 41133859 size=45 handler="vide"
+B: /moov/trak/mdia/hdlr @ 324 size=45 handler="vide"
+A: /moov/trak/mdia/minf @ 41133904 size=8180
+B: /moov/trak/mdia/minf @ 369 size=20868
+A: /moov/trak/mdia/minf/vmhd @ 41133912 size=20
+B: /moov/trak/mdia/minf/vmhd @ 377 size=20
+A: /moov/trak/mdia/minf/dinf @ 41133932 size=36
+B: /moov/trak/mdia/minf/dinf @ 397 size=36
+A: /moov/trak/mdia/minf/dinf/dref @ 41133940 size=28
+B: /moov/trak/mdia/minf/dinf/dref @ 405 size=28
+A: /moov/trak/mdia/minf/stbl @ 41133968 size=8116
+B: /moov/trak/mdia/minf/stbl @ 433 size=20804
+A: /moov/trak/mdia/minf/stbl/stsd @ 41133976 size=148 entry_count=1 version=0
+B: /moov/trak/mdia/minf/stbl/stsd @ 441 size=184 entry_count=1 version=0
+A: /moov/trak/mdia/minf/stbl/stsd/avc3 @ 41133992 size=132 width=1920 height=1080 compressor="AVC Coding"
+B: /moov/trak/mdia/minf/stbl/stsd/avc3 @ 457 size=168 width=1920 height=1080 compressor="AVC Coding"
+A: /moov/trak/mdia/minf/stbl/stsd/avc3/avcC @ 41134078 size=46 AVCProfileIndication=77 AVCLevelIndication=50 sps=["674d4032958901e0089f9610000003001000000788be26"] pps=["68ee3c80"]
+B: /moov/trak/mdia/minf/stbl/stsd/avc3/avcC @ 543 size=46 AVCProfileIndication=77 AVCLevelIndication=50 sps=["674d4032958901e0089f9610000003001000000788be26"] pps=["68ee3c80"]
+A: /moov/trak/mdia/minf/stbl/stts @ 41134124 size=24 entry_count=1 version=0 sample_count_sum=1640 first_entries=[{"count":1640,"delta":1000}] last_entry={"count":1640,"delta":1000}
+B: /moov/trak/mdia/minf/stbl/stsd/avc3/pasp @ 589 size=16
+A: /moov/trak/mdia/minf/stbl/stsc @ 41134148 size=760 entry_count=62 first_entries=[{"first_chunk":1,"samples_per_chunk":18,"sample_description_index":1},{"first_chunk":2,"samples_per_chunk":20,"sample_description_index":1},{"first_chunk":3,"samples_per_chunk":19,"sample_description_index":1},{"first_chunk":4,"samples_per_chunk":20,"sample_description_index":1},{"first_chunk":5,"samples_per_chunk":19,"sample_description_index":1},{"first_chunk":6,"samples_per_chunk":18,"sample_description_index":1},{"first_chunk":7,"samples_per_chunk":20,"sample_description_index":1},{"first_chunk":8,"samples_per_chunk":19,"sample_description_index":1}] last_entry={"first_chunk":86,"samples_per_chunk":8,"sample_description_index":1}
+B: /moov/trak/mdia/minf/stbl/stsd/avc3/btrt @ 605 size=20 avgBitrate=11846913 maxBitrate=11846913
+A: /moov/trak/mdia/minf/stbl/stsz @ 41134908 size=6580 sample_count=1640 constant_sample_size=0 payload_bytes_sum=40476930
+B: /moov/trak/mdia/minf/stbl/stts @ 625 size=32 entry_count=2 version=0 sample_count_sum=1640 first_entries=[{"count":1639,"delta":1000},{"count":1,"delta":999}] last_entry={"count":1,"delta":999}
+A: /moov/trak/mdia/minf/stbl/stco @ 41141488 size=360 entry_count=86 first_offsets=[79,355249,840251,1219094,1616578,2044837,2387455,2942221] last_offset=40902225 min_offset=79 max_offset=40902225
+B: /moov/trak/mdia/minf/stbl/stss @ 657 size=236 entry_count=55
+A: /moov/trak/mdia/minf/stbl/stss @ 41141848 size=236 entry_count=55
+B: /moov/trak/mdia/minf/stbl/stsc @ 893 size=8620 entry_count=717 first_entries=[{"first_chunk":1,"samples_per_chunk":1,"sample_description_index":1},{"first_chunk":5,"samples_per_chunk":2,"sample_description_index":1},{"first_chunk":6,"samples_per_chunk":1,"sample_description_index":1},{"first_chunk":9,"samples_per_chunk":2,"sample_description_index":1},{"first_chunk":10,"samples_per_chunk":1,"sample_description_index":1},{"first_chunk":12,"samples_per_chunk":2,"sample_description_index":1},{"first_chunk":13,"samples_per_chunk":1,"sample_description_index":1},{"first_chunk":16,"samples_per_chunk":2,"sample_description_index":1}] last_entry={"first_chunk":1281,"samples_per_chunk":1,"sample_description_index":1}
+A: /moov/trak @ 41142084 size=5981
+B: /moov/trak/mdia/minf/stbl/stsz @ 9513 size=6580 sample_count=1640 constant_sample_size=0 payload_bytes_sum=40476930
+A: /moov/trak/tkhd @ 41142092 size=92 duration=1312765 track_id=2 width=0 height=0 version=0 enabled=true in_movie=false
+B: /moov/trak/mdia/minf/stbl/stco @ 16093 size=5144 entry_count=1282 first_offsets=[32193,129297,143578,153930,165522,186073,197789,208438] last_offset=41147740 min_offset=32193 max_offset=41147740
+A: /moov/trak/mdia @ 41142184 size=5881
+B: /moov/trak @ 21237 size=10842
+A: /moov/trak/mdia/mdhd @ 41142192 size=32 timescale=48000 duration=1312765 duration_sec=27.349270833333332 version=0
+B: /moov/trak/tkhd @ 21245 size=92 duration=27350 track_id=2 width=0 height=0 version=0 enabled=true in_movie=true
+A: /moov/trak/mdia/hdlr @ 41142224 size=45 handler="soun"
+B: /moov/trak/edts @ 21337 size=36
+A: /moov/trak/mdia/minf @ 41142269 size=5796
+B: /moov/trak/edts/elst @ 21345 size=28 entry_count=1 version=0 entries=[{"segment_duration":27350,"media_time":0,"media_rate":1}]
+A: /moov/trak/mdia/minf/smhd @ 41142277 size=16
+B: /moov/trak/mdia @ 21373 size=10706
+A: /moov/trak/mdia/minf/dinf @ 41142293 size=36
+B: /moov/trak/mdia/mdhd @ 21381 size=32 timescale=48000 duration=1312766 duration_sec=27.349291666666666 version=0
+A: /moov/trak/mdia/minf/dinf/dref @ 41142301 size=28
+B: /moov/trak/mdia/hdlr @ 21413 size=45 handler="soun"
+A: /moov/trak/mdia/minf/stbl @ 41142329 size=5736
+B: /moov/trak/mdia/minf @ 21458 size=10621
+A: /moov/trak/mdia/minf/stbl/stsd @ 41142337 size=100 entry_count=1 version=0
+B: /moov/trak/mdia/minf/smhd @ 21466 size=16
+A: /moov/trak/mdia/minf/stbl/stsd/mp4a @ 41142353 size=84 channel_count=2 sample_rate=48000
+B: /moov/trak/mdia/minf/dinf @ 21482 size=36
+A: /moov/trak/mdia/minf/stbl/stsd/mp4a/esds @ 41142389 size=48 version=0
+B: /moov/trak/mdia/minf/dinf/dref @ 21490 size=28
+A: /moov/trak/mdia/minf/stbl/stts @ 41142437 size=56 entry_count=5 version=0 sample_count_sum=1282 first_entries=[{"count":626,"delta":1024},{"count":1,"delta":1023},{"count":624,"delta":1024},{"count":1,"delta":1023},{"count":30,"delta":1024}] last_entry={"count":30,"delta":1024}
+B: /moov/trak/mdia/minf/stbl @ 21518 size=10561
+A: /moov/trak/mdia/minf/stbl/ctts @ 41142493 size=24 entry_count=1 version=0 sample_count_sum=1282 first_entries=[{"count":1282,"delta":0}] last_entry={"count":1282,"delta":0}
+B: /moov/trak/mdia/minf/stbl/stsd @ 21526 size=123 entry_count=1 version=0
+A: /moov/trak/mdia/minf/stbl/stsc @ 41142517 size=40 entry_count=2 first_entries=[{"first_chunk":1,"samples_per_chunk":15,"sample_description_index":1},{"first_chunk":86,"samples_per_chunk":7,"sample_description_index":1}] last_entry={"first_chunk":86,"samples_per_chunk":7,"sample_description_index":1}
+B: /moov/trak/mdia/minf/stbl/stsd/mp4a @ 21542 size=107 channel_count=2 sample_rate=48000
+A: /moov/trak/mdia/minf/stbl/stsz @ 41142557 size=5148 sample_count=1282 constant_sample_size=0 payload_bytes_sum=656594
+B: /moov/trak/mdia/minf/stbl/stsd/mp4a/esds @ 21578 size=51 version=0
+A: /moov/trak/mdia/minf/stbl/stco @ 41147705 size=360 entry_count=86 first_offsets=[347393,832444,1211473,1608719,2037261,2379873,2934255,3532242] last_offset=41130014 min_offset=347393 max_offset=41130014
+B: /moov/trak/mdia/minf/stbl/stsd/mp4a/btrt @ 21629 size=20 avgBitrate=192061 maxBitrate=192061
+A: /moov/udta @ 41148065 size=69
+B: /moov/trak/mdia/minf/stbl/stts @ 21649 size=56 entry_count=5 version=0 sample_count_sum=1282 first_entries=[{"count":626,"delta":1024},{"count":1,"delta":1023},{"count":624,"delta":1024},{"count":1,"delta":1023},{"count":30,"delta":1024}] last_entry={"count":30,"delta":1024}
+A: /moov/udta/meta @ 41148073 size=53 version=0
+B: /moov/trak/mdia/minf/stbl/stsc @ 21705 size=28 entry_count=1 first_entries=[{"first_chunk":1,"samples_per_chunk":1,"sample_description_index":1}] last_entry={"first_chunk":1,"samples_per_chunk":1,"sample_description_index":1}
+A: /moov/udta/meta/hdlr @ 41148085 size=33 handler="mdir"
+B: /moov/trak/mdia/minf/stbl/stsz @ 21733 size=5148 sample_count=1282 constant_sample_size=0 payload_bytes_sum=656594
+A: /moov/udta/meta/ilst @ 41148118 size=8
+B: /moov/trak/mdia/minf/stbl/stco @ 26881 size=5144 entry_count=1282 first_offsets=[128785,143046,153378,164967,185541,197171,207956,223561] last_offset=41165238 min_offset=128785 max_offset=41165238
+A: /moov/udta/Xtra @ 41148126 size=8
+B: /moov/trak/mdia/minf/stbl/sgpd @ 32025 size=26
+A: <missing>
+B: /moov/trak/mdia/minf/stbl/sbgp @ 32051 size=28
+A: <missing>
+B: /moov/udta @ 32079 size=98
+A: <missing>
+B: /moov/udta/meta @ 32087 size=90 version=0
+A: <missing>
+B: /moov/udta/meta/hdlr @ 32099 size=33 handler="mdir"
+A: <missing>
+B: /moov/udta/meta/ilst @ 32132 size=45
+A: <missing>
+B: /free @ 32177 size=8
+A: <missing>
+B: /mdat @ 32185 size=41133532

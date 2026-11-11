@@ -32,6 +32,9 @@ pub struct RecordingStatus {
     pub output_fps: u32,
     #[serde(default)]
     pub output_fallback: bool,
+    /// Session facts for the admin error log. Not shown in the recording toast.
+    #[serde(default)]
+    pub error_detail: Option<String>,
 }
 
 impl Default for RecordingStatus {
@@ -48,6 +51,7 @@ impl Default for RecordingStatus {
             output_height: 0,
             output_fps: 0,
             output_fallback: false,
+            error_detail: None,
         }
     }
 }
@@ -907,6 +911,7 @@ mod windows_impl {
             output_height: 0,
             output_fps: 0,
             output_fallback: false,
+            error_detail: None,
         };
         *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
         let (capture_exe, capture_title) = capture_identity(app);
@@ -1083,6 +1088,7 @@ mod windows_impl {
             output_height: 0,
             output_fps: 0,
             output_fallback: false,
+            error_detail: None,
                     };
                     *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
                     drop(inner);
@@ -1201,6 +1207,7 @@ mod windows_impl {
             output_height: 0,
             output_fps: 0,
             output_fallback: false,
+            error_detail: None,
             };
             *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
             let _ = app.emit("recording-status", &status);
@@ -1250,6 +1257,7 @@ mod windows_impl {
             output_height: 0,
             output_fps: 0,
             output_fallback: false,
+            error_detail: None,
         };
         *state.status.lock().map_err(|err| AppError::Message(err.to_string()))? = status.clone();
         let _ = app.emit("recording-status", &status);

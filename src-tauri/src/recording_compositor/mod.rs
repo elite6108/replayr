@@ -52,10 +52,16 @@ pub struct ComposedRecordingState {
     inner: Mutex<Option<ActiveComposed>>,
 }
 
+#[derive(Clone)]
+struct ReportedFailure {
+    message: String,
+    detail: String,
+}
+
 struct ActiveComposed {
     stop: Arc<AtomicBool>,
     finished: Arc<AtomicBool>,
-    failure: Arc<Mutex<Option<String>>>,
+    failure: Arc<Mutex<Option<ReportedFailure>>>,
     thread: Option<JoinHandle<Result<FinishedComposed, String>>>,
     path: std::path::PathBuf,
     started: Instant,
@@ -82,17 +88,23 @@ struct FinishedComposed {
     game_id: Option<String>,
     title: String,
     error: Option<String>,
+    error_detail: Option<String>,
 }
 
-/// Encoder or finalize failure after frames are written keeps the file and reports it.
-/// Zero frames stays a hard error. A clean finish has no error.
-pub(crate) fn composed_completion(fatal: Option<String>, frames: u64) -> Result<Option<String>, String> {
+/// A finalized file can be kept after a later encoder error. Anything that never
+/// finalized is a hard failure, even when some frames were counted.
+pub(crate) fn composed_completion(
+    fatal: Option<String>,
+    frames: u64,
+    finalized: bool,
+) -> Result<Option<String>, String> {
     match fatal {
-        Some(err) if frames == 0 => Err(err),
+        Some(err) if frames == 0 || !finalized => Err(err),
         Some(err) => Ok(Some(format!(
             "{err} The file was kept but was not added to the library."
         ))),
         None if frames == 0 => Err("Composed recording captured no frames.".into()),
+        None if !finalized => Err("Composed recording produced no playable file.".into()),
         None => Ok(None),
     }
 }
@@ -134,19 +146,20 @@ impl ComposedRecordingState {
         let inner = self.inner.lock().ok()?;
         let session = inner.as_ref()?;
         let finished = session.finished.load(Ordering::SeqCst);
-        let error = session.failure.lock().ok().and_then(|slot| slot.clone());
+        let reported = session.failure.lock().ok().and_then(|slot| slot.clone());
         Some(RecordingStatus {
             active: !finished,
             path: Some(session.path.display().to_string()),
             target: Some(session.target.clone()),
             started_at: if finished { None } else { Some(session.started_at.clone()) },
             duration_ms: session.started.elapsed().as_millis() as u64,
-            error,
+            error: reported.as_ref().map(|item| item.message.clone()),
             composed: true,
             output_width: session.width,
             output_height: session.height,
             output_fps: session.fps,
             output_fallback: session.output_fallback,
+            error_detail: reported.map(|item| item.detail),
         })
     }
 }
@@ -264,7 +277,7 @@ fn start_windows(
     let audio = (*app.state::<crate::audio::AudioRuntime>()).clone();
     let stop = Arc::new(AtomicBool::new(false));
     let finished = Arc::new(AtomicBool::new(false));
-    let failure: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let failure: Arc<Mutex<Option<ReportedFailure>>> = Arc::new(Mutex::new(None));
     let output_fallback_flag = Arc::new(AtomicBool::new(false));
     let thread_fallback = Arc::clone(&output_fallback_flag);
     let thread_stop = Arc::clone(&stop);
@@ -300,12 +313,21 @@ fn start_windows(
                 return result;
             }
             thread_finished.store(true, Ordering::SeqCst);
-            let error = match &result {
-                Err(err) => Some(err.clone()),
-                Ok(done) => done.error.clone(),
+            let reported = match &result {
+                Err(err) => Some(ReportedFailure {
+                    message: err.clone(),
+                    detail: diagnostics::startup_failure_detail(err),
+                }),
+                Ok(done) => done.error.as_ref().map(|message| ReportedFailure {
+                    message: message.clone(),
+                    detail: done
+                        .error_detail
+                        .clone()
+                        .unwrap_or_else(|| diagnostics::startup_failure_detail(message)),
+                }),
             };
             if let Ok(mut slot) = thread_failure.lock() {
-                *slot = error.clone();
+                *slot = reported.clone();
             }
             let (width, height, fps) = match &result {
                 Ok(done) => (done.width, done.height, done.fps),
@@ -320,12 +342,13 @@ fn start_windows(
                     target: Some(thread_title),
                     started_at: None,
                     duration_ms: 0,
-                    error,
+                    error: reported.as_ref().map(|item| item.message.clone()),
                     composed: true,
                     output_width: width,
                     output_height: height,
                     output_fps: fps,
                     output_fallback: fallback,
+                    error_detail: reported.map(|item| item.detail),
                 },
             );
             result
@@ -386,6 +409,7 @@ fn start_windows(
                 output_height: height,
                 output_fps: session.fps,
                 output_fallback: fallback,
+                error_detail: None,
             };
             drop(slot);
             crate::hotkeys::set_bookmark_active(app, true);
@@ -491,6 +515,7 @@ fn stop_windows(
                 output_height: done.height,
                 output_fps: done.fps,
                 output_fallback: session.output_fallback,
+                error_detail: done.error_detail,
             };
             let _ = app.emit("recording-status", &status);
             Ok(status)
@@ -509,6 +534,7 @@ fn stop_windows(
                 output_height: session.height,
                 output_fps: session.fps,
                 output_fallback: session.output_fallback,
+                error_detail: Some(diagnostics::startup_failure_detail(&err)),
             };
             let _ = app.emit("recording-status", &status);
             Err(AppError::Message(err))
@@ -570,6 +596,9 @@ fn run_composed_session(
             err
         }
     };
+    if let Err(err) = ensure_media_foundation() {
+        return Err(fail_ready(err));
+    }
     let init_started = Instant::now();
     let mut sources = ComposedSourceGuard {
         capture: Some(
@@ -630,7 +659,7 @@ fn run_composed_session(
                             && trial.fps() == fps
                         {
                             software_compose = trial.software_fallback();
-                            let _ = trial.finish();
+                            trial.close_probe();
                             resolved = Some(resolve_output::ResolvedOutput {
                                 width: cand_w,
                                 height: cand_h,
@@ -649,7 +678,7 @@ fn run_composed_session(
                             cand_w,
                             cand_h
                         );
-                        let _ = trial.finish();
+                        trial.close_probe();
                     }
                     Err(err) => {
                         last_probe_err = err;
@@ -783,7 +812,7 @@ fn run_composed_session(
         || encoder.height() != resolved.height
         || encoder.fps() != resolved.fps
     {
-        let _ = encoder.finish();
+        encoder.close_probe();
         return Err(fail_ready(format!(
             "Encoder opened at {}x{}@{} but ResolvedOutput is {}x{}@{}",
             encoder.width(),
@@ -832,7 +861,7 @@ fn run_composed_session(
         .send(Ok((resolved.width, resolved.height, resolved.fallback_occurred)))
         .is_err()
     {
-        let _ = encoder.finish();
+        encoder.close_probe();
         return Err("Composed recording was cancelled.".into());
     }
 
@@ -975,6 +1004,7 @@ fn run_composed_session(
     let desktop_capture_started = audio_guard.desktop;
     audio_guard.release();
     let finish_err = encoder.finish().err();
+    let finalized = encoder.mux_finalized();
     let pipe = encoder.pipeline_stats();
     diagnostics::log_stop(
         &stats,
@@ -991,14 +1021,33 @@ fn run_composed_session(
             game_samples_mixed: game_mixed,
         },
     );
-    let completion = composed_completion(fatal.or(finish_err), stats.frames_encoded);
+    let outcome = fatal.or(finish_err);
+    let completion = composed_completion(outcome.clone(), stats.frames_encoded, finalized);
+    let detail = diagnostics::session_failure_detail(
+        "record",
+        outcome.as_deref().unwrap_or(""),
+        &encoder_name,
+        encoder.software_fallback(),
+        compositor.adapter(),
+        stats.output_w,
+        stats.output_h,
+        stats.fps,
+        stats.frames_encoded,
+        pipe.muxed,
+    );
+    if completion.is_err() && !finalized {
+        let _ = std::fs::remove_file(&path);
+    }
     if let Ok(Some(err)) = &completion {
         tracing::warn!(
             "composed session ended with encoder error after {} frames: {err}",
             stats.frames_encoded
         );
     }
-    let error = completion?;
+    let error = match completion {
+        Ok(message) => message,
+        Err(message) => Some(message),
+    };
     Ok(FinishedComposed {
         path,
         duration_ms: started.elapsed().as_millis() as u64,
@@ -1008,8 +1057,21 @@ fn run_composed_session(
         frames: stats.frames_encoded,
         game_id,
         title,
+        error_detail: error.as_ref().map(|_| detail),
         error,
     })
+}
+
+#[cfg(windows)]
+fn ensure_media_foundation() -> Result<(), String> {
+    use windows::Win32::Media::MediaFoundation::{MFStartup, MFSTARTUP_FULL, MF_VERSION};
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        MFStartup(MF_VERSION, MFSTARTUP_FULL)
+            .map_err(|err| format!("Media Foundation could not start: {err}"))?;
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -1145,18 +1207,29 @@ mod completion_tests {
     use super::composed_completion;
 
     #[test]
-    fn encoder_error_after_frames_is_partial_not_library_success() {
-        let err = composed_completion(Some("encoder failed".into()), 12).unwrap();
+    fn encoder_error_after_a_finalized_file_is_partial_not_library_success() {
+        let err = composed_completion(Some("encoder failed".into()), 12, true).unwrap();
         assert!(err.unwrap().contains("not added to the library"));
     }
 
     #[test]
+    fn encoder_error_before_finalize_is_a_hard_failure() {
+        assert!(composed_completion(Some("mux failed".into()), 12, false).is_err());
+    }
+
+    #[test]
     fn encoder_error_with_no_frames_is_a_hard_failure() {
-        assert!(composed_completion(Some("encoder failed".into()), 0).is_err());
+        assert!(composed_completion(Some("encoder failed".into()), 0, false).is_err());
+        assert!(composed_completion(Some("encoder failed".into()), 0, true).is_err());
+    }
+
+    #[test]
+    fn frames_without_a_finalized_file_are_a_hard_failure() {
+        assert!(composed_completion(None, 4, false).is_err());
     }
 
     #[test]
     fn clean_finish_has_no_error() {
-        assert_eq!(composed_completion(None, 4).unwrap(), None);
+        assert_eq!(composed_completion(None, 4, true).unwrap(), None);
     }
 }

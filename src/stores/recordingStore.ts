@@ -13,6 +13,7 @@ import {
   stopRecording,
 } from "../services/tauri";
 import { IDLE_RECORDING, IDLE_REPLAY, type RecordingStatus, type ReplayStatus } from "../types/recording";
+import { reportDesktopError } from "../services/telemetry";
 import { invokeErrorMessage } from "../utils/format";
 import { useSettingsStore } from "./settingsStore";
 import { useToastStore } from "./toastStore";
@@ -39,7 +40,7 @@ async function attachRecordingListeners() {
   slot[RECORDING_LISTEN_KEY] = [
     await listen<RecordingStatus>("recording-status", (event) => {
       const status = liveRecording(event.payload);
-      noteRecordingError(status.active ? null : status.error);
+      noteRecordingError(status.active ? null : status.error, status.errorDetail);
       useRecordingStore.setState({ status, busy: false });
       setClockTick(status.active || useRecordingStore.getState().replay.active);
     }),
@@ -70,6 +71,11 @@ async function attachRecordingListeners() {
       }
       if (event.payload.phase === "failed" && event.payload.message) {
         useToastStore.getState().show(event.payload.message);
+        reportDesktopError({
+          message: event.payload.message,
+          path: "#/record",
+          always: true,
+        });
       }
     }),
   ];
@@ -112,7 +118,7 @@ function startedAtMs(startedAt: string | null): number | null {
 
 let lastRecordingError = "";
 
-function noteRecordingError(message: string | null | undefined) {
+function noteRecordingError(message: string | null | undefined, detail?: string | null) {
   if (!message) {
     lastRecordingError = "";
     return;
@@ -120,6 +126,12 @@ function noteRecordingError(message: string | null | undefined) {
   if (message === lastRecordingError) return;
   lastRecordingError = message;
   useToastStore.getState().show(message);
+  reportDesktopError({
+    message,
+    stack: detail || undefined,
+    path: "#/record",
+    always: true,
+  });
 }
 
 function liveRecording(status: RecordingStatus): RecordingStatus {
@@ -228,6 +240,7 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       set({ busy: false, startingComposed: false });
       const message = invokeErrorMessage(caught, "Could not start recording");
       useToastStore.getState().show(message);
+      reportDesktopError({ message, path: "#/record", always: true });
     }
   },
   stop: async () => {
@@ -240,7 +253,7 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       const next = useComposed ? await stopComposedRecording() : await stopRecording();
       set({ status: next, busy: false, libraryEpoch: get().libraryEpoch + 1 });
       setClockTick(get().replay.active);
-      if (!next.active) noteRecordingError(next.error);
+      if (!next.active) noteRecordingError(next.error, next.errorDetail);
     } catch (caught) {
       set({ busy: false, startingComposed: false });
       noteRecordingError(invokeErrorMessage(caught, "Could not stop recording"));
@@ -256,6 +269,7 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       set({ busy: false });
       const message = invokeErrorMessage(caught, "Could not save clip");
       useToastStore.getState().show(message);
+      reportDesktopError({ message, path: "#/record", always: true });
       void import("../services/analytics").then(({ trackClipSaveFailed }) => trackClipSaveFailed(message));
     }
   },
@@ -268,7 +282,9 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       useToastStore.getState().show(`Saved screenshot · ${path}`);
     } catch (caught) {
       set({ busy: false });
-      useToastStore.getState().show(invokeErrorMessage(caught, "Could not save screenshot"));
+      const message = invokeErrorMessage(caught, "Could not save screenshot");
+      useToastStore.getState().show(message);
+      reportDesktopError({ message, path: "#/record", always: true });
     }
   },
 }));

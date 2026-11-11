@@ -521,6 +521,11 @@ function ErrorsPane({ token }: { token: string }) {
           <strong>{row.message}</strong>
           <p className="muted">
             {row.surface} · {row.level} · {row.count}× · {formatClipDate(row.lastSeenAt)}
+            {row.sampleUser?.username
+              ? ` · @${row.sampleUser.username}`
+              : row.sampleUser?.displayName
+                ? ` · ${row.sampleUser.displayName}`
+                : ""}
             {row.path ? ` · ${row.path}` : ""}
           </p>
           <div className="row">

@@ -5,6 +5,7 @@ export interface RecordingStatus {
   startedAt: string | null;
   durationMs: number;
   error: string | null;
+  errorDetail?: string | null;
   composed?: boolean;
   outputWidth?: number;
   outputHeight?: number;

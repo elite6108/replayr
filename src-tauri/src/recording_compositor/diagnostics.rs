@@ -49,6 +49,61 @@ pub fn file_label(path: &str) -> &str {
     path.rsplit(['\\', '/']).next().unwrap_or("session.mp4")
 }
 
+/// Keeps the filename from a Windows path. The admin error log must not store `C:\Users\...`.
+pub fn scrub_private_paths(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if is_windows_path_start(bytes, i) {
+            let start = i;
+            i += 3;
+            while i < bytes.len()
+                && !bytes[i].is_ascii_whitespace()
+                && bytes[i] != b'"'
+                && bytes[i] != b'\''
+            {
+                i += 1;
+            }
+            out.push_str(file_label(&text[start..i]));
+            continue;
+        }
+        let ch = text[i..].chars().next().unwrap_or('\u{FFFD}');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn is_windows_path_start(bytes: &[u8], index: usize) -> bool {
+    index + 2 < bytes.len()
+        && bytes[index].is_ascii_alphabetic()
+        && bytes[index + 1] == b':'
+        && (bytes[index + 2] == b'\\' || bytes[index + 2] == b'/')
+}
+
+pub fn startup_failure_detail(err: &str) -> String {
+    format!("stage=start\nerror={}", scrub_private_paths(err))
+}
+
+pub fn session_failure_detail(
+    stage: &str,
+    err: &str,
+    encoder: &str,
+    software: bool,
+    adapter: &str,
+    output_w: u32,
+    output_h: u32,
+    fps: u32,
+    frames_encoded: u64,
+    muxed: u64,
+) -> String {
+    format!(
+        "stage={stage}\nencoder={encoder}\nsoftware={software}\nadapter={adapter}\noutput={output_w}x{output_h}@{fps}\nframes_encoded={frames_encoded}\nmuxed={muxed}\nerror={}",
+        scrub_private_paths(err)
+    )
+}
+
 pub fn log_start(canvas_w: u32, canvas_h: u32, fps: u32, webcam: bool, path: &str) {
     tracing::info!(
         canvas = format!("{canvas_w}x{canvas_h}"),
@@ -138,4 +193,18 @@ pub fn log_stop(
 
 pub fn log_fail(stage: &str, err: &str) {
     tracing::warn!(stage, err, "composed session recording failed");
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::scrub_private_paths;
+
+    #[test]
+    fn windows_path_keeps_the_filename() {
+        let text = r"Could not create the H.264 mux for C:\Users\Raheel\Downloads\recording-1.mp4: Shutdown";
+        let scrubbed = scrub_private_paths(text);
+        assert!(!scrubbed.contains("Raheel"));
+        assert!(scrubbed.contains("recording-1.mp4"));
+        assert!(scrubbed.contains("Shutdown"));
+    }
 }

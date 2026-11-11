@@ -28,6 +28,7 @@ export interface AdminErrorRow {
   firstSeenAt: string;
   lastSeenAt: string;
   resolvedAt: string | null;
+  sampleUser?: { id: string; username: string | null; displayName: string | null } | null;
 }
 
 export interface AdminPlan {

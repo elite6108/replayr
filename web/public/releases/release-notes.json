@@ -1,4 +1,7 @@
 {
+  "0.1.87": [
+    "Composed recording saves the video on PCs that only have the Windows software encoder."
+  ],
   "0.1.86": [
     "Composed recording works on graphics cards that cannot create NV12 textures."
   ],

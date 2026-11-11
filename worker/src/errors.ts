@@ -25,6 +25,12 @@ interface ErrorRow {
   sample_user_id: string | null;
 }
 
+interface ProfileLabel {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+}
+
 export async function ingestClientError(request: Request, env: Env): Promise<Response> {
   if (!env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new HttpError(503, "Error ingest is not configured.");
@@ -92,7 +98,7 @@ export async function listAdminErrors(
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
   const limit = 40;
   const from = (page - 1) * limit;
-  const filters = ["select=fingerprint,surface,level,message,stack,release,path,count,first_seen_at,last_seen_at,resolved_at"];
+  const filters = ["select=fingerprint,surface,level,message,stack,release,path,count,first_seen_at,last_seen_at,resolved_at,sample_user_id"];
   if (surface) filters.push(`surface=eq.${surface}`);
   if (level) filters.push(`level=eq.${level}`);
   if (openOnly) filters.push("resolved_at=is.null");
@@ -100,20 +106,31 @@ export async function listAdminErrors(
   filters.push("order=last_seen_at.desc");
   const path = `/error_events?${filters.join("&")}`;
   const { rows, count } = await restPage<ErrorRow>(env, serviceKey, path, from, from + limit - 1);
+  const profiles = await lookupProfiles(env, serviceKey, rows.map((row) => row.sample_user_id));
   return json({
-    errors: rows.map((row) => ({
-      fingerprint: row.fingerprint,
-      surface: row.surface,
-      level: row.level,
-      message: row.message,
-      stack: row.stack,
-      release: row.release,
-      path: row.path,
-      count: row.count,
-      firstSeenAt: row.first_seen_at,
-      lastSeenAt: row.last_seen_at,
-      resolvedAt: row.resolved_at,
-    })),
+    errors: rows.map((row) => {
+      const profile = row.sample_user_id ? profiles.get(row.sample_user_id) : undefined;
+      return {
+        fingerprint: row.fingerprint,
+        surface: row.surface,
+        level: row.level,
+        message: row.message,
+        stack: row.stack,
+        release: row.release,
+        path: row.path,
+        count: row.count,
+        firstSeenAt: row.first_seen_at,
+        lastSeenAt: row.last_seen_at,
+        resolvedAt: row.resolved_at,
+        sampleUser: row.sample_user_id
+          ? {
+              id: row.sample_user_id,
+              username: profile?.username ?? null,
+              displayName: profile?.displayName ?? null,
+            }
+          : null,
+      };
+    }),
     total: count ?? rows.length,
     page,
     limit,
@@ -238,6 +255,32 @@ function asString(value: unknown): string {
 
 function asEnum(value: unknown, allowed: Set<string>): string | null {
   return typeof value === "string" && allowed.has(value) ? value : null;
+}
+
+const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function lookupProfiles(
+  env: Env,
+  serviceKey: string,
+  ids: Array<string | null>,
+): Promise<Map<string, { username: string | null; displayName: string | null }>> {
+  const unique = [...new Set(ids.filter((id): id is string => Boolean(id && USER_ID.test(id))))];
+  const labels = new Map<string, { username: string | null; displayName: string | null }>();
+  if (unique.length === 0) return labels;
+  try {
+    const response = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/profiles?id=in.(${unique.join(",")})&select=id,username,display_name`,
+      { headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}` } },
+    );
+    if (!response.ok) return labels;
+    const rows = (await response.json()) as ProfileLabel[];
+    for (const row of rows) {
+      labels.set(row.id, { username: row.username, displayName: row.display_name });
+    }
+  } catch {
+    /* the error row still renders without an account name */
+  }
+  return labels;
 }
 
 async function restPage<T>(

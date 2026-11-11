@@ -101,6 +101,7 @@ pub struct ComposedGpuEncoder {
     include_audio: bool,
     aac: Option<SessionAacEncoder>,
     pending_pcm: Vec<u8>,
+    mux_finalized: bool,
 }
 
 impl ComposedGpuEncoder {
@@ -194,6 +195,7 @@ impl ComposedGpuEncoder {
             include_audio,
             aac,
             pending_pcm: Vec::new(),
+            mux_finalized: false,
         })
     }
 
@@ -416,6 +418,15 @@ impl ComposedGpuEncoder {
         self.stats.audio_track_created = mux.has_audio();
         self.stats.audio_pending_bytes = 0;
         Ok(())
+    }
+
+    /// Releases a size probe without draining encoded samples into the output file.
+    pub fn close_probe(&mut self) {
+        send_message(&self.transform, MFT_MESSAGE_NOTIFY_END_STREAMING);
+    }
+
+    pub fn mux_finalized(&self) -> bool {
+        self.mux_finalized
     }
 
     pub fn finish(&mut self) -> Result<(), String> {
@@ -651,7 +662,13 @@ impl ComposedGpuEncoder {
             tracing::warn!("composed AAC flush failed: {err}");
         }
         match self.mux.take() {
-            Some(mux) => mux.finish(),
+            Some(mux) => {
+                let result = mux.finish();
+                if result.is_ok() {
+                    self.mux_finalized = true;
+                }
+                result
+            }
             None => {
                 if self.stats.process_input == 0 {
                     Ok(())

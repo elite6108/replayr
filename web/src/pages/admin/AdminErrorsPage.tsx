@@ -5,6 +5,13 @@ import { formatClipDate } from "../../lib/format";
 import { CreateInternalTaskButton } from "../../components/CreateInternalTaskButton";
 import { AdminPageHeader } from "./components/AdminPageHeader";
 
+function accountLabel(row: AdminErrorRow): string | null {
+  const user = row.sampleUser;
+  if (!user) return null;
+  if (user.username) return `@${user.username}`;
+  return user.displayName;
+}
+
 export function AdminErrorsPage() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
@@ -112,6 +119,7 @@ export function AdminErrorsPage() {
                   <strong>{row.message}</strong>
                   <span className="muted">
                     {row.release || "unknown build"}
+                    {accountLabel(row) ? ` · ${accountLabel(row)}` : ""}
                     {row.path ? ` · ${row.path}` : ""}
                     {row.resolvedAt ? " · resolved" : ""}
                   </span>

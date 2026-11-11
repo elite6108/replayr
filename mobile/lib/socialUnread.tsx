@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { fetchFriendRequests, fetchNotifications } from "./api.friends";
 import { fetchConversations } from "./api.messages";
 import { useAuth } from "./auth";
+import { setForegroundConversationId } from "./registerStaffPush";
 import { applyRealtimeAuth, getSupabase, supabaseConfigured } from "./supabase";
 
 type UnreadValue = {
@@ -58,6 +59,7 @@ export function SocialUnreadProvider({ children }: { children: ReactNode }) {
       setUnreadIds([]);
       setNotificationsUnread(0);
       activeConversationId.current = null;
+      setForegroundConversationId(null);
       return;
     }
     let cancelled = false;
@@ -84,7 +86,9 @@ export function SocialUnreadProvider({ children }: { children: ReactNode }) {
         const row = payload.new as { kind?: string; conversation_id?: string | null; actor_id?: string | null };
         if (row.kind === "friend_request" || row.kind === "follow_request") setFriendsUnread(true);
         if (isBellKind(row.kind) && row.actor_id !== userId) {
-          setNotificationsUnread((current) => current + 1);
+          const inActiveThread =
+            row.kind === "message" && row.conversation_id && row.conversation_id === activeConversationId.current;
+          if (!inActiveThread) setNotificationsUnread((current) => current + 1);
         }
         if ((row.kind === "message" || row.kind === "group_invite") && row.conversation_id && row.actor_id !== userId) {
           if (row.conversation_id === activeConversationId.current) return;
@@ -103,6 +107,7 @@ export function SocialUnreadProvider({ children }: { children: ReactNode }) {
 
   const setActiveConversation = useCallback((id: string | null) => {
     activeConversationId.current = id;
+    setForegroundConversationId(id);
   }, []);
   const markConversationRead = useCallback((id: string) => {
     setUnreadIds((current) => current.filter((item) => item !== id));

@@ -19,6 +19,7 @@ export function AudioSourceRow({
   onToggle,
   onRemove,
   onProperties,
+  onInspect,
   onRename,
   compositionLocked,
 }: {
@@ -30,6 +31,7 @@ export function AudioSourceRow({
   onToggle: (enabled: boolean) => void;
   onRemove: () => void;
   onProperties: () => void;
+  onInspect?: () => void;
   onRename: (name: string) => void;
   compositionLocked?: boolean;
 }) {
@@ -51,6 +53,7 @@ export function AudioSourceRow({
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
+        onSelect();
         openMenu(event.clientX, event.clientY);
       }}
     >
@@ -125,6 +128,7 @@ export function AudioSourceRow({
             enabled: source.enabled,
             onAudioSettings: () => navigate("/settings?section=audio"),
             onProperties,
+            onInspect,
             onRename: compositionLocked ? undefined : () => setRenaming(true),
             onToggleMute: () => onToggle(!source.enabled),
             onRemove,

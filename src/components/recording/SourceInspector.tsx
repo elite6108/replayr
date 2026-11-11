@@ -1,6 +1,7 @@
 import type { CameraDevice, CameraStatus } from "../../types/camera";
 import type { AppSettings, WebcamPlacement, WebcamShape } from "../../types/settings";
 import { DEFAULT_WEBCAM_SETTINGS } from "../../types/settings";
+import { IconX } from "../icons";
 import { RecordingVisualControls } from "./RecordingVisualControls";
 import { containOnCanvas, croppedSourceAspect } from "../../recording/previewCanvas";
 import {
@@ -51,6 +52,7 @@ export function SourceInspector({
   recording,
   studio = "recording",
   onRefreshDisplays,
+  onClose,
 }: {
   source: RecordingSource | null;
   settings: AppSettings;
@@ -73,11 +75,17 @@ export function SourceInspector({
   recording?: boolean;
   studio?: StudioMode;
   onRefreshDisplays?: () => void;
+  onClose?: () => void;
 }) {
   return (
     <section className="studio-panel studio-inspector">
       <div className="studio-block-head">
-        <h2>Inspector</h2>
+        <h2>{studio === "recording" ? "Source inspector" : "Inspector"}</h2>
+        {onClose ? (
+          <button type="button" className="studio-icon-btn studio-inspector-close" title="Close inspector" onClick={onClose}>
+            <IconX size={14} />
+          </button>
+        ) : null}
       </div>
       {compositionLocked ? (
         <p className="studio-lock-note">Stop recording to edit layout.</p>
@@ -339,7 +347,7 @@ function TransformSection({
       <h3>Transform</h3>
       <div className="studio-xy">
         <label>
-          Position
+          <span className="studio-xy-label">Position</span>
           <span>
             <em>X</em>
             <input
@@ -366,7 +374,7 @@ function TransformSection({
           </span>
         </label>
         <label>
-          Size
+          <span className="studio-xy-label">Size</span>
           <span>
             <em>W</em>
             <input

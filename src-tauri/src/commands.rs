@@ -924,11 +924,19 @@ pub fn start_composed_recording(
 /// tray record the same layout the page shows.
 #[tauri::command]
 pub fn set_record_scene(
+    app: AppHandle,
+    rec: State<RecordingState>,
     scene: State<crate::recording_compositor::RecordSceneState>,
     payload: RecordingComposition,
     webcam_layout: Option<crate::overlay::OverlayLayout>,
 ) -> AppResult<()> {
-    scene.set(payload, webcam_layout)
+    let previous = scene.desktop_monitor_id();
+    scene.set(payload, webcam_layout)?;
+    let next = scene.desktop_monitor_id();
+    if previous != next {
+        capture::retarget_desktop_monitor(&app, &rec)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

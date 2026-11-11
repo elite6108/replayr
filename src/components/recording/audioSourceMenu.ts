@@ -5,6 +5,7 @@ export function audioSourceMenuItems({
   enabled,
   onAudioSettings,
   onProperties,
+  onInspect,
   onRename,
   onToggleMute,
   onRemove,
@@ -12,11 +13,13 @@ export function audioSourceMenuItems({
   enabled: boolean;
   onAudioSettings: () => void;
   onProperties: () => void;
+  onInspect?: () => void;
   onRename?: () => void;
   onToggleMute: () => void;
   onRemove: () => void;
 }): MenuItem[] {
   return [
+    ...(onInspect ? [{ label: "Source inspector", onClick: onInspect }] : []),
     { label: "Audio Settings", onClick: onAudioSettings },
     { label: "Properties", onClick: onProperties },
     ...(onRename ? [{ label: "Rename", onClick: onRename }] : []),

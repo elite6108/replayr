@@ -102,6 +102,7 @@ export function useRecordingScene() {
     addScene: studio.addScene,
     renameScene: studio.renameScene,
     removeScene: studio.removeScene,
+    moveScene: studio.moveScene,
     copyScene: studio.copyScene,
   };
 }

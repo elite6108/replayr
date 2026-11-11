@@ -17,6 +17,7 @@ export function VisualSourceRow({
   onMove,
   onRemove,
   onProperties,
+  onInspect,
   onRename,
   onGripDown,
   dropBefore,
@@ -32,6 +33,7 @@ export function VisualSourceRow({
   onMove: (direction: "front" | "back") => void;
   onRemove: () => void;
   onProperties: () => void;
+  onInspect?: () => void;
   onRename: (name: string) => void;
   onGripDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   dropBefore?: boolean;
@@ -54,6 +56,7 @@ export function VisualSourceRow({
       className={`studio-source-row studio-visual-row${selected ? " is-selected" : ""}${source.enabled ? "" : " is-off"}${dropBefore ? " is-drop-before" : ""}`}
       onContextMenu={(event) => {
         event.preventDefault();
+        onSelect();
         setMenu({ x: event.clientX, y: event.clientY });
       }}
     >
@@ -140,8 +143,12 @@ export function VisualSourceRow({
           onClose={() => setMenu(null)}
           items={
             compositionLocked
-              ? [{ label: "Stop recording to edit layout.", onClick: () => undefined }]
+              ? [
+                  ...(onInspect ? [{ label: "Source inspector", onClick: onInspect }] : []),
+                  { label: "Stop recording to edit layout.", onClick: () => undefined },
+                ]
               : [
+                  ...(onInspect ? [{ label: "Source inspector", onClick: onInspect }] : []),
                   { label: "Properties", onClick: onProperties },
                   { label: "Rename", onClick: () => setRenaming(true) },
                   { label: source.enabled ? "Hide" : "Show", onClick: () => onToggle(!source.enabled) },

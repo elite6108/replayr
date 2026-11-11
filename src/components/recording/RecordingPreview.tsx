@@ -18,7 +18,11 @@ import type { StudioMode } from "../../recording/studioMode";
 import { samePreviewStatus, canvasFromAspect, type PreviewStatusFields } from "../../recording/previewCanvas";
 import { sourceComposedSupported } from "../../recording/registry";
 import { useDetectionStore } from "../../stores/detectionStore";
+import { useRecordingStore } from "../../stores/recordingStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { displayTitle, type DisplayInfo } from "../../recording/display/displayTypes";
+import { IconMonitor } from "../icons";
+import { displayFps, qualityLabel } from "../../utils/qualityLabels";
 import { PreviewCanvas } from "./PreviewCanvas";
 import { PreviewCaptureLayer } from "./PreviewCaptureLayer";
 import { PreviewFilterLayer } from "./PreviewFilterLayer";
@@ -47,6 +51,7 @@ export function RecordingPreview({
   outputWidth = 0,
   outputHeight = 0,
   onFrameSize,
+  displays,
 }: {
   scene: RecordingScene;
   webcam: WebcamSettings;
@@ -67,6 +72,7 @@ export function RecordingPreview({
   outputWidth?: number;
   outputHeight?: number;
   onFrameSize?: (width: number, height: number) => void;
+  displays?: DisplayInfo[];
 }) {
   const settings = useSettingsStore((state) => state.settings);
   const [preview, setPreview] = useState<PreviewStatusFields>({
@@ -110,9 +116,23 @@ export function RecordingPreview({
     return () => observer.disconnect();
   }, [fitOutputCanvas]);
   const detectedPid = useDetectionStore((state) => state.snapshot.pid);
+  const detectedName = useDetectionStore((state) => state.snapshot.name);
+  const recording = useRecordingStore((state) => state.status.active);
   const primary = primaryCapture(scene);
   const captureEnabled = Boolean(primary?.enabled && primary.type !== "window");
   const previewMode = primary?.type === "display" ? "desktop" : "game";
+  const monitorId = primary?.type === "display" ? desktopCaptureSettingsOf(primary).monitorId : null;
+  const selectedDisplay = displays?.find((display) => display.id === monitorId);
+  const captureLabel =
+    primary?.type === "display"
+      ? selectedDisplay
+        ? displayTitle(selectedDisplay)
+        : monitorId
+          ? "Selected display"
+          : "Primary display"
+      : primary?.type === "window"
+        ? "Window capture"
+        : "Game capture";
   const composed = scene.outputMode === "composed";
   const overlay = scene.sources.find((source) => source.type === "replayrOverlay");
   const previewVisuals = overlayToVisuals(
@@ -159,12 +179,13 @@ export function RecordingPreview({
       : 1;
   const capturePlate = (
     <PreviewCaptureLayer
+      key={monitorId ?? "primary"}
       mode={previewMode}
       pid={detectedPid}
       enabled={showCapturePlate ? (fitOutputCanvas ? true : primary?.type !== "window") : captureEnabled}
       fallback="dark"
       hideBadge
-      monitorId={primary?.type === "display" ? desktopCaptureSettingsOf(primary).monitorId : null}
+      monitorId={monitorId}
       crop={composedTap || !showCapturePlate ? null : (primary?.crop ?? null)}
       onStatus={reportStatus}
     />
@@ -197,12 +218,13 @@ export function RecordingPreview({
             capture={
               isPrimaryCapture(source.type) ? (
                 <PreviewCaptureLayer
+                  key={monitorId ?? "capture"}
                   mode={previewMode}
                   pid={detectedPid}
                   enabled={captureEnabled}
                   fallback="dark"
                   hideBadge
-                  monitorId={primary?.type === "display" ? desktopCaptureSettingsOf(primary).monitorId : null}
+                  monitorId={monitorId}
                   crop={source.crop ?? null}
                   onStatus={reportStatus}
                 />
@@ -272,15 +294,45 @@ export function RecordingPreview({
   return (
     <section className="studio-panel studio-preview">
       <div className="studio-preview-head">
-        <h2>
-          {studio === "clip" ? "Clip Layout Preview" : "Live Output Preview"}
-        </h2>
+        {studio === "clip" ? (
+          <h2>Clip Layout Preview</h2>
+        ) : (
+          <>
+            <div className="capture-preview-title">
+              <IconMonitor size={15} />
+              <strong>{detectedName || primary?.name || "Preview"}</strong>
+              <span>
+                {captureLabel}
+              </span>
+            </div>
+            <div className="capture-preview-meta">
+              <span>
+                {logical.width} × {logical.height}
+              </span>
+              <i />
+              <span>
+                <b>{displayFps(settings.fps)}</b> FPS
+              </span>
+              <i />
+              <span>{qualityLabel(settings.bitrate) === "Custom" ? "Custom" : `${qualityLabel(settings.bitrate)} quality`}</span>
+            </div>
+          </>
+        )}
       </div>
       <div
         ref={stageRef}
         className={`studio-preview-stage${fitOutputCanvas ? " is-output-canvas" : ""}`}
         style={{ ["--preview-scale" as string]: String(scale || 1) }}
       >
+        {studio === "recording" ? (
+          <>
+            <span className="capture-live-badge"><i />Live preview</span>
+            <span className={`capture-rec-badge${recording ? " is-live" : ""}`}>
+              <i />
+              {recording ? "Recording" : "Not recording"}
+            </span>
+          </>
+        ) : null}
         {fitOutputCanvas ? (
           <div className="preview-output-fit" style={{ width: logical.width * scale, height: logical.height * scale }}>
             <div

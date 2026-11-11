@@ -34,6 +34,19 @@ impl RecordSceneState {
     fn get(&self) -> Option<(RecordingComposition, Option<OverlayLayout>)> {
         self.scene.lock().ok().and_then(|slot| slot.clone())
     }
+
+    /// The enabled display source's monitor, or `None` for Primary / no display source.
+    pub fn desktop_monitor_id(&self) -> Option<String> {
+        let (payload, _) = self.get()?;
+        for source in &payload.sources {
+            if let CompositionSource::Capture(capture) = source {
+                if capture.capture == CaptureKind::Display && capture.enabled {
+                    return crate::displays::sanitize_monitor_id(capture.monitor_id.as_deref());
+                }
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

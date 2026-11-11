@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { createContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { clampDockPx, dockPxFromPointer, loadDockMaxPx, persistDockMaxPx, DOCK_DEFAULT_PX } from "./dockSplit";
 
 export type StudioTab = "recording" | "clip";
+
+export const StudioTabActions = createContext({
+  showClips: () => {},
+  showRecordings: () => {},
+});
 
 const TABS: { id: StudioTab; label: string; hint: string }[] = [
   { id: "recording", label: "Recordings", hint: "Full-length recordings" },
@@ -55,7 +60,8 @@ export function StudioShell({
   }
 
   return (
-    <div className="record-studio">
+    <StudioTabActions.Provider value={{ showClips: () => onTab("clip"), showRecordings: () => onTab("recording") }}>
+    <div className={`record-studio${tab === "recording" ? " is-capture" : ""}`}>
       <header className="studio-page-head">
         <h1>Record</h1>
         <div className="studio-tabs" role="tablist" aria-label="Record studio">
@@ -89,5 +95,6 @@ export function StudioShell({
         />
       </div>
     </div>
+    </StudioTabActions.Provider>
   );
 }

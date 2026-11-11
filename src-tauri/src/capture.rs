@@ -255,7 +255,6 @@ mod windows_impl {
     use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
     use windows_capture::frame::Frame;
     use windows_capture::graphics_capture_api::InternalCaptureControl;
-    use windows_capture::monitor::Monitor;
     use windows_capture::settings::{
         ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
         MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
@@ -874,7 +873,10 @@ mod windows_impl {
         let (target_label, control, width, height) = if let Some(session) = started {
             session
         } else {
-            match start_monitor(make_flags(1920, 1080)) {
+            let monitor_id = app
+                .try_state::<crate::recording_compositor::RecordSceneState>()
+                .and_then(|scene| scene.desktop_monitor_id());
+            match start_monitor(make_flags(1920, 1080), monitor_id.as_deref()) {
                 Ok(session) => session,
                 Err(err) => {
                     tracing::error!("could not start capture: {err}");
@@ -936,8 +938,10 @@ mod windows_impl {
 
     fn start_monitor(
         flags: SessionFlags,
+        monitor_id: Option<&str>,
     ) -> AppResult<(String, windows_capture::capture::CaptureControl<WindowsSession, String>, u32, u32)> {
-        let monitor = Monitor::primary().map_err(|err| AppError::Message(err.to_string()))?;
+        let monitor = crate::displays::resolve_monitor(monitor_id).map_err(AppError::Message)?;
+        tracing::info!(monitor = monitor_id.unwrap_or("primary"), "desktop capture monitor");
         let (width, height) = encode_size(
             monitor.width().unwrap_or(1920),
             monitor.height().unwrap_or(1080),
@@ -970,6 +974,39 @@ mod windows_impl {
         }
         let control = begin(monitor, flags).map_err(AppError::Message)?;
         Ok(("Display".into(), control, width, height))
+    }
+
+    /// Restart a desktop Instant Replay session so the buffer follows the scene's display.
+    /// Game-window replay and file recordings are left alone.
+    pub fn retarget_desktop_monitor(app: &AppHandle, state: &RecordingState) -> AppResult<()> {
+        let settings = load_settings(app)?;
+        if !settings.instant_replay_enabled {
+            return Ok(());
+        }
+        let desktop_ir = {
+            let inner = state.inner.lock().map_err(|err| AppError::Message(err.to_string()))?;
+            matches!(inner.as_ref(), Some(active) if active.segmented && !active.session && active.pid.is_none())
+        };
+        if !desktop_ir {
+            return Ok(());
+        }
+        let monitor = app
+            .try_state::<crate::recording_compositor::RecordSceneState>()
+            .and_then(|scene| scene.desktop_monitor_id());
+        tracing::info!(monitor = monitor.as_deref().unwrap_or("primary"), "IR desktop monitor changed; restarting capture");
+        if let Err(err) = halt_capture(state) {
+            tracing::warn!("IR monitor retarget halt failed: {err}");
+            publish_replay(app, state, &settings, Some(err.to_string()));
+            return Ok(());
+        }
+        if let Ok(dir) = replay_scratch_dir(app) {
+            discard_scratch(state, &dir);
+        }
+        if let Err(err) = start(app, state, None, None, None, true, false, None) {
+            tracing::error!("IR monitor retarget failed: {err}");
+            publish_replay(app, state, &settings, Some(err.to_string()));
+        }
+        Ok(())
     }
 
     fn halt_capture(state: &RecordingState) -> AppResult<ActiveRecording> {
@@ -1784,6 +1821,10 @@ mod windows_impl {
         Err(AppError::Message("Instant Replay is only available on Windows.".into()))
     }
 
+    pub fn retarget_desktop_monitor(_app: &AppHandle, _state: &RecordingState) -> AppResult<()> {
+        Ok(())
+    }
+
     pub fn save_clip(_app: &AppHandle, _state: &RecordingState) -> AppResult<String> {
         Err(AppError::Message("Instant Replay is only available on Windows.".into()))
     }
@@ -1851,6 +1892,11 @@ pub fn sync_replay(
 ) -> AppResult<ReplayStatus> {
     let _lifecycle = state.lifecycle.lock().map_err(|e| AppError::Message(e.to_string()))?;
     windows_impl::sync_replay(app, state, pid, game_name, game_id)
+}
+
+pub fn retarget_desktop_monitor(app: &AppHandle, state: &RecordingState) -> AppResult<()> {
+    let _lifecycle = state.lifecycle.lock().map_err(|e| AppError::Message(e.to_string()))?;
+    windows_impl::retarget_desktop_monitor(app, state)
 }
 
 /// Settings work can wait behind an export. Resolve the game after that wait

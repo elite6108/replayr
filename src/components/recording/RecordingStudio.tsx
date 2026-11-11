@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCameraStatus } from "../../services/tauri";
 import { scheduleRecordScenePush, useRecordingStore } from "../../stores/recordingStore";
+import { useDetectionStore } from "../../stores/detectionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { IDLE_CAMERA_STATUS, type CameraDevice, type CameraStatus } from "../../types/camera";
 import type { AppSettings } from "../../types/settings";
@@ -26,11 +28,44 @@ import { RecordingPreview } from "./RecordingPreview";
 import { SourceInspector } from "./SourceInspector";
 import { SourceList } from "./SourceList";
 import { SourcePropertiesDialog } from "./SourcePropertiesDialog";
+import { formatBytes } from "../../utils/format";
 import { displayFps, qualityLabel } from "../../utils/qualityLabels";
+import { IconFolder, IconGames } from "../icons";
+import { StudioTabActions } from "./StudioShell";
 import { RECORDABLE_IMAGE_EXTENSIONS } from "../../recording/composition";
+
+const CAPTURE_COLUMNS = ["scenes", "sources", "mixer", "inspector", "controls"] as const;
+type CaptureColumnId = (typeof CAPTURE_COLUMNS)[number];
+const CAPTURE_COLUMNS_KEY = "replay.captureColumns";
+
+function readCaptureColumns(): CaptureColumnId[] {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(CAPTURE_COLUMNS_KEY) || "null");
+    if (!Array.isArray(raw)) return [...CAPTURE_COLUMNS];
+    const known = raw.filter((id): id is CaptureColumnId => (CAPTURE_COLUMNS as readonly string[]).includes(id));
+    const missing = CAPTURE_COLUMNS.filter((id) => !known.includes(id));
+    return [...known, ...missing];
+  } catch {
+    return [...CAPTURE_COLUMNS];
+  }
+}
+
+function reorderCaptureColumn(order: CaptureColumnId[], id: CaptureColumnId, over: CaptureColumnId): CaptureColumnId[] {
+  const from = order.indexOf(id);
+  const to = order.indexOf(over);
+  if (from < 0 || to < 0 || from === to) return order;
+  const next = [...order];
+  next.splice(from, 1);
+  next.splice(to, 0, id);
+  return next;
+}
 
 /** The Recordings tab: full-length recording of the scene layout into one MP4. */
 export function RecordingStudio() {
+  const navigate = useNavigate();
+  const showClips = useContext(StudioTabActions).showClips;
+  const detected = useDetectionStore((state) => state.snapshot);
+  const catalog = useDetectionStore((state) => state.catalog);
   const settings = useSettingsStore((state) => state.settings);
   const status = useRecordingStore((state) => state.status);
   const replay = useRecordingStore((state) => state.replay);
@@ -57,13 +92,21 @@ export function RecordingStudio() {
     addScene,
     renameScene,
     removeScene,
+    moveScene,
     copyScene,
     writeSettings,
   } = useRecordingScene();
   const [camera, setCamera] = useState<CameraStatus>(IDLE_CAMERA_STATUS);
   const [propertiesId, setPropertiesId] = useState<string | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [columns, setColumns] = useState<CaptureColumnId[]>(readCaptureColumns);
+  const [draggingColumn, setDraggingColumn] = useState<CaptureColumnId | null>(null);
   const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
   const dragging = useRef(false);
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
+  const dragColumn = useRef<CaptureColumnId | null>(null);
+  const pushSceneNow = useRef(false);
   const { displays, error: displayError, refresh: refreshDisplays } = useDisplays();
   const levels = useStudioAudio();
   const propertiesSource = scene.sources.find((source) => source.id === propertiesId) ?? null;
@@ -88,7 +131,8 @@ export function RecordingStudio() {
   }, [compositionLocked, commitGesture]);
 
   useEffect(() => {
-    scheduleRecordScenePush();
+    scheduleRecordScenePush(pushSceneNow.current ? 0 : 400);
+    pushSceneNow.current = false;
   }, [scene]);
 
   useEffect(() => {
@@ -147,11 +191,50 @@ export function RecordingStudio() {
     void writeSettings("webcam", { ...settings.webcam, deviceId: device.id, name: device.name });
   }
 
-  return (
-    <>
+  function openInspector(id: string) {
+    setSelectedId(id);
+    setInspectorOpen(true);
+  }
+
+  function onDockPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest("button, input, select, textarea, a, label")) return;
+    const head = target.closest(".studio-block-head");
+    if (!head || !event.currentTarget.contains(head)) return;
+    const id = head.closest("[data-capture-column]")?.getAttribute("data-capture-column");
+    if (!id || !(CAPTURE_COLUMNS as readonly string[]).includes(id)) return;
+    dragColumn.current = id as CaptureColumnId;
+    setDraggingColumn(id as CaptureColumnId);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function onDockPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const id = dragColumn.current;
+    if (!id) return;
+    const next = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-capture-column]")?.getAttribute("data-capture-column");
+    if (!next || next === id || !(CAPTURE_COLUMNS as readonly string[]).includes(next)) return;
+    setColumns((current) => {
+      const reordered = reorderCaptureColumn(current, id, next as CaptureColumnId);
+      columnsRef.current = reordered;
+      return reordered;
+    });
+  }
+
+  function onDockPointerUp() {
+    if (!dragColumn.current) return;
+    dragColumn.current = null;
+    setDraggingColumn(null);
+    window.localStorage.setItem(CAPTURE_COLUMNS_KEY, JSON.stringify(columnsRef.current));
+  }
+
+  function sourceColumn(part: "scenes" | "sources") {
+    return (
       <SourceList
+        part={part}
         scene={scene}
         scenes={scenes}
+        presentation="list"
         selectedId={selectedId}
         levels={levels}
         settingsGain={{ mic: settings.micGain, desktop: settings.systemAudioGain, game: settings.gameAudioGain }}
@@ -195,17 +278,58 @@ export function RecordingStudio() {
           if (compositionLocked) return;
           removeScene(id);
         }}
+        onMoveScene={(id, direction) => {
+          if (compositionLocked) return;
+          moveScene(id, direction);
+        }}
         onProperties={(id) => {
           const source = scene.sources.find((item) => item.id === id);
           if (compositionLocked && source && !isAudioSource(source.type)) return;
           setSelectedId(id);
           setPropertiesId(id);
         }}
+        onInspect={part === "sources" ? openInspector : undefined}
         onRenameSource={(id, name) => {
           if (compositionLocked) return;
           patchSource(id, { name });
         }}
       />
+    );
+  }
+
+  const detectedGame = catalog.find((game) => game.slug === detected.slug);
+  const savePlace = friendlySavePlace(settings.saveLocation || status.path || "");
+  const quality = qualityLabel(settings.bitrate);
+
+  return (
+    <>
+      <header className="capture-head">
+        <div className="capture-head-title">
+          <h1>Capture</h1>
+          <div className="capture-head-status">
+            <IconGames size={14} />
+            <span>{scene.name}</span>
+            <i className="capture-head-dot" />
+            <span>{status.error ? "Not saved" : "All changes saved"}</span>
+            <button type="button" className="capture-clips" onClick={showClips}>
+              Clips
+            </button>
+          </div>
+        </div>
+        <div className="capture-head-actions">
+          {detected.name ? (
+            <span className="capture-game">
+              {detectedGame?.iconUrl ? <img src={detectedGame.iconUrl} alt="" /> : <IconGames size={16} />}
+              <span>{detected.name}</span>
+              <i className={detected.focused ? "is-live" : ""} />
+            </span>
+          ) : null}
+          <button type="button" className="capture-open" onClick={() => navigate("/library")}>
+            <IconFolder size={14} />
+            Open recordings
+          </button>
+        </div>
+      </header>
       <RecordingPreview
         scene={scene}
         webcam={{ ...settings.webcam, enabled: Boolean(findSourceByType(scene, "webcam")?.enabled) }}
@@ -241,54 +365,26 @@ export function RecordingStudio() {
           if (dragging.current) applyGesture(id, { crop });
           else setCrop(id, crop);
         }}
-      />
-      <SourceInspector
-        source={selected}
-        settings={settings}
-        camera={camera}
-        levels={levels}
-        compositionLocked={compositionLocked}
-        describeFit
-        canvasAspect={canvasAspect}
-        sourceAspect={selectedAspect}
-        composed
         displays={displays}
-        onRefreshDisplays={refreshDisplays}
-        listError={displayError}
-        recording={status.active || startingComposed}
-        onSaveSetting={(key, value) => {
-          if (key === "microphoneId") {
-            if (status.active || startingComposed) return;
-            void writeSettings(key, value);
-            return;
-          }
-          const liveAudio = key === "micGain" || key === "systemAudioGain" || key === "gameAudioGain";
-          if (compositionLocked && !liveAudio) return;
-          void writeSettings(key, value);
-        }}
-        onPatch={(id, patch) => {
-          if (compositionLocked) return;
-          patchSource(id, patch);
-        }}
-        onToggle={(id, enabled) => {
-          const source = scene.sources.find((item) => item.id === id);
-          if (compositionLocked && !isAudioSource(source?.type ?? "game")) return;
-          toggleSource(id, enabled);
-        }}
-        onTransform={(id, transform) => {
-          if (compositionLocked) return;
-          setTransform(id, transform);
-        }}
-        onCrop={(id, crop) => {
-          if (compositionLocked) return;
-          setCrop(id, crop);
-        }}
-        onWebcamDevice={(device) => {
-          if (compositionLocked) return;
-          saveWebcamDevice(device);
-        }}
       />
-      <div className="record-dock">
+      <div
+        className="record-dock"
+        onPointerDown={onDockPointerDown}
+        onPointerMove={onDockPointerMove}
+        onPointerUp={onDockPointerUp}
+        onPointerCancel={onDockPointerUp}
+      >
+        {columns.map((id) => {
+          if (id === "inspector" && !inspectorOpen) return null;
+          return (
+            <div
+              key={id}
+              className={`capture-column is-${id}${draggingColumn === id ? " is-dragging" : ""}`}
+              data-capture-column={id}
+            >
+              {id === "scenes" ? sourceColumn("scenes") : null}
+              {id === "sources" ? sourceColumn("sources") : null}
+              {id === "mixer" ? (
         <AudioMixer
           scene={scene}
           settings={settings}
@@ -305,29 +401,98 @@ export function RecordingStudio() {
             setSelectedId(id);
             setPropertiesId(id);
           }}
+          onInspect={openInspector}
           onRemove={(id) => {
             if (compositionLocked) return;
             deleteSource(id);
           }}
         />
+              ) : null}
+              {id === "inspector" ? (
+        <SourceInspector
+          source={selected}
+          settings={settings}
+          camera={camera}
+          levels={levels}
+          compositionLocked={compositionLocked}
+          describeFit
+          canvasAspect={canvasAspect}
+          sourceAspect={selectedAspect}
+          composed
+          displays={displays}
+          onRefreshDisplays={refreshDisplays}
+          listError={displayError}
+          recording={status.active || startingComposed}
+          onSaveSetting={(key, value) => {
+            if (key === "microphoneId") {
+              if (status.active || startingComposed) return;
+              void writeSettings(key, value);
+              return;
+            }
+            const liveAudio = key === "micGain" || key === "systemAudioGain" || key === "gameAudioGain";
+            if (compositionLocked && !liveAudio) return;
+            void writeSettings(key, value);
+          }}
+          onPatch={(id, patch) => {
+            if (compositionLocked) return;
+            if (patch.settings && Object.prototype.hasOwnProperty.call(patch.settings, "monitorId")) pushSceneNow.current = true;
+            patchSource(id, patch);
+          }}
+          onToggle={(id, enabled) => {
+            const source = scene.sources.find((item) => item.id === id);
+            if (compositionLocked && !isAudioSource(source?.type ?? "game")) return;
+            toggleSource(id, enabled);
+          }}
+          onTransform={(id, transform) => {
+            if (compositionLocked) return;
+            setTransform(id, transform);
+          }}
+          onCrop={(id, crop) => {
+            if (compositionLocked) return;
+            setCrop(id, crop);
+          }}
+          onWebcamDevice={(device) => {
+            if (compositionLocked) return;
+            saveWebcamDevice(device);
+          }}
+          onClose={() => setInspectorOpen(false)}
+        />
+              ) : null}
+              {id === "controls" ? (
         <RecordControls
           settings={settings}
           onSave={(key, value) => void writeSettings(key, value)}
         />
+              ) : null}
+            </div>
+          );
+        })}
       </div>
       <footer className="studio-status">
+        <span className={`capture-ready${status.error ? " is-error" : ""}`}>
+          <i />
+          {status.error ? "Capture issue" : status.active ? "Recording" : "Capture ready"}
+        </span>
+        <span className="capture-status-rule" />
         <span>
-          Requested: {outputSizeLabel(settings.resolution)} · {displayFps(settings.fps)} FPS
+          {outputSizeLabel(settings.resolution)} · {displayFps(settings.fps)} FPS · {quality === "Custom" ? "Custom" : `${quality} quality`}
         </span>
         {negotiated ? (
           <span>
-            Recording: {status.outputWidth} × {status.outputHeight}
+            Recording {status.outputWidth} × {status.outputHeight}
             {status.outputFps ? ` · ${status.outputFps} FPS` : ""}
             {status.outputFallback ? " · fallback" : ""}
           </span>
         ) : null}
-        <span>Quality: {qualityLabel(settings.bitrate)}</span>
-        <IrEncoderDetails replay={replay} />
+        <span className="capture-status-note">Replay saves clips without stopping your recording.</span>
+        {replay.diskFreeBytes != null ? <span>{formatBytes(replay.diskFreeBytes)} free</span> : null}
+        <span>{savePlace}</span>
+        {replay.active || replay.restarting || replay.error ? (
+          <details className="capture-encoder">
+            <summary>Encoder</summary>
+            <IrEncoderDetails replay={replay} />
+          </details>
+        ) : null}
       </footer>
       {propertiesSource ? (
         <SourcePropertiesDialog
@@ -340,6 +505,7 @@ export function RecordingStudio() {
           onRefreshDisplays={refreshDisplays}
           onMonitorId={(monitorId) => {
             if (status.active || startingComposed) return;
+            pushSceneNow.current = true;
             patchSource(propertiesSource.id, { settings: { monitorId } });
           }}
           onSaveSetting={(key, value) => {
@@ -351,6 +517,12 @@ export function RecordingStudio() {
       ) : null}
     </>
   );
+}
+
+function friendlySavePlace(value: string) {
+  const parts = value.trim().split(/[\\/]+/).filter(Boolean);
+  if (parts.length === 0) return "Videos / Replayr";
+  return parts.slice(-2).join(" / ");
 }
 
 export function outputSizeLabel(resolution: AppSettings["resolution"]) {

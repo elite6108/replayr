@@ -10,6 +10,7 @@ import {
   normalizeAuthEmail,
   signupUserAlreadyExists,
 } from "../lib/signup";
+import { useUnlockedAccountSite } from "../lib/siteOpen";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
 
 type SocialProvider = "google" | "apple" | "discord" | "twitter";
@@ -25,6 +26,7 @@ export function SignInPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const next = safeNext(searchParams.get("next"));
+  const site = useUnlockedAccountSite(session?.access_token);
 
   async function startSocial(provider: SocialProvider) {
     setBusy(true);
@@ -145,10 +147,21 @@ export function SignInPage() {
     }
   }
 
-  if (session === undefined) {
+  if (session === undefined || (session && site.pending)) {
     return (
       <main className="page narrow">
-        <p className="muted">Loading…</p>
+        <p className="muted">{session ? "Opening the site…" : "Loading…"}</p>
+      </main>
+    );
+  }
+  if (session && site.error) {
+    return (
+      <main className="page narrow">
+        <h1>Sign in</h1>
+        <p className="error">{site.error}</p>
+        <button className="btn primary" type="button" onClick={site.retry}>
+          Try again
+        </button>
       </main>
     );
   }

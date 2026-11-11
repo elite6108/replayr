@@ -41,6 +41,8 @@ function expectWaitlistConversionCopy(html: string) {
   expect(html).toContain('id="waitlist"');
   expect(html).toContain('id="waitConfirm"');
   expect(html).toContain("Already have access?");
+  expect(html).toContain('href="/signin"');
+  expect(html).toContain("Log in");
   expect(html).toContain('href="/terms"');
   expect(html).toContain('href="/privacy"');
   expect(html).not.toContain("4.99");
@@ -148,6 +150,9 @@ describe("coming-soon conversion copy", () => {
     expect(COMING_SOON_PUBLIC_PATHS.has("/marketing/section-3-library.png")).toBe(true);
     expect(COMING_SOON_PUBLIC_PATHS.has("/marketing/section-4-car-still.jpg")).toBe(true);
     expect(isSiteGatedPath("/marketing/section-2-tablet.png")).toBe(false);
+    expect(isSiteGatedPath("/marketing/landing/windows.svg")).toBe(false);
+    expect(isSiteGatedPath("/marketing/landing/x.svg")).toBe(false);
+    expect(isSiteGatedPath("/marketing/landing/hero-bg-a.png")).toBe(true);
     expect(comingSoonPage).not.toContain('id="faq"');
     expect(comingSoonPage).not.toContain('id="waitlist-cta-form"');
     expect(comingSoonPage).toContain('class="waitlist"');

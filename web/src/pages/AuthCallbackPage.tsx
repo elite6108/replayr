@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { Seo } from "../components/Seo";
 import { useAuth } from "../lib/auth";
+import { useUnlockedAccountSite } from "../lib/siteOpen";
 import { getSupabase, supabaseConfigured } from "../lib/supabase";
 
 export function AuthCallbackPage() {
   const [searchParams] = useSearchParams();
   const { session } = useAuth();
+  const site = useUnlockedAccountSite(session?.access_token);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,6 +31,27 @@ export function AuthCallbackPage() {
     return () => window.clearTimeout(timer);
   }, [session]);
 
+  if (session && site.pending) {
+    return (
+      <main className="page narrow">
+        <Seo title="Signing in — Replayr" description="Finishing Replayr sign-in." robots="noindex" />
+        <h1>Signing in</h1>
+        <p className="muted">Opening the site…</p>
+      </main>
+    );
+  }
+  if (session && site.error) {
+    return (
+      <main className="page narrow">
+        <Seo title="Signing in — Replayr" description="Finishing Replayr sign-in." robots="noindex" />
+        <h1>Signing in</h1>
+        <p className="error">{site.error}</p>
+        <button className="btn primary" type="button" onClick={site.retry}>
+          Try again
+        </button>
+      </main>
+    );
+  }
   if (session) return <Navigate to={callbackNext(searchParams)} replace />;
 
   return (

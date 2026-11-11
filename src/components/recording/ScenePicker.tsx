@@ -3,7 +3,11 @@ import { createPortal } from "react-dom";
 import type { RecordingScene, ScenePresetId } from "../../recording/scene";
 import { nextSceneName } from "../../recording/sceneLibrary";
 import { ContextMenu } from "../common/ContextMenu";
-import { IconCheck, IconChevron, IconMore, IconPlus } from "../icons";
+import { IconCamera, IconCheck, IconChevron, IconGames, IconMonitor, IconMore, IconPlus } from "../icons";
+import scenePlus from "../../assets/figma/capture/scene-plus.svg";
+import sceneTrash from "../../assets/figma/capture/scene-trash.svg";
+import sceneUp from "../../assets/figma/capture/scene-up.svg";
+import sceneDown from "../../assets/figma/capture/scene-down.svg";
 
 const TEMPLATES: { id: ScenePresetId | ""; label: string }[] = [
   { id: "", label: "Blank" },
@@ -16,20 +20,24 @@ export function ScenePicker({
   scenes,
   activeId,
   locked,
+  presentation = "menu",
   onSelect,
   onCreate,
   onRename,
   onDuplicate,
   onDelete,
+  onMove,
 }: {
   scenes: RecordingScene[];
   activeId: string;
   locked: boolean;
+  presentation?: "menu" | "list";
   onSelect: (id: string) => void;
   onCreate: (name: string, template: ScenePresetId | null) => void;
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  onMove?: (id: string, direction: "up" | "down") => void;
 }) {
   const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -112,6 +120,147 @@ export function ScenePicker({
     skipRenameBlur.current = true;
     setRenameId(null);
     setRenameDraft("");
+  }
+
+  if (presentation === "list") {
+    return (
+      <div className="studio-scene-picker is-inline">
+        <div className="studio-block-head">
+          <h2>Scenes</h2>
+          <button type="button" className="studio-icon-btn" title="New scene" disabled={locked} onClick={() => setCreateOpen(true)}>
+            <img src={scenePlus} alt="" />
+          </button>
+        </div>
+        <div ref={listRef} id={listId} className="studio-scene-menu is-inline" role="listbox">
+          {scenes.map((scene, index) => {
+            const selected = scene.id === activeId;
+            const editing = renameId === scene.id;
+            return (
+              <div
+                key={scene.id}
+                className={`studio-scene-option${selected ? " is-selected" : ""}${editing ? " is-renaming" : ""}`}
+              >
+                {editing ? (
+                  <input
+                    ref={renameInputRef}
+                    type="text"
+                    className="studio-scene-rename"
+                    value={renameDraft}
+                    maxLength={64}
+                    aria-label="Scene name"
+                    disabled={locked}
+                    onChange={(event) => setRenameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        commitRename();
+                      }
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelRename();
+                      }
+                    }}
+                    onBlur={() => commitRename()}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    className="studio-scene-option-main"
+                    onClick={() => onSelect(scene.id)}
+                  >
+                    <SceneMark scene={scene} />
+                    <span className="studio-combo-title">{scene.name}</span>
+                    <span className="capture-scene-index">{String(index + 1).padStart(2, "0")}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="studio-icon-btn capture-scene-more"
+                  title="Scene actions"
+                  disabled={locked || editing}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setRowMenu({ id: scene.id, x: rect.right, y: rect.bottom + 4 });
+                  }}
+                >
+                  <IconMore size={15} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <div className="capture-scene-tools">
+          <button type="button" className="studio-icon-btn" title="New scene" disabled={locked} onClick={() => setCreateOpen(true)}>
+            <img src={scenePlus} alt="" />
+          </button>
+          <button
+            type="button"
+            className="studio-icon-btn"
+            title="Delete scene"
+            disabled={locked || scenes.length <= 1}
+            onClick={() => {
+              if (window.confirm("Delete this scene? This cannot be undone.")) onDelete(activeId);
+            }}
+          >
+            <img src={sceneTrash} alt="" />
+          </button>
+          <span className="capture-scene-tool-gap" />
+          <button
+            type="button"
+            className="studio-icon-btn"
+            title="Move scene up"
+            disabled={locked || scenes[0]?.id === activeId}
+            onClick={() => onMove?.(activeId, "up")}
+          >
+            <img src={sceneUp} alt="" />
+          </button>
+          <button
+            type="button"
+            className="studio-icon-btn"
+            title="Move scene down"
+            disabled={locked || scenes[scenes.length - 1]?.id === activeId}
+            onClick={() => onMove?.(activeId, "down")}
+          >
+            <img src={sceneDown} alt="" />
+          </button>
+        </div>
+        {rowMenu ? (
+          <ContextMenu
+            x={rowMenu.x}
+            y={rowMenu.y}
+            onClose={() => setRowMenu(null)}
+            items={[
+              { label: "Rename", onClick: () => beginRename(rowMenu.id) },
+              { label: "Duplicate", onClick: () => onDuplicate(rowMenu.id) },
+              {
+                label: "Delete",
+                danger: true,
+                disabled: scenes.length <= 1,
+                onClick: () => {
+                  if (window.confirm("Delete this scene? This cannot be undone.")) onDelete(rowMenu.id);
+                },
+              },
+            ]}
+          />
+        ) : null}
+        {createOpen ? (
+          <SceneNameDialog
+            title="New scene"
+            initialName={nextSceneName({ version: 2, activeId, scenes })}
+            templates
+            locked={locked}
+            onClose={() => setCreateOpen(false)}
+            onSave={(name, template) => {
+              onCreate(name, template);
+              setCreateOpen(false);
+            }}
+          />
+        ) : null}
+      </div>
+    );
   }
 
   return (
@@ -354,6 +503,15 @@ function SceneNameDialog({
       </div>
     </div>
   );
+}
+
+function SceneMark({ scene }: { scene: RecordingScene }) {
+  const visual = scene.sources.find(
+    (source) => source.type === "game" || source.type === "display" || source.type === "window" || source.type === "webcam",
+  );
+  if (visual?.type === "display" || visual?.type === "window") return <IconMonitor size={15} />;
+  if (visual?.type === "webcam") return <IconCamera size={15} />;
+  return <IconGames size={15} />;
 }
 
 function placeMenu(trigger: HTMLElement, count: number) {

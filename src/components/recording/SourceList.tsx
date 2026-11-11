@@ -34,11 +34,15 @@ export function SourceList({
   onRenameScene,
   onDuplicateScene,
   onDeleteScene,
+  onMoveScene,
   onProperties,
+  onInspect,
   onRenameSource,
   compositionLocked,
   studio = "recording",
   audioLocked = false,
+  presentation = "menu",
+  part = "both",
 }: {
   scene: RecordingScene;
   scenes: RecordingScene[];
@@ -56,17 +60,24 @@ export function SourceList({
   onRenameScene: (id: string, name: string) => void;
   onDuplicateScene: (id: string) => void;
   onDeleteScene: (id: string) => void;
+  onMoveScene?: (id: string, direction: "up" | "down") => void;
   onProperties: (id: string) => void;
+  onInspect?: (id: string) => void;
   onRenameSource: (id: string, name: string) => void;
   compositionLocked?: boolean;
   studio?: StudioMode;
   audioLocked?: boolean;
+  presentation?: "menu" | "list";
+  /** Capture splits scenes and sources into separate columns. Clips keep both. */
+  part?: "both" | "scenes" | "sources";
 }) {
   const [visualMenu, setVisualMenu] = useState(false);
   const [audioMenu, setAudioMenu] = useState(false);
   const [drag, setDrag] = useState<{ id: string; overId: string | null } | null>(null);
   const visuals = sourcesFrontFirst(scene.sources.filter((source) => isVisualSource(source.type)));
   const audios = scene.sources.filter((source) => isAudioSource(source.type));
+  const unified = presentation === "list";
+  const listed = unified ? visuals.length + audios.length : visuals.length;
 
   function beginReorder(id: string, event: ReactPointerEvent<HTMLElement>) {
     if (compositionLocked) return;
@@ -92,25 +103,33 @@ export function SourceList({
 
   return (
     <section className="studio-panel studio-rail">
+      {part === "sources" ? null : (
       <div className="studio-block">
-        <div className="studio-block-head">
-          <h2>Scenes</h2>
-        </div>
+        {presentation === "list" ? null : (
+          <div className="studio-block-head">
+            <h2>Scenes</h2>
+          </div>
+        )}
         <ScenePicker
           scenes={scenes}
           activeId={scene.id}
+          presentation={presentation}
           locked={Boolean(compositionLocked)}
           onSelect={onSelectScene}
           onCreate={onCreateScene}
           onRename={onRenameScene}
           onDuplicate={onDuplicateScene}
           onDelete={onDeleteScene}
+          onMove={onMoveScene}
         />
       </div>
+      )}
 
+      {part === "scenes" ? null : (
       <div className={`studio-block studio-sources-block${visualMenu ? " is-menu-open" : ""}`}>
         <div className="studio-block-head">
-          <h2>Visual Sources</h2>
+          <h2>{studio === "recording" ? "Sources" : "Visual Sources"}</h2>
+          {studio === "recording" ? <span className="capture-source-count">{listed}</span> : null}
           <button
             type="button"
             className="studio-add"
@@ -124,12 +143,12 @@ export function SourceList({
             Add
           </button>
         </div>
-        <p className="studio-section-copy">Top of the list is in front</p>
+        {unified ? null : <p className="studio-section-copy">Top of the list is in front</p>}
         <AddSourceMenu
           scene={scene}
           open={visualMenu}
-          title="Add Visual Source"
-          groups={["capture", "media", "overlay"]}
+          title={unified ? "Add Source" : "Add Visual Source"}
+          groups={unified && !audioLocked ? ["capture", "media", "overlay", "audio"] : ["capture", "media", "overlay"]}
           onClose={() => setVisualMenu(false)}
           onAdd={onAdd}
           composed={scene.outputMode === "composed"}
@@ -138,8 +157,8 @@ export function SourceList({
         {compositionLocked ? (
           <p className="studio-lock-note">Stop recording to edit layout.</p>
         ) : null}
-        {visuals.length === 0 ? (
-          <p className="studio-empty">No visual sources. Add one or create a scene.</p>
+        {listed === 0 ? (
+          <p className="studio-empty">{unified ? "No sources yet. Add one to this scene." : "No visual sources. Add one or create a scene."}</p>
         ) : (
           <div className="studio-source-list">
             {visuals.map((source) => (
@@ -157,15 +176,44 @@ export function SourceList({
                 onMove={(direction) => onReorder(moveSourceAmong(scene, source.id, direction, (item) => isVisualSource(item.type)))}
                 onRemove={() => onRemove(source.id)}
                 onProperties={() => onProperties(source.id)}
+                onInspect={onInspect ? () => onInspect(source.id) : undefined}
                 onRename={(name) => onRenameSource(source.id, name)}
                 onGripDown={(event) => beginReorder(source.id, event)}
               />
             ))}
+            {unified
+              ? audios.map((source) => (
+                  <AudioSourceRow
+                    key={source.id}
+                    source={source}
+                    selected={selectedId === source.id}
+                    peak={audioPeakFor(source.type, levels)}
+                    gain={
+                      source.type === "microphone"
+                        ? settingsGain.mic
+                        : source.type === "desktopAudio"
+                          ? settingsGain.desktop
+                          : source.type === "gameAudio"
+                            ? settingsGain.game
+                            : undefined
+                    }
+                    onSelect={() => onSelect(source.id)}
+                    onToggle={(enabled) => onToggle(source.id, enabled)}
+                    onRemove={() => onRemove(source.id)}
+                    onProperties={() => onProperties(source.id)}
+                    onInspect={onInspect ? () => onInspect(source.id) : undefined}
+                    onRename={(name) => onRenameSource(source.id, name)}
+                    compositionLocked={compositionLocked || audioLocked}
+                  />
+                ))
+              : null}
           </div>
         )}
+        {unified ? <p className="studio-section-copy">Drag to reorder. Top source is in front.</p> : null}
       </div>
+      )}
 
-      <div className={`studio-block studio-audio-block${audioMenu ? " is-menu-open" : ""}`}>
+      {part === "scenes" || unified ? null : <div className={`studio-block studio-audio-block${audioMenu ? " is-menu-open" : ""}`}>
         <div className="studio-block-head">
           <h2>Audio Sources</h2>
           <button
@@ -216,13 +264,14 @@ export function SourceList({
                 onToggle={(enabled) => onToggle(source.id, enabled)}
                 onRemove={() => onRemove(source.id)}
                 onProperties={() => onProperties(source.id)}
+                onInspect={onInspect ? () => onInspect(source.id) : undefined}
                 onRename={(name) => onRenameSource(source.id, name)}
                 compositionLocked={compositionLocked || audioLocked}
               />
             ))}
           </div>
         )}
-      </div>
+      </div>}
     </section>
   );
 }

@@ -20,6 +20,7 @@ export function AudioMixerCard({
   onToggle,
   onGain,
   onProperties,
+  onInspect,
   onRemove,
   readOnly = false,
   readOnlyHint,
@@ -34,6 +35,7 @@ export function AudioMixerCard({
   onToggle: (enabled: boolean) => void;
   onGain: (gain: number) => void;
   onProperties: () => void;
+  onInspect?: () => void;
   onRemove: () => void;
   /** Mirror the live mix without owning it: meters stay live, every control is inert. */
   readOnly?: boolean;
@@ -55,6 +57,7 @@ export function AudioMixerCard({
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
+        onSelect();
         openMenu(event.clientX, event.clientY);
       }}
     >
@@ -64,7 +67,7 @@ export function AudioMixerCard({
             <SourceGlyph type={sourceType} />
             <strong>{title}</strong>
           </span>
-          <span className="studio-mix-db">{enabled ? formatDb(gain) : "Muted"}</span>
+          <span className="studio-mix-db">{enabled ? formatDb(gain) : "−∞ dB"}</span>
         </div>
       </button>
       <div className="studio-mix-body">
@@ -112,6 +115,7 @@ export function AudioMixerCard({
         >
           <IconMore size={15} />
         </button>
+        <span className="studio-mix-state">{enabled ? (monitorArmed ? "Monitoring on" : "Monitor off") : "Muted"}</span>
       </div>
       {menu ? (
         <ContextMenu
@@ -122,6 +126,7 @@ export function AudioMixerCard({
             enabled,
             onAudioSettings: () => navigate("/settings?section=audio"),
             onProperties,
+            onInspect,
             onToggleMute: () => {
               if (readOnly) return;
               onToggle(!enabled);

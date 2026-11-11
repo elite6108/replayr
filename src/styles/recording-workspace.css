@@ -1501,3 +1501,1359 @@
   top: calc(-18px / var(--preview-scale, 1));
   font-size: calc(10px / var(--preview-scale, 1));
 }
+
+.studio-ir-label,
+.studio-ir-hint,
+.studio-ir-meter,
+.studio-ir-scale {
+  display: none;
+}
+
+/* Capture screen. Scoped so the Clips studio keeps its own layout. */
+.page:has(.record-studio.is-capture) {
+  padding: 0;
+  background: #0b1116;
+}
+
+.record-studio.is-capture > .studio-page-head {
+  display: none;
+}
+
+.record-studio.is-capture .record-workspace {
+  grid-template-columns: minmax(420px, 34%) minmax(0, 1fr) minmax(300px, 24%);
+  grid-template-rows: auto minmax(0, 1fr) 6px minmax(300px, var(--record-dock-max, 340px)) auto;
+  grid-template-areas:
+    "head head head"
+    "preview preview preview"
+    "split split split"
+    "dock dock dock"
+    "status status status";
+  gap: 0;
+  background: #0b1116;
+}
+
+.record-studio.is-capture .capture-head {
+  grid-area: head;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  padding: 8px 16px 8px 18px;
+  background: #0b1116;
+}
+
+.record-studio.is-capture .capture-head-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.record-studio.is-capture .capture-head h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -1px;
+  color: #f1f4f6;
+}
+
+.record-studio.is-capture .capture-head-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #a5afb9;
+  font-size: 12px;
+}
+
+.record-studio.is-capture .capture-head-status span:last-of-type,
+.record-studio.is-capture .capture-clips {
+  color: #707d88;
+  font-size: 10px;
+}
+
+.record-studio.is-capture .capture-head-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #727e89;
+}
+
+.record-studio.is-capture .capture-clips {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.record-studio.is-capture .capture-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.record-studio.is-capture .capture-game {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #a0aab4;
+  font-size: 11px;
+}
+
+.record-studio.is-capture .capture-game img {
+  width: 29px;
+  height: 29px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.record-studio.is-capture .capture-game i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #71bc99;
+}
+
+.record-studio.is-capture .capture-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid #2a323a;
+  background: #11171c;
+  color: #c0c8d0;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.record-studio.is-capture .capture-open:hover {
+  border-color: #3a4650;
+  color: #f1f4f6;
+}
+
+.record-studio.is-capture .studio-preview {
+  border: 0;
+  border-radius: 0;
+  background: #0b1116;
+  padding: 0 16px 8px;
+  gap: 0;
+}
+
+.record-studio.is-capture .studio-preview-stage {
+  position: relative;
+  order: 1;
+  flex: 1 1 auto;
+  border: 1px solid #34414c;
+  border-bottom: 0;
+  border-radius: 24px 24px 0 0;
+  overflow: hidden;
+  background: #0b1116;
+}
+
+.record-studio.is-capture .capture-live-badge,
+.record-studio.is-capture .capture-rec-badge {
+  position: absolute;
+  z-index: 4;
+  top: 17px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  background: rgba(8, 11, 14, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e2e7eb;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.15px;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.record-studio.is-capture .capture-live-badge {
+  left: 17px;
+}
+
+.record-studio.is-capture .capture-rec-badge {
+  right: 17px;
+  color: #b5bec6;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.record-studio.is-capture .capture-live-badge i,
+.record-studio.is-capture .capture-rec-badge i {
+  width: 5px;
+  height: 5px;
+  border-radius: 2.5px;
+  background: #d3dbe1;
+}
+
+.record-studio.is-capture .capture-rec-badge.is-live i {
+  background: #d95d65;
+}
+
+.record-studio.is-capture .studio-preview-head {
+  order: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  min-height: 42px;
+  margin: 0;
+  padding: 0 15px;
+  background: #11171d;
+  border: 1px solid #34414c;
+  border-top-color: #282e34;
+  border-radius: 0 0 12px 12px;
+}
+
+.record-studio.is-capture .capture-preview-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  color: #d0d7dd;
+}
+
+.record-studio.is-capture .capture-preview-title strong {
+  color: #d0d7dd;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.record-studio.is-capture .capture-preview-title span {
+  color: #687581;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.record-studio.is-capture .capture-preview-meta {
+  display: flex;
+  align-items: center;
+  color: #b1bbc4;
+  font-size: 10px;
+}
+
+.record-studio.is-capture .capture-preview-meta span:first-child,
+.record-studio.is-capture .capture-preview-meta b {
+  color: #d8dfe5;
+  font-weight: 600;
+}
+
+.record-studio.is-capture .capture-preview-meta i {
+  width: 1px;
+  height: 10px;
+  margin: 0 13px;
+  background: #343d46;
+}
+
+.record-studio.is-capture .studio-rail,
+.record-studio.is-capture .record-dock,
+.record-studio.is-capture .studio-inspector,
+.record-studio.is-capture .studio-mixer,
+.record-studio.is-capture .studio-controls {
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid #34414c;
+  border-right: 1px solid #34414c;
+  background: #11171d;
+  padding: 0;
+  box-shadow: none;
+}
+
+.record-studio.is-capture .studio-controls {
+  border-right: 0;
+  overflow: auto;
+}
+
+.record-studio.is-capture .record-dock {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  overflow: auto;
+}
+
+.record-studio.is-capture .record-dock .studio-inspector {
+  grid-area: auto;
+}
+
+.record-studio.is-capture .studio-rail {
+  display: grid;
+  grid-template-columns: minmax(148px, 200px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: transparent;
+}
+
+.record-studio.is-capture .studio-rail > .studio-block {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid #34414c;
+  background: #11171d;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.record-studio.is-capture .studio-rail > .studio-block + .studio-block {
+  margin: 0;
+  padding: 0;
+  border-top: 0;
+}
+
+.record-studio.is-capture .studio-rail > .studio-block:first-child {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+
+.record-studio.is-capture .studio-sources-block {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  border-right: 0;
+  min-height: 0;
+}
+
+.record-studio.is-capture .studio-audio-block {
+  grid-column: 2;
+  grid-row: 2;
+  max-height: 112px;
+  border-right: 0;
+  border-top: 1px solid #2b3b46;
+  background: #11171d;
+}
+
+.record-studio.is-capture .studio-rail > .studio-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.record-studio.is-capture .studio-rail:has(.is-menu-open),
+.record-studio.is-capture .studio-sources-block.is-menu-open,
+.record-studio.is-capture .studio-audio-block.is-menu-open {
+  overflow: visible;
+  z-index: 4;
+}
+
+.record-studio.is-capture .studio-block-head {
+  margin: 0;
+  min-height: 34px;
+  padding: 0 10px;
+  background: #151e25;
+  border-bottom: 1px solid #2b3b46;
+}
+
+.record-studio.is-capture .studio-block-head h2 {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #e6edf1;
+}
+
+.record-studio.is-capture .studio-section-copy {
+  display: none;
+}
+
+.record-studio.is-capture .studio-sources-block .studio-section-copy {
+  display: block;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid #2b3b46;
+  color: #6d8ca0;
+  font-size: 9.5px;
+}
+
+.record-studio.is-capture .studio-sources-block .studio-source-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.record-studio.is-capture .studio-audio-row {
+  min-height: 52px;
+  padding: 4px;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.record-studio.is-capture .studio-audio-row.is-selected {
+  background: #20333d;
+  box-shadow: inset 0 0 0 1px #3b5565;
+}
+
+.record-studio.is-capture .capture-source-count {
+  margin-left: auto;
+  color: #708d9f;
+  font-family: var(--font-display);
+  font-size: 11px;
+}
+
+.record-studio.is-capture .studio-sources-block .studio-add {
+  width: 23px;
+  height: 23px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #c5d4df;
+  font-size: 0;
+}
+
+.record-studio.is-capture .studio-source-list {
+  gap: 6px;
+  padding: 10px 7px 8px;
+}
+
+.record-studio.is-capture .studio-visual-row {
+  min-height: 52px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.record-studio.is-capture .studio-visual-row.is-selected {
+  background: #20333d;
+  box-shadow: inset 0 0 0 1px #3b5565;
+}
+
+.record-studio.is-capture .studio-source-name {
+  color: #d5e3ec;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.record-studio.is-capture .studio-source-cap {
+  color: #809cac;
+  font-size: 9.5px;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option-main {
+  order: 1;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-icon-btn {
+  order: 2;
+}
+
+.record-studio.is-capture .capture-scene-index {
+  order: 3;
+  padding-right: 8px;
+}
+
+.studio-mix-state {
+  display: none;
+}
+
+.record-studio.is-capture .studio-mixer {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.record-studio.is-capture .studio-mixer-row {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+  gap: 0;
+  padding: 6px 4px 4px;
+  overflow: hidden;
+}
+
+.record-studio.is-capture .studio-mix-channel {
+  max-width: none;
+  min-width: 0;
+  gap: 4px;
+  padding: 4px 6px 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.record-studio.is-capture .studio-mix-head {
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.record-studio.is-capture .studio-mix-db {
+  font-family: var(--font-display);
+  font-size: 16px;
+  color: #e8eef3;
+}
+
+.record-studio.is-capture .studio-mix-channel.is-off .studio-mix-db {
+  color: #d7a0a6;
+}
+
+.record-studio.is-capture .studio-mix-body {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.record-studio.is-capture .studio-mix-tools {
+  position: relative;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 2px;
+}
+
+.record-studio.is-capture .studio-mix-state {
+  display: block;
+  flex: 1 0 100%;
+  position: static;
+  text-align: center;
+  color: #809cac;
+  font-size: 9px;
+}
+
+.record-studio.is-capture .studio-inspector-body {
+  gap: 8px;
+  padding: 10px 12px 8px;
+}
+
+.record-studio.is-capture .studio-inspector .studio-section {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  border: 0;
+  padding: 0;
+  gap: 8px;
+}
+
+.record-studio.is-capture .studio-inspector .studio-section h3,
+.record-studio.is-capture .studio-inspector .studio-xy {
+  flex: 1 0 100%;
+}
+
+.record-studio.is-capture .studio-inspector .studio-section h3 {
+  letter-spacing: 0.6px;
+  text-transform: none;
+  color: #759ab3;
+  font-size: 9.5px;
+}
+
+.record-studio.is-capture .studio-inspector .studio-xy {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.record-studio.is-capture .studio-inspector .studio-xy > label {
+  display: contents;
+}
+
+.record-studio.is-capture .studio-inspector .studio-xy span.studio-xy-label {
+  display: none;
+}
+
+.record-studio.is-capture .studio-inspector .studio-xy span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid #34414c;
+  border-radius: 3px;
+  background: #11171d;
+}
+
+.record-studio.is-capture .studio-inspector .studio-xy input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #bdcedb;
+  font-family: var(--font-display);
+  font-size: 11px;
+  padding: 0;
+}
+
+.record-studio.is-capture .studio-inspector .studio-section .field,
+.record-studio.is-capture .studio-inspector .studio-reset {
+  display: inline-flex;
+  width: auto;
+  margin: 0 6px 0 0;
+}
+
+.record-studio.is-capture .studio-inspector .btn.ghost {
+  height: 26px;
+  border: 1px solid #34414c;
+  border-radius: 3px;
+  background: #11171d;
+  color: #a5c0d3;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.record-studio.is-capture .studio-scene-menu.is-inline {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px;
+  background: transparent;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option {
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  border-radius: 4px;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option.is-selected {
+  background: #20353e;
+  box-shadow: inset 2px 0 0 #00d9e8;
+}
+
+.record-studio.is-capture .capture-scene-index {
+  color: #607d8e;
+  font-family: var(--font-display);
+  font-size: 11px;
+  text-align: center;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option-main {
+  min-height: 32px;
+  padding: 4px 6px;
+}
+
+.record-studio.is-capture .capture-scene-tools {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-top: 1px solid #283d4b;
+}
+
+.record-studio.is-capture .studio-source-row.is-selected {
+  background: #20353e;
+  box-shadow: inset 2px 0 0 #00d9e8;
+}
+
+.record-studio.is-capture .capture-rec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 8px;
+}
+
+.record-studio.is-capture .capture-clock {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+  color: #eef5f9;
+  font-variant-numeric: tabular-nums;
+}
+
+.record-studio.is-capture .capture-rec-state {
+  color: #90b0c5;
+  font-size: 12px;
+}
+
+.record-studio.is-capture .capture-rec-state.is-error,
+.record-studio.is-capture .capture-ready.is-error {
+  color: #e7a0a4;
+}
+
+.record-studio.is-capture .capture-start {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: calc(100% - 28px);
+  height: 50px;
+  margin: 0 14px;
+  border: 0;
+  border-radius: 4px;
+  background: #d95d65;
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.62);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.record-studio.is-capture .capture-start kbd {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #c45059;
+  border: 1px solid #af3139;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.record-studio.is-capture .capture-start:disabled {
+  opacity: 0.82;
+  cursor: not-allowed;
+}
+
+.record-studio.is-capture .capture-start.is-live {
+  background: #a33b44;
+}
+
+.record-studio.is-capture .capture-ir-off,
+.record-studio.is-capture .capture-output-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 14px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #9bb8cd;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.record-studio.is-capture .studio-ir {
+  margin: 12px 14px 0;
+  padding: 0;
+  border: 0;
+}
+
+.record-studio.is-capture .studio-ir-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title state switch"
+    "label select select";
+  gap: 8px 10px;
+  align-items: center;
+  margin: 0;
+}
+
+.record-studio.is-capture .studio-ir-head strong { grid-area: title; color: #e6edf1; font-size: 12px; }
+.record-studio.is-capture .studio-ir-state { grid-area: state; justify-self: end; color: #8ea0ae; font-size: 11px; }
+.record-studio.is-capture .studio-ir-state.is-on { color: #7db79a; }
+.record-studio.is-capture .studio-ir-head .studio-switch { grid-area: switch; }
+.record-studio.is-capture .studio-ir-label { grid-area: label; display: block; color: #8ea0ae; font-size: 11px; }
+.record-studio.is-capture .studio-ir-head select {
+  grid-area: select;
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid #3c5a70;
+  background: #111e28;
+  color: #d5e4ef;
+}
+
+.record-studio.is-capture .studio-ir-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.record-studio.is-capture .studio-ir-row .btn {
+  height: 32px;
+  border-radius: 4px;
+  border: 1px solid #3d607b;
+  background: #1a3041;
+  color: #d5e4ef;
+}
+
+.record-studio.is-capture .studio-ir-buf { display: none; }
+.record-studio.is-capture .studio-ir-hint,
+.record-studio.is-capture .studio-ir-scale {
+  display: flex;
+  justify-content: space-between;
+  margin: 6px 0 0;
+  color: #7f95a6;
+  font-size: 10px;
+}
+
+.record-studio.is-capture .studio-ir-meter {
+  display: block;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 99px;
+  background: #2e506a;
+  overflow: hidden;
+}
+
+.record-studio.is-capture .studio-ir-meter span {
+  display: block;
+  height: 100%;
+  background: #7d9bb0;
+}
+
+.record-studio.is-capture .studio-output-pop {
+  margin: 8px 14px 0;
+}
+
+.record-studio.is-capture .studio-mix-channel {
+  background: transparent;
+  border-color: transparent;
+}
+
+.record-studio.is-capture .studio-mix-db {
+  color: #00d9e8;
+}
+
+.record-studio.is-capture .record-split::after {
+  width: 100%;
+  height: 1px;
+  border-radius: 0;
+  background: #34414c;
+}
+
+.record-studio.is-capture .studio-status {
+  position: relative;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  min-height: 28px;
+  max-height: 28px;
+  margin: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  background: #0b1116;
+  border-top: 1px solid #2e485c;
+  color: #9bb8cd;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.record-studio.is-capture .studio-status:has(.capture-encoder[open]) {
+  overflow: visible;
+  max-height: none;
+}
+
+.record-studio.is-capture .capture-encoder {
+  position: relative;
+}
+
+.record-studio.is-capture .capture-encoder summary {
+  cursor: pointer;
+  color: #9bb8cd;
+}
+
+.record-studio.is-capture .capture-encoder[open] {
+  position: absolute;
+  right: 12px;
+  bottom: 32px;
+  z-index: 5;
+  max-width: min(560px, 46vw);
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid #34414c;
+  border-radius: 8px;
+  background: #11171d;
+  white-space: normal;
+}
+
+.record-studio.is-capture .capture-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #9bb8cd;
+}
+
+.record-studio.is-capture .capture-ready i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #7db79a;
+}
+
+.record-studio.is-capture .capture-ready.is-error i {
+  background: #d95d65;
+}
+
+.record-studio.is-capture .capture-status-rule {
+  width: 1px;
+  height: 10px;
+  background: #2e485c;
+}
+
+.record-studio.is-capture .capture-status-note {
+  color: #7f95a6;
+}
+
+.record-studio.is-capture .studio-rail {
+  grid-template-columns: minmax(176px, 228px) minmax(0, 1fr);
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-block-head {
+  flex: 0 0 auto;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-menu.is-inline {
+  padding: 6px 0 4px;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  margin: 0 8px 5px;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option.is-selected {
+  background: #20353e;
+  box-shadow: none;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option.is-selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #00d9e8;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  order: 0;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 4px;
+  color: #8fa7b6;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option-main:hover {
+  background: transparent;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option.is-selected .studio-scene-option-main {
+  color: #e4f4f6;
+}
+
+.record-studio.is-capture .studio-scene-picker.is-inline .studio-combo-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-studio.is-capture .capture-scene-index {
+  order: 0;
+  margin-left: auto;
+  padding: 0;
+  color: #607d8e;
+  font-family: var(--font-display);
+  font-size: 9.5px;
+  font-weight: 500;
+  text-align: right;
+}
+
+.record-studio.is-capture .capture-scene-more {
+  position: absolute;
+  top: 5px;
+  right: 28px;
+  width: 24px;
+  height: 24px;
+  opacity: 0;
+}
+
+.record-studio.is-capture .studio-scene-option:hover .capture-scene-more,
+.record-studio.is-capture .studio-scene-option:focus-within .capture-scene-more {
+  opacity: 1;
+}
+
+.record-studio.is-capture .capture-scene-tools {
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  min-height: 39px;
+  margin-top: auto;
+  padding: 0 6px;
+}
+
+.record-studio.is-capture .capture-scene-tool-gap {
+  flex: 1 1 auto;
+}
+
+.record-studio.is-capture .capture-scene-tools .studio-icon-btn,
+.record-studio.is-capture .studio-scene-picker .studio-block-head .studio-icon-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+}
+
+.record-studio.is-capture .capture-scene-tools .studio-icon-btn:disabled {
+  opacity: 0.35;
+}
+
+.record-studio.is-capture .capture-scene-tools img,
+.record-studio.is-capture .studio-scene-picker .studio-block-head img {
+  display: block;
+}
+
+.record-studio.is-capture .record-dock .studio-controls {
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  max-height: none;
+  align-self: stretch;
+  overflow: auto;
+}
+
+.record-studio.is-capture .studio-controls > .studio-block-head {
+  flex: 0 0 auto;
+  background: #1a2731;
+}
+
+.record-studio.is-capture .capture-rec-head {
+  align-items: center;
+  padding: 10px 16px 2px;
+}
+
+.record-studio.is-capture .capture-clock {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.7px;
+  color: #eef5f9;
+}
+
+.record-studio.is-capture .capture-clock .capture-colon {
+  color: #799cb4;
+}
+
+.record-studio.is-capture .capture-colon {
+  color: #799cb4;
+}
+
+.record-studio.is-capture .capture-rec-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  font-weight: 500;
+}
+
+.record-studio.is-capture .capture-rec-state i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #9db8ca;
+}
+
+.record-studio.is-capture .capture-start {
+  width: auto;
+  margin: 6px 16px 0;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.record-studio.is-capture .capture-rec-dot {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  background: #d55865;
+}
+
+.record-studio.is-capture .capture-start kbd,
+.record-studio.is-capture .capture-ir-save kbd {
+  font-family: inherit;
+  border-bottom-width: 1px;
+  line-height: 1.3;
+}
+
+.record-studio.is-capture .capture-start:disabled {
+  opacity: 1;
+}
+
+.record-studio.is-capture .capture-ir-off {
+  margin: 6px 16px 0;
+  font-size: 10px;
+}
+
+.record-studio.is-capture .studio-ir.is-capture {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 16px 0;
+}
+
+.record-studio.is-capture .capture-ir-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.record-studio.is-capture .capture-ir-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.record-studio.is-capture .capture-ir-name strong {
+  color: #e6edf1;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.record-studio.is-capture .studio-ir.is-capture .studio-ir-state {
+  color: #759ab6;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.record-studio.is-capture .studio-ir.is-capture .studio-ir-state.is-on {
+  color: #7db79a;
+}
+
+.record-studio.is-capture .studio-ir.is-capture .switch {
+  width: 27px;
+  height: 15px;
+  border: 1px solid #45647c;
+  background: #2b4254;
+}
+
+.record-studio.is-capture .studio-ir.is-capture .switch::after {
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  background: #7d9bb0;
+}
+
+.record-studio.is-capture .studio-ir.is-capture .switch:checked {
+  background: #1c4d55;
+  border-color: #00d9e8;
+}
+
+.record-studio.is-capture .studio-ir.is-capture .switch:checked::after {
+  transform: translateX(12px);
+  background: #00d9e8;
+}
+
+.record-studio.is-capture .capture-ir-buffer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  color: #80a2bd;
+  font-size: 9.5px;
+}
+
+.record-studio.is-capture .capture-ir-buffer select {
+  height: 24px;
+  padding: 0 22px 0 8px;
+  border: 1px solid #3c5a70;
+  border-radius: 4px;
+  background-color: #111e28;
+  color: #c7d9e6;
+  font-size: 11px;
+}
+
+.record-studio.is-capture .studio-ir.is-capture .studio-ir-hint {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: #789bb6;
+  font-size: 9.5px;
+}
+
+.record-studio.is-capture .capture-ir-turnoff {
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #d7a0a6;
+  font-size: 9.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.record-studio.is-capture .capture-ir-save {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(92px, 0.85fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.record-studio.is-capture .capture-ir-save button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid #3d607b;
+  border-radius: 4px;
+  background: #1a3041;
+  color: #7d9fb8;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.record-studio.is-capture .capture-ir-save button:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.record-studio.is-capture .capture-ir-save kbd {
+  padding: 1px 4px;
+  border: 1px solid #416783;
+  border-radius: 3px;
+  background: transparent;
+  color: #7b9fb9;
+  font-size: 8.5px;
+  font-weight: 600;
+}
+
+.record-studio.is-capture .capture-ir-buf > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.record-studio.is-capture .capture-ir-buf span {
+  color: #6b92ae;
+  font-size: 9px;
+}
+
+.record-studio.is-capture .capture-ir-buf strong {
+  color: #92b2c9;
+  font-family: var(--font-display);
+  font-size: 9.5px;
+  font-weight: 500;
+}
+
+.record-studio.is-capture .studio-ir.is-capture .studio-ir-meter {
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 99px;
+}
+
+.record-studio.is-capture .capture-output-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding: 8px 14px;
+  border-top: 1px solid #29465c;
+  background: #11171d;
+}
+
+.record-studio.is-capture .capture-output-row .capture-output-link {
+  margin: 0;
+  color: #a6c4db;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.record-studio.is-capture .capture-output-row > span {
+  color: #759cba;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.record-studio.is-capture .studio-visual-row.is-selected {
+  background: #20333d;
+  box-shadow: inset 0 0 0 1px #3b5565;
+}
+
+.record-studio.is-capture .capture-column {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 220px;
+  min-height: 0;
+  border-right: 1px solid #34414c;
+}
+
+.record-studio.is-capture .capture-column:last-child {
+  border-right: 0;
+}
+
+.record-studio.is-capture .capture-column.is-scenes {
+  flex: 0.72 1 180px;
+  min-width: 176px;
+}
+
+.record-studio.is-capture .capture-column.is-controls {
+  flex: 1.05 1 260px;
+  min-width: 250px;
+}
+
+.record-studio.is-capture .capture-column.is-dragging {
+  opacity: 0.72;
+}
+
+.record-studio.is-capture .capture-column > .studio-panel {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border-right: 0;
+}
+
+.record-studio.is-capture .capture-column .studio-rail {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
+  overflow: hidden;
+}
+
+.record-studio.is-capture .capture-column .studio-block,
+.record-studio.is-capture .capture-column .studio-sources-block {
+  grid-column: auto;
+  grid-row: auto;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  border-right: 0;
+}
+
+.record-studio.is-capture .capture-column .studio-block-head {
+  cursor: grab;
+  user-select: none;
+}
+
+.record-studio.is-capture .capture-column .studio-block-head :is(button, input, select, a, label) {
+  cursor: pointer;
+}
+
+.record-studio.is-capture .studio-inspector-close {
+  margin-left: auto;
+}

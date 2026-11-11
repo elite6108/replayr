@@ -239,9 +239,24 @@ impl PreviewHub {
                 changed = true;
             }
         }
+        if changed {
+            self.clear_frames();
+            tracing::info!(
+                monitor = self.inner.monitor_id.lock().ok().and_then(|slot| slot.clone()).as_deref().unwrap_or("primary"),
+                "capture preview target changed"
+            );
+        }
         if changed && self.wanted() && !self.capture_live() && !self.composed_live() {
-            self.suspend_standalone();
-            self.ensure_source();
+            self.ensure_source_replaced();
+        }
+    }
+
+    fn clear_frames(&self) {
+        if let Ok(mut slot) = self.inner.latest.lock() {
+            *slot = None;
+        }
+        if let Ok(mut slot) = self.inner.pending.lock() {
+            *slot = None;
         }
     }
 
@@ -457,6 +472,16 @@ impl PreviewHub {
     }
 
     fn ensure_source(&self) {
+        self.open_standalone(false);
+    }
+
+    /// Drop the running standalone session before starting, so a monitor change cannot keep the previous display.
+    fn ensure_source_replaced(&self) {
+        self.suspend_standalone();
+        self.open_standalone(true);
+    }
+
+    fn open_standalone(&self, replace: bool) {
         if !self.wanted() || self.capture_live() || self.composed_live() {
             return;
         }
@@ -469,12 +494,20 @@ impl PreviewHub {
         }
         #[cfg(windows)]
         {
-            if self.standalone_active() {
+            if !replace && self.standalone_active() {
                 return;
+            }
+            if replace {
+                self.suspend_standalone();
             }
             match standalone::StandalonePreview::start(self.clone(), mode, pid, monitor_id.as_deref()) {
                 Ok(session) => {
-                    tracing::info!(mode = ?mode, pid = ?pid, "capture preview standalone started");
+                    tracing::info!(
+                        mode = ?mode,
+                        pid = ?pid,
+                        monitor = monitor_id.as_deref().unwrap_or("primary"),
+                        "capture preview standalone started"
+                    );
                     if let Ok(mut slot) = self.inner.error.lock() {
                         *slot = None;
                     }
@@ -492,7 +525,7 @@ impl PreviewHub {
         }
         #[cfg(not(windows))]
         {
-            let _ = (mode, pid, monitor_id);
+            let _ = (mode, pid, monitor_id, replace);
             if let Ok(mut slot) = self.inner.error.lock() {
                 *slot = Some("Preview unavailable".into());
             }

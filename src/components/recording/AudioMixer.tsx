@@ -13,6 +13,7 @@ export function AudioMixer({
   onToggleDesktop,
   onSave,
   onProperties,
+  onInspect,
   onRemove,
   readOnly = false,
   mirrorOf,
@@ -27,6 +28,7 @@ export function AudioMixer({
   onToggleDesktop: (enabled: boolean) => void;
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onProperties: (sourceId: string) => void;
+  onInspect?: (sourceId: string) => void;
   onRemove: (sourceId: string) => void;
   /** Show the live mix without owning it: meters stay live, every control is inert. */
   readOnly?: boolean;
@@ -48,7 +50,7 @@ export function AudioMixer({
   return (
     <section className="studio-panel studio-mixer">
       <div className="studio-block-head">
-        <h2>Audio Mixer</h2>
+        <h2>Audio mixer</h2>
       </div>
       <div className="studio-mixer-row">
         <AudioMixerCard
@@ -66,6 +68,7 @@ export function AudioMixer({
           onProperties={() => {
             if (mic) onProperties(mic.id);
           }}
+          onInspect={mic && onInspect ? () => onInspect(mic.id) : undefined}
           onRemove={() => {
             if (mic) onRemove(mic.id);
           }}
@@ -85,6 +88,7 @@ export function AudioMixer({
           onProperties={() => {
             if (desktop) onProperties(desktop.id);
           }}
+          onInspect={desktop && onInspect ? () => onInspect(desktop.id) : undefined}
           onRemove={() => {
             if (desktop) onRemove(desktop.id);
           }}
@@ -104,6 +108,7 @@ export function AudioMixer({
           onProperties={() => {
             if (game) onProperties(game.id);
           }}
+          onInspect={game && onInspect ? () => onInspect(game.id) : undefined}
           onRemove={() => {
             if (game) onRemove(game.id);
           }}

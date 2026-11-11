@@ -1,4 +1,8 @@
 {
+  "0.1.84": [
+    "Capture columns can be dragged into any order, and the source inspector stays closed until you right-click a source.",
+    "Choosing a display switches the live capture to that monitor."
+  ],
   "0.1.83": [
     "Profile photos load on the installed app, and changing one can reach Replayr again."
   ],

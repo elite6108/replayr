@@ -1,7 +1,7 @@
 import { comingSoonContentSecurityPolicy } from "./contentSecurity";
 import type { Env } from "./env";
 import { HttpError, json } from "./http";
-import { requireServiceRole, serviceRest } from "./shared";
+import { requireServiceRole, requireUser, serviceRest } from "./shared";
 import { publicSiteUrl, sendReplayrEmail, waitlistConfirmEmail, waitlistUnsubscribeUrl } from "./email";
 import { assertDistributedRateLimit } from "./rateLimit";
 
@@ -64,6 +64,9 @@ export const COMING_SOON_PUBLIC_PATHS = new Set([
   "/replayr-mark.png",
   "/favicon.png",
   "/apple-touch-icon.png",
+  // Sign-in, terms, and privacy are public and still render the site header.
+  "/marketing/landing/windows.svg",
+  "/marketing/landing/x.svg",
 ]);
 
 export function normalizePublicPath(pathname: string): string {
@@ -186,22 +189,12 @@ export async function handleSiteAccess(request: Request, env: Env): Promise<Resp
     if (!(await timingSafeEqual(provided, password))) {
       return json({ error: "Incorrect password." }, 401);
     }
-    const token = await mintAccessToken(password);
-    const host = new URL(request.url).hostname;
-    const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-    // Share links use apex replayr.tv; marketing often unlocks on www — one cookie for both.
-    const domain =
-      host === "replayr.tv" || host.endsWith(".replayr.tv") ? "; Domain=.replayr.tv" : "";
-    const headers = new Headers({ "content-type": "application/json; charset=utf-8" });
-    headers.append(
-      "set-cookie",
-      `${COOKIE_NAME}=${token}; Path=/${domain}; HttpOnly${secure}; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE_SEC}`,
-    );
-    headers.append(
-      "set-cookie",
-      `${OPEN_COOKIE}=1; Path=/${domain}${secure}; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE_SEC}`,
-    );
-    return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+    return await openedSiteResponse(request, env);
+  }
+  if (request.method === "POST" && url.pathname === "/v1/site-access/session") {
+    await assertDistributedRateLimit(request, env.SITE_ACCESS_RATE_LIMITER, "site-access", 10);
+    await requireUser(request, env);
+    return await openedSiteResponse(request, env);
   }
   if (request.method === "POST" && url.pathname === "/v1/site-access/logout") {
     const host = new URL(request.url).hostname;
@@ -220,6 +213,27 @@ export async function handleSiteAccess(request: Request, env: Env): Promise<Resp
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   }
   return null;
+}
+
+async function openedSiteResponse(request: Request, env: Env): Promise<Response> {
+  const password = env.SITE_ACCESS_PASSWORD?.trim() || "";
+  const host = new URL(request.url).hostname;
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  // Share links use apex replayr.tv; marketing often unlocks on www — one cookie for both.
+  const domain = host === "replayr.tv" || host.endsWith(".replayr.tv") ? "; Domain=.replayr.tv" : "";
+  const headers = new Headers({ "content-type": "application/json; charset=utf-8" });
+  if (password) {
+    const token = await mintAccessToken(password);
+    headers.append(
+      "set-cookie",
+      `${COOKIE_NAME}=${token}; Path=/${domain}; HttpOnly${secure}; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE_SEC}`,
+    );
+  }
+  headers.append(
+    "set-cookie",
+    `${OPEN_COOKIE}=1; Path=/${domain}${secure}; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE_SEC}`,
+  );
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
 export async function handleWaitlist(request: Request, env: Env): Promise<Response | null> {
@@ -496,6 +510,7 @@ export function comingSoonFallbackHtml(): string {
       </div>
       <p class="pipeline">CAPTURE — KEEP — EDIT — SHARE — RELIVE</p>
       <footer>
+        <a class="access-link" href="/signin">Log in</a>
         <button type="button" class="access-link" id="unlockToggle">Already have access?</button>
         <a href="/terms">Terms</a>
         <a href="/privacy">Privacy</a>

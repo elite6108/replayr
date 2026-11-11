@@ -86,6 +86,10 @@ export function PreviewCaptureLayer({
   }, [enabled]);
 
   useEffect(() => {
+    lastFrameId.current = 0;
+  }, [mode, pid, monitorId]);
+
+  useEffect(() => {
     if (!enabled) return;
     void updateCapturePreview({ mode, pid: pid ?? undefined, monitorId }).catch(() => undefined);
   }, [enabled, mode, pid, monitorId]);

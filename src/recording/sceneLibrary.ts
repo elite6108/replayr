@@ -169,6 +169,21 @@ export function renameScene(library: RecordingSceneLibrary, id: string, name: st
   });
 }
 
+export function moveScene(
+  library: RecordingSceneLibrary,
+  id: string,
+  direction: "up" | "down",
+): RecordingSceneLibrary {
+  const index = library.scenes.findIndex((scene) => scene.id === id);
+  const target = direction === "up" ? index - 1 : index + 1;
+  if (index < 0 || target < 0 || target >= library.scenes.length) return library;
+  const scenes = library.scenes.slice();
+  const [item] = scenes.splice(index, 1);
+  if (!item) return library;
+  scenes.splice(target, 0, item);
+  return sanitizeLibrary({ ...library, scenes });
+}
+
 export function deleteScene(library: RecordingSceneLibrary, id: string): RecordingSceneLibrary | { error: string } {
   if (library.scenes.length <= 1) {
     return { error: "Keep at least one scene." };

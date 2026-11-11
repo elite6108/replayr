@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { BitrateChangeInfo } from "../common/BitrateChangeInfo";
 import { CustomBitrateInput } from "../settings/CustomBitrateInput";
-import { IconGear, IconRecord } from "../icons";
 import type { AppSettings } from "../../types/settings";
 import { useRecordingStore } from "../../stores/recordingStore";
 import { RECORD_NEEDS_IR_OFF } from "../../recording/composition";
 import type { StudioMode } from "../../recording/studioMode";
 import { CaptureOutputFields } from "./sources/GameSourceSettings";
+import { displayHotkey } from "../../utils/format";
 import { formatBitrateEstimate } from "../../utils/recordingBitrate";
-import { QUALITY_OPTIONS } from "../../utils/qualityLabels";
+import { displayFps, QUALITY_OPTIONS, qualityLabel } from "../../utils/qualityLabels";
 import { IrControlsCard } from "./IrControlsCard";
+import outputMark from "../../assets/figma/capture/output.svg";
+import chevronMark from "../../assets/figma/capture/chevron.svg";
 
 export function RecordControls({
   settings,
@@ -35,55 +37,57 @@ export function RecordControls({
     <section className="studio-panel studio-controls">
       {studio === "recording" ? (
       <>
-      <div className="studio-record-card">
-        <button
-          type="button"
-          className={`record-orb ${status.active ? "live" : ""}`}
-          disabled={recording ? busy : !canStart}
-          title={needsIrOff ? RECORD_NEEDS_IR_OFF : recording ? "Stop recording" : "Start recording"}
-          onClick={() => void (recording ? stop() : start())}
-        >
-          <IconRecord size={30} />
-        </button>
-        <div className="studio-record-copy">
-          {status.active ? (
-            <>
-              <strong className="studio-rec-clock">REC {formatRecClock(status.durationMs)}</strong>
-              <button type="button" className="btn danger sm" disabled={busy} onClick={() => void stop()}>
-                Stop Recording
-              </button>
-            </>
-          ) : needsIrOff ? (
-            <>
-              <strong>Start Recording</strong>
-              <p>Instant Replay is on. Recording and Instant Replay cannot run at the same time.</p>
-              <button
-                type="button"
-                className="btn sm"
-                onClick={() => onSave("instantReplayEnabled", false)}
-              >
-                Turn off Instant Replay
-              </button>
-            </>
-          ) : (
-            <>
-              <strong>Start Recording</strong>
-              <p>{status.error ? status.error : "Records this layout to one MP4"}</p>
-            </>
-          )}
-        </div>
-        <button
-          type="button"
-          className="studio-icon-btn studio-output-gear"
-          title="Recording output"
-          aria-expanded={outputOpen}
-          onClick={() => setOutputOpen((open) => !open)}
-        >
-          <IconGear size={16} />
-          <span>Output</span>
-        </button>
+      <div className="studio-block-head">
+        <h2>Recording controls</h2>
       </div>
-      {outputOpen ? (
+      <div className="capture-rec-head">
+        <CaptureClock ms={recording ? status.durationMs : 0} />
+        <span className={`capture-rec-state${status.error ? " is-error" : ""}`}>
+          <i />
+          {status.active ? "Recording" : status.error ? status.error : "Ready to record"}
+        </span>
+      </div>
+      <button
+        type="button"
+        className={`capture-start${status.active ? " is-live" : ""}`}
+        disabled={recording ? busy : !canStart}
+        title={needsIrOff ? RECORD_NEEDS_IR_OFF : recording ? "Stop recording" : "Start recording"}
+        onClick={() => void (recording ? stop() : start())}
+      >
+        <i className="capture-rec-dot" />
+        <span>{recording ? "Stop Recording" : "Start Recording"}</span>
+        <kbd>{displayHotkey(settings.hotkeys.toggleRecording).replaceAll(" + ", " ")}</kbd>
+      </button>
+      </>
+      ) : (
+        <p className="studio-clip-hint">
+          Overlays, text, and images burn into the clip when you save. Webcam stays a separate track you can still move later.
+        </p>
+      )}
+
+      <IrControlsCard
+        settings={settings}
+        onSave={onSave}
+        composedRecording={composedRecording}
+        capture={studio === "recording"}
+        onTurnOff={needsIrOff ? () => onSave("instantReplayEnabled", false) : undefined}
+      />
+      {studio === "recording" ? (
+        <div className="capture-output-row">
+          <button
+            type="button"
+            className="capture-output-link"
+            aria-expanded={outputOpen}
+            onClick={() => setOutputOpen((open) => !open)}
+          >
+            <img src={outputMark} alt="" />
+            Output settings
+            <img src={chevronMark} alt="" />
+          </button>
+          <span>{outputChip(settings)}</span>
+        </div>
+      ) : null}
+      {studio === "recording" && outputOpen ? (
         <div className="studio-output-pop">
           <p className="studio-output-hint">
             Game, desktop, webcam, images, text, and Replayr overlays are recorded into one MP4, exactly as the preview shows.
@@ -119,15 +123,39 @@ export function RecordControls({
           </div>
         </div>
       ) : null}
-      </>
-      ) : (
-        <p className="studio-clip-hint">
-          Overlays, text, and images burn into the clip when you save. Webcam stays a separate track you can still move later.
-        </p>
-      )}
-
-      <IrControlsCard settings={settings} onSave={onSave} composedRecording={composedRecording} />
     </section>
+  );
+}
+
+function outputChip(settings: AppSettings) {
+  const size =
+    settings.resolution === "1440p"
+      ? "1440p"
+      : settings.resolution === "4k"
+        ? "4K"
+        : settings.resolution === "720p"
+          ? "720p"
+          : settings.resolution === "native"
+            ? "Native"
+            : "1080p";
+  return `MP4 · ${size}${displayFps(settings.fps)} · ${qualityLabel(settings.bitrate)}`;
+}
+
+function CaptureClock({ ms }: { ms: number }) {
+  const parts = formatRecClock(ms).split(":");
+  return (
+    <strong className="capture-clock">
+      {parts.map((part, index) => (
+        <span key={part + index}>
+          {index > 0 ? (
+            <span className="capture-colon" style={{ color: "#799cb4" }}>
+              :
+            </span>
+          ) : null}
+          {part}
+        </span>
+      ))}
+    </strong>
   );
 }
 

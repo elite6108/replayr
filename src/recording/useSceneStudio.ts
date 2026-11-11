@@ -26,6 +26,7 @@ import {
   createScene,
   deleteScene,
   duplicateScene,
+  moveScene,
   renameScene,
   replaceActive,
   switchScene,
@@ -326,6 +327,13 @@ export function useSceneStudio(adapter: SceneStudioAdapter) {
     [showToast, writeLibrary],
   );
 
+  const shiftScene = useCallback(
+    (id: string, direction: "up" | "down") => {
+      writeLibrary(moveScene(libraryRef.current, id, direction), sceneRef.current);
+    },
+    [writeLibrary],
+  );
+
   const copyScene = useCallback(
     (id: string) => {
       const result = duplicateScene(libraryRef.current, id);
@@ -363,6 +371,7 @@ export function useSceneStudio(adapter: SceneStudioAdapter) {
     addScene,
     renameScene: renameActiveOrId,
     removeScene,
+    moveScene: shiftScene,
     copyScene,
     settings,
   };

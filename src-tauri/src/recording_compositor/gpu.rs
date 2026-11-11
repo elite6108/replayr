@@ -10,10 +10,11 @@ use windows::Win32::Graphics::Direct3D10::ID3D10Multithread;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Asynchronous, ID3D11Device, ID3D11DeviceContext, ID3D11Query,
     ID3D11Resource, ID3D11Texture2D, ID3D11VideoContext, ID3D11VideoDevice, D3D11_BIND_RENDER_TARGET,
-    D3D11_BIND_SHADER_RESOURCE, D3D11_BIND_VIDEO_ENCODER, D3D11_CPU_ACCESS_WRITE,
+    D3D11_BIND_SHADER_RESOURCE, D3D11_BIND_VIDEO_ENCODER, D3D11_CPU_ACCESS_READ,
+    D3D11_CPU_ACCESS_WRITE,
     D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_QUERY_DESC,
     D3D11_QUERY_EVENT, D3D11_SDK_VERSION, D3D11_SUBRESOURCE_DATA, D3D11_TEXTURE2D_DESC,
-    D3D11_USAGE_DEFAULT, D3D11_USAGE_DYNAMIC,
+    D3D11_USAGE_DEFAULT, D3D11_USAGE_DYNAMIC, D3D11_USAGE_STAGING,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC,
@@ -204,6 +205,46 @@ pub fn create_nv12_encode(device: &ID3D11Device, width: u32, height: u32) -> Res
         | D3D11_BIND_SHADER_RESOURCE.0
         | D3D11_BIND_VIDEO_ENCODER.0) as u32;
     create_texture(device, width, height, DXGI_FORMAT_NV12, bind)
+}
+
+/// NV12 copy target for the software encoder. No video-encoder bind, so an old GPU
+/// that can compose NV12 can still receive the frame.
+pub fn create_nv12_copy_target(
+    device: &ID3D11Device,
+    width: u32,
+    height: u32,
+) -> Result<ID3D11Texture2D, String> {
+    let bind = (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32;
+    create_texture(device, width, height, DXGI_FORMAT_NV12, bind)
+}
+
+pub fn create_nv12_staging(
+    device: &ID3D11Device,
+    width: u32,
+    height: u32,
+) -> Result<ID3D11Texture2D, String> {
+    let desc = D3D11_TEXTURE2D_DESC {
+        Width: width.max(2),
+        Height: height.max(2),
+        MipLevels: 1,
+        ArraySize: 1,
+        Format: DXGI_FORMAT_NV12,
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
+        Usage: D3D11_USAGE_STAGING,
+        BindFlags: 0,
+        CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+        MiscFlags: 0,
+    };
+    let mut texture = None;
+    unsafe {
+        device.CreateTexture2D(&desc, None, Some(&mut texture)).map_err(|err| {
+            format!("Could not create a {width}x{height} NV12 readback texture: {err}")
+        })?;
+    }
+    texture.ok_or_else(|| format!("{width}x{height} NV12 readback texture was empty."))
 }
 
 pub fn create_bgra_input(device: &ID3D11Device, width: u32, height: u32) -> Result<ID3D11Texture2D, String> {

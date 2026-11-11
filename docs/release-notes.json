@@ -1,4 +1,7 @@
 {
+  "0.1.85": [
+    "Composed recording starts on PCs that do not have a hardware H.264 encoder."
+  ],
   "0.1.84": [
     "Capture columns can be dragged into any order, and the source inspector stays closed until you right-click a source.",
     "Choosing a display switches the live capture to that monitor."

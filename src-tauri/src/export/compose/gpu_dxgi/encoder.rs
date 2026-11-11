@@ -41,15 +41,30 @@ pub(super) const ASYNC_EVENT_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub(super) const PROBE_DURATION_HNS: i64 = 166_666;
 
-pub(super) fn pick_direct_encoder_name(inventory: &[crate::camera::encoder::EncoderInfo]) -> String {
-    inventory
-        .iter()
-        .find(|item| {
-            let name = item.name.to_ascii_lowercase();
-            name.contains("dx12") || name.contains("nvidia") || name.contains("nvenc")
-        })
-        .map(|item| item.name.clone())
-        .unwrap_or_else(|| "Microsoft AVC DX12 Encoder".into())
+pub(super) fn pick_direct_encoder_name(
+    inventory: &[crate::camera::encoder::EncoderInfo],
+) -> Option<String> {
+    let names: Vec<&str> = inventory.iter().map(|item| item.name.as_str()).collect();
+    crate::camera::encoder::best_hardware_h264_name(&names)
+}
+
+pub(super) fn require_hardware_encoder_name(
+    inventory: &[crate::camera::encoder::EncoderInfo],
+) -> Result<String, String> {
+    pick_direct_encoder_name(inventory).ok_or_else(|| {
+        let found = inventory
+            .iter()
+            .map(|item| item.name.as_str())
+            .filter(|name| !name.is_empty())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let found = if found.is_empty() {
+            "none".to_string()
+        } else {
+            found
+        };
+        format!("No D3D-aware H.264 encoder was enumerated (found: {found})")
+    })
 }
 
 pub(super) fn wrap_composed_frame(

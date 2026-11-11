@@ -29,7 +29,7 @@ use super::diagnostics::{
 use super::encoder::{
     activate_named_h264_encoder, configure_direct_encoder, d3d11_aware, event_name,
     gpu_encoder_bitrate, h264_output_type, log_nvidia_selection, nv12_input_type,
-    pick_direct_encoder_name, process_input_hr, send_lifecycle, take_encoded_output,
+    process_input_hr, require_hardware_encoder_name, send_lifecycle, take_encoded_output,
     wrap_blank_frame, wrap_composed_frame, wrap_video_sample_from_surface, ASYNC_EVENT_TIMEOUT,
     BOUNDARY_ENCODER, BOUNDARY_MISSING_MANAGER, BOUNDARY_NOT_D3D11, PROBE_DURATION_HNS,
 };
@@ -49,7 +49,7 @@ pub(crate) fn run_blank_direct_mft_long_test(frames: u64) -> Result<String, Stri
     let started = Instant::now();
     let gpu = SharedGpu::open()?;
     let inventory = crate::camera::encoder::log_h264_inventory();
-    let encoder_name = pick_direct_encoder_name(&inventory);
+    let encoder_name = require_hardware_encoder_name(&inventory)?;
     log_nvidia_selection(&inventory, &encoder_name);
     let transform = activate_named_h264_encoder(&encoder_name)
         .ok_or_else(|| format!("Could not activate the direct H.264 encoder {encoder_name}"))?;
@@ -318,7 +318,7 @@ fn isolate_first_gpu_frame(
 #[allow(dead_code)]
 fn isolate_h264_mp4_mux(gpu: &SharedGpu, output: &Path) -> Result<ComposeReport, String> {
     let inventory = crate::camera::encoder::log_h264_inventory();
-    let encoder_name = pick_direct_encoder_name(&inventory);
+    let encoder_name = require_hardware_encoder_name(&inventory)?;
     log_nvidia_selection(&inventory, &encoder_name);
     let transform = activate_named_h264_encoder(&encoder_name)
         .ok_or_else(|| format!("Could not activate the direct H.264 encoder {encoder_name}"))?;

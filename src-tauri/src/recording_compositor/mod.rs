@@ -672,9 +672,7 @@ fn run_composed_session(
     let resolved = match resolved {
         Some(value) => value,
         None => {
-            return Err(fail_ready(format!(
-                "Composed GPU encoding could not start: {last_probe_err} Update your graphics driver and try again."
-            )));
+            return Err(fail_ready(compose_encoder_failure(last_probe_err)));
         }
     };
     let bitrate = resolve_recording_bitrate(
@@ -770,9 +768,7 @@ fn run_composed_session(
     ) {
         Ok(encoder) => encoder,
         Err(err) => {
-            return Err(fail_ready(format!(
-                "Composed GPU encoding could not start: {err} Update your graphics driver and try again."
-            )));
+            return Err(fail_ready(compose_encoder_failure(err)));
         }
     };
     if encoder.width() != resolved.width
@@ -802,6 +798,7 @@ fn run_composed_session(
         fps = resolved.fps,
         codec = "h264",
         encoder_name = %encoder_name,
+        software_fallback = encoder.software_fallback(),
         quality_preset = quality_preset.as_str(),
         resolved_bitrate_bps = bitrate,
         resolved_bitrate_mbps = format!("{:.1}", bitrate_mbps(bitrate)),
@@ -814,7 +811,11 @@ fn run_composed_session(
         output_w: resolved.width,
         output_h: resolved.height,
         fps: resolved.fps,
-        encoder: "h264-gpu-mft",
+        encoder: if encoder.software_fallback() {
+            "h264-software-mft"
+        } else {
+            "h264-gpu-mft"
+        },
         init_ms: init_started.elapsed().as_millis(),
         ..diagnostics::SessionStats::default()
     };
@@ -1073,6 +1074,27 @@ fn save_dir(app: &AppHandle, settings: &AppSettings) -> AppResult<std::path::Pat
     };
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
+}
+
+fn compose_encoder_failure(detail: impl AsRef<str>) -> String {
+    let detail = detail.as_ref().trim();
+    if detail
+        .to_ascii_lowercase()
+        .starts_with("composed gpu encoding could not start")
+    {
+        return detail.to_string();
+    }
+    let mut message = format!("Composed GPU encoding could not start: {detail}");
+    if !detail
+        .to_ascii_lowercase()
+        .contains("update your graphics driver")
+    {
+        if !message.ends_with('.') && !message.ends_with('!') {
+            message.push('.');
+        }
+        message.push_str(" Update your graphics driver and try again.");
+    }
+    message
 }
 
 fn output_path(dir: &std::path::Path, slug: &str, ext: &str) -> std::path::PathBuf {

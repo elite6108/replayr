@@ -1,5 +1,6 @@
-//! Session-only GPU H.264 ingest. Same semantics as `export/compose/gpu_dxgi`:
-//! DXGI NV12 surface → MFCreateVideoSampleFromSurface → async MFT ProcessInput.
+//! Session-only H.264 ingest for composed recording.
+//! A D3D11-aware hardware encoder receives a DXGI NV12 surface. When none configures,
+//! the Windows software H.264 MFT receives a system-memory copy of that frame.
 //! Instant Replay and clips never call this.
 
 #![cfg(windows)]
@@ -10,7 +11,10 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use windows::core::Interface;
-use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Texture2D, D3D11_TEXTURE2D_DESC};
+use windows::Win32::Graphics::Direct3D11::{
+    ID3D11Device, ID3D11DeviceContext, ID3D11Resource, ID3D11Texture2D, D3D11_MAPPED_SUBRESOURCE,
+    D3D11_MAP_READ, D3D11_TEXTURE2D_DESC,
+};
 use windows::Win32::Media::MediaFoundation::{
     IMFActivate, IMFDXGIDeviceManager, IMFMediaEventGenerator, IMFMediaType, IMFSample,
     IMFTransform, MEError, METransformDrainComplete, METransformHaveOutput, METransformNeedInput,
@@ -32,7 +36,7 @@ use windows::Win32::System::Com::CoTaskMemFree;
 
 use crate::export::mux::H264Mp4Mux;
 
-use super::gpu::create_nv12_encode;
+use super::gpu::{create_nv12_copy_target, create_nv12_encode, create_nv12_staging};
 use super::session_aac::SessionAacEncoder;
 
 /// Proven 1080p60 defaults used only when a caller asks for the safety-net size.
@@ -45,6 +49,13 @@ const EVENT_WAIT: Duration = Duration::from_secs(8);
 /// Same as `gpu_dxgi` `COMPOSE_DRAIN_TIMEOUT`.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(15);
 const HNS_PER_SECOND: i64 = 10_000_000;
+const MF_E_TRANSFORM_NEED_MORE_INPUT: u32 = 0xC00D6D72;
+const MF_E_NOTACCEPTING: u32 = 0xC00D36B5;
+
+struct SoftwareReadback {
+    context: ID3D11DeviceContext,
+    staging: ID3D11Texture2D,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct EncoderPipelineStats {
@@ -73,7 +84,9 @@ pub struct EncoderPipelineStats {
 
 pub struct ComposedGpuEncoder {
     transform: IMFTransform,
-    events: IMFMediaEventGenerator,
+    events: Option<IMFMediaEventGenerator>,
+    software: bool,
+    readback: Option<SoftwareReadback>,
     mux: Option<H264Mp4Mux>,
     mux_path: std::path::PathBuf,
     pool: Vec<ID3D11Texture2D>,
@@ -113,53 +126,51 @@ impl ComposedGpuEncoder {
             "composed encoder resolved integer canvas before SetInputType"
         );
         if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
-            return Err(
-                "Composed GPU encoding could not start: encoder canvas is invalid. Update your graphics driver and try again."
-                    .into(),
-            );
+            return Err("encoder canvas is invalid".into());
         }
-        let (name, clsid, transform) = activate_gpu_encoder()?;
-        let aware = d3d11_aware(&transform);
-        if aware == Some(false) {
-            return Err(
-                "Composed GPU encoding could not start: the selected encoder is not D3D11-aware. Update your graphics driver and try again."
-                    .into(),
-            );
-        }
-        configure_encoder(
-            &transform,
-            manager,
-            &name,
-            &clsid,
-            aware,
-            fps,
-            bitrate,
-            width,
-            height,
-        )?;
-        verify_configured_types(&transform, width, height, fps)?;
-        let events: IMFMediaEventGenerator = transform.cast().map_err(|err| {
-            format!("Composed GPU encoding could not start: {err} Update your graphics driver and try again.")
-        })?;
+        let prepared = prepare_encoder(manager, width, height, fps, bitrate)?;
+        let events = if prepared.software {
+            None
+        } else {
+            Some(prepared.transform.cast().map_err(|err| {
+                format!("encoder has no event generator: {err}")
+            })?)
+        };
         // Do not open the mux here. GetOutputCurrentType before the first encoded
         // sample often lacks MF_MT_MPEG_SEQUENCE_HEADER (SPS/PPS). That is the
         // known-good gpu_dxgi rule and the likely unplayable/~2s GOP symptom.
         let mut pool = Vec::with_capacity(POOL);
         for _ in 0..POOL {
-            pool.push(create_nv12_encode(device, width, height)?);
+            let texture = if prepared.software {
+                create_nv12_copy_target(device, width, height)?
+            } else {
+                create_nv12_encode(device, width, height)?
+            };
+            pool.push(texture);
         }
+        let readback = if prepared.software {
+            let context = unsafe { device.GetImmediateContext() }
+                .map_err(|err| format!("D3D11 immediate context: {err}"))?;
+            Some(SoftwareReadback {
+                context,
+                staging: create_nv12_staging(device, width, height)?,
+            })
+        } else {
+            None
+        };
         tracing::info!(
-            encoder = %name,
+            encoder = %prepared.name,
+            software_fallback = prepared.software,
             input = "NV12",
             output = "H264",
             negotiate_w = width,
             negotiate_h = height,
             fps,
-            d3d_aware = ?aware,
+            d3d_aware = ?prepared.aware,
             pool = POOL,
             mux_ready = false,
             include_audio,
-            "composed GPU encoder media types accepted; mux waits for first H.264 sample"
+            "composed encoder media types accepted; mux waits for first H.264 sample"
         );
         let aac = if include_audio {
             Some(SessionAacEncoder::open()?)
@@ -167,14 +178,16 @@ impl ComposedGpuEncoder {
             None
         };
         Ok(Self {
-            transform,
+            transform: prepared.transform,
             events,
+            software: prepared.software,
+            readback,
             mux: None,
             mux_path: path.to_path_buf(),
             pool,
             in_flight: VecDeque::new(),
             need_input: 0,
-            name,
+            name: prepared.name,
             width,
             height,
             fps,
@@ -213,23 +226,7 @@ impl ComposedGpuEncoder {
         if width % 2 != 0 || height % 2 != 0 {
             return Err("candidate dimensions must be even".into());
         }
-        let (name, clsid, transform) = activate_gpu_encoder()?;
-        let aware = d3d11_aware(&transform);
-        if aware == Some(false) {
-            return Err("encoder is not D3D11-aware".into());
-        }
-        configure_encoder(
-            &transform,
-            manager,
-            &name,
-            &clsid,
-            aware,
-            fps,
-            bitrate,
-            width,
-            height,
-        )?;
-        verify_configured_types(&transform, width, height, fps)?;
+        let _prepared = prepare_encoder(manager, width, height, fps, bitrate)?;
         Ok(())
     }
 
@@ -250,6 +247,10 @@ impl ComposedGpuEncoder {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub fn software_fallback(&self) -> bool {
+        self.software
     }
 
     pub fn has_audio(&self) -> bool {
@@ -281,11 +282,23 @@ impl ComposedGpuEncoder {
     }
 
     pub fn submit(&mut self, index: usize, time_hns: i64, duration_hns: i64) -> Result<(), String> {
-        let texture = &self.pool[index];
         if !self.logged_first {
-            log_handoff(&self.name, texture, self.width, self.height, self.fps, time_hns, duration_hns);
+            log_handoff(
+                &self.name,
+                &self.pool[index],
+                self.width,
+                self.height,
+                self.fps,
+                time_hns,
+                duration_hns,
+                self.software,
+            );
             self.logged_first = true;
         }
+        if self.software {
+            return self.submit_software(index, time_hns, duration_hns);
+        }
+        let texture = &self.pool[index];
         let sample = wrap_surface(texture, time_hns, duration_hns)?;
         self.wait_need_input()?;
         unsafe {
@@ -378,6 +391,9 @@ impl ComposedGpuEncoder {
     }
 
     pub fn finish(&mut self) -> Result<(), String> {
+        if self.software {
+            return self.finish_software();
+        }
         send_message(&self.transform, MFT_MESSAGE_NOTIFY_END_OF_STREAM);
         send_message(&self.transform, MFT_MESSAGE_COMMAND_DRAIN);
         self.stats.drain = "drain_sent";
@@ -396,26 +412,13 @@ impl ComposedGpuEncoder {
         } else {
             "drain_timeout"
         };
-        self.log_pipeline("composed encoder finish");
         if !drain_complete {
             tracing::warn!(
                 in_flight = self.in_flight.len(),
                 "composed encoder drain timed out; finalizing mux with samples already written"
             );
         }
-        if let Err(err) = self.flush_pending_audio(true) {
-            tracing::warn!("composed AAC flush failed: {err}");
-        }
-        match self.mux.take() {
-            Some(mux) => mux.finish(),
-            None => {
-                if self.stats.process_input == 0 {
-                    Ok(())
-                } else {
-                    Err("Composed GPU encoder produced no H.264 samples. Update your graphics driver and try again.".into())
-                }
-            }
-        }
+        self.finish_mux()
     }
 
     fn wait_need_input(&mut self) -> Result<(), String> {
@@ -434,31 +437,128 @@ impl ComposedGpuEncoder {
     }
 
     fn pump(&mut self, draining: bool) -> Result<bool, String> {
+        if self.software {
+            return Ok(false);
+        }
         let mut drain_complete = false;
         loop {
-            match unsafe { self.events.GetEvent(MF_EVENT_FLAG_NO_WAIT) } {
-                Ok(event) => {
-                    let ty = unsafe { event.GetType().unwrap_or(0) };
-                    let status = unsafe { event.GetStatus().ok() };
-                    if status.is_some_and(|hr| hr.is_err()) || ty == MEError.0 as u32 {
-                        return Err("Composed GPU encoder reported an error. Update your graphics driver and try again.".into());
-                    }
-                    if ty == METransformNeedInput.0 as u32 && !draining {
-                        self.need_input = self.need_input.saturating_add(1);
-                    } else if ty == METransformHaveOutput.0 as u32 {
-                        self.take_and_mux()?;
-                    } else if ty == METransformDrainComplete.0 as u32 {
-                        drain_complete = true;
-                    }
+            let event = {
+                let Some(events) = self.events.as_ref() else {
+                    return Err("composed encoder has no event generator".into());
+                };
+                match unsafe { events.GetEvent(MF_EVENT_FLAG_NO_WAIT) } {
+                    Ok(event) => event,
+                    Err(_) => break,
                 }
-                Err(_) => break,
+            };
+            let ty = unsafe { event.GetType().unwrap_or(0) };
+            let status = unsafe { event.GetStatus().ok() };
+            if status.is_some_and(|hr| hr.is_err()) || ty == MEError.0 as u32 {
+                return Err("Composed GPU encoder reported an error. Update your graphics driver and try again.".into());
+            }
+            if ty == METransformNeedInput.0 as u32 && !draining {
+                self.need_input = self.need_input.saturating_add(1);
+            } else if ty == METransformHaveOutput.0 as u32 {
+                self.take_and_mux()?;
+            } else if ty == METransformDrainComplete.0 as u32 {
+                drain_complete = true;
             }
         }
         Ok(drain_complete)
     }
 
     fn take_and_mux(&mut self) -> Result<(), String> {
-        let nalu = take_output(&self.transform)?;
+        let Some(nalu) = take_output(&self.transform)? else {
+            return Err("encoder ProcessOutput returned no sample".into());
+        };
+        self.mux_nalu(nalu)
+    }
+
+    fn submit_software(&mut self, index: usize, time_hns: i64, duration_hns: i64) -> Result<(), String> {
+        let bytes = {
+            let readback = self
+                .readback
+                .as_ref()
+                .ok_or_else(|| "software encoder has no readback surface".to_string())?;
+            read_nv12(
+                &readback.context,
+                &readback.staging,
+                &self.pool[index],
+                self.width,
+                self.height,
+            )?
+        };
+        let sample = wrap_nv12_memory(&bytes, time_hns, duration_hns)?;
+        self.software_process_input(&sample)?;
+        self.stats.process_input = self.stats.process_input.saturating_add(1);
+        if self.stats.first_input_hns.is_none() {
+            self.stats.first_input_hns = Some(time_hns);
+        }
+        self.stats.last_input_hns = Some(time_hns);
+        self.stats.surfaces_released = self.stats.surfaces_released.saturating_add(1);
+        Ok(())
+    }
+
+    fn software_process_input(&mut self, sample: &IMFSample) -> Result<(), String> {
+        let first = unsafe { self.transform.ProcessInput(0, sample, 0) };
+        if let Err(err) = first {
+            if err.code().0 as u32 != MF_E_NOTACCEPTING {
+                return Err(format!(
+                    "ProcessInput hr={:#x} {err}",
+                    err.code().0 as u32
+                ));
+            }
+            self.pull_software(8)?;
+            unsafe { self.transform.ProcessInput(0, sample, 0) }.map_err(|err| {
+                format!("ProcessInput hr={:#x} {err}", err.code().0 as u32)
+            })?;
+        }
+        self.pull_software(8)
+    }
+
+    fn pull_software(&mut self, limit: u32) -> Result<(), String> {
+        let mut pulled = 0u32;
+        while pulled < limit {
+            match take_output(&self.transform)? {
+                Some(nalu) => {
+                    self.mux_nalu(nalu)?;
+                    pulled = pulled.saturating_add(1);
+                }
+                None => return Ok(()),
+            }
+        }
+        Err("software H.264 encoder produced more samples than one frame can hold".into())
+    }
+
+    fn finish_software(&mut self) -> Result<(), String> {
+        send_message(&self.transform, MFT_MESSAGE_NOTIFY_END_OF_STREAM);
+        send_message(&self.transform, MFT_MESSAGE_COMMAND_DRAIN);
+        self.stats.drain = "drain_sent";
+        let deadline = Instant::now() + DRAIN_TIMEOUT;
+        let mut pulled = 0u32;
+        while Instant::now() < deadline && pulled < 64 {
+            match take_output(&self.transform)? {
+                Some(nalu) => {
+                    self.mux_nalu(nalu)?;
+                    pulled = pulled.saturating_add(1);
+                }
+                None => {
+                    self.stats.drain = "drain_complete";
+                    break;
+                }
+            }
+        }
+        if self.stats.drain != "drain_complete" {
+            self.stats.drain = "drain_timeout";
+            tracing::warn!(
+                "software H.264 drain timed out; finalizing mux with samples already written"
+            );
+        }
+        send_message(&self.transform, MFT_MESSAGE_NOTIFY_END_STREAMING);
+        self.finish_mux()
+    }
+
+    fn mux_nalu(&mut self, nalu: EncodedNalu) -> Result<(), String> {
         self.stats.process_output = self.stats.process_output.saturating_add(1);
         let encoded_time = unsafe { nalu.sample.GetSampleTime().ok() };
         if self.stats.first_encoded_hns.is_none() {
@@ -469,7 +569,10 @@ impl ComposedGpuEncoder {
         }
         if self.mux.is_none() {
             let video_type = unsafe { self.transform.GetOutputCurrentType(0) }.map_err(|err| {
-                format!("GetOutputCurrentType after first H.264 hr={:#x} {err}", err.code().0 as u32)
+                format!(
+                    "GetOutputCurrentType after first H.264 hr={:#x} {err}",
+                    err.code().0 as u32
+                )
             })?;
             log_mux_type(&video_type);
             let audio_type = self.aac.as_ref().map(|aac| aac.output_type());
@@ -481,6 +584,7 @@ impl ComposedGpuEncoder {
             self.stats.audio_track_created = self.mux.as_ref().is_some_and(|mux| mux.has_audio());
             tracing::info!(
                 audio_track = self.stats.audio_track_created,
+                software_fallback = self.software,
                 "composed mux opened from encoder output type after first H.264 sample"
             );
             self.flush_pending_audio(false)?;
@@ -508,6 +612,23 @@ impl ComposedGpuEncoder {
         Ok(())
     }
 
+    fn finish_mux(&mut self) -> Result<(), String> {
+        self.log_pipeline("composed encoder finish");
+        if let Err(err) = self.flush_pending_audio(true) {
+            tracing::warn!("composed AAC flush failed: {err}");
+        }
+        match self.mux.take() {
+            Some(mux) => mux.finish(),
+            None => {
+                if self.stats.process_input == 0 {
+                    Ok(())
+                } else {
+                    Err("composed encoder produced no H.264 samples".into())
+                }
+            }
+        }
+    }
+
     fn log_pipeline(&self, at: &str) {
         tracing::info!(
             at,
@@ -533,37 +654,119 @@ impl ComposedGpuEncoder {
     }
 }
 
-fn pick_direct_encoder_name(inventory: &[crate::camera::encoder::EncoderInfo]) -> String {
-    inventory
-        .iter()
-        .find(|item| {
-            let name = item.name.to_ascii_lowercase();
-            name.contains("dx12") || name.contains("nvidia") || name.contains("nvenc")
-        })
-        .map(|item| item.name.clone())
-        .unwrap_or_else(|| "Microsoft AVC DX12 Encoder".into())
+struct EnumeratedEncoder {
+    name: String,
+    clsid: String,
+    activate: IMFActivate,
 }
 
-fn activate_gpu_encoder() -> Result<(String, String, IMFTransform), String> {
-    let inventory = crate::camera::encoder::log_h264_inventory();
-    let selected = pick_direct_encoder_name(&inventory);
+struct PreparedEncoder {
+    name: String,
+    transform: IMFTransform,
+    software: bool,
+    aware: Option<bool>,
+}
+
+fn prepare_encoder(
+    manager: &IMFDXGIDeviceManager,
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate: u32,
+) -> Result<PreparedEncoder, String> {
+    let _ = crate::camera::encoder::log_h264_inventory();
+    let candidates = enumerate_h264_candidates()?;
+    let names: Vec<String> = candidates.iter().map(|item| item.name.clone()).collect();
+    let ranked = crate::camera::encoder::rank_h264_encoder_names(&names);
     tracing::info!(
-        selected = %selected,
-        enum_flags = "MFT_ENUM_FLAG_ALL",
-        "composed encoder pick matches gpu_dxgi"
+        candidates = ?names,
+        ranked = ?ranked,
+        "composed H.264 encoder rank"
     );
-    let (matched, clsid, transform) = activate_named_h264_encoder(&selected)?;
-    if is_software_only_name(&matched) || is_software_only_name(&selected) {
-        return Err(
-            "Composed GPU encoding could not start: no D3D-aware hardware H.264 encoder. Update your graphics driver and try again."
-                .into(),
-        );
+    let mut errors = Vec::new();
+    for name in &ranked {
+        let Some(candidate) = candidates
+            .iter()
+            .find(|item| item.name.eq_ignore_ascii_case(name))
+        else {
+            continue;
+        };
+        let software = crate::camera::encoder::is_software_h264_name(&candidate.name);
+        match try_encoder_candidate(candidate, software, manager, width, height, fps, bitrate) {
+            Ok(prepared) => {
+                tracing::info!(
+                    encoder = %prepared.name,
+                    software_fallback = prepared.software,
+                    d3d_aware = ?prepared.aware,
+                    "composed encoder selected"
+                );
+                return Ok(prepared);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    encoder = %candidate.name,
+                    software,
+                    error = %err,
+                    "composed encoder candidate skipped"
+                );
+                errors.push(format!("{}: {err}", candidate.name));
+            }
+        }
     }
-    Ok((selected, clsid, transform))
+    let found = if names.is_empty() {
+        "none".to_string()
+    } else {
+        names.join(", ")
+    };
+    let last = errors
+        .last()
+        .map(|err| format!(" Last error: {err}"))
+        .unwrap_or_default();
+    Err(format!("no usable H.264 encoder. Found: {found}.{last}"))
 }
 
-/// Same matching rules as `export/compose/gpu_dxgi/encoder.rs` `activate_named_h264_encoder`.
-fn activate_named_h264_encoder(selected: &str) -> Result<(String, String, IMFTransform), String> {
+fn try_encoder_candidate(
+    candidate: &EnumeratedEncoder,
+    software: bool,
+    manager: &IMFDXGIDeviceManager,
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate: u32,
+) -> Result<PreparedEncoder, String> {
+    let transform = unsafe { candidate.activate.ActivateObject::<IMFTransform>() }
+        .map_err(|err| format!("could not activate: {err}"))?;
+    let aware = d3d11_aware(&transform);
+    if !software && aware == Some(false) {
+        return Err("encoder is not D3D11-aware".into());
+    }
+    configure_encoder(
+        &transform,
+        manager,
+        &candidate.name,
+        &candidate.clsid,
+        aware,
+        fps,
+        bitrate,
+        width,
+        height,
+        software,
+    )?;
+    verify_configured_types(&transform, width, height, fps)?;
+    if !software {
+        let _events: IMFMediaEventGenerator = transform
+            .cast()
+            .map_err(|err| format!("encoder has no event generator: {err}"))?;
+    }
+    Ok(PreparedEncoder {
+        name: candidate.name.clone(),
+        transform,
+        software,
+        aware,
+    })
+}
+
+fn enumerate_h264_candidates() -> Result<Vec<EnumeratedEncoder>, String> {
     let output = MFT_REGISTER_TYPE_INFO {
         guidMajorType: MFMediaType_Video,
         guidSubtype: MFVideoFormat_H264,
@@ -584,52 +787,30 @@ fn activate_named_h264_encoder(selected: &str) -> Result<(String, String, IMFTra
         if !raw.is_null() {
             unsafe { CoTaskMemFree(Some(raw as *const std::ffi::c_void)) };
         }
-        return Err("Composed GPU encoding could not start: no H.264 MFT. Update your graphics driver and try again.".into());
+        return Err("no H.264 MFT was enumerated".into());
     }
-    let slice = unsafe { std::slice::from_raw_parts(raw, count as usize) };
-    let mut names = Vec::new();
-    let mut chosen: Option<(String, String, IMFActivate)> = None;
-    for item in slice {
-        let Some(activate) = item else {
+    let slice = unsafe { std::slice::from_raw_parts_mut(raw, count as usize) };
+    let mut candidates = Vec::new();
+    for slot in slice.iter_mut() {
+        let Some(activate) = slot.take() else {
             continue;
         };
-        let name = unsafe { friendly_name(activate) };
-        let clsid = unsafe { activate_clsid(activate) };
-        if !name.is_empty() {
-            names.push(name.clone());
+        let name = unsafe { friendly_name(&activate) };
+        let clsid = unsafe { activate_clsid(&activate) };
+        if name.is_empty() {
+            continue;
         }
-        if chosen.is_none()
-            && (name.eq_ignore_ascii_case(selected)
-                || selected.contains(&name)
-                || name.contains(selected))
-        {
-            chosen = Some((name, clsid, activate.clone()));
-        }
+        candidates.push(EnumeratedEncoder {
+            name,
+            clsid,
+            activate,
+        });
     }
-    tracing::info!(
-        all_enum_flag = MFT_ENUM_FLAG_ALL.0,
-        candidates = ?names,
-        selected,
-        matched = chosen.is_some(),
-        "composed H.264 MFTEnumEx(ALL) candidates for direct ProcessInput"
-    );
-    let (matched_name, clsid, activate) = chosen.ok_or_else(|| {
-        unsafe { CoTaskMemFree(Some(raw as *const std::ffi::c_void)) };
-        format!(
-            "Composed GPU encoding could not start: {selected} was not enumerated. Update your graphics driver and try again."
-        )
-    })?;
-    let transform = unsafe { activate.ActivateObject::<IMFTransform>() }.map_err(|err| {
-        unsafe { CoTaskMemFree(Some(raw as *const std::ffi::c_void)) };
-        format!("Composed GPU encoding could not start ({matched_name}): {err} Update your graphics driver and try again.")
-    })?;
     unsafe { CoTaskMemFree(Some(raw as *const std::ffi::c_void)) };
-    Ok((matched_name, clsid, transform))
-}
-
-fn is_software_only_name(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower == "h264 encoder mft" || lower.contains("software")
+    if candidates.is_empty() {
+        return Err("no H.264 MFT was enumerated".into());
+    }
+    Ok(candidates)
 }
 
 unsafe fn friendly_name(activate: &IMFActivate) -> String {
@@ -675,6 +856,7 @@ fn configure_encoder(
     bitrate: u32,
     canvas_w: u32,
     canvas_h: u32,
+    system_memory: bool,
 ) -> Result<(), String> {
     let (input_stream, output_stream) = stream_ids(transform);
     let async_mft = unsafe {
@@ -693,7 +875,7 @@ fn configure_encoder(
                     .map_err(|err| format!("MF_TRANSFORM_ASYNC_UNLOCK hr={:#x}", err.code().0 as u32))?;
             }
         }
-        if aware != Some(false) {
+        if !system_memory && aware != Some(false) {
             transform
                 .ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, manager.as_raw() as usize)
                 .map_err(|err| format!("SET_D3D_MANAGER hr={:#x}", err.code().0 as u32))?;
@@ -701,6 +883,20 @@ fn configure_encoder(
     }
     let output_type = known_good_h264_output(canvas_w, canvas_h, fps, bitrate)?;
     let input_type = known_good_nv12_input(canvas_w, canvas_h, fps)?;
+    if system_memory {
+        let sample_bytes = canvas_w.saturating_mul(canvas_h).saturating_mul(3) / 2;
+        unsafe {
+            input_type
+                .SetUINT32(&MF_MT_DEFAULT_STRIDE, canvas_w)
+                .map_err(|err| format!("MF_MT_DEFAULT_STRIDE hr={:#x}", err.code().0 as u32))?;
+            input_type
+                .SetUINT32(&MF_MT_SAMPLE_SIZE, sample_bytes)
+                .map_err(|err| format!("MF_MT_SAMPLE_SIZE hr={:#x}", err.code().0 as u32))?;
+            input_type
+                .SetUINT32(&MF_MT_FIXED_SIZE_SAMPLES, 1)
+                .map_err(|err| format!("MF_MT_FIXED_SIZE_SAMPLES hr={:#x}", err.code().0 as u32))?;
+        }
+    }
     dump_media_type("composed output type before SetOutputType", &output_type);
     dump_media_type("composed input type before SetInputType", &input_type);
     log_negotiation(
@@ -1036,12 +1232,93 @@ fn wrap_surface(texture: &ID3D11Texture2D, time: i64, duration: i64) -> Result<I
     }
 }
 
+fn wrap_nv12_memory(bytes: &[u8], time: i64, duration: i64) -> Result<IMFSample, String> {
+    unsafe {
+        let buffer = MFCreateMemoryBuffer(bytes.len() as u32)
+            .map_err(|err| format!("MFCreateMemoryBuffer hr={:#x}", err.code().0 as u32))?;
+        let mut dest = std::ptr::null_mut();
+        buffer
+            .Lock(&mut dest, None, None)
+            .map_err(|err| format!("NV12 Lock hr={:#x}", err.code().0 as u32))?;
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), dest, bytes.len());
+        let _ = buffer.Unlock();
+        buffer
+            .SetCurrentLength(bytes.len() as u32)
+            .map_err(|err| format!("SetCurrentLength hr={:#x}", err.code().0 as u32))?;
+        let sample = MFCreateSample().map_err(|err| format!("MFCreateSample hr={:#x}", err.code().0 as u32))?;
+        sample
+            .AddBuffer(&buffer)
+            .map_err(|err| format!("AddBuffer hr={:#x}", err.code().0 as u32))?;
+        sample
+            .SetSampleTime(time.max(0))
+            .map_err(|err| format!("SetSampleTime hr={:#x}", err.code().0 as u32))?;
+        sample
+            .SetSampleDuration(duration.max(10_000))
+            .map_err(|err| format!("SetSampleDuration hr={:#x}", err.code().0 as u32))?;
+        let _ = sample.SetUINT32(&MFSampleExtension_CleanPoint, u32::from(time == 0));
+        Ok(sample)
+    }
+}
+
+fn read_nv12(
+    context: &ID3D11DeviceContext,
+    staging: &ID3D11Texture2D,
+    source: &ID3D11Texture2D,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, String> {
+    unsafe {
+        let src: ID3D11Resource = source
+            .cast()
+            .map_err(|err| format!("NV12 source cast: {err}"))?;
+        let dst: ID3D11Resource = staging
+            .cast()
+            .map_err(|err| format!("NV12 staging cast: {err}"))?;
+        context.CopyResource(&dst, &src);
+        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+        context
+            .Map(&dst, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
+            .map_err(|err| format!("NV12 map hr={:#x} {err}", err.code().0 as u32))?;
+        let copied = copy_tight_nv12(mapped.pData as *const u8, mapped.RowPitch as usize, width, height);
+        context.Unmap(&dst, 0);
+        copied
+    }
+}
+
+fn copy_tight_nv12(src: *const u8, pitch: usize, width: u32, height: u32) -> Result<Vec<u8>, String> {
+    let width = width as usize;
+    let height = height as usize;
+    if src.is_null() || width == 0 || height == 0 || height % 2 != 0 || pitch < width {
+        return Err("NV12 readback pitch is smaller than the frame".into());
+    }
+    let y_rows = height;
+    let uv_rows = height / 2;
+    let tight = width.saturating_mul(y_rows.saturating_add(uv_rows));
+    let mapped_rows = y_rows.saturating_add(uv_rows);
+    let mapped_bytes = pitch.saturating_mul(mapped_rows);
+    let src = unsafe { std::slice::from_raw_parts(src, mapped_bytes) };
+    let mut dest = vec![0u8; tight];
+    let mut offset = 0usize;
+    for row in 0..y_rows {
+        let start = row * pitch;
+        dest[offset..offset + width].copy_from_slice(&src[start..start + width]);
+        offset += width;
+    }
+    let uv_base = pitch * y_rows;
+    for row in 0..uv_rows {
+        let start = uv_base + row * pitch;
+        dest[offset..offset + width].copy_from_slice(&src[start..start + width]);
+        offset += width;
+    }
+    Ok(dest)
+}
+
 struct EncodedNalu {
     sample: IMFSample,
     duration: Option<i64>,
 }
 
-fn take_output(transform: &IMFTransform) -> Result<EncodedNalu, String> {
+fn take_output(transform: &IMFTransform) -> Result<Option<EncodedNalu>, String> {
     unsafe {
         let info = transform
             .GetOutputStreamInfo(0)
@@ -1067,7 +1344,12 @@ fn take_output(transform: &IMFTransform) -> Result<EncodedNalu, String> {
         let result = transform.ProcessOutput(0, &mut buffers, &mut status);
         let out = ManuallyDrop::take(&mut buffers[0].pSample);
         let _ = ManuallyDrop::take(&mut buffers[0].pEvents);
-        result.map_err(|err| format!("ProcessOutput hr={:#x} {err}", err.code().0 as u32))?;
+        if let Err(err) = result {
+            if err.code().0 as u32 == MF_E_TRANSFORM_NEED_MORE_INPUT {
+                return Ok(None);
+            }
+            return Err(format!("ProcessOutput hr={:#x} {err}", err.code().0 as u32));
+        }
         let hmft = out.ok_or_else(|| "ProcessOutput returned no sample".to_string())?;
         let encoded = if provides {
             let owned = own_encoded(&hmft)?;
@@ -1077,10 +1359,10 @@ fn take_output(transform: &IMFTransform) -> Result<EncodedNalu, String> {
             hmft
         };
         let duration = encoded.GetSampleDuration().ok();
-        Ok(EncodedNalu {
+        Ok(Some(EncodedNalu {
             sample: encoded,
             duration,
-        })
+        }))
     }
 }
 
@@ -1132,12 +1414,14 @@ fn log_handoff(
     fps: u32,
     time: i64,
     duration: i64,
+    software: bool,
 ) {
     let mut desc = D3D11_TEXTURE2D_DESC::default();
     unsafe { texture.GetDesc(&mut desc) };
     tracing::info!(
         encoder,
-        hardware = true,
+        hardware = !software,
+        software_fallback = software,
         input_subtype = "NV12",
         output_subtype = "H264",
         width,
@@ -1155,7 +1439,11 @@ fn log_handoff(
         tex_misc = desc.MiscFlags,
         sample_time = time,
         sample_duration = duration,
-        wrap = "MFCreateVideoSampleFromSurface",
+        wrap = if software {
+            "system memory NV12"
+        } else {
+            "MFCreateVideoSampleFromSurface"
+        },
         subresource = 0,
         "composed GPU encoder first-frame handoff"
     );

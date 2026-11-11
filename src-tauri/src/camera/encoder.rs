@@ -265,3 +265,127 @@ impl GetFriendlyName for windows::Win32::Media::MediaFoundation::IMFAttributes {
         }
     }
 }
+
+/// Windows' built-in synchronous H.264 MFT. It is not a GPU encoder.
+pub fn is_software_h264_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower == "h264 encoder mft" || lower.contains("software")
+}
+
+fn h264_vendor_rank(name: &str) -> u8 {
+    let lower = name.to_ascii_lowercase();
+    if is_software_h264_name(name) {
+        return 5;
+    }
+    if lower.contains("nvidia") || lower.contains("nvenc") {
+        return 0;
+    }
+    if lower.contains("amd") || lower.contains("amf") {
+        return 1;
+    }
+    if lower.contains("intel") || lower.contains("qsv") || lower.contains("quick sync") {
+        return 2;
+    }
+    if lower.contains("dx12") {
+        return 3;
+    }
+    4
+}
+
+/// Hardware encoders first (NVIDIA, AMD, Intel, Microsoft DX12, then any other),
+/// software last. Names that were not supplied are never added.
+pub fn rank_h264_encoder_names<S: AsRef<str>>(names: &[S]) -> Vec<String> {
+    let mut indexed = Vec::new();
+    for (index, name) in names.iter().enumerate() {
+        let name = name.as_ref().trim();
+        if name.is_empty() {
+            continue;
+        }
+        indexed.push((h264_vendor_rank(name), index, name.to_string()));
+    }
+    indexed.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
+    let mut seen = Vec::new();
+    let mut ranked = Vec::new();
+    for (_, _, name) in indexed {
+        let key = name.to_ascii_lowercase();
+        if seen.iter().any(|existing: &String| existing == &key) {
+            continue;
+        }
+        seen.push(key);
+        ranked.push(name);
+    }
+    ranked
+}
+
+/// First enumerated hardware encoder. `None` when the list is empty or software-only.
+pub fn best_hardware_h264_name<S: AsRef<str>>(names: &[S]) -> Option<String> {
+    rank_h264_encoder_names(names)
+        .into_iter()
+        .find(|name| !is_software_h264_name(name))
+}
+
+#[cfg(test)]
+mod rank_tests {
+    use super::{best_hardware_h264_name, is_software_h264_name, rank_h264_encoder_names};
+
+    #[test]
+    fn nvenc_stays_ahead_of_dx12() {
+        let ranked = rank_h264_encoder_names(&[
+            "Microsoft AVC DX12 Encoder",
+            "NVIDIA H.264 Encoder MFT",
+            "H264 Encoder MFT",
+        ]);
+        assert_eq!(
+            ranked,
+            vec![
+                "NVIDIA H.264 Encoder MFT".to_string(),
+                "Microsoft AVC DX12 Encoder".to_string(),
+                "H264 Encoder MFT".to_string(),
+            ]
+        );
+        assert_eq!(
+            best_hardware_h264_name(&["Microsoft AVC DX12 Encoder", "NVIDIA H.264 Encoder MFT"])
+                .as_deref(),
+            Some("NVIDIA H.264 Encoder MFT")
+        );
+    }
+
+    #[test]
+    fn vendor_order_is_nvidia_amd_intel_then_dx12() {
+        let ranked = rank_h264_encoder_names(&[
+            "H264 Encoder MFT",
+            "Some Other H.264 MFT",
+            "Microsoft AVC DX12 Encoder",
+            "Intel Quick Sync Video H.264 Encoder MFT",
+            "AMD H264 Encoder",
+            "NVIDIA H.264 Encoder MFT",
+        ]);
+        assert_eq!(
+            ranked,
+            vec![
+                "NVIDIA H.264 Encoder MFT".to_string(),
+                "AMD H264 Encoder".to_string(),
+                "Intel Quick Sync Video H.264 Encoder MFT".to_string(),
+                "Microsoft AVC DX12 Encoder".to_string(),
+                "Some Other H.264 MFT".to_string(),
+                "H264 Encoder MFT".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn only_software_encoder_is_selected_as_software() {
+        let ranked = rank_h264_encoder_names(&["H264 Encoder MFT"]);
+        assert_eq!(ranked, vec!["H264 Encoder MFT".to_string()]);
+        assert!(is_software_h264_name(&ranked[0]));
+        assert!(best_hardware_h264_name(&["H264 Encoder MFT"]).is_none());
+    }
+
+    #[test]
+    fn empty_list_does_not_invent_dx12() {
+        let ranked = rank_h264_encoder_names(&[] as &[&str]);
+        assert!(ranked.is_empty());
+        assert!(best_hardware_h264_name(&[] as &[&str]).is_none());
+        assert!(!ranked.iter().any(|name| name.contains("DX12")));
+    }
+}

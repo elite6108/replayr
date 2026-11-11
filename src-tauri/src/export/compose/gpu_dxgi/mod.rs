@@ -28,7 +28,7 @@ use device::SharedGpu;
 use diagnostics::env_flag;
 use encoder::{
     activate_named_h264_encoder, configure_direct_encoder, d3d11_aware, gpu_encoder_bitrate,
-    log_nvidia_selection, pick_direct_encoder_name,
+    log_nvidia_selection, require_hardware_encoder_name,
 };
 use output::{encoder_sample_time_hns, run_direct_compose_loop};
 use video_processor::VideoCompositor;
@@ -96,7 +96,7 @@ pub fn compose(
         "none"
     };
     let inventory = crate::camera::encoder::log_h264_inventory();
-    let encoder_name = pick_direct_encoder_name(&inventory);
+    let encoder_name = require_hardware_encoder_name(&inventory)?;
     log_nvidia_selection(&inventory, &encoder_name);
     let transform = activate_named_h264_encoder(&encoder_name).ok_or_else(|| {
         format!("Could not activate the direct H.264 encoder {encoder_name}")

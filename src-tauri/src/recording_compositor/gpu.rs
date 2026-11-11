@@ -207,18 +207,8 @@ pub fn create_nv12_encode(device: &ID3D11Device, width: u32, height: u32) -> Res
     create_texture(device, width, height, DXGI_FORMAT_NV12, bind)
 }
 
-/// NV12 copy target for the software encoder. No video-encoder bind, so an old GPU
-/// that can compose NV12 can still receive the frame.
-pub fn create_nv12_copy_target(
-    device: &ID3D11Device,
-    width: u32,
-    height: u32,
-) -> Result<ID3D11Texture2D, String> {
-    let bind = (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32;
-    create_texture(device, width, height, DXGI_FORMAT_NV12, bind)
-}
-
-pub fn create_nv12_staging(
+/// CPU-readable BGRA. Drivers that reject NV12 textures still create this.
+pub fn create_bgra_staging(
     device: &ID3D11Device,
     width: u32,
     height: u32,
@@ -228,7 +218,7 @@ pub fn create_nv12_staging(
         Height: height.max(2),
         MipLevels: 1,
         ArraySize: 1,
-        Format: DXGI_FORMAT_NV12,
+        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
         SampleDesc: DXGI_SAMPLE_DESC {
             Count: 1,
             Quality: 0,
@@ -241,10 +231,10 @@ pub fn create_nv12_staging(
     let mut texture = None;
     unsafe {
         device.CreateTexture2D(&desc, None, Some(&mut texture)).map_err(|err| {
-            format!("Could not create a {width}x{height} NV12 readback texture: {err}")
+            format!("Could not create a {width}x{height} BGRA readback texture: {err}")
         })?;
     }
-    texture.ok_or_else(|| format!("{width}x{height} NV12 readback texture was empty."))
+    texture.ok_or_else(|| format!("{width}x{height} BGRA readback texture was empty."))
 }
 
 pub fn create_bgra_input(device: &ID3D11Device, width: u32, height: u32) -> Result<ID3D11Texture2D, String> {

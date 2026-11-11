@@ -600,6 +600,7 @@ fn run_composed_session(
     let ladder =
         resolve_output::build_candidate_ladder(first.width, first.height, requested_w, requested_h);
     let mut resolved: Option<resolve_output::ResolvedOutput> = None;
+    let mut software_compose = false;
     let mut last_probe_err = String::from("No encoder size candidates succeeded.");
     for (index, (cand_w, cand_h)) in ladder.iter().copied().enumerate() {
         let candidate_bitrate =
@@ -628,6 +629,7 @@ fn run_composed_session(
                             && trial.height() == cand_h
                             && trial.fps() == fps
                         {
+                            software_compose = trial.software_fallback();
                             let _ = trial.finish();
                             resolved = Some(resolve_output::ResolvedOutput {
                                 width: cand_w,
@@ -699,8 +701,14 @@ fn run_composed_session(
         "composed recording ResolvedOutput"
     );
 
-    let mut compositor =
-        match RecordingCompositor::open(gpu, &spec, &first, resolved.width, resolved.height) {
+    let mut compositor = match RecordingCompositor::open(
+        gpu,
+        &spec,
+        &first,
+        resolved.width,
+        resolved.height,
+        !software_compose,
+    ) {
             Ok(compositor) => compositor,
             Err(err) => return Err(fail_ready(err)),
         };
@@ -862,29 +870,52 @@ fn run_composed_session(
         }
         let duration = encoder.frame_duration_hns();
         let compose_started = Instant::now();
-        let slot = match encoder.acquire() {
-            Ok(slot) => slot,
-            Err(err) => {
-                fatal = Some(err);
-                break;
+        let time = encoder.sample_time_hns(stats.frames_encoded);
+        let mut hardware_slot = None;
+        let compose_result = if encoder.software_fallback() {
+            compositor.compose_bgra(
+                &spec,
+                ComposeInput {
+                    capture: &capture_frame,
+                    webcam: cam_frame.as_ref(),
+                },
+            )
+        } else {
+            let slot = match encoder.acquire() {
+                Ok(slot) => slot,
+                Err(err) => {
+                    fatal = Some(err);
+                    break;
+                }
+            };
+            let dest = encoder.texture(slot).clone();
+            match compositor.compose(
+                &spec,
+                ComposeInput {
+                    capture: &capture_frame,
+                    webcam: cam_frame.as_ref(),
+                },
+                &dest,
+            ) {
+                Ok(()) => {
+                    hardware_slot = Some(slot);
+                    Ok(())
+                }
+                Err(err) => Err(err),
             }
         };
-        let time = encoder.sample_time_hns(stats.frames_encoded);
-        let dest = encoder.texture(slot).clone();
-        match compositor.compose(
-            &spec,
-            ComposeInput {
-                capture: &capture_frame,
-                webcam: cam_frame.as_ref(),
-            },
-            &dest,
-        ) {
+        match compose_result {
             Ok(()) => {
                 stats.note_compose(compose_started.elapsed());
                 if let Some(tap) = preview_tap.as_mut() {
                     tap.try_offer(&compositor, &preview);
                 }
-                if let Err(err) = encoder.submit(slot, time, duration) {
+                let submitted = if let Some(slot) = hardware_slot {
+                    encoder.submit(slot, time, duration)
+                } else {
+                    encoder.submit_bgra(compositor.composed_bgra(), time, duration)
+                };
+                if let Err(err) = submitted {
                     if compositor.check_device().is_err() {
                         fatal = Some(err);
                     } else {

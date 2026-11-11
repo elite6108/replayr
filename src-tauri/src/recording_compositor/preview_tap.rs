@@ -299,7 +299,9 @@ impl Drop for ComposedPreviewTap {
 }
 
 fn blit_preview(shared: &SharedTap, compositor: &RecordingCompositor) -> Result<(), String> {
-    let src = compositor.composed_nv12();
+    let src = compositor
+        .composed_nv12()
+        .unwrap_or_else(|| compositor.composed_bgra());
     let mut slot = shared
         .src_view
         .lock()

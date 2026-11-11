@@ -36,7 +36,7 @@ use windows::Win32::System::Com::CoTaskMemFree;
 
 use crate::export::mux::H264Mp4Mux;
 
-use super::gpu::{create_nv12_copy_target, create_nv12_encode, create_nv12_staging};
+use super::gpu::{create_bgra_staging, create_nv12_encode};
 use super::session_aac::SessionAacEncoder;
 
 /// Proven 1080p60 defaults used only when a caller asks for the safety-net size.
@@ -139,35 +139,33 @@ impl ComposedGpuEncoder {
         // Do not open the mux here. GetOutputCurrentType before the first encoded
         // sample often lacks MF_MT_MPEG_SEQUENCE_HEADER (SPS/PPS). That is the
         // known-good gpu_dxgi rule and the likely unplayable/~2s GOP symptom.
-        let mut pool = Vec::with_capacity(POOL);
-        for _ in 0..POOL {
-            let texture = if prepared.software {
-                create_nv12_copy_target(device, width, height)?
-            } else {
-                create_nv12_encode(device, width, height)?
-            };
-            pool.push(texture);
-        }
+        // Software MFTs take a CPU NV12 buffer. Skip NV12 GPU textures so a driver
+        // that rejects DXGI_FORMAT_NV12 (E_INVALIDARG) can still open.
+        let mut pool = Vec::new();
         let readback = if prepared.software {
             let context = unsafe { device.GetImmediateContext() }
                 .map_err(|err| format!("D3D11 immediate context: {err}"))?;
             Some(SoftwareReadback {
                 context,
-                staging: create_nv12_staging(device, width, height)?,
+                staging: create_bgra_staging(device, width, height)?,
             })
         } else {
+            pool.reserve(POOL);
+            for _ in 0..POOL {
+                pool.push(create_nv12_encode(device, width, height)?);
+            }
             None
         };
         tracing::info!(
             encoder = %prepared.name,
             software_fallback = prepared.software,
-            input = "NV12",
+            input = if prepared.software { "BGRA" } else { "NV12" },
             output = "H264",
             negotiate_w = width,
             negotiate_h = height,
             fps,
             d3d_aware = ?prepared.aware,
-            pool = POOL,
+            pool = pool.len(),
             mux_ready = false,
             include_audio,
             "composed encoder media types accepted; mux waits for first H.264 sample"
@@ -258,6 +256,10 @@ impl ComposedGpuEncoder {
     }
 
     pub fn acquire(&mut self) -> Result<usize, String> {
+        if self.software {
+            self.stats.surfaces_acquired = self.stats.surfaces_acquired.saturating_add(1);
+            return Ok(0);
+        }
         let deadline = Instant::now() + EVENT_WAIT;
         let mut waited = false;
         loop {
@@ -281,7 +283,36 @@ impl ComposedGpuEncoder {
         &self.pool[index]
     }
 
+    /// Software H.264 reads the composed BGRA canvas. No NV12 GPU texture is required.
+    pub fn submit_bgra(
+        &mut self,
+        canvas: &ID3D11Texture2D,
+        time_hns: i64,
+        duration_hns: i64,
+    ) -> Result<(), String> {
+        if !self.software {
+            return Err("hardware encoder expects an NV12 surface".into());
+        }
+        if !self.logged_first {
+            log_handoff(
+                &self.name,
+                canvas,
+                self.width,
+                self.height,
+                self.fps,
+                time_hns,
+                duration_hns,
+                true,
+            );
+            self.logged_first = true;
+        }
+        self.submit_software(canvas, time_hns, duration_hns)
+    }
+
     pub fn submit(&mut self, index: usize, time_hns: i64, duration_hns: i64) -> Result<(), String> {
+        if self.software {
+            return Err("software encoder reads the composed BGRA canvas".into());
+        }
         if !self.logged_first {
             log_handoff(
                 &self.name,
@@ -291,12 +322,9 @@ impl ComposedGpuEncoder {
                 self.fps,
                 time_hns,
                 duration_hns,
-                self.software,
+                false,
             );
             self.logged_first = true;
-        }
-        if self.software {
-            return self.submit_software(index, time_hns, duration_hns);
         }
         let texture = &self.pool[index];
         let sample = wrap_surface(texture, time_hns, duration_hns)?;
@@ -474,16 +502,21 @@ impl ComposedGpuEncoder {
         self.mux_nalu(nalu)
     }
 
-    fn submit_software(&mut self, index: usize, time_hns: i64, duration_hns: i64) -> Result<(), String> {
+    fn submit_software(
+        &mut self,
+        canvas: &ID3D11Texture2D,
+        time_hns: i64,
+        duration_hns: i64,
+    ) -> Result<(), String> {
         let bytes = {
             let readback = self
                 .readback
                 .as_ref()
                 .ok_or_else(|| "software encoder has no readback surface".to_string())?;
-            read_nv12(
+            read_bgra(
                 &readback.context,
                 &readback.staging,
-                &self.pool[index],
+                canvas,
                 self.width,
                 self.height,
             )?
@@ -1260,7 +1293,7 @@ fn wrap_nv12_memory(bytes: &[u8], time: i64, duration: i64) -> Result<IMFSample,
     }
 }
 
-fn read_nv12(
+fn read_bgra(
     context: &ID3D11DeviceContext,
     staging: &ID3D11Texture2D,
     source: &ID3D11Texture2D,
@@ -1268,49 +1301,37 @@ fn read_nv12(
     height: u32,
 ) -> Result<Vec<u8>, String> {
     unsafe {
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        source.GetDesc(&mut desc);
+        if desc.Width != width || desc.Height != height {
+            return Err(format!(
+                "software encoder size {width}x{height} does not match the composed canvas {}x{}",
+                desc.Width, desc.Height
+            ));
+        }
         let src: ID3D11Resource = source
             .cast()
-            .map_err(|err| format!("NV12 source cast: {err}"))?;
+            .map_err(|err| format!("BGRA source cast: {err}"))?;
         let dst: ID3D11Resource = staging
             .cast()
-            .map_err(|err| format!("NV12 staging cast: {err}"))?;
+            .map_err(|err| format!("BGRA staging cast: {err}"))?;
         context.CopyResource(&dst, &src);
+        context.Flush();
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         context
             .Map(&dst, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
-            .map_err(|err| format!("NV12 map hr={:#x} {err}", err.code().0 as u32))?;
-        let copied = copy_tight_nv12(mapped.pData as *const u8, mapped.RowPitch as usize, width, height);
+            .map_err(|err| format!("BGRA map hr={:#x} {err}", err.code().0 as u32))?;
+        let pitch = mapped.RowPitch as usize;
+        let bytes = if mapped.pData.is_null() {
+            &[]
+        } else {
+            std::slice::from_raw_parts(mapped.pData as *const u8, pitch.saturating_mul(height as usize))
+        };
+        let copied = crate::camera::color::bgra_to_nv12(bytes, width, height, pitch)
+            .ok_or_else(|| "Could not convert the composed frame to NV12".to_string());
         context.Unmap(&dst, 0);
         copied
     }
-}
-
-fn copy_tight_nv12(src: *const u8, pitch: usize, width: u32, height: u32) -> Result<Vec<u8>, String> {
-    let width = width as usize;
-    let height = height as usize;
-    if src.is_null() || width == 0 || height == 0 || height % 2 != 0 || pitch < width {
-        return Err("NV12 readback pitch is smaller than the frame".into());
-    }
-    let y_rows = height;
-    let uv_rows = height / 2;
-    let tight = width.saturating_mul(y_rows.saturating_add(uv_rows));
-    let mapped_rows = y_rows.saturating_add(uv_rows);
-    let mapped_bytes = pitch.saturating_mul(mapped_rows);
-    let src = unsafe { std::slice::from_raw_parts(src, mapped_bytes) };
-    let mut dest = vec![0u8; tight];
-    let mut offset = 0usize;
-    for row in 0..y_rows {
-        let start = row * pitch;
-        dest[offset..offset + width].copy_from_slice(&src[start..start + width]);
-        offset += width;
-    }
-    let uv_base = pitch * y_rows;
-    for row in 0..uv_rows {
-        let start = uv_base + row * pitch;
-        dest[offset..offset + width].copy_from_slice(&src[start..start + width]);
-        offset += width;
-    }
-    Ok(dest)
 }
 
 struct EncodedNalu {

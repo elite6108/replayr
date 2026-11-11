@@ -1,4 +1,7 @@
 {
+  "0.1.86": [
+    "Composed recording works on graphics cards that cannot create NV12 textures."
+  ],
   "0.1.85": [
     "Composed recording starts on PCs that do not have a hardware H.264 encoder."
   ],

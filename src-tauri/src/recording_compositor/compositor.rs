@@ -60,8 +60,8 @@ pub struct RecordingCompositor {
     gpu: SharedGpu,
     enumerator: ID3D11VideoProcessorEnumerator,
     processor: ID3D11VideoProcessor,
-    output: ID3D11Texture2D,
-    output_view: ID3D11VideoProcessorOutputView,
+    output: Option<ID3D11Texture2D>,
+    output_view: Option<ID3D11VideoProcessorOutputView>,
     capture: Option<LayerSlot>,
     webcam: Option<LayerSlot>,
     statics: Vec<CachedStill>,
@@ -74,6 +74,9 @@ pub struct RecordingCompositor {
     bgra_rtv: ID3D11RenderTargetView,
     bgra_vp_out: ID3D11VideoProcessorOutputView,
     bgra_vp_in: ID3D11VideoProcessorInputView,
+    /// The last successful compose wrote `output`. Software frames leave this false
+    /// so the preview tap reads the BGRA canvas instead of a stale NV12 texture.
+    nv12_ready: bool,
     pub out_w: u32,
     pub out_h: u32,
 }
@@ -105,6 +108,7 @@ impl RecordingCompositor {
         first: &StillFrame,
         out_w: u32,
         out_h: u32,
+        nv12_output: bool,
     ) -> Result<Self, String> {
         let (out_w, out_h) = align_output(out_w, out_h);
         if out_w < 2 || out_h < 2 {
@@ -142,9 +146,9 @@ impl RecordingCompositor {
                 .unwrap_or(0)
                 & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT.0 as u32
                 != 0;
-            if !bgra_in || !nv12_out {
+            if !bgra_in {
                 return Err(
-                    "This GPU cannot compose BGRA capture into NV12. Update your graphics driver and try again.".into(),
+                    "This GPU cannot compose BGRA capture. Update your graphics driver and try again.".into(),
                 );
             }
             let mut caps = D3D11_VIDEO_PROCESSOR_CAPS::default();
@@ -159,19 +163,62 @@ impl RecordingCompositor {
                 .video
                 .CreateVideoProcessor(&enumerator, 0)
                 .map_err(|err| format!("Could not create the video processor: {err}"))?;
-            let output = create_nv12_output(&gpu.device, out_w, out_h)?;
             let view_desc = D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
                 ViewDimension: D3D11_VPOV_DIMENSION_TEXTURE2D,
                 Anonymous: D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0 {
                     Texture2D: D3D11_TEX2D_VPOV { MipSlice: 0 },
                 },
             };
-            let mut output_view = None;
-            gpu.video
-                .CreateVideoProcessorOutputView(&output, &enumerator, &view_desc, Some(&mut output_view))
-                .map_err(|err| format!("Could not create the compose output view: {err}"))?;
-            let output_view =
-                output_view.ok_or_else(|| "Compose output view was empty.".to_string())?;
+            let (output, output_view) = if nv12_output && nv12_out {
+                match create_nv12_output(&gpu.device, out_w, out_h) {
+                    Ok(output) => {
+                        let mut output_view = None;
+                        match gpu.video.CreateVideoProcessorOutputView(
+                            &output,
+                            &enumerator,
+                            &view_desc,
+                            Some(&mut output_view),
+                        ) {
+                            Ok(()) => match output_view {
+                                Some(output_view) => (Some(output), Some(output_view)),
+                                None => {
+                                    tracing::warn!(
+                                        width = out_w,
+                                        height = out_h,
+                                        "NV12 compose view was empty; composing in BGRA"
+                                    );
+                                    (None, None)
+                                }
+                            },
+                            Err(err) => {
+                                tracing::warn!(
+                                    width = out_w,
+                                    height = out_h,
+                                    "NV12 compose view unavailable ({err}); composing in BGRA"
+                                );
+                                (None, None)
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            width = out_w,
+                            height = out_h,
+                            "NV12 compose target unavailable ({err}); composing in BGRA"
+                        );
+                        (None, None)
+                    }
+                }
+            } else {
+                if nv12_output {
+                    tracing::warn!(
+                        width = out_w,
+                        height = out_h,
+                        "video processor reports no NV12 output; composing in BGRA"
+                    );
+                }
+                (None, None)
+            };
             for index in 0..max_streams {
                 gpu.video_ctx.VideoProcessorSetStreamFrameFormat(
                     &processor,
@@ -249,6 +296,7 @@ impl RecordingCompositor {
                 bgra_vp_out,
                 bgra_vp_in: bgra_vp_in
                     .ok_or_else(|| "BGRA convert view was empty.".to_string())?,
+                nv12_ready: false,
                 out_w,
                 out_h,
             })
@@ -267,8 +315,16 @@ impl RecordingCompositor {
         &self.gpu
     }
 
-    pub fn composed_nv12(&self) -> &ID3D11Texture2D {
-        &self.output
+    pub fn composed_nv12(&self) -> Option<&ID3D11Texture2D> {
+        if self.nv12_ready {
+            self.output.as_ref()
+        } else {
+            None
+        }
+    }
+
+    pub fn composed_bgra(&self) -> &ID3D11Texture2D {
+        &self.bgra_canvas
     }
 
     pub fn adapter(&self) -> &str {
@@ -374,6 +430,46 @@ impl RecordingCompositor {
         input: ComposeInput<'_>,
         dest: &ID3D11Texture2D,
     ) -> Result<(), String> {
+        self.upload_live(&input)?;
+        let ops = self.collect_blits(spec, input.capture, input.webcam)?;
+        let video: Vec<&BlitOp> = ops.iter().filter(|op| !op.still).collect();
+        let stills: Vec<&BlitOp> = ops.iter().filter(|op| op.still).collect();
+        if video.len() as u32 > self.max_streams {
+            return Err("Too many composed layers for this GPU.".into());
+        }
+        let Some(output_view) = self.output_view.clone() else {
+            return Err("NV12 compose target is unavailable.".into());
+        };
+        if stills.is_empty() {
+            self.blt(spec, &video, &output_view)?;
+        } else {
+            self.paint_bgra(spec, &video, &stills)?;
+            self.convert_bgra_to_nv12()?;
+        }
+        self.copy_to_encoder(dest)?;
+        self.nv12_ready = true;
+        Ok(())
+    }
+
+    /// Compose video and stills into the BGRA canvas. Used when the GPU cannot
+    /// create an NV12 output, and for the software encoder's CPU conversion.
+    pub fn compose_bgra(
+        &mut self,
+        spec: &ValidatedComposition,
+        input: ComposeInput<'_>,
+    ) -> Result<(), String> {
+        self.nv12_ready = false;
+        self.upload_live(&input)?;
+        let ops = self.collect_blits(spec, input.capture, input.webcam)?;
+        let video: Vec<&BlitOp> = ops.iter().filter(|op| !op.still).collect();
+        let stills: Vec<&BlitOp> = ops.iter().filter(|op| op.still).collect();
+        if video.len() as u32 > self.max_streams {
+            return Err("Too many composed layers for this GPU.".into());
+        }
+        self.paint_bgra(spec, &video, &stills)
+    }
+
+    fn upload_live(&mut self, input: &ComposeInput<'_>) -> Result<(), String> {
         self.ensure_live_slot(false, input.capture)?;
         if let Some(slot) = self.capture.as_ref() {
             upload_bgra(
@@ -398,50 +494,48 @@ impl RecordingCompositor {
                 )?;
             }
         }
+        Ok(())
+    }
 
-        let ops = self.collect_blits(spec, input.capture, input.webcam)?;
-        let video: Vec<&BlitOp> = ops.iter().filter(|op| !op.still).collect();
-        let stills: Vec<&BlitOp> = ops.iter().filter(|op| op.still).collect();
-        if video.len() as u32 > self.max_streams {
-            return Err("Too many composed layers for this GPU.".into());
+    fn paint_bgra(
+        &self,
+        spec: &ValidatedComposition,
+        video: &[&BlitOp],
+        stills: &[&BlitOp],
+    ) -> Result<(), String> {
+        if video.is_empty() && stills.is_empty() {
+            return Err("Composed recording had no visible layers.".into());
         }
-        if stills.is_empty() {
-            self.blt(spec, &video, &self.output_view)?;
+        if video.is_empty() {
+            unsafe {
+                self.gpu
+                    .context
+                    .ClearRenderTargetView(&self.bgra_rtv, &[0.0, 0.0, 0.0, 1.0]);
+            }
         } else {
-            if video.is_empty() {
-                unsafe {
-                    self.gpu
-                        .context
-                        .ClearRenderTargetView(&self.bgra_rtv, &[0.0, 0.0, 0.0, 1.0]);
-                }
-            } else {
-                self.blt(spec, &video, &self.bgra_vp_out)?;
-            }
-            // Shaped webcams are stills so the mask can live in the pixel shader, but they
-            // stay under images and text the same way a rectangle webcam does on the video pass.
-            for op in stills.iter().filter(|op| op.mask != 0).chain(stills.iter().filter(|op| op.mask == 0)) {
-                let Some(srv) = op.srv.as_ref() else {
-                    continue;
-                };
-                self.blender.draw(
-                    &self.gpu.context,
-                    &self.bgra_rtv,
-                    srv,
-                    self.out_w,
-                    self.out_h,
-                    op.dest,
-                    op.src,
-                    op.tex_w,
-                    op.tex_h,
-                    op.alpha,
-                    op.mask,
-                    op.dest.w,
-                    op.dest.h,
-                )?;
-            }
-            self.convert_bgra_to_nv12()?;
+            self.blt(spec, video, &self.bgra_vp_out)?;
         }
-        self.copy_to_encoder(dest)
+        for op in stills.iter().filter(|op| op.mask != 0).chain(stills.iter().filter(|op| op.mask == 0)) {
+            let Some(srv) = op.srv.as_ref() else {
+                continue;
+            };
+            self.blender.draw(
+                &self.gpu.context,
+                &self.bgra_rtv,
+                srv,
+                self.out_w,
+                self.out_h,
+                op.dest,
+                op.src,
+                op.tex_w,
+                op.tex_h,
+                op.alpha,
+                op.mask,
+                op.dest.w,
+                op.dest.h,
+            )?;
+        }
+        Ok(())
     }
 
     /// Composition pipeline (explicit, not accidental):
@@ -680,6 +774,10 @@ impl RecordingCompositor {
     }
 
     fn convert_bgra_to_nv12(&self) -> Result<(), String> {
+        let output_view = self
+            .output_view
+            .as_ref()
+            .ok_or_else(|| "NV12 compose target is unavailable".to_string())?;
         let _owned = &self.bgra_canvas;
         unsafe {
             let dest = RECT {
@@ -710,7 +808,7 @@ impl RecordingCompositor {
             }];
             let blt = self.gpu.video_ctx.VideoProcessorBlt(
                 &self.processor,
-                &self.output_view,
+                output_view,
                 0,
                 &streams,
             );
@@ -732,6 +830,8 @@ impl RecordingCompositor {
             }
             let src: ID3D11Resource = self
                 .output
+                .as_ref()
+                .ok_or_else(|| "NV12 compose target is unavailable".to_string())?
                 .cast()
                 .map_err(|err| format!("compose output cast: {err}"))?;
             let dst: ID3D11Resource = dest

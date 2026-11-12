@@ -12,6 +12,7 @@ export function PreviewTransformBox({
   mode = "move",
   selected,
   locked,
+  passThrough = false,
   zIndex,
   label,
   onSelect,
@@ -27,6 +28,8 @@ export function PreviewTransformBox({
   mode?: "move" | "crop";
   selected: boolean;
   locked: boolean;
+  /** The source's own lock. Preview clicks pass through to the layer underneath. */
+  passThrough?: boolean;
   zIndex: number;
   label: string;
   onSelect: () => void;
@@ -72,6 +75,7 @@ export function PreviewTransformBox({
   const showCropChrome = cropMode || shiftCropActive || (selected && !isFullCrop(activeCrop) && Boolean(onCrop));
 
   function begin(event: ReactPointerEvent<HTMLElement>, handle: "move" | ResizeHandle) {
+    if (passThrough) return;
     event.preventDefault();
     event.stopPropagation();
     onSelect();
@@ -188,7 +192,7 @@ export function PreviewTransformBox({
 
   return (
     <div
-      className={`preview-layer${selected ? " is-selected" : ""}${locked ? " is-locked" : ""}${cropMode || shiftCropActive ? " is-cropping" : ""}`}
+      className={`preview-layer${selected ? " is-selected" : ""}${passThrough ? " is-locked" : ""}${locked ? " is-immobile" : ""}${cropMode || shiftCropActive ? " is-cropping" : ""}`}
       style={{
         left: `${transform.x * 100}%`,
         top: `${transform.y * 100}%`,

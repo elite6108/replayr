@@ -1,4 +1,8 @@
 {
+  "0.1.90": [
+    "A locked source no longer catches clicks in the live preview.",
+    "Capture follows Light and Grey."
+  ],
   "0.1.89": [
     "Cloud clips show a calendar date and time.",
     "Select cloud clips in the library and delete them together."

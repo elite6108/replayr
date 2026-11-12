@@ -200,6 +200,7 @@ export function RecordingPreview({
         mode="move"
         selected={selectedId === source.id}
         locked={source.locked || Boolean(compositionLocked)}
+        passThrough={source.locked}
         zIndex={zIndex}
         label={source.name}
         onSelect={() => onSelect(source.id)}
@@ -269,6 +270,7 @@ export function RecordingPreview({
           mode="move"
           selected={selectedId === source.id}
           locked={source.locked || Boolean(compositionLocked)}
+          passThrough={source.locked}
           zIndex={3 + index}
           label={source.name}
           onSelect={() => onSelect(source.id)}

@@ -148,7 +148,7 @@ function CaptureClock({ ms }: { ms: number }) {
       {parts.map((part, index) => (
         <span key={part + index}>
           {index > 0 ? (
-            <span className="capture-colon" style={{ color: "#799cb4" }}>
+            <span className="capture-colon">
               :
             </span>
           ) : null}

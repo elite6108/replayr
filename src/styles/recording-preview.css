@@ -26,8 +26,13 @@
   cursor: grab;
 }
 
-.preview-layer.is-locked {
+.preview-layer.is-locked,
+.preview-layer.is-immobile {
   cursor: default;
+}
+
+.preview-layer.is-locked {
+  pointer-events: none;
 }
 
 .preview-layer.is-selected {

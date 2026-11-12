@@ -1512,7 +1512,83 @@
 /* Capture screen. Scoped so the Clips studio keeps its own layout. */
 .page:has(.record-studio.is-capture) {
   padding: 0;
-  background: #0b1116;
+  --cap-canvas: #0b1116;
+  --cap-panel: #11171d;
+  --cap-chip: #11171c;
+  --cap-head: #151e25;
+  --cap-head-strong: #1a2731;
+  --cap-well: #111e28;
+  --cap-well-2: #1a3041;
+  --cap-selected: #20333d;
+  --cap-selected-ring: #3b5565;
+  --cap-selected-scene: #20353e;
+  --cap-border: #34414c;
+  --cap-border-soft: #2b3b46;
+  --cap-border-top: #282e34;
+  --cap-split: #2e485c;
+  --cap-scene-rule: #283d4b;
+  --cap-output-rule: #29465c;
+  --cap-open-border: #2a323a;
+  --cap-open-border-hover: #3a4650;
+  --cap-border-input: #3c5a70;
+  --cap-border-btn: #3d607b;
+  --cap-meta-rule: #343d46;
+  --cap-stage: #0b1116;
+  --cap-title: #f1f4f6;
+  --cap-heading: #e6edf1;
+  --cap-clock: #eef5f9;
+  --cap-scene-on: #e4f4f6;
+  --cap-text-2: #d0d7dd;
+  --cap-source: #d5e3ec;
+  --cap-meta-strong: #d8dfe5;
+  --cap-input: #d5e4ef;
+  --cap-buffer-text: #c7d9e6;
+  --cap-field: #bdcedb;
+  --cap-open: #c0c8d0;
+  --cap-icon: #c5d4df;
+  --cap-secondary: #a5afb9;
+  --cap-game: #a0aab4;
+  --cap-meta: #b1bbc4;
+  --cap-ghost: #a5c0d3;
+  --cap-output: #a6c4db;
+  --cap-link: #9bb8cd;
+  --cap-state: #90b0c5;
+  --cap-state-dot: #9db8ca;
+  --cap-scene: #8fa7b6;
+  --cap-ir: #8ea0ae;
+  --cap-dim: #809cac;
+  --cap-buffer: #80a2bd;
+  --cap-colon: #799cb4;
+  --cap-save: #7d9fb8;
+  --cap-save-kbd: #7b9fb9;
+  --cap-meter-fill: #7d9bb0;
+  --cap-switch-knob: #7d9bb0;
+  --cap-hint: #7f95a6;
+  --cap-hint-2: #789bb6;
+  --cap-inspector: #759ab3;
+  --cap-ir-off: #759ab6;
+  --cap-output-meta: #759cba;
+  --cap-count: #708d9f;
+  --cap-muted: #707d88;
+  --cap-muted-2: #6d8ca0;
+  --cap-buf-label: #6b92ae;
+  --cap-preview-dim: #687581;
+  --cap-index: #607d8e;
+  --cap-buf-value: #92b2c9;
+  --cap-dot: #727e89;
+  --cap-mix: #e8eef3;
+  --cap-accent: #00d9e8;
+  --cap-ok: #71bc99;
+  --cap-ok-text: #7db79a;
+  --cap-danger-soft: #d7a0a6;
+  --cap-error: #e7a0a4;
+  --cap-meter: #2e506a;
+  --cap-switch-border: #45647c;
+  --cap-switch: #2b4254;
+  --cap-switch-on: #1c4d55;
+  --cap-switch-knob-on: #00d9e8;
+  --cap-kbd-border: #416783;
+  background: var(--cap-canvas);
 }
 
 .record-studio.is-capture > .studio-page-head {
@@ -1529,7 +1605,7 @@
     "dock dock dock"
     "status status status";
   gap: 0;
-  background: #0b1116;
+  background: var(--cap-canvas);
 }
 
 .record-studio.is-capture .capture-head {
@@ -1540,7 +1616,7 @@
   gap: 16px;
   min-height: 64px;
   padding: 8px 16px 8px 18px;
-  background: #0b1116;
+  background: var(--cap-canvas);
 }
 
 .record-studio.is-capture .capture-head-title {
@@ -1556,7 +1632,7 @@
   font-size: 28px;
   font-weight: 600;
   letter-spacing: -1px;
-  color: #f1f4f6;
+  color: var(--cap-title);
 }
 
 .record-studio.is-capture .capture-head-status {
@@ -1564,13 +1640,13 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  color: #a5afb9;
+  color: var(--cap-secondary);
   font-size: 12px;
 }
 
 .record-studio.is-capture .capture-head-status span:last-of-type,
 .record-studio.is-capture .capture-clips {
-  color: #707d88;
+  color: var(--cap-muted);
   font-size: 10px;
 }
 
@@ -1578,7 +1654,7 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #727e89;
+  background: var(--cap-dot);
 }
 
 .record-studio.is-capture .capture-clips {
@@ -1601,7 +1677,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #a0aab4;
+  color: var(--cap-game);
   font-size: 11px;
 }
 
@@ -1616,7 +1692,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #71bc99;
+  background: var(--cap-ok);
 }
 
 .record-studio.is-capture .capture-open {
@@ -1626,23 +1702,23 @@
   height: 40px;
   padding: 0 12px;
   border-radius: 6px;
-  border: 1px solid #2a323a;
-  background: #11171c;
-  color: #c0c8d0;
+  border: 1px solid var(--cap-open-border);
+  background: var(--cap-chip);
+  color: var(--cap-open);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .record-studio.is-capture .capture-open:hover {
-  border-color: #3a4650;
-  color: #f1f4f6;
+  border-color: var(--cap-open-border-hover);
+  color: var(--cap-title);
 }
 
 .record-studio.is-capture .studio-preview {
   border: 0;
   border-radius: 0;
-  background: #0b1116;
+  background: var(--cap-canvas);
   padding: 0 16px 8px;
   gap: 0;
 }
@@ -1651,11 +1727,11 @@
   position: relative;
   order: 1;
   flex: 1 1 auto;
-  border: 1px solid #34414c;
+  border: 1px solid var(--cap-border);
   border-bottom: 0;
   border-radius: 24px 24px 0 0;
   overflow: hidden;
-  background: #0b1116;
+  background: var(--cap-stage);
 }
 
 .record-studio.is-capture .capture-live-badge,
@@ -1712,9 +1788,9 @@
   min-height: 42px;
   margin: 0;
   padding: 0 15px;
-  background: #11171d;
-  border: 1px solid #34414c;
-  border-top-color: #282e34;
+  background: var(--cap-panel);
+  border: 1px solid var(--cap-border);
+  border-top-color: var(--cap-border-top);
   border-radius: 0 0 12px 12px;
 }
 
@@ -1723,17 +1799,17 @@
   align-items: center;
   gap: 9px;
   min-width: 0;
-  color: #d0d7dd;
+  color: var(--cap-text-2);
 }
 
 .record-studio.is-capture .capture-preview-title strong {
-  color: #d0d7dd;
+  color: var(--cap-text-2);
   font-size: 11px;
   font-weight: 600;
 }
 
 .record-studio.is-capture .capture-preview-title span {
-  color: #687581;
+  color: var(--cap-preview-dim);
   font-size: 10px;
   font-weight: 400;
 }
@@ -1741,13 +1817,13 @@
 .record-studio.is-capture .capture-preview-meta {
   display: flex;
   align-items: center;
-  color: #b1bbc4;
+  color: var(--cap-meta);
   font-size: 10px;
 }
 
 .record-studio.is-capture .capture-preview-meta span:first-child,
 .record-studio.is-capture .capture-preview-meta b {
-  color: #d8dfe5;
+  color: var(--cap-meta-strong);
   font-weight: 600;
 }
 
@@ -1755,7 +1831,7 @@
   width: 1px;
   height: 10px;
   margin: 0 13px;
-  background: #343d46;
+  background: var(--cap-meta-rule);
 }
 
 .record-studio.is-capture .studio-rail,
@@ -1765,9 +1841,9 @@
 .record-studio.is-capture .studio-controls {
   border: 0;
   border-radius: 0;
-  border-top: 1px solid #34414c;
-  border-right: 1px solid #34414c;
-  background: #11171d;
+  border-top: 1px solid var(--cap-border);
+  border-right: 1px solid var(--cap-border);
+  background: var(--cap-panel);
   padding: 0;
   box-shadow: none;
 }
@@ -1801,8 +1877,8 @@
   margin: 0;
   padding: 0;
   border: 0;
-  border-right: 1px solid #34414c;
-  background: #11171d;
+  border-right: 1px solid var(--cap-border);
+  background: var(--cap-panel);
   min-height: 0;
   overflow: hidden;
 }
@@ -1830,8 +1906,8 @@
   grid-row: 2;
   max-height: 112px;
   border-right: 0;
-  border-top: 1px solid #2b3b46;
-  background: #11171d;
+  border-top: 1px solid var(--cap-border-soft);
+  background: var(--cap-panel);
 }
 
 .record-studio.is-capture .studio-rail > .studio-block {
@@ -1850,8 +1926,8 @@
   margin: 0;
   min-height: 34px;
   padding: 0 10px;
-  background: #151e25;
-  border-bottom: 1px solid #2b3b46;
+  background: var(--cap-head);
+  border-bottom: 1px solid var(--cap-border-soft);
 }
 
 .record-studio.is-capture .studio-block-head h2 {
@@ -1859,7 +1935,7 @@
   font-weight: 700;
   letter-spacing: 0;
   text-transform: none;
-  color: #e6edf1;
+  color: var(--cap-heading);
 }
 
 .record-studio.is-capture .studio-section-copy {
@@ -1871,8 +1947,8 @@
   flex: 0 0 auto;
   margin: 0;
   padding: 8px 12px;
-  border-top: 1px solid #2b3b46;
-  color: #6d8ca0;
+  border-top: 1px solid var(--cap-border-soft);
+  color: var(--cap-muted-2);
   font-size: 9.5px;
 }
 
@@ -1890,13 +1966,13 @@
 }
 
 .record-studio.is-capture .studio-audio-row.is-selected {
-  background: #20333d;
-  box-shadow: inset 0 0 0 1px #3b5565;
+  background: var(--cap-selected);
+  box-shadow: inset 0 0 0 1px var(--cap-selected-ring);
 }
 
 .record-studio.is-capture .capture-source-count {
   margin-left: auto;
-  color: #708d9f;
+  color: var(--cap-count);
   font-family: var(--font-display);
   font-size: 11px;
 }
@@ -1907,7 +1983,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: #c5d4df;
+  color: var(--cap-icon);
   font-size: 0;
 }
 
@@ -1924,18 +2000,18 @@
 }
 
 .record-studio.is-capture .studio-visual-row.is-selected {
-  background: #20333d;
-  box-shadow: inset 0 0 0 1px #3b5565;
+  background: var(--cap-selected);
+  box-shadow: inset 0 0 0 1px var(--cap-selected-ring);
 }
 
 .record-studio.is-capture .studio-source-name {
-  color: #d5e3ec;
+  color: var(--cap-source);
   font-size: 11px;
   font-weight: 600;
 }
 
 .record-studio.is-capture .studio-source-cap {
-  color: #809cac;
+  color: var(--cap-dim);
   font-size: 9.5px;
 }
 
@@ -1995,11 +2071,11 @@
 .record-studio.is-capture .studio-mix-db {
   font-family: var(--font-display);
   font-size: 16px;
-  color: #e8eef3;
+  color: var(--cap-mix);
 }
 
 .record-studio.is-capture .studio-mix-channel.is-off .studio-mix-db {
-  color: #d7a0a6;
+  color: var(--cap-danger-soft);
 }
 
 .record-studio.is-capture .studio-mix-body {
@@ -2020,7 +2096,7 @@
   flex: 1 0 100%;
   position: static;
   text-align: center;
-  color: #809cac;
+  color: var(--cap-dim);
   font-size: 9px;
 }
 
@@ -2046,7 +2122,7 @@
 .record-studio.is-capture .studio-inspector .studio-section h3 {
   letter-spacing: 0.6px;
   text-transform: none;
-  color: #759ab3;
+  color: var(--cap-inspector);
   font-size: 9.5px;
 }
 
@@ -2070,9 +2146,9 @@
   gap: 8px;
   height: 26px;
   padding: 0 8px;
-  border: 1px solid #34414c;
+  border: 1px solid var(--cap-border);
   border-radius: 3px;
-  background: #11171d;
+  background: var(--cap-panel);
 }
 
 .record-studio.is-capture .studio-inspector .studio-xy input {
@@ -2080,7 +2156,7 @@
   min-width: 0;
   border: 0;
   background: transparent;
-  color: #bdcedb;
+  color: var(--cap-field);
   font-family: var(--font-display);
   font-size: 11px;
   padding: 0;
@@ -2095,10 +2171,10 @@
 
 .record-studio.is-capture .studio-inspector .btn.ghost {
   height: 26px;
-  border: 1px solid #34414c;
+  border: 1px solid var(--cap-border);
   border-radius: 3px;
-  background: #11171d;
-  color: #a5c0d3;
+  background: var(--cap-panel);
+  color: var(--cap-ghost);
 }
 
 .record-studio.is-capture .studio-scene-picker.is-inline {
@@ -2122,12 +2198,12 @@
 }
 
 .record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option.is-selected {
-  background: #20353e;
-  box-shadow: inset 2px 0 0 #00d9e8;
+  background: var(--cap-selected-scene);
+  box-shadow: inset 2px 0 0 var(--cap-accent);
 }
 
 .record-studio.is-capture .capture-scene-index {
-  color: #607d8e;
+  color: var(--cap-index);
   font-family: var(--font-display);
   font-size: 11px;
   text-align: center;
@@ -2142,12 +2218,12 @@
   display: flex;
   gap: 4px;
   padding: 6px;
-  border-top: 1px solid #283d4b;
+  border-top: 1px solid var(--cap-scene-rule);
 }
 
 .record-studio.is-capture .studio-source-row.is-selected {
-  background: #20353e;
-  box-shadow: inset 2px 0 0 #00d9e8;
+  background: var(--cap-selected-scene);
+  box-shadow: inset 2px 0 0 var(--cap-accent);
 }
 
 .record-studio.is-capture .capture-rec-head {
@@ -2163,18 +2239,18 @@
   font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.6px;
-  color: #eef5f9;
+  color: var(--cap-clock);
   font-variant-numeric: tabular-nums;
 }
 
 .record-studio.is-capture .capture-rec-state {
-  color: #90b0c5;
+  color: var(--cap-state);
   font-size: 12px;
 }
 
 .record-studio.is-capture .capture-rec-state.is-error,
 .record-studio.is-capture .capture-ready.is-error {
-  color: #e7a0a4;
+  color: var(--cap-error);
 }
 
 .record-studio.is-capture .capture-start {
@@ -2223,7 +2299,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: #9bb8cd;
+  color: var(--cap-link);
   font-size: 11px;
   cursor: pointer;
 }
@@ -2245,18 +2321,18 @@
   margin: 0;
 }
 
-.record-studio.is-capture .studio-ir-head strong { grid-area: title; color: #e6edf1; font-size: 12px; }
-.record-studio.is-capture .studio-ir-state { grid-area: state; justify-self: end; color: #8ea0ae; font-size: 11px; }
-.record-studio.is-capture .studio-ir-state.is-on { color: #7db79a; }
+.record-studio.is-capture .studio-ir-head strong { grid-area: title; color: var(--cap-heading); font-size: 12px; }
+.record-studio.is-capture .studio-ir-state { grid-area: state; justify-self: end; color: var(--cap-ir); font-size: 11px; }
+.record-studio.is-capture .studio-ir-state.is-on { color: var(--cap-ok-text); }
 .record-studio.is-capture .studio-ir-head .studio-switch { grid-area: switch; }
-.record-studio.is-capture .studio-ir-label { grid-area: label; display: block; color: #8ea0ae; font-size: 11px; }
+.record-studio.is-capture .studio-ir-label { grid-area: label; display: block; color: var(--cap-ir); font-size: 11px; }
 .record-studio.is-capture .studio-ir-head select {
   grid-area: select;
   height: 28px;
   border-radius: 4px;
-  border: 1px solid #3c5a70;
-  background: #111e28;
-  color: #d5e4ef;
+  border: 1px solid var(--cap-border-input);
+  background: var(--cap-well);
+  color: var(--cap-input);
 }
 
 .record-studio.is-capture .studio-ir-row {
@@ -2269,9 +2345,9 @@
 .record-studio.is-capture .studio-ir-row .btn {
   height: 32px;
   border-radius: 4px;
-  border: 1px solid #3d607b;
-  background: #1a3041;
-  color: #d5e4ef;
+  border: 1px solid var(--cap-border-btn);
+  background: var(--cap-well-2);
+  color: var(--cap-input);
 }
 
 .record-studio.is-capture .studio-ir-buf { display: none; }
@@ -2280,7 +2356,7 @@
   display: flex;
   justify-content: space-between;
   margin: 6px 0 0;
-  color: #7f95a6;
+  color: var(--cap-hint);
   font-size: 10px;
 }
 
@@ -2289,14 +2365,14 @@
   height: 4px;
   margin-top: 8px;
   border-radius: 99px;
-  background: #2e506a;
+  background: var(--cap-meter);
   overflow: hidden;
 }
 
 .record-studio.is-capture .studio-ir-meter span {
   display: block;
   height: 100%;
-  background: #7d9bb0;
+  background: var(--cap-meter-fill);
 }
 
 .record-studio.is-capture .studio-output-pop {
@@ -2309,14 +2385,14 @@
 }
 
 .record-studio.is-capture .studio-mix-db {
-  color: #00d9e8;
+  color: var(--cap-accent);
 }
 
 .record-studio.is-capture .record-split::after {
   width: 100%;
   height: 1px;
   border-radius: 0;
-  background: #34414c;
+  background: var(--cap-border);
 }
 
 .record-studio.is-capture .studio-status {
@@ -2329,9 +2405,9 @@
   margin: 0;
   padding: 0 12px;
   overflow: hidden;
-  background: #0b1116;
-  border-top: 1px solid #2e485c;
-  color: #9bb8cd;
+  background: var(--cap-canvas);
+  border-top: 1px solid var(--cap-split);
+  color: var(--cap-link);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -2347,7 +2423,7 @@
 
 .record-studio.is-capture .capture-encoder summary {
   cursor: pointer;
-  color: #9bb8cd;
+  color: var(--cap-link);
 }
 
 .record-studio.is-capture .capture-encoder[open] {
@@ -2359,9 +2435,9 @@
   max-height: 220px;
   overflow: auto;
   padding: 10px 12px;
-  border: 1px solid #34414c;
+  border: 1px solid var(--cap-border);
   border-radius: 8px;
-  background: #11171d;
+  background: var(--cap-panel);
   white-space: normal;
 }
 
@@ -2369,14 +2445,14 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #9bb8cd;
+  color: var(--cap-link);
 }
 
 .record-studio.is-capture .capture-ready i {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #7db79a;
+  background: var(--cap-ok-text);
 }
 
 .record-studio.is-capture .capture-ready.is-error i {
@@ -2386,11 +2462,11 @@
 .record-studio.is-capture .capture-status-rule {
   width: 1px;
   height: 10px;
-  background: #2e485c;
+  background: var(--cap-split);
 }
 
 .record-studio.is-capture .capture-status-note {
-  color: #7f95a6;
+  color: var(--cap-hint);
 }
 
 .record-studio.is-capture .studio-rail {
@@ -2417,7 +2493,7 @@
 }
 
 .record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option.is-selected {
-  background: #20353e;
+  background: var(--cap-selected-scene);
   box-shadow: none;
 }
 
@@ -2428,7 +2504,7 @@
   top: 0;
   bottom: 0;
   width: 2px;
-  background: #00d9e8;
+  background: var(--cap-accent);
 }
 
 .record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option-main {
@@ -2441,7 +2517,7 @@
   min-height: 38px;
   padding: 0 10px;
   border-radius: 4px;
-  color: #8fa7b6;
+  color: var(--cap-scene);
   font-size: 12px;
   font-weight: 600;
 }
@@ -2451,7 +2527,7 @@
 }
 
 .record-studio.is-capture .studio-scene-picker.is-inline .studio-scene-option.is-selected .studio-scene-option-main {
-  color: #e4f4f6;
+  color: var(--cap-scene-on);
 }
 
 .record-studio.is-capture .studio-scene-picker.is-inline .studio-combo-title {
@@ -2465,7 +2541,7 @@
   order: 0;
   margin-left: auto;
   padding: 0;
-  color: #607d8e;
+  color: var(--cap-index);
   font-family: var(--font-display);
   font-size: 9.5px;
   font-weight: 500;
@@ -2526,7 +2602,7 @@
 
 .record-studio.is-capture .studio-controls > .studio-block-head {
   flex: 0 0 auto;
-  background: #1a2731;
+  background: var(--cap-head-strong);
 }
 
 .record-studio.is-capture .capture-rec-head {
@@ -2540,15 +2616,15 @@
   font-size: 28px;
   font-weight: 500;
   letter-spacing: -0.7px;
-  color: #eef5f9;
+  color: var(--cap-clock);
 }
 
 .record-studio.is-capture .capture-clock .capture-colon {
-  color: #799cb4;
+  color: var(--cap-colon);
 }
 
 .record-studio.is-capture .capture-colon {
-  color: #799cb4;
+  color: var(--cap-colon);
 }
 
 .record-studio.is-capture .capture-rec-state {
@@ -2563,7 +2639,7 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #9db8ca;
+  background: var(--cap-state-dot);
 }
 
 .record-studio.is-capture .capture-start {
@@ -2622,27 +2698,27 @@
 }
 
 .record-studio.is-capture .capture-ir-name strong {
-  color: #e6edf1;
+  color: var(--cap-heading);
   font-size: 11.5px;
   font-weight: 600;
 }
 
 .record-studio.is-capture .studio-ir.is-capture .studio-ir-state {
-  color: #759ab6;
+  color: var(--cap-ir-off);
   font-size: 8.5px;
   font-weight: 700;
   letter-spacing: 0.3px;
 }
 
 .record-studio.is-capture .studio-ir.is-capture .studio-ir-state.is-on {
-  color: #7db79a;
+  color: var(--cap-ok-text);
 }
 
 .record-studio.is-capture .studio-ir.is-capture .switch {
   width: 27px;
   height: 15px;
-  border: 1px solid #45647c;
-  background: #2b4254;
+  border: 1px solid var(--cap-switch-border);
+  background: var(--cap-switch);
 }
 
 .record-studio.is-capture .studio-ir.is-capture .switch::after {
@@ -2650,17 +2726,17 @@
   left: 2px;
   width: 8px;
   height: 8px;
-  background: #7d9bb0;
+  background: var(--cap-switch-knob);
 }
 
 .record-studio.is-capture .studio-ir.is-capture .switch:checked {
-  background: #1c4d55;
-  border-color: #00d9e8;
+  background: var(--cap-switch-on);
+  border-color: var(--cap-accent);
 }
 
 .record-studio.is-capture .studio-ir.is-capture .switch:checked::after {
   transform: translateX(12px);
-  background: #00d9e8;
+  background: var(--cap-switch-knob-on);
 }
 
 .record-studio.is-capture .capture-ir-buffer {
@@ -2668,17 +2744,17 @@
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
-  color: #80a2bd;
+  color: var(--cap-buffer);
   font-size: 9.5px;
 }
 
 .record-studio.is-capture .capture-ir-buffer select {
   height: 24px;
   padding: 0 22px 0 8px;
-  border: 1px solid #3c5a70;
+  border: 1px solid var(--cap-border-input);
   border-radius: 4px;
-  background-color: #111e28;
-  color: #c7d9e6;
+  background-color: var(--cap-well);
+  color: var(--cap-buffer-text);
   font-size: 11px;
 }
 
@@ -2688,7 +2764,7 @@
   justify-content: flex-start;
   gap: 6px;
   margin: 0;
-  color: #789bb6;
+  color: var(--cap-hint-2);
   font-size: 9.5px;
 }
 
@@ -2697,7 +2773,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: #d7a0a6;
+  color: var(--cap-danger-soft);
   font-size: 9.5px;
   font-weight: 600;
   white-space: nowrap;
@@ -2718,10 +2794,10 @@
   gap: 6px;
   height: 30px;
   padding: 0 8px;
-  border: 1px solid #3d607b;
+  border: 1px solid var(--cap-border-btn);
   border-radius: 4px;
-  background: #1a3041;
-  color: #7d9fb8;
+  background: var(--cap-well-2);
+  color: var(--cap-save);
   font-size: 11px;
   font-weight: 600;
 }
@@ -2733,10 +2809,10 @@
 
 .record-studio.is-capture .capture-ir-save kbd {
   padding: 1px 4px;
-  border: 1px solid #416783;
+  border: 1px solid var(--cap-kbd-border);
   border-radius: 3px;
   background: transparent;
-  color: #7b9fb9;
+  color: var(--cap-save-kbd);
   font-size: 8.5px;
   font-weight: 600;
 }
@@ -2749,12 +2825,12 @@
 }
 
 .record-studio.is-capture .capture-ir-buf span {
-  color: #6b92ae;
+  color: var(--cap-buf-label);
   font-size: 9px;
 }
 
 .record-studio.is-capture .capture-ir-buf strong {
-  color: #92b2c9;
+  color: var(--cap-buf-value);
   font-family: var(--font-display);
   font-size: 9.5px;
   font-weight: 500;
@@ -2773,26 +2849,26 @@
   gap: 8px;
   margin-top: auto;
   padding: 8px 14px;
-  border-top: 1px solid #29465c;
-  background: #11171d;
+  border-top: 1px solid var(--cap-output-rule);
+  background: var(--cap-panel);
 }
 
 .record-studio.is-capture .capture-output-row .capture-output-link {
   margin: 0;
-  color: #a6c4db;
+  color: var(--cap-output);
   font-size: 11px;
   font-weight: 600;
 }
 
 .record-studio.is-capture .capture-output-row > span {
-  color: #759cba;
+  color: var(--cap-output-meta);
   font-size: 10px;
   white-space: nowrap;
 }
 
 .record-studio.is-capture .studio-visual-row.is-selected {
-  background: #20333d;
-  box-shadow: inset 0 0 0 1px #3b5565;
+  background: var(--cap-selected);
+  box-shadow: inset 0 0 0 1px var(--cap-selected-ring);
 }
 
 .record-studio.is-capture .capture-column {
@@ -2800,7 +2876,7 @@
   flex: 1 1 0;
   min-width: 220px;
   min-height: 0;
-  border-right: 1px solid #34414c;
+  border-right: 1px solid var(--cap-border);
 }
 
 .record-studio.is-capture .capture-column:last-child {
@@ -2856,4 +2932,210 @@
 
 .record-studio.is-capture .studio-inspector-close {
   margin-left: auto;
+}
+
+/* Light and grey retint the capture chrome from the app colorway. The preview stage stays dark. */
+html[data-theme="light"] .page:has(.record-studio.is-capture) {
+  --cap-canvas: var(--bg-workspace);
+  --cap-panel: var(--bg-raised);
+  --cap-chip: var(--bg-raised);
+  --cap-head: var(--bg-input);
+  --cap-head-strong: var(--bg-hover);
+  --cap-well: var(--bg-input);
+  --cap-well-2: var(--bg-hover);
+  --cap-selected: var(--accent-dim);
+  --cap-selected-scene: var(--accent-dim);
+  --cap-selected-ring: var(--accent-ring);
+  --cap-border: var(--line);
+  --cap-border-soft: var(--line-soft);
+  --cap-border-top: var(--line-soft);
+  --cap-split: var(--line);
+  --cap-scene-rule: var(--line-soft);
+  --cap-output-rule: var(--line-soft);
+  --cap-open-border: var(--line);
+  --cap-open-border-hover: var(--border-hover);
+  --cap-border-input: var(--border-hover);
+  --cap-border-btn: var(--border-hover);
+  --cap-meta-rule: var(--line);
+  --cap-title: var(--text);
+  --cap-heading: var(--text);
+  --cap-clock: var(--text);
+  --cap-scene-on: var(--text);
+  --cap-text-2: var(--text);
+  --cap-source: var(--text);
+  --cap-meta-strong: var(--text);
+  --cap-input: var(--text);
+  --cap-buffer-text: var(--text);
+  --cap-field: var(--text);
+  --cap-mix: var(--text);
+  --cap-open: var(--text);
+  --cap-icon: var(--text-hover);
+  --cap-ghost: var(--text-hover);
+  --cap-save: var(--text-hover);
+  --cap-scene: var(--text-hover);
+  --cap-buf-value: var(--text-hover);
+  --cap-secondary: var(--text-muted);
+  --cap-game: var(--text-muted);
+  --cap-meta: var(--text-muted);
+  --cap-link: var(--text-muted);
+  --cap-state: var(--text-muted);
+  --cap-state-dot: var(--text-muted);
+  --cap-ir: var(--text-muted);
+  --cap-dim: var(--text-muted);
+  --cap-buffer: var(--text-muted);
+  --cap-colon: var(--text-muted);
+  --cap-save-kbd: var(--text-muted);
+  --cap-hint: var(--text-muted);
+  --cap-hint-2: var(--text-muted);
+  --cap-ir-off: var(--text-muted);
+  --cap-output-meta: var(--text-muted);
+  --cap-count: var(--text-muted);
+  --cap-muted: var(--text-muted);
+  --cap-muted-2: var(--text-muted);
+  --cap-buf-label: var(--text-muted);
+  --cap-preview-dim: var(--text-muted);
+  --cap-index: var(--text-muted);
+  --cap-dot: var(--status-dot);
+  --cap-output: var(--accent-text);
+  --cap-inspector: var(--accent-text);
+  --cap-accent: var(--accent-text);
+  --cap-ok: var(--ok);
+  --cap-ok-text: var(--ok);
+  --cap-danger-soft: var(--danger);
+  --cap-error: var(--danger);
+  --cap-meter: var(--meter-track);
+  --cap-meter-fill: #6e8ea3;
+  --cap-switch: var(--switch-bg);
+  --cap-switch-border: var(--border-hover);
+  --cap-switch-knob: var(--switch-knob);
+  --cap-switch-on: var(--accent-text);
+  --cap-switch-knob-on: #ffffff;
+  --cap-kbd-border: var(--border-hover);
+}
+
+html[data-theme="grey"] .page:has(.record-studio.is-capture) {
+  --cap-canvas: var(--bg-workspace);
+  --cap-panel: var(--bg);
+  --cap-chip: var(--bg-raised);
+  --cap-head: var(--bg-raised);
+  --cap-head-strong: var(--bg-raised);
+  --cap-well: var(--bg-input);
+  --cap-well-2: var(--bg-hover);
+  --cap-selected: var(--accent-dim);
+  --cap-selected-scene: var(--accent-dim);
+  --cap-selected-ring: var(--accent-ring);
+  --cap-border: var(--border);
+  --cap-border-soft: var(--line-soft);
+  --cap-border-top: var(--line-soft);
+  --cap-split: var(--border);
+  --cap-scene-rule: var(--line-soft);
+  --cap-output-rule: var(--line-soft);
+  --cap-open-border: var(--border);
+  --cap-open-border-hover: var(--border-hover);
+  --cap-border-input: var(--border-hover);
+  --cap-border-btn: var(--border-hover);
+  --cap-meta-rule: var(--border);
+  --cap-title: var(--text);
+  --cap-heading: var(--text);
+  --cap-clock: var(--text);
+  --cap-scene-on: var(--text);
+  --cap-text-2: var(--text);
+  --cap-source: var(--text);
+  --cap-meta-strong: var(--text);
+  --cap-input: var(--text);
+  --cap-buffer-text: var(--text);
+  --cap-field: var(--text);
+  --cap-mix: var(--text);
+  --cap-open: var(--text);
+  --cap-icon: var(--text);
+  --cap-ghost: var(--text);
+  --cap-save: var(--text);
+  --cap-scene: var(--text-muted);
+  --cap-buf-value: var(--text);
+  --cap-secondary: var(--text-muted);
+  --cap-game: var(--text-muted);
+  --cap-meta: var(--text-muted);
+  --cap-link: var(--text-muted);
+  --cap-state: var(--text-muted);
+  --cap-state-dot: var(--text-muted);
+  --cap-ir: var(--text-muted);
+  --cap-dim: var(--text-muted);
+  --cap-buffer: var(--text-muted);
+  --cap-colon: var(--text-muted);
+  --cap-save-kbd: var(--text-muted);
+  --cap-hint: var(--text-muted);
+  --cap-hint-2: var(--text-muted);
+  --cap-ir-off: var(--text-muted);
+  --cap-output-meta: var(--text-muted);
+  --cap-count: var(--text-muted);
+  --cap-muted: var(--text-muted);
+  --cap-muted-2: var(--text-muted);
+  --cap-buf-label: var(--text-muted);
+  --cap-preview-dim: var(--text-muted);
+  --cap-index: var(--text-muted);
+  --cap-dot: var(--status-dot);
+  --cap-output: var(--accent);
+  --cap-inspector: var(--accent);
+  --cap-accent: var(--accent);
+  --cap-ok: var(--ok);
+  --cap-ok-text: var(--ok);
+  --cap-danger-soft: var(--danger-text);
+  --cap-error: var(--danger-text);
+  --cap-meter: var(--bg-input);
+  --cap-meter-fill: var(--accent-strong);
+  --cap-switch: var(--switch-bg);
+  --cap-switch-border: var(--border);
+  --cap-switch-knob: var(--switch-knob);
+  --cap-switch-on: var(--accent);
+  --cap-switch-knob-on: var(--on-accent);
+  --cap-kbd-border: var(--border-hover);
+}
+
+html[data-theme="light"] .record-studio.is-capture .capture-open:hover,
+html[data-theme="grey"] .record-studio.is-capture .capture-open:hover {
+  background: var(--bg-hover);
+}
+
+html[data-theme="light"] .record-studio.is-capture .studio-mix-tool,
+html[data-theme="grey"] .record-studio.is-capture .studio-mix-tool {
+  background: var(--bg-input);
+  border-color: var(--border);
+}
+
+html[data-theme="light"] .record-studio.is-capture .studio-mix-tool:hover,
+html[data-theme="grey"] .record-studio.is-capture .studio-mix-tool:hover {
+  border-color: var(--border-hover);
+}
+
+html[data-theme="light"] .record-studio.is-capture .studio-mix-vu-scale,
+html[data-theme="grey"] .record-studio.is-capture .studio-mix-vu-scale {
+  color: var(--text-muted);
+}
+
+html[data-theme="light"] .record-studio.is-capture .studio-mix-vu-bar {
+  background: var(--meter-track);
+  border-color: var(--border);
+}
+
+html[data-theme="grey"] .record-studio.is-capture .studio-mix-vu-bar {
+  background: var(--bg-input);
+  border-color: var(--border);
+}
+
+html[data-theme="light"] .record-studio.is-capture .studio-mix-fader-input::-webkit-slider-thumb,
+html[data-theme="light"] .record-studio.is-capture .studio-mix-fader-input::-moz-range-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--accent-text);
+  border-color: #ffffff;
+  box-shadow: 0 0 0 1px var(--accent-ring);
+}
+
+html[data-theme="grey"] .record-studio.is-capture .studio-mix-fader-input::-webkit-slider-thumb,
+html[data-theme="grey"] .record-studio.is-capture .studio-mix-fader-input::-moz-range-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--accent);
+  border-color: var(--bg);
+  box-shadow: 0 0 0 1px var(--accent-ring);
 }

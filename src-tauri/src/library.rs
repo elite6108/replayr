@@ -1014,6 +1014,100 @@ fn remove_media(path: &str) {
     let _ = std::fs::remove_file(path);
 }
 
+fn is_video_path(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .as_deref(),
+        Some("mp4" | "webm" | "mov" | "mkv")
+    )
+}
+
+/// A local video already linked to this cloud clip, when the file is still on disk.
+pub fn local_copy_for_cloud(
+    app: &AppHandle,
+    conn: &Connection,
+    cloud_clip_id: &str,
+) -> AppResult<Option<LocalClipDto>> {
+    let cloud_clip_id = cloud_clip_id.trim();
+    if cloud_clip_id.is_empty() {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare(
+        "SELECT local_id FROM local_clips WHERE cloud_clip_id = ?1 ORDER BY created_at DESC LIMIT 8",
+    )?;
+    let ids = stmt.query_map([cloud_clip_id], |row| row.get::<_, String>(0))?;
+    let mut found = Vec::new();
+    for id in ids {
+        found.push(id?);
+    }
+    drop(stmt);
+    for local_id in found {
+        let clip = get(conn, &local_id)?;
+        let path = PathBuf::from(&clip.file_path);
+        if path.is_file() && is_video_path(&path) {
+            crate::paths::allow_asset_file(app, &path);
+            return Ok(Some(clip));
+        }
+    }
+    Ok(None)
+}
+
+/// Register a downloaded cloud MP4 as a local clip and link it to the cloud id.
+/// The file stays on this PC so the editor can open it.
+pub fn import_cloud_copy(
+    app: &AppHandle,
+    path: &str,
+    title: String,
+    cloud_clip_id: &str,
+    duration_ms: u64,
+    width: u32,
+    height: u32,
+) -> AppResult<LocalClipDto> {
+    let cloud_clip_id = cloud_clip_id.trim();
+    if cloud_clip_id.is_empty() {
+        return Err(AppError::Message("That cloud clip is missing an id.".into()));
+    }
+    let file = PathBuf::from(path);
+    if !file.is_file() || !is_video_path(&file) {
+        return Err(AppError::Message("That download is not a video file.".into()));
+    }
+    crate::paths::assert_reveal_allowed(app, path)?;
+    let title = {
+        let trimmed = title.trim();
+        if trimmed.is_empty() {
+            "Untitled clip".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    };
+    let local_id = insert(
+        app,
+        &file,
+        duration_ms,
+        width,
+        height,
+        0,
+        None,
+        title,
+        CaptureKind::Clip,
+        None,
+        None,
+        None,
+        None,
+    )?;
+    let db = app.state::<AppState>();
+    let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    conn.execute(
+        "UPDATE local_clips SET release_local = 0 WHERE local_id = ?1",
+        [&local_id],
+    )?;
+    let clip = set_cloud(&conn, &local_id, "completed", Some(cloud_clip_id), None)?;
+    crate::paths::allow_asset_file(app, &file);
+    Ok(clip)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

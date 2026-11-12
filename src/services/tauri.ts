@@ -295,6 +295,21 @@ export async function getDefaultSaveLocation(): Promise<string> {
   return invoke("get_default_save_location");
 }
 
+export async function localCopyForCloud(cloudClipId: string): Promise<LocalClip | null> {
+  return invoke("local_copy_for_cloud", { cloudClipId });
+}
+
+export async function importLinkedCloudClip(options: {
+  path: string;
+  title: string;
+  cloudClipId: string;
+  durationMs: number;
+  width: number;
+  height: number;
+}): Promise<LocalClip> {
+  return invoke("import_linked_cloud_clip", options);
+}
+
 export async function createDesktopShortcut(): Promise<void> {
   await invoke("create_desktop_shortcut");
 }

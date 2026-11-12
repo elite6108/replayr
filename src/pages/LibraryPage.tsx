@@ -27,6 +27,7 @@ import {
   type LibrarySort,
   type LibraryView,
 } from "../library/libraryBrowse";
+import { editCloudClip } from "../library/editCloudClip";
 import { useAuthStore } from "../stores/authStore";
 import { useCloudStore } from "../stores/cloudStore";
 import { useDetectionStore } from "../stores/detectionStore";
@@ -96,7 +97,7 @@ function buildInfoModel(
     description: "",
     tags: [],
     canEditMeta: false,
-    canEdit: false,
+    canEdit: clip.status === "ready",
     canShare: clip.status === "ready" && clip.visibility !== "private",
     related: [],
   };
@@ -367,6 +368,7 @@ export function LibraryPage({ view = "local" }: { view?: LibraryView }) {
         onDelete={(item) => openCloudDelete([item.id])}
         onDownload={(item) => void downloadCloud(item.id)}
         onCopyLink={(item) => void copyCloudLink(item.id)}
+        onEdit={(item) => void editCloudClip(item, navigate)}
         onVisibility={(item, visibility) => void setCloudVisibility(item.id, visibility)}
         onInfo={(item) => toggleInfo({ kind: "cloud", id: item.id })}
       />
@@ -573,7 +575,12 @@ export function LibraryPage({ view = "local" }: { view?: LibraryView }) {
                 else void playCloud(info.id);
               }}
               onEdit={() => {
-                if (info.kind === "local") navigate(`/editor/${info.id}`);
+                if (info.kind === "local") {
+                  navigate(`/editor/${info.id}`);
+                  return;
+                }
+                const clip = cloudClips.find((item) => item.id === info.id);
+                if (clip) void editCloudClip(clip, navigate);
               }}
               onShare={() => {
                 if (info.kind === "local") void copyLocalLink(info.id);

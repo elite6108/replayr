@@ -1,4 +1,9 @@
 {
+  "0.1.88": [
+    "Edit a cloud clip. Replayr opens the copy already on this PC, or downloads it and opens the editor.",
+    "Right-clicking another clip closes the menu that was already open.",
+    "You can cancel a clip that is still uploading."
+  ],
   "0.1.87": [
     "Composed recording saves the video on PCs that only have the Windows software encoder."
   ],

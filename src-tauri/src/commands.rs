@@ -856,6 +856,37 @@ pub fn get_default_save_location(app: AppHandle) -> AppResult<String> {
 }
 
 #[tauri::command]
+pub fn local_copy_for_cloud(
+    app: AppHandle,
+    state: State<AppState>,
+    cloud_clip_id: String,
+) -> AppResult<Option<LocalClipDto>> {
+    let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    library::local_copy_for_cloud(&app, &conn, &cloud_clip_id)
+}
+
+#[tauri::command]
+pub fn import_linked_cloud_clip(
+    app: AppHandle,
+    path: String,
+    title: String,
+    cloud_clip_id: String,
+    duration_ms: u64,
+    width: u32,
+    height: u32,
+) -> AppResult<LocalClipDto> {
+    library::import_cloud_copy(
+        &app,
+        &path,
+        title,
+        &cloud_clip_id,
+        duration_ms,
+        width,
+        height,
+    )
+}
+
+#[tauri::command]
 pub fn auth_get_item(app: AppHandle, key: String) -> AppResult<Option<String>> {
     auth::get_item(&app, &key)
 }

@@ -293,6 +293,8 @@ pub fn run() {
             commands::export_local_clip,
             commands::download_url_to_file,
             commands::get_default_save_location,
+            commands::local_copy_for_cloud,
+            commands::import_linked_cloud_clip,
             commands::auth_get_item,
             commands::auth_set_item,
             commands::auth_remove_item,

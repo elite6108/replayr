@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 export interface MenuItem {
@@ -7,6 +7,12 @@ export interface MenuItem {
   danger?: boolean;
   onClick: () => void;
 }
+
+type OpenMenu = { token: symbol; close: () => void };
+
+// Cards stop the contextmenu event, so a window listener never hears a
+// right-click on the next card. This is the one place every menu shares.
+let openMenu: OpenMenu | null = null;
 
 export function ContextMenu({
   x,
@@ -19,12 +25,25 @@ export function ContextMenu({
   items: MenuItem[];
   onClose: () => void;
 }) {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useLayoutEffect(() => {
+    const token = Symbol();
+    const previous = openMenu;
+    openMenu = { token, close: () => closeRef.current() };
+    previous?.close();
+    return () => {
+      if (openMenu?.token === token) openMenu = null;
+    };
+  }, []);
+
   useEffect(() => {
     function hide() {
-      onClose();
+      closeRef.current();
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") closeRef.current();
     }
     const timer = window.setTimeout(() => {
       window.addEventListener("click", hide);
@@ -37,7 +56,7 @@ export function ContextMenu({
       window.removeEventListener("contextmenu", hide);
       window.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, []);
 
   const left = Math.min(x, window.innerWidth - 200);
   const top = Math.min(y, window.innerHeight - items.length * 32 - 16);

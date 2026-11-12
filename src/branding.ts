@@ -8,10 +8,25 @@ export function publicAppUrl(): string {
   return fromEnv || DEFAULT_PUBLIC_APP_URL;
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
 export function publicApiUrl(): string {
   const url = publicAppUrl();
   try {
     const parsed = new URL(url);
+    // The dev window is http://localhost:1420. Calling https://www.replayr.tv
+    // from there is rejected (no CORS header) and shows up as "Failed to fetch".
+    // Stay on this page and let Vite forward /v1 to the local worker.
+    if (typeof window !== "undefined") {
+      try {
+        const page = new URL(window.location.origin);
+        if (isLoopbackHost(page.hostname)) return page.origin;
+      } catch {
+        // Keep the configured worker origin.
+      }
+    }
     if (parsed.hostname === "replayr.tv") parsed.hostname = "www.replayr.tv";
     return parsed.origin;
   } catch {

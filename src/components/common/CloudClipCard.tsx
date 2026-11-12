@@ -39,6 +39,7 @@ export function CloudClipCard({
   onDelete,
   onDownload,
   onCopyLink,
+  onEdit,
   onVisibility,
   onInfo,
   infoOpen = false,
@@ -52,6 +53,7 @@ export function CloudClipCard({
   onDelete?: (clip: CloudClip) => void;
   onDownload?: (clip: CloudClip) => void;
   onCopyLink?: (clip: CloudClip) => void;
+  onEdit?: (clip: CloudClip) => void;
   onVisibility?: (clip: CloudClip, visibility: CloudClip["visibility"]) => void;
   onInfo?: (clip: CloudClip) => void;
   infoOpen?: boolean;
@@ -182,6 +184,9 @@ export function CloudClipCard({
               disabled: !ready,
               onClick: () => onPlay?.(clip),
             },
+            ...(onEdit
+              ? [{ label: "Edit", disabled: !ready, onClick: () => onEdit(clip) }]
+              : []),
             { label: selected ? "Deselect" : "Select", onClick: () => onSelect?.(clip) },
             {
               label: "Rename",

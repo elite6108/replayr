@@ -29,6 +29,7 @@ import { deleteBunnyAssetForClip } from "./watermark";
 import { assertPermission, requireStaffActor, type StaffActor } from "./staffAuth";
 import { permissionForAdminRoute } from "./staffPermissions";
 import { handleAnalyticsUserAdmin } from "./analyticsUserAdmin";
+import { handleAccessBanAdmin } from "./accessBans";
 import { handleModerationAdmin } from "./moderation";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -64,6 +65,7 @@ interface ProfileRow {
   username: string | null;
   display_name: string | null;
   is_verified: boolean;
+  suspended_at?: string | null;
 }
 
 interface StorageRow {
@@ -121,6 +123,8 @@ export async function handleAdmin(
   const staff = await requireStaffActor(request, env);
   await authorizeAdminRoute(staff, request, url);
   const actor: AdminActor = { id: staff.userId, serviceKey: staff.serviceKey, requestId: staff.requestId };
+  const bans = await handleAccessBanAdmin(request, env, url, staff);
+  if (bans) return bans;
   const moderation = await handleModerationAdmin(request, env, url, staff);
   if (moderation) return moderation;
   const waitlist = await handleWaitlistAdmin(request, env, url, staff, ctx);
@@ -1096,6 +1100,7 @@ type AdminUserRow = {
   cancelAtPeriodEnd: boolean;
   stripeCustomerId: string | null;
   complimentary: boolean;
+  suspended: boolean;
 };
 
 async function hydrateUsers(env: Env, actor: AdminActor, authUsers: AuthAdminUser[]): Promise<AdminUserRow[]> {
@@ -1106,7 +1111,7 @@ async function hydrateUsers(env: Env, actor: AdminActor, authUsers: AuthAdminUse
           env,
           actor,
           "GET",
-          `/profiles?id=in.(${ids.join(",")})&select=id,username,display_name,is_verified`,
+          `/profiles?id=in.(${ids.join(",")})&select=id,username,display_name,is_verified,suspended_at`,
         )
       : Promise.resolve([] as ProfileRow[]),
     ids.length
@@ -1177,6 +1182,7 @@ async function hydrateUsers(env: Env, actor: AdminActor, authUsers: AuthAdminUse
       cancelAtPeriodEnd: Boolean(sub?.cancel_at_period_end),
       stripeCustomerId: customerById.get(user.id) ?? null,
       complimentary: grantIds.has(user.id),
+      suspended: Boolean(profile?.suspended_at),
     };
   });
 }

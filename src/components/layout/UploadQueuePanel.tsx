@@ -52,6 +52,7 @@ export function UploadQueuePanel() {
   const queue = useLibraryStore((state) => state.uploadQueue);
   const activeUploadId = useLibraryStore((state) => state.activeUploadId);
   const dequeueUpload = useLibraryStore((state) => state.dequeueUpload);
+  const cancelUpload = useLibraryStore((state) => state.cancelUpload);
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
@@ -82,20 +83,29 @@ export function UploadQueuePanel() {
 
   return (
     <div className="upload-queue">
-      <button
-        type="button"
-        className="upload-queue-toggle"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span className="upload-queue-summary">{collapsed}</span>
-        <span className="upload-queue-bar" aria-hidden="true">
-          <span
-            className={`upload-queue-bar-fill${isIndeterminate(active) ? " indeterminate" : ""}`}
-            style={isIndeterminate(active) ? undefined : { width: `${progressPct(active)}%` }}
-          />
-        </span>
-      </button>
+      <div className="upload-queue-head">
+        <button
+          type="button"
+          className="upload-queue-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span className="upload-queue-summary">{collapsed}</span>
+          <span className="upload-queue-bar" aria-hidden="true">
+            <span
+              className={`upload-queue-bar-fill${isIndeterminate(active) ? " indeterminate" : ""}`}
+              style={isIndeterminate(active) ? undefined : { width: `${progressPct(active)}%` }}
+            />
+          </span>
+        </button>
+        <button
+          type="button"
+          className="btn sm upload-queue-cancel"
+          onClick={() => cancelUpload(active.localId)}
+        >
+          Cancel
+        </button>
+      </div>
       {open ? (
         <div className="upload-queue-list" role="list">
           <div className="upload-queue-row" role="listitem">

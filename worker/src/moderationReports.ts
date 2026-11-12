@@ -1,3 +1,4 @@
+import { accountAccessBanActive } from "./accessBans";
 import { AUDIT_ACTIONS, writeAuditLog } from "./audit";
 import { clearUserAvatar } from "./avatars";
 import type { Env } from "./env";
@@ -206,6 +207,9 @@ export async function unsuspendModerationUser(env: Env, actor: StaffActor, userI
     `/profiles?id=eq.${userId}&select=id`,
   );
   if (!rows[0]) throw new HttpError(404, "That account was not found.");
+  if (await accountAccessBanActive(env, userId)) {
+    throw new HttpError(409, "Lift the ban before restoring this account.");
+  }
   await serviceRest(env, "PATCH", `/profiles?id=eq.${userId}`, {
     suspended_at: null,
     suspended_reason: null,

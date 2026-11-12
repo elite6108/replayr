@@ -26,17 +26,28 @@
   box-shadow: var(--shadow);
 }
 
+.upload-queue-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
 .upload-queue-toggle {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: none;
   border: 0;
   color: inherit;
   text-align: left;
   cursor: pointer;
   padding: 0;
+}
+
+.upload-queue-cancel {
+  flex: none;
 }
 
 .upload-queue-summary {

@@ -83,6 +83,16 @@ export interface AdminUserRow {
   cancelAtPeriodEnd?: boolean;
   stripeCustomerId?: string | null;
   complimentary?: boolean;
+  suspended?: boolean;
+}
+
+export interface AccessBan {
+  id: string;
+  kind: "account" | "ip";
+  subject: string;
+  label: string;
+  reason: string;
+  createdAt: string;
 }
 
 export interface AdminClipRow {
@@ -182,6 +192,28 @@ export function updateAdminUser(
     method: "PATCH",
     body: JSON.stringify(patch),
   });
+}
+
+export function fetchAccessBans(token: string) {
+  return adminFetch<{ bans: AccessBan[] }>("/v1/admin/bans", token);
+}
+
+export function createAccessBan(
+  token: string,
+  body: { kind: "account"; userId: string; reason: string } | { kind: "ip"; ip: string; reason: string },
+) {
+  return adminFetch<{ ban: AccessBan }>("/v1/admin/bans", token, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function liftAccessBan(token: string, banId: string) {
+  return adminFetch<{ ok: boolean }>(`/v1/admin/bans/${banId}/lift`, token, { method: "POST" });
+}
+
+export function restoreAccountAccess(token: string, userId: string) {
+  return adminFetch<{ ok: boolean }>(`/v1/admin/bans/account/${userId}/restore`, token, { method: "POST" });
 }
 
 export async function fetchAdminClips(

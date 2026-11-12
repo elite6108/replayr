@@ -210,7 +210,7 @@ export function staffRolesHref(): Href {
   return "/staff/roles" as Href;
 }
 
-async function staffFetch<T>(path: string, token: string, init?: RequestInit): Promise<T> {
+export async function staffFetch<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("accept", "application/json");
   headers.set("authorization", `Bearer ${token}`);

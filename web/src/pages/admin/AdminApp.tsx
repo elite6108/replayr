@@ -2,6 +2,7 @@ import { Route, Routes } from "react-router-dom";
 import { RequireAdmin } from "../../components/RequireAdmin";
 import { AdminAnnouncementsPage } from "./AdminAnnouncementsPage";
 import { AdminAuditPage } from "./AdminAuditPage";
+import { AdminBansPage } from "./AdminBansPage";
 import { AdminBillingPage } from "./AdminBillingPage";
 import { AdminCreatorsPage } from "./AdminCreatorsPage";
 import { AdminErrorsPage } from "./AdminErrorsPage";
@@ -52,6 +53,7 @@ export function AdminApp() {
         <Route path="people" element={<PeopleShell />}>
           <Route index element={<PeopleHome />} />
           <Route path="users" element={<AdminUsersPage />} />
+          <Route path="bans" element={<AdminBansPage />} />
           <Route path="users/:userId" element={<AnalyticsUsersPage />} />
           <Route path="waitlist" element={<AdminWaitlistPage />} />
           <Route path="creators" element={<AdminCreatorsPage />} />

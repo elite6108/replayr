@@ -320,6 +320,8 @@ pub fn run() {
             snip::commands::screenshot_export,
             snip::commands::screenshot_sync_cloud,
             commands::upload_local_clip,
+            commands::cancel_local_upload,
+            commands::clear_local_upload_cancel,
             commands::delete_cloud_clip,
             commands::create_desktop_shortcut,
             commands::remove_desktop_shortcut,

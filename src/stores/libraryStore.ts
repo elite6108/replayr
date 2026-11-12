@@ -15,6 +15,8 @@ import {
   revealLocalClip,
   setLocalClipFavorite,
   uploadLocalClip,
+  cancelLocalUpload,
+  clearLocalUploadCancel,
 } from "../services/tauri";
 import { isUnsentCloudOnly, shouldReleaseLocalCopy } from "../services/cloudRelease";
 import { shouldAutoUpload, shouldDeferUpload } from "../services/cloudUploadPolicy";
@@ -60,6 +62,7 @@ interface LibraryState {
   activeUploadId: string | null;
   upload: (localId: string) => Promise<void>;
   ensureCloudUpload: (localId: string) => Promise<boolean>;
+  cancelUpload: (localId: string) => void;
   dequeueUpload: (localId: string) => void;
   download: (localId: string) => Promise<void>;
   downloadMany: (localIds: string[]) => Promise<void>;
@@ -128,8 +131,17 @@ function applyUploadEvent(payload: CloudUploadEvent) {
   const localId = payload.localId;
   if (!localId) return;
   const status = payload.status || payload.phase;
-  if (status === "deleted") {
+  if (status === "deleted" || status === "cancelled") {
     removeQueueItem(localId);
+    if (status === "cancelled") {
+      const state = useLibraryStore.getState();
+      const clip = state.clips.find((item) => item.localId === localId);
+      if (clip) {
+        useLibraryStore.setState({
+          clips: patchClip(state.clips, { ...clip, uploadStatus: "local", cloudClipId: null }),
+        });
+      }
+    }
     return;
   }
   if (status === "completed" || status === "failed") {
@@ -239,12 +251,22 @@ async function drainUploadQueue() {
       useLibraryStore.setState({ activeUploadId: localId });
       patchQueueItem(localId, { phase: "preparing" });
       try {
+        if (cancelledUploads.delete(localId)) {
+          useToastStore.getState().show("Upload cancelled");
+          waiter?.resolve();
+          continue;
+        }
         await runUploadWork(localId);
         waiter?.resolve();
       } catch (caught) {
         const message = invokeErrorMessage(caught, "Upload failed");
-        useToastStore.getState().show(message.includes("Premium") ? `${message} Open Account to upgrade.` : message);
-        await useLibraryStore.getState().refresh();
+        if (message.toLowerCase().includes("upload cancelled") || cancelledUploads.delete(localId)) {
+          useToastStore.getState().show("Upload cancelled");
+          await useLibraryStore.getState().refresh();
+        } else {
+          useToastStore.getState().show(message.includes("Premium") ? `${message} Open Account to upgrade.` : message);
+          await useLibraryStore.getState().refresh();
+        }
         waiter?.resolve();
       } finally {
         jobResolvers.delete(localId);
@@ -559,6 +581,13 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
   upload: async (localId) => {
     cancelledUploads.delete(localId);
+    if (get().activeUploadId !== localId) {
+      try {
+        await clearLocalUploadCancel(localId);
+      } catch {
+        // The desktop command is only needed to drop a stale cancel from the last attempt.
+      }
+    }
     await enqueueJob(localId);
   },
   ensureCloudUpload: async (localId) => {
@@ -574,6 +603,16 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     await get().upload(localId);
     const next = get().clips.find((item) => item.localId === localId);
     return Boolean(next?.cloudClipId && next.uploadStatus === "completed");
+  },
+  cancelUpload: (localId) => {
+    if (get().activeUploadId !== localId) {
+      get().dequeueUpload(localId);
+      return;
+    }
+    cancelledUploads.add(localId);
+    void cancelLocalUpload(localId).catch(() => {
+      useToastStore.getState().show("Could not cancel that upload");
+    });
   },
   dequeueUpload: (localId) => {
     if (get().activeUploadId === localId) return;

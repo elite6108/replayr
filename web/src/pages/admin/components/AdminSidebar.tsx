@@ -17,9 +17,11 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { can } = useStaffPermissions();
   const peopleTo = can("users.view")
     ? "/admin/people"
-    : can("waitlist.view")
-      ? "/admin/people/waitlist"
-      : "/admin/people/creators";
+    : can("users.ban")
+      ? "/admin/people/bans"
+      : can("waitlist.view")
+        ? "/admin/people/waitlist"
+        : "/admin/people/creators";
   const libraryTo = can("clips.view") ? "/admin/library" : "/admin/library/storage";
   const teamTo = can("staff.access")
     ? "/staff/board"
@@ -31,7 +33,7 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   const links = [
     can("admin.access") ? { to: "/admin", label: "Overview", end: true, icon: IconOverview } : null,
-    can("users.view") || can("waitlist.view") || can("creators.view")
+    can("users.view") || can("users.ban") || can("waitlist.view") || can("creators.view")
       ? { to: peopleTo, label: "People", icon: IconUsers, activePrefix: "/admin/people" }
       : null,
     can("clips.view") || can("users.quota.edit")

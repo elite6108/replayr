@@ -1,7 +1,8 @@
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
@@ -19,6 +20,38 @@ const MAX_PRESIGN_PARTS: usize = 80;
 
 /// One compose+upload at a time so webcam re-encode cannot run in parallel.
 static UPLOAD_GATE: Mutex<()> = Mutex::new(());
+const UPLOAD_CANCELLED: &str = "Upload cancelled";
+static CANCELLED_UPLOADS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+pub fn request_upload_cancel(local_id: &str) {
+    if local_id.is_empty() {
+        return;
+    }
+    if let Ok(mut set) = CANCELLED_UPLOADS.lock() {
+        set.insert(local_id.to_string());
+    }
+}
+
+pub fn clear_upload_cancel(local_id: &str) {
+    if let Ok(mut set) = CANCELLED_UPLOADS.lock() {
+        set.remove(local_id);
+    }
+}
+
+fn upload_cancel_requested(local_id: &str) -> bool {
+    CANCELLED_UPLOADS
+        .lock()
+        .map(|set| set.contains(local_id))
+        .unwrap_or(false)
+}
+
+fn cancelled_error() -> AppError {
+    AppError::Message(UPLOAD_CANCELLED.into())
+}
+
+fn is_upload_cancelled(err: &AppError) -> bool {
+    err.to_string().contains(UPLOAD_CANCELLED)
+}
 
 /// Temp composed upload file. Removed on drop so failed uploads do not litter disk.
 struct UploadComposeGuard(Option<PathBuf>);
@@ -72,6 +105,47 @@ struct CompleteResponse {
     share_url: Option<String>,
 }
 
+fn finish_cancel(
+    app: &AppHandle,
+    local_id: &str,
+    client: Option<&Client>,
+    api_base: &str,
+    access_token: &str,
+    clip_id: Option<&str>,
+) -> AppError {
+    if let (Some(client), Some(clip_id)) = (client, clip_id.filter(|id| !id.is_empty())) {
+        if let Err(err) = delete_in_progress_clip(client, api_base, access_token, clip_id) {
+            tracing::warn!(error = %err, "cancelled upload could not abort the cloud session");
+        }
+    }
+    let db = app.state::<AppState>();
+    if let Ok(conn) = db.db.lock() {
+        let _ = library::mark_upload_cancelled(&conn, local_id);
+    }
+    clear_upload_cancel(local_id);
+    emit(app, local_id, "cancelled", Some(UPLOAD_CANCELLED));
+    cancelled_error()
+}
+
+fn delete_in_progress_clip(
+    client: &Client,
+    api_base: &str,
+    access_token: &str,
+    clip_id: &str,
+) -> AppResult<()> {
+    let response = client
+        .delete(format!("{api_base}/v1/clips/{clip_id}"))
+        .headers(auth_headers(access_token)?)
+        .send()
+        .map_err(map_reqwest)?;
+    if response.status().is_success() || response.status().as_u16() == 404 {
+        return Ok(());
+    }
+    let status = response.status();
+    let text = response.text().unwrap_or_default();
+    Err(AppError::Message(api_error(status.as_u16(), &text)))
+}
+
 pub fn upload_local_clip(
     app: &AppHandle,
     local_id: &str,
@@ -91,6 +165,10 @@ pub fn upload_local_clip(
     let _gate = UPLOAD_GATE
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    if upload_cancel_requested(local_id) {
+        return Err(finish_cancel(app, local_id, None, api_base, access_token, None));
+    }
 
     let clip = {
         let db = app.state::<AppState>();
@@ -153,6 +231,17 @@ pub fn upload_local_clip(
         .build()
         .map_err(|err| AppError::Message(err.to_string()))?;
 
+    if upload_cancel_requested(local_id) {
+        return Err(finish_cancel(
+            app,
+            local_id,
+            Some(&client),
+            api_base,
+            access_token,
+            None,
+        ));
+    }
+
     let (mut session, mut completed) = match try_resume_session(
         &client,
         api_base,
@@ -206,6 +295,17 @@ pub fn upload_local_clip(
     }
     emit_progress(app, local_id, "uploading", None, Some(0), Some(file_size));
 
+    if upload_cancel_requested(local_id) {
+        return Err(finish_cancel(
+            app,
+            local_id,
+            Some(&client),
+            api_base,
+            access_token,
+            Some(&session.clip_id),
+        ));
+    }
+
     let etags = match put_all_parts(
         app,
         local_id,
@@ -219,6 +319,16 @@ pub fn upload_local_clip(
         compose_guard.0.as_ref().map(|p| p.display().to_string()),
     ) {
         Ok(etags) => etags,
+        Err(err) if is_upload_cancelled(&err) => {
+            return Err(finish_cancel(
+                app,
+                local_id,
+                Some(&client),
+                api_base,
+                access_token,
+                Some(&session.clip_id),
+            ));
+        }
         Err(err) => {
             // Keep composed bytes on disk for resume.
             compose_guard.0 = None;
@@ -241,6 +351,17 @@ pub fn upload_local_clip(
         library::set_cloud(&conn, local_id, "processing", Some(&session.clip_id), None)?;
     }
     emit(app, local_id, "processing", None);
+
+    if upload_cancel_requested(local_id) {
+        return Err(finish_cancel(
+            app,
+            local_id,
+            Some(&client),
+            api_base,
+            access_token,
+            Some(&session.clip_id),
+        ));
+    }
 
     match complete_session(
         &client,
@@ -583,6 +704,9 @@ fn put_all_parts(
         if remaining.is_empty() {
             break;
         }
+        if upload_cancel_requested(local_id) {
+            return Err(cancelled_error());
+        }
         let batch: Vec<u32> = remaining.into_iter().take(MAX_PRESIGN_PARTS).collect();
         *session = continue_session(
             client,
@@ -620,11 +744,14 @@ fn put_parts(
         {
             continue;
         }
+        if upload_cancel_requested(local_id) {
+            return Err(cancelled_error());
+        }
         let offset = (u64::from(part.part_number.saturating_sub(1))) * PART_SIZE as u64;
         let remaining = file_size.saturating_sub(offset);
         let take = remaining.min(PART_SIZE as u64) as usize;
         let etag =
-            put_part_with_retry(client, &part.url, &mut file, offset, take, part.part_number)?;
+            put_part_with_retry(client, local_id, &part.url, &mut file, offset, take, part.part_number)?;
         completed.push(CompletedPart {
             part_number: part.part_number,
             etag,
@@ -660,8 +787,33 @@ fn put_parts(
     Ok(())
 }
 
+struct CancelReader {
+    local_id: String,
+    data: Vec<u8>,
+    pos: usize,
+}
+
+impl Read for CancelReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if upload_cancel_requested(&self.local_id) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                UPLOAD_CANCELLED,
+            ));
+        }
+        if self.pos >= self.data.len() || buf.is_empty() {
+            return Ok(0);
+        }
+        let n = (self.data.len() - self.pos).min(buf.len()).min(64 * 1024);
+        buf[..n].copy_from_slice(&self.data[self.pos..self.pos + n]);
+        self.pos += n;
+        Ok(n)
+    }
+}
+
 fn put_part_with_retry(
     client: &Client,
+    local_id: &str,
     url: &str,
     file: &mut File,
     offset: u64,
@@ -670,20 +822,34 @@ fn put_part_with_retry(
 ) -> AppResult<String> {
     let mut last_err = String::new();
     for attempt in 0u64..3 {
+        if upload_cancel_requested(local_id) {
+            return Err(cancelled_error());
+        }
         if attempt > 0 {
             std::thread::sleep(std::time::Duration::from_millis(250 * attempt));
         }
         let mut buf = vec![0u8; take];
         file.seek(SeekFrom::Start(offset))?;
         file.read_exact(&mut buf)?;
+        let body = reqwest::blocking::Body::sized(
+            CancelReader {
+                local_id: local_id.to_string(),
+                data: buf,
+                pos: 0,
+            },
+            take as u64,
+        );
         let response = match client
             .put(url)
             .header(CONTENT_TYPE, "video/mp4")
-            .body(buf)
+            .body(body)
             .send()
         {
             Ok(response) => response,
             Err(err) => {
+                if upload_cancel_requested(local_id) {
+                    return Err(cancelled_error());
+                }
                 last_err = err.to_string();
                 continue;
             }
@@ -1001,6 +1167,23 @@ fn map_reqwest(err: reqwest::Error) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancel_reader_stops_when_the_upload_is_cancelled() {
+        let local_id = "cancel-reader-test";
+        clear_upload_cancel(local_id);
+        let mut reader = CancelReader {
+            local_id: local_id.into(),
+            data: vec![1, 2, 3, 4],
+            pos: 0,
+        };
+        let mut buf = [0u8; 2];
+        assert_eq!(reader.read(&mut buf).unwrap(), 2);
+        request_upload_cancel(local_id);
+        let err = reader.read(&mut buf).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
+        clear_upload_cancel(local_id);
+    }
 
     #[test]
     fn compose_timeout_clamps_between_three_and_fifteen_minutes() {

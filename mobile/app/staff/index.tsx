@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AppHeader } from "@/components/AppHeader";
 import { StaffGate } from "@/components/staff/StaffGate";
 import { staffStyles } from "@/components/staff/staffStyles";
+import { staffBansHref } from "@/lib/api.bans";
 import { staffBoardsHref, staffMembersHref, staffRolesHref, staffTasksHref, patchStaffMe } from "@/lib/api.staff";
 import { useAuth } from "@/lib/auth";
 import { useStaffPermissions } from "@/lib/staffPermissions";
@@ -61,6 +62,9 @@ export default function StaffHubScreen() {
           ) : null}
           {can("staff.roles.view") ? (
             <HubRow label="Roles & Permissions" hint="Role names and counts" onPress={() => router.push(staffRolesHref())} />
+          ) : null}
+          {can("users.ban") ? (
+            <HubRow label="Bans" hint="Block an account or IP address" onPress={() => router.push(staffBansHref())} />
           ) : null}
           <View style={staffStyles.card}>
             <View style={staffStyles.memberHeading}>

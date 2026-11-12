@@ -3,6 +3,7 @@ import { assertAcceptableText } from "./moderationTerms";
 import { handleUserModeration } from "./moderation";
 import { blockedEitherWay, loadFollowIndex } from "./follows";
 import { handleAdmin } from "./admin";
+import { rejectBannedNetwork } from "./accessBans";
 import { handleStaff, notifyStaffTaskDueSoon } from "./staff";
 import { drainWaitlistCampaigns } from "./waitlistAdmin";
 import { handleAnalytics, observeServerAnalytics, SERVER_ANALYTICS_EVENTS } from "./analytics";
@@ -170,6 +171,8 @@ export default {
       return cors(new Response(null, { status: 204 }), request, localDev);
     }
     try {
+      const banned = await rejectBannedNetwork(request, env, url);
+      if (banned) return cors(banned, request, localDev);
       observeLiveVisitor(request, env, url, ctx);
       return cors(await route(request, env, url, ctx), request, localDev);
     } catch (caught) {
@@ -1191,6 +1194,12 @@ async function deleteClip(request: Request, env: Env, clipId: string): Promise<R
         user.id,
         Math.max(0, Number(session.expected_size_bytes) - Number(clip.file_size_bytes ?? 0)),
       );
+    }
+  }
+
+  if (clip.status === "uploading") {
+    for (const session of sessions) {
+      await abortMultipart(env, session.storage_key ?? clip.storage_key ?? "", session.multipart_upload_id);
     }
   }
 

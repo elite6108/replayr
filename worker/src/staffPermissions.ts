@@ -17,6 +17,7 @@ export const STAFF_PERMISSIONS = [
   "users.view",
   "users.billing.edit",
   "users.quota.edit",
+  "users.ban",
   "waitlist.view",
   "waitlist.send",
   "waitlist.templates.manage",
@@ -104,6 +105,9 @@ export function lastSuperAdminLockout(activeSuperCount: number, actionRemovesSup
 export function permissionForAdminRoute(method: string, path: string): StaffPermission | null {
   if (path === "/v1/admin/overview") return "admin.access";
   if (path === "/v1/admin/users" && method === "GET") return "users.view";
+  if (path === "/v1/admin/bans" && (method === "GET" || method === "POST")) return "users.ban";
+  if (/^\/v1\/admin\/bans\/[^/]+\/lift$/.test(path) && method === "POST") return "users.ban";
+  if (/^\/v1\/admin\/bans\/account\/[^/]+\/restore$/.test(path) && method === "POST") return "users.ban";
   if (path === "/v1/admin/waitlist" && method === "GET") return "waitlist.view";
   if (path === "/v1/admin/waitlist/templates" && method === "GET") return "waitlist.view";
   if (path === "/v1/admin/waitlist/templates" && method === "POST") return "waitlist.templates.manage";

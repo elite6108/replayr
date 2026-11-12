@@ -7,6 +7,7 @@ import { AdminShell } from "./components/AdminShell";
 const pagePermission = (pathname: string): string | null => {
   if (pathname === "/admin") return "admin.access";
   if (pathname === "/admin/people") return null;
+  if (pathname.startsWith("/admin/people/bans")) return "users.ban";
   if (pathname.startsWith("/admin/people/waitlist")) return "waitlist.view";
   if (pathname.startsWith("/admin/people/creators")) return "creators.view";
   if (pathname === "/admin/library") return null;
@@ -28,7 +29,7 @@ const pagePermission = (pathname: string): string | null => {
 };
 
 function canOpenAdminPath(pathname: string, can: (key: string) => boolean, canAny: (...keys: string[]) => boolean) {
-  if (pathname === "/admin/people") return canAny("users.view", "waitlist.view", "creators.view");
+  if (pathname === "/admin/people") return canAny("users.view", "users.ban", "waitlist.view", "creators.view");
   if (pathname.startsWith("/admin/moderation")) return canAny("moderation.view", "moderation.act", "moderation.terms");
   if (pathname === "/admin/library") return canAny("clips.view", "users.quota.edit");
   const permission = pagePermission(pathname);

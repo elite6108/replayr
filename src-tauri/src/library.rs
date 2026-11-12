@@ -677,6 +677,23 @@ pub fn load_upload_resume(conn: &Connection, local_id: &str) -> AppResult<Option
     Ok(value.flatten().filter(|text| !text.is_empty()))
 }
 
+/// Stop tracking an upload the user cancelled. The local file stays, and the next
+/// upload starts a new cloud session instead of resuming the abandoned one.
+pub fn mark_upload_cancelled(conn: &Connection, local_id: &str) -> AppResult<LocalClipDto> {
+    let changed = conn.execute(
+        "UPDATE local_clips SET upload_status = 'local', cloud_clip_id = NULL WHERE local_id = ?1",
+        [local_id],
+    )?;
+    if changed == 0 {
+        return Err(AppError::Message("Clip not found.".into()));
+    }
+    conn.execute(
+        "UPDATE upload_queue SET status = 'cancelled', cloud_clip_id = NULL, last_error = NULL, resume_json = NULL, uploaded_bytes = 0, updated_at = datetime('now') WHERE local_clip_id = ?1",
+        [local_id],
+    )?;
+    get(conn, local_id)
+}
+
 pub fn clear_upload_resume(conn: &Connection, local_id: &str) -> AppResult<()> {
     conn.execute(
         "UPDATE upload_queue SET resume_json = NULL, uploaded_bytes = 0, updated_at = datetime('now') WHERE local_clip_id = ?1",
@@ -1191,6 +1208,18 @@ mod tests {
             )
             .unwrap();
         assert_eq!(status, "completed");
+        set_cloud(&conn, "clip-2", "uploading", Some("cloud-1"), None).unwrap();
+        let cancelled = mark_upload_cancelled(&conn, "clip-2").unwrap();
+        assert_eq!(cancelled.upload_status, "local");
+        assert!(cancelled.cloud_clip_id.is_none());
+        let resume: Option<String> = conn
+            .query_row(
+                "SELECT resume_json FROM upload_queue WHERE local_clip_id = 'clip-2'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(resume.is_none());
     }
 
     #[test]

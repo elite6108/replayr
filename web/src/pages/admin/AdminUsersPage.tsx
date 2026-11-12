@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   adminBillingAction,
+  createAccessBan,
   fetchAdminPlans,
   fetchAdminUsers,
+  restoreAccountAccess,
   updateAdminUser,
   type AdminPlan,
   type AdminUserRow,
@@ -24,6 +26,7 @@ export function AdminUsersPage() {
   const { session } = useAuth();
   const { can } = useStaffPermissions();
   const canViewJourney = can("analytics.users.view");
+  const canBan = can("users.ban");
   const token = session?.access_token ?? "";
   const [query, setQuery] = useState("");
   const [plan, setPlan] = useState("");
@@ -53,6 +56,36 @@ export function AdminUsersPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  async function banAccount(user: AdminUserRow) {
+    if (!token) return;
+    const who = user.email || user.username || "this account";
+    if (user.suspended) {
+      if (!window.confirm(`Restore ${who}? They will be able to use Replayr again.`)) return;
+      setBusyId(user.id);
+      try {
+        await restoreAccountAccess(token, user.id);
+        await load();
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Could not restore that account.");
+      } finally {
+        setBusyId(null);
+      }
+      return;
+    }
+    const reason = window.prompt(`Why is ${who} banned? Staff can see this. The account will not.`);
+    if (!reason?.trim()) return;
+    if (!window.confirm(`Ban ${who}? They will not be able to use Replayr.`)) return;
+    setBusyId(user.id);
+    try {
+      await createAccessBan(token, { kind: "account", userId: user.id, reason: reason.trim() });
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not ban that account.");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function changePlan(user: AdminUserRow, planSlug: string) {
     if (!token || planSlug === user.planSlug) return;
@@ -284,6 +317,11 @@ export function AdminUsersPage() {
                         </select>
                       ) : null}
                       <CreateInternalTaskButton kind="user" targetId={user.id} label={user.displayName || user.username || user.email || user.id} />
+                      {canBan && !you ? (
+                        <button className="btn" type="button" disabled={busy} onClick={() => void banAccount(user)}>
+                          {user.suspended ? "Restore" : "Ban"}
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

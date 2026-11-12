@@ -279,6 +279,14 @@ export async function uploadLocalClip(localId: string, accessToken: string, apiB
   return invoke("upload_local_clip", { localId, accessToken, apiBase });
 }
 
+export async function cancelLocalUpload(localId: string): Promise<void> {
+  await invoke("cancel_local_upload", { localId });
+}
+
+export async function clearLocalUploadCancel(localId: string): Promise<void> {
+  await invoke("clear_local_upload_cancel", { localId });
+}
+
 export async function deleteCloudClip(clipId: string, accessToken: string, apiBase: string): Promise<void> {
   return invoke("delete_cloud_clip", { clipId, accessToken, apiBase });
 }

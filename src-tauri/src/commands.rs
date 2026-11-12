@@ -793,6 +793,16 @@ pub fn download_url_to_file(
 }
 
 #[tauri::command]
+pub fn cancel_local_upload(local_id: String) {
+    crate::upload::request_upload_cancel(&local_id);
+}
+
+#[tauri::command]
+pub fn clear_local_upload_cancel(local_id: String) {
+    crate::upload::clear_upload_cancel(&local_id);
+}
+
+#[tauri::command]
 pub async fn upload_local_clip(
     app: AppHandle,
     local_id: String,

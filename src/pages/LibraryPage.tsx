@@ -34,7 +34,7 @@ import { useDetectionStore } from "../stores/detectionStore";
 import { useLibraryStore } from "../stores/libraryStore";
 import { useScreenshotStore } from "../stores/screenshotStore";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { formatBytes, formatDuration, formatLibraryWhen, formatSpokenDuration, isVideoPath } from "../utils/format";
+import { formatBytes, formatClipStamp, formatDuration, formatLibraryWhen, formatSpokenDuration, isVideoPath } from "../utils/format";
 
 function resolutionLabel(width: number | null | undefined, height: number | null | undefined) {
   if (!width || !height) return "—";
@@ -89,7 +89,7 @@ function buildInfoModel(
     thumbUrl: clip.thumbnailUrl,
     gameName: null,
     gameArt: null,
-    whenLabel: formatLibraryWhen(clip.createdAt),
+    whenLabel: formatClipStamp(clip.createdAt),
     clockLabel: clip.durationMs ? formatDuration(clip.durationMs) : "",
     durationLabel: formatSpokenDuration(clip.durationMs),
     resolutionLabel: resolutionLabel(clip.width, clip.height),
@@ -265,7 +265,6 @@ export function LibraryPage({ view = "local" }: { view?: LibraryView }) {
     if (scope === "cloud") {
       if (cloudIds.length === 1) await unlinkCloud(cloudIds[0]!);
       else await unlinkCloudMany(cloudIds);
-      clearCloudSelection();
       return;
     }
     if (scope === "pc") {
@@ -276,7 +275,6 @@ export function LibraryPage({ view = "local" }: { view?: LibraryView }) {
     }
     if (cloudIds.length === 1) await removeCloudBoth(cloudIds[0]!);
     else await removeCloudBothMany(cloudIds);
-    clearCloudSelection();
   }
 
   const visibleShots = screenshots.filter((shot) => {
@@ -486,21 +484,6 @@ export function LibraryPage({ view = "local" }: { view?: LibraryView }) {
             ) : null}
             {localError && view !== "cloud" ? <div className="error-text">{localError}</div> : null}
             {cloudError && (view === "cloud" || view === "all") ? <div className="error-text">{cloudError}</div> : null}
-            {view === "cloud" && cloudLoading && browsed.length === 0 ? (
-              <p className="muted">Loading cloud clips…</p>
-            ) : browsed.length === 0 ? (
-              <ClipGrid title={emptyTitle} body={emptyBody} />
-            ) : (
-              groups.map((group) => (
-                <section key={group.id} className="library-section">
-                  <div className="library-section-head">
-                    <h2>{group.label}</h2>
-                    <span className="library-count">{clipCountLabel(group.rows.length)}</span>
-                  </div>
-                  <div className={`library-grid ${layout}`}>{group.rows.map((row) => renderRow(row))}</div>
-                </section>
-              ))
-            )}
             {selectedLocalClips.length > 0 ? (
               <SelectionBar
                 count={selectedLocalClips.length}
@@ -556,6 +539,23 @@ export function LibraryPage({ view = "local" }: { view?: LibraryView }) {
                 </button>
               </SelectionBar>
             ) : null}
+            {view === "cloud" && cloudLoading && browsed.length === 0 ? (
+              <p className="muted">Loading cloud clips…</p>
+            ) : browsed.length === 0 ? (
+              <ClipGrid title={emptyTitle} body={emptyBody} />
+            ) : (
+              groups.map((group) => (
+                <section key={group.id} className="library-section">
+                  <div className="library-section-head">
+                    <h2>{group.label}</h2>
+                    <span className="library-count">{clipCountLabel(group.rows.length)}</span>
+                  </div>
+                  <div className={`library-grid ${layout}${selectedCloud.length > 0 ? " is-selecting" : ""}`}>
+                    {group.rows.map((row) => renderRow(row))}
+                  </div>
+                </section>
+              ))
+            )}
           </div>
           {info && infoModel ? (
             <LibraryInfoPane

@@ -1,4 +1,8 @@
 {
+  "0.1.89": [
+    "Cloud clips show a calendar date and time.",
+    "Select cloud clips in the library and delete them together."
+  ],
   "0.1.88": [
     "Edit a cloud clip. Replayr opens the copy already on this PC, or downloads it and opens the editor.",
     "Right-clicking another clip closes the menu that was already open.",

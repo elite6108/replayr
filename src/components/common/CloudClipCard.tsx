@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { CloudClip } from "../../types/clip";
 import { useLibraryStore } from "../../stores/libraryStore";
 import { IconCloud, IconPlay } from "../icons";
-import { formatDuration, formatLibraryWhen, joinMeta } from "../../utils/format";
+import { formatClipStamp, formatDuration, joinMeta } from "../../utils/format";
 import { ContextMenu } from "./ContextMenu";
 
 function CloudThumb({ clip }: { clip: CloudClip }) {
@@ -62,7 +62,7 @@ export function CloudClipCard({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(clip.title || "");
-  const date = formatLibraryWhen(clip.createdAt);
+  const date = formatClipStamp(clip.createdAt);
   const ready = clip.status === "ready";
   const library = presentation === "library";
   const meta = joinMeta([date, clip.durationMs ? formatDuration(clip.durationMs) : null, "Cloud"]);
@@ -80,15 +80,15 @@ export function CloudClipCard({
 
   return (
     <article
-      className={`clip-card live ${library ? "clip-card-library" : ""} ${selected ? "selected" : ""} ${infoOpen ? "info-open" : ""}`}
+      className={`clip-card live ${library ? "clip-card-library clip-card-cloud" : ""} ${selected ? "selected" : ""} ${infoOpen ? "info-open" : ""}`}
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
         setMenu({ x: event.clientX, y: event.clientY });
       }}
     >
-      {onSelect && !library ? (
-        <label className="clip-check">
+      {onSelect ? (
+        <label className="clip-check" onClick={(event) => event.stopPropagation()}>
           <input
             type="checkbox"
             checked={Boolean(selected)}

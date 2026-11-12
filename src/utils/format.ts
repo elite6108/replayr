@@ -152,6 +152,20 @@ export function parseClipDate(value: string | number | null | undefined): Date |
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+/** Calendar date and time, such as "Nov 11 · 12:22 PM". */
+export function formatClipStamp(value: string | number | null | undefined): string {
+  const date = parseClipDate(value);
+  if (!date) return "Unknown";
+  const now = new Date();
+  const day = date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${day} · ${time}`;
+}
+
 export function formatLibraryWhen(value: string | number | null | undefined): string {
   const date = parseClipDate(value);
   if (!date) return "Unknown";

@@ -222,6 +222,27 @@
   box-shadow: 0 0 0 1px var(--brand);
 }
 
+.library-stage .selection-bar {
+  position: sticky;
+  top: 0;
+  bottom: auto;
+  z-index: 20;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 0 12px;
+}
+
+.clip-card-cloud .clip-check {
+  opacity: 0;
+}
+
+.clip-card-cloud:hover .clip-check,
+.clip-card-cloud:focus-within .clip-check,
+.clip-card-cloud.selected .clip-check,
+.library-grid.is-selecting .clip-card-cloud .clip-check {
+  opacity: 1;
+}
+
 .clip-card-library .clip-play {
   opacity: 0;
   background: transparent;

@@ -144,31 +144,31 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       useToastStore.getState().show("Sign in to remove cloud clips");
       return;
     }
-    let removed = 0;
+    const removedIds: string[] = [];
     for (const clipId of clipIds) {
       try {
         await deleteCloudClip(clipId, token, publicApiUrl());
-        removed += 1;
+        removedIds.push(clipId);
       } catch (caught) {
         useToastStore.getState().show(invokeErrorMessage(caught, "Could not remove cloud clip"));
       }
     }
-    const gone = new Set(clipIds);
+    if (removedIds.length === 0) return;
+    const gone = new Set(removedIds);
     set({
       clips: get().clips.filter((clip) => !gone.has(clip.id)),
       selectedIds: get().selectedIds.filter((id) => !gone.has(id)),
+      playing: gone.has(get().playing?.clip.id ?? "") ? null : get().playing,
     });
     await useAuthStore.getState().refreshProfile();
-    await deleteLocalCopiesForCloudIds(clipIds);
-    if (removed > 0) {
-      useToastStore
-        .getState()
-        .show(
-          removed === 1
-            ? "Clip deleted from this PC and the cloud"
-            : `${removed} clips deleted from this PC and the cloud`,
-        );
-    }
+    await deleteLocalCopiesForCloudIds(removedIds);
+    useToastStore
+      .getState()
+      .show(
+        removedIds.length === 1
+          ? "Clip deleted from this PC and the cloud"
+          : `${removedIds.length} clips deleted from this PC and the cloud`,
+      );
   },
   unlink: async (clipId) => {
     const token = useAuthStore.getState().session?.access_token;
@@ -196,16 +196,17 @@ export const useCloudStore = create<CloudState>((set, get) => ({
       useToastStore.getState().show("Sign in to remove cloud clips");
       return;
     }
-    let removed = 0;
+    const removedIds: string[] = [];
     for (const clipId of clipIds) {
       try {
         await deleteCloudClip(clipId, token, publicApiUrl());
-        removed += 1;
+        removedIds.push(clipId);
       } catch (caught) {
         useToastStore.getState().show(invokeErrorMessage(caught, "Could not remove cloud clip"));
       }
     }
-    const gone = new Set(clipIds);
+    if (removedIds.length === 0) return;
+    const gone = new Set(removedIds);
     set({
       clips: get().clips.filter((clip) => !gone.has(clip.id)),
       selectedIds: get().selectedIds.filter((id) => !gone.has(id)),
@@ -213,15 +214,13 @@ export const useCloudStore = create<CloudState>((set, get) => ({
     await useAuthStore.getState().refreshProfile();
     const { useLibraryStore } = await import("./libraryStore");
     await useLibraryStore.getState().refresh();
-    if (removed > 0) {
-      useToastStore
-        .getState()
-        .show(
-          removed === 1
-            ? "Removed from cloud. The file on this PC is unchanged."
-            : `${removed} cloud copies removed. Files on this PC are unchanged.`,
-        );
-    }
+    useToastStore
+      .getState()
+      .show(
+        removedIds.length === 1
+          ? "Removed from cloud. The file on this PC is unchanged."
+          : `${removedIds.length} cloud copies removed. Files on this PC are unchanged.`,
+      );
   },
   rename: async (clipId, title) => {
     const user = useAuthStore.getState().user;

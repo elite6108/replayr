@@ -7,6 +7,8 @@ import {
   isCroppableSource,
   isPrimaryCapture,
   overlayToVisuals,
+  pictureCssFilter,
+  pictureSettingsOf,
   primaryCapture,
   sourcesBackFirst,
   type RecordingScene,
@@ -187,6 +189,7 @@ export function RecordingPreview({
       hideBadge
       monitorId={monitorId}
       crop={composedTap || !showCapturePlate ? null : (primary?.crop ?? null)}
+      filter={composedTap || !primary ? undefined : pictureCssFilter(pictureSettingsOf(primary))}
       onStatus={reportStatus}
     />
   );
@@ -227,6 +230,7 @@ export function RecordingPreview({
                   hideBadge
                   monitorId={monitorId}
                   crop={source.crop ?? null}
+                  filter={pictureCssFilter(pictureSettingsOf(source))}
                   onStatus={reportStatus}
                 />
               ) : null

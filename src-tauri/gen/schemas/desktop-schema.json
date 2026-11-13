@@ -375,6 +375,12 @@
           "markdownDescription": "Write a DPAPI-protected auth session value"
         },
         {
+          "description": "Read and change webcam hardware controls such as exposure and focus",
+          "type": "string",
+          "const": "allow-camera-controls",
+          "markdownDescription": "Read and change webcam hardware controls such as exposure and focus"
+        },
+        {
           "description": "Create the Replayr desktop shortcut",
           "type": "string",
           "const": "allow-create-desktop-shortcut",
@@ -393,10 +399,10 @@
           "markdownDescription": "Read isolated audio source status and meters"
         },
         {
-          "description": "Read the latest webcam preview frame",
+          "description": "Long-poll the latest webcam preview frame",
           "type": "string",
           "const": "allow-get-camera-preview-frame",
-          "markdownDescription": "Read the latest webcam preview frame"
+          "markdownDescription": "Long-poll the latest webcam preview frame"
         },
         {
           "description": "Read webcam source status and hotplug state",

@@ -1,26 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  getCapturePreviewFrame,
-  startCapturePreview,
-  stopCapturePreview,
-  updateCapturePreview,
-} from "../../services/tauri";
-import type { CapturePreviewFrame, CapturePreviewMode } from "../../types/capturePreview";
-import type { PreviewBackgroundMode, PreviewQuality } from "../../types/settings";
-import { useSettingsStore } from "../../stores/settingsStore";
-import {
-  createPreviewDiag,
-  decodePreviewDataUrl,
-  logPreviewDiag,
-  notePreviewTiming,
-  startPreviewPollLoop,
-} from "../../recording/previewPoll";
+import { startCapturePreview, stopCapturePreview, updateCapturePreview } from "../../services/tauri";
+import type { CapturePreviewHeader, CapturePreviewMode } from "../../types/capturePreview";
+import type { PreviewBackgroundMode } from "../../types/settings";
+import { capturePreviewFeed, useFeedCanvas } from "../../recording/previewPoll";
 import { CroppedMediaFrame } from "./CroppedMediaFrame";
 import type { SourceCrop } from "../../recording/scene";
-
-function previewPollMs(quality: PreviewQuality): number {
-  return quality === "performance" ? 40 : 33;
-}
 
 export function PreviewCaptureLayer({
   mode,
@@ -30,6 +14,7 @@ export function PreviewCaptureLayer({
   hideBadge = false,
   monitorId = null,
   crop = null,
+  filter,
   onStatus,
 }: {
   mode: CapturePreviewMode;
@@ -39,6 +24,8 @@ export function PreviewCaptureLayer({
   hideBadge?: boolean;
   monitorId?: string | null;
   crop?: SourceCrop | null;
+  /** CSS filter for the source's picture adjustments. */
+  filter?: string;
   onStatus?: (status: {
     live: boolean;
     label: string;
@@ -47,19 +34,16 @@ export function PreviewCaptureLayer({
     height?: number;
   }) => void;
 }) {
-  const previewQuality = useSettingsStore((state) => state.settings.previewQuality);
-  const [frame, setFrame] = useState<CapturePreviewFrame | null>(null);
-  const [displaySrc, setDisplaySrc] = useState("");
-  const lastFrameId = useRef(0);
-  const diag = useRef(createPreviewDiag());
+  const [frame, setFrame] = useState<CapturePreviewHeader | null>(null);
+  const [live, setLive] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const target = useRef({ mode, pid, monitorId });
   target.current = { mode, pid, monitorId };
 
   useEffect(() => {
     if (!enabled) {
       setFrame(null);
-      setDisplaySrc("");
-      lastFrameId.current = 0;
+      setLive(false);
       void stopCapturePreview();
       return;
     }
@@ -69,7 +53,6 @@ export function PreviewCaptureLayer({
       monitorId: target.current.monitorId,
     }).catch((caught: unknown) => {
       setFrame({
-        pngBase64: null,
         width: 0,
         height: 0,
         state: "unavailable",
@@ -78,78 +61,36 @@ export function PreviewCaptureLayer({
         frameId: 0,
         mimeType: "image/jpeg",
       });
-      setDisplaySrc("");
+      setLive(false);
     });
     return () => {
       void stopCapturePreview();
     };
   }, [enabled]);
 
-  useEffect(() => {
-    lastFrameId.current = 0;
-  }, [mode, pid, monitorId]);
-
+  const lastTargetKey = useRef("");
   useEffect(() => {
     if (!enabled) return;
     void updateCapturePreview({ mode, pid: pid ?? undefined, monitorId }).catch(() => undefined);
+    const key = `${mode}\0${pid ?? 0}\0${monitorId ?? ""}`;
+    if (lastTargetKey.current && lastTargetKey.current !== key) capturePreviewFeed.reset();
+    lastTargetKey.current = key;
   }, [enabled, mode, pid, monitorId]);
 
   useEffect(() => {
     if (!enabled) return;
-    let cancelled = false;
-    const stop = startPreviewPollLoop({
-      intervalMs: previewPollMs(previewQuality),
-      cancelled: () => cancelled,
-      pull: async () => {
-        const ipcStarted = performance.now();
-        const nextRaw = await getCapturePreviewFrame();
-        const ipcMs = performance.now() - ipcStarted;
-        if (cancelled || !nextRaw) return;
-        const next = normalizeFrame(nextRaw);
-        diag.current.offered += 1;
-        const frameId = next.frameId || 0;
-        if (frameId !== 0 && frameId === lastFrameId.current) {
-          diag.current.duplicatesSkipped += 1;
-          notePreviewTiming(diag.current, ipcMs, 0);
-          logPreviewDiag("capture", diag.current, {
-            width: next.width,
-            height: next.height,
-            mimeType: next.mimeType,
-          });
-          return;
-        }
-        if (!next.pngBase64) {
-          lastFrameId.current = frameId;
-          setFrame(next);
-          setDisplaySrc("");
-          diag.current.rendered += 1;
-          notePreviewTiming(diag.current, ipcMs, 0);
-          return;
-        }
-        const presentStarted = performance.now();
-        const url = await decodePreviewDataUrl(next.pngBase64, next.mimeType || "image/jpeg");
-        const presentMs = performance.now() - presentStarted;
-        if (cancelled) return;
-        lastFrameId.current = frameId;
-        setFrame(next);
-        setDisplaySrc(url);
-        diag.current.rendered += 1;
-        notePreviewTiming(diag.current, ipcMs, presentMs);
-        logPreviewDiag("capture", diag.current, {
-          width: next.width,
-          height: next.height,
-          frameId,
-          mimeType: next.mimeType,
-        });
-      },
-    });
-    return () => {
-      cancelled = true;
-      stop();
+    const sync = () => {
+      const current = capturePreviewFeed.state();
+      if (current.header) setFrame(current.header);
+      setLive(Boolean(current.bitmap));
     };
-  }, [enabled, previewQuality]);
+    const unsubscribe = capturePreviewFeed.subscribe(sync);
+    sync();
+    return unsubscribe;
+  }, [enabled]);
 
-  const live = Boolean(displaySrc);
+  useFeedCanvas(capturePreviewFeed, canvasRef, enabled && live);
+
   const label = frame?.label ?? (mode === "desktop" ? "Desktop Preview" : "Waiting for game");
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
@@ -178,7 +119,7 @@ export function PreviewCaptureLayer({
     <div className={`preview-capture fallback-${fallback}${live ? " is-live" : ""}`}>
       {live ? (
         <CroppedMediaFrame crop={crop} sourceAspect={sourceAspect} fit="contain">
-          {(mediaStyle) => <img src={displaySrc} alt="" draggable={false} style={mediaStyle} />}
+          {(mediaStyle) => <canvas ref={canvasRef} style={filter ? { ...mediaStyle, filter } : mediaStyle} />}
         </CroppedMediaFrame>
       ) : (
         <FallbackPlate mode={fallback} />
@@ -186,21 +127,6 @@ export function PreviewCaptureLayer({
       {hideBadge ? null : <span className="preview-capture-label">{label}</span>}
     </div>
   );
-}
-
-function normalizeFrame(
-  frame: CapturePreviewFrame & {
-    png_base64?: string | null;
-    frame_id?: number;
-    mime_type?: string;
-  },
-): CapturePreviewFrame {
-  return {
-    ...frame,
-    pngBase64: frame.pngBase64 ?? frame.png_base64 ?? null,
-    frameId: Number(frame.frameId ?? frame.frame_id ?? 0),
-    mimeType: frame.mimeType ?? frame.mime_type ?? "image/jpeg",
-  };
 }
 
 function FallbackPlate({ mode }: { mode: PreviewBackgroundMode }) {

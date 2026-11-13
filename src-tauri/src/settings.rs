@@ -534,6 +534,24 @@ pub struct WebcamSettings {
     pub default_shape: String,
     #[serde(default = "default_webcam_overlay_width")]
     pub default_width: f32,
+    /// Live preview pace: "smooth", "balanced" or "sharp". Does not change the recording.
+    #[serde(default = "default_webcam_preview_smoothness")]
+    pub preview_smoothness: String,
+    /// Hardware controls (exposure, focus, ...) keyed by device id, then control name.
+    #[serde(default)]
+    pub controls: std::collections::BTreeMap<String, std::collections::BTreeMap<String, CameraControlSetting>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CameraControlSetting {
+    pub value: i32,
+    #[serde(default)]
+    pub auto: bool,
+}
+
+fn default_webcam_preview_smoothness() -> String {
+    "balanced".into()
 }
 
 impl Default for WebcamSettings {
@@ -550,6 +568,8 @@ impl Default for WebcamSettings {
             default_placement: default_webcam_placement(),
             default_shape: default_webcam_shape(),
             default_width: default_webcam_overlay_width(),
+            preview_smoothness: default_webcam_preview_smoothness(),
+            controls: Default::default(),
         }
     }
 }
@@ -598,6 +618,19 @@ impl WebcamSettings {
             _ => default_webcam_shape(),
         };
         self.default_width = self.default_width.clamp(0.12, 0.40);
+        if !matches!(self.preview_smoothness.as_str(), "smooth" | "balanced" | "sharp") {
+            self.preview_smoothness = default_webcam_preview_smoothness();
+        }
+        self.controls.retain(|device, _| {
+            device.len() <= 512 && !device.contains('\0') && !device.contains("..")
+        });
+        while self.controls.len() > 8 {
+            let Some(first) = self.controls.keys().next().cloned() else { break };
+            self.controls.remove(&first);
+        }
+        for controls in self.controls.values_mut() {
+            controls.retain(|name, _| crate::camera::is_camera_control_name(name));
+        }
     }
 }
 

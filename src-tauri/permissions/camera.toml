@@ -25,8 +25,13 @@ commands.allow = ["stop_camera_preview"]
 
 [[permission]]
 identifier = "allow-get-camera-preview-frame"
-description = "Read the latest webcam preview frame"
-commands.allow = ["get_camera_preview_frame"]
+description = "Long-poll the latest webcam preview frame"
+commands.allow = ["wait_camera_preview_frame"]
+
+[[permission]]
+identifier = "allow-camera-controls"
+description = "Read and change webcam hardware controls such as exposure and focus"
+commands.allow = ["get_camera_controls", "set_camera_control"]
 
 [[permission]]
 identifier = "allow-start-webcam-test-record"

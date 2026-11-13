@@ -63,10 +63,11 @@ impl ActiveComposedPreview {
         compositor: &RecordingCompositor,
         hub: PreviewHub,
         preview_quality: &str,
+        fps: u32,
     ) -> Result<Self, String> {
         let quality = PreviewQuality::parse(preview_quality);
-        hub.apply_quality(preview_quality);
-        let tap = ComposedPreviewTap::open(compositor, hub.clone(), quality)?;
+        hub.apply_quality(preview_quality, fps);
+        let tap = ComposedPreviewTap::open(compositor, hub.clone(), quality, fps)?;
         Ok(Self {
             tap,
             _live: ComposedPreviewLive::arm(&hub),
@@ -120,14 +121,17 @@ impl ComposedPreviewTap {
         compositor: &RecordingCompositor,
         hub: PreviewHub,
         quality: PreviewQuality,
+        fps: u32,
     ) -> Result<Self, String> {
         let (preview_width, preview_height) =
             quality.composed_size(compositor.out_w, compositor.out_h);
-        let interval = Duration::from_millis(quality.interval_ms());
+        let interval = Duration::from_millis(quality.interval_ms_for(fps));
         tracing::info!(
             preview_width,
             preview_height,
             quality = ?quality,
+            fps,
+            interval_ms = interval.as_millis() as u64,
             canvas = format!("{}x{}", compositor.out_w, compositor.out_h),
             "composed preview tap sized"
         );

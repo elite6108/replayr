@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use crate::still::{scale_bgra, StillFrame};
+use crate::still::{scale_bgra_area, StillFrame};
 
 #[cfg(windows)]
 mod standalone;
@@ -42,9 +42,11 @@ impl PreviewQuality {
         }
     }
 
-    pub fn interval_ms(self) -> u64 {
+    /// Full and Balanced follow a 60 fps recording. Performance stays near 25 fps.
+    pub fn interval_ms_for(self, fps: u32) -> u64 {
         match self {
             Self::Performance => 40,
+            _ if fps >= 60 => 16,
             _ => 33,
         }
     }
@@ -126,9 +128,9 @@ struct Inner {
     last_encode_ms: AtomicU64,
     last_pack_us: AtomicU64,
     last_compress_us: AtomicU64,
-    last_b64_us: AtomicU64,
+    last_scale_us: AtomicU64,
     max_compress_us: AtomicU64,
-    max_b64_us: AtomicU64,
+    max_scale_us: AtomicU64,
     next_frame_id: AtomicU64,
     max_width: AtomicU32,
     min_interval_ms: AtomicU64,
@@ -140,17 +142,39 @@ struct Inner {
     latest: Mutex<Option<EncodedPreview>>,
     error: Mutex<Option<String>>,
     cv: Condvar,
+    /// Signalled whenever `latest` holds a new frame.
+    frame_cv: Condvar,
     worker: Mutex<Option<JoinHandle<()>>>,
     #[cfg(windows)]
     standalone: Mutex<Option<standalone::StandalonePreview>>,
 }
 
+#[derive(Clone)]
 struct EncodedPreview {
-    png_base64: String,
+    bytes: Arc<[u8]>,
     width: u32,
     height: u32,
     frame_id: u64,
     mime_type: &'static str,
+}
+
+/// Frame metadata sent ahead of the JPEG bytes on the binary preview channel.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewFrameHeader {
+    pub width: u32,
+    pub height: u32,
+    pub state: String,
+    pub label: String,
+    pub source: String,
+    pub frame_id: u64,
+    pub mime_type: String,
+}
+
+pub struct PreviewFrameBytes {
+    pub header: PreviewFrameHeader,
+    /// Present only when the frame is newer than the caller's `after` id.
+    pub bytes: Option<Arc<[u8]>>,
 }
 
 impl PreviewHub {
@@ -167,9 +191,9 @@ impl PreviewHub {
             last_encode_ms: AtomicU64::new(0),
             last_pack_us: AtomicU64::new(0),
             last_compress_us: AtomicU64::new(0),
-            last_b64_us: AtomicU64::new(0),
+            last_scale_us: AtomicU64::new(0),
             max_compress_us: AtomicU64::new(0),
-            max_b64_us: AtomicU64::new(0),
+            max_scale_us: AtomicU64::new(0),
             next_frame_id: AtomicU64::new(1),
             max_width: AtomicU32::new(DEFAULT_PREVIEW_MAX_WIDTH),
             min_interval_ms: AtomicU64::new(DEFAULT_PREVIEW_INTERVAL_MS),
@@ -181,6 +205,7 @@ impl PreviewHub {
             latest: Mutex::new(None),
             error: Mutex::new(None),
             cv: Condvar::new(),
+            frame_cv: Condvar::new(),
             worker: Mutex::new(None),
             #[cfg(windows)]
             standalone: Mutex::new(None),
@@ -289,31 +314,26 @@ impl PreviewHub {
         }
     }
 
-    pub fn apply_quality(&self, quality: &str) {
+    pub fn apply_quality(&self, quality: &str, fps: u32) {
         let parsed = PreviewQuality::parse(quality);
+        let interval_ms = parsed.interval_ms_for(fps);
         self.inner
             .max_width
             .store(parsed.max_width(), Ordering::Relaxed);
         self.inner
             .min_interval_ms
-            .store(parsed.interval_ms(), Ordering::Relaxed);
+            .store(interval_ms, Ordering::Relaxed);
         self.inner
             .jpeg_quality
             .store(u32::from(parsed.jpeg_quality()), Ordering::Relaxed);
         tracing::info!(
             quality = ?parsed,
+            fps,
             max_width = parsed.max_width(),
-            interval_ms = parsed.interval_ms(),
+            interval_ms,
             jpeg_quality = parsed.jpeg_quality(),
             "capture preview quality applied"
         );
-    }
-
-    pub fn max_width(&self) -> u32 {
-        self.inner
-            .max_width
-            .load(Ordering::Relaxed)
-            .max(2)
     }
 
     pub fn min_interval_ms(&self) -> u64 {
@@ -321,13 +341,6 @@ impl PreviewHub {
             .min_interval_ms
             .load(Ordering::Relaxed)
             .max(16)
-    }
-
-    pub fn jpeg_quality(&self) -> u8 {
-        self.inner
-            .jpeg_quality
-            .load(Ordering::Relaxed)
-            .clamp(1, 100) as u8
     }
 
     pub fn resume_if_wanted(&self) {
@@ -360,18 +373,12 @@ impl PreviewHub {
             }
             return;
         }
-        let max_width = self.max_width();
-        let scaled = if frame.width > max_width {
-            scale_bgra(&frame, max_width)
-        } else {
-            frame
-        };
         if let Ok(mut pending) = self.inner.pending.lock() {
             if pending.is_some() {
                 self.inner.dropped.fetch_add(1, Ordering::Relaxed);
                 return;
             }
-            *pending = Some(scaled);
+            *pending = Some(frame);
             self.inner.last_accept_ms.store(preview_now_ms(), Ordering::Relaxed);
             self.inner.offered.fetch_add(1, Ordering::Relaxed);
         }
@@ -380,11 +387,48 @@ impl PreviewHub {
 
     pub fn snapshot(&self) -> CapturePreviewFrame {
         let latest = self.inner.latest.lock().ok().and_then(|slot| slot.clone());
+        let header = self.header_for(latest.as_ref());
+        CapturePreviewFrame {
+            png_base64: latest.map(|frame| crate::camera::color::base64_encode(&frame.bytes)),
+            width: header.width,
+            height: header.height,
+            state: header.state,
+            label: header.label,
+            source: header.source,
+            frame_id: header.frame_id,
+            mime_type: header.mime_type,
+        }
+    }
+
+    /// Blocks until a frame newer than `after` is encoded, or `timeout` passes.
+    /// The header is always current; bytes come back only for a newer frame.
+    pub fn wait_frame(&self, after: u64, timeout: Duration) -> PreviewFrameBytes {
+        let deadline = Instant::now() + timeout;
+        let latest = (|| {
+            let mut slot = self.inner.latest.lock().ok()?;
+            loop {
+                if slot.as_ref().is_some_and(|frame| frame.frame_id > after) {
+                    break;
+                }
+                let now = Instant::now();
+                if now >= deadline || self.inner.stop_worker.load(Ordering::SeqCst) {
+                    break;
+                }
+                slot = self.inner.frame_cv.wait_timeout(slot, deadline - now).ok()?.0;
+            }
+            slot.clone()
+        })();
+        let header = self.header_for(latest.as_ref());
+        let bytes = latest
+            .filter(|frame| frame.frame_id > after)
+            .map(|frame| frame.bytes);
+        PreviewFrameBytes { header, bytes }
+    }
+
+    fn header_for(&self, latest: Option<&EncodedPreview>) -> PreviewFrameHeader {
         let mode = self.inner.mode.lock().ok().map(|slot| *slot).unwrap_or(PreviewMode::Game);
         let pid = self.inner.pid.lock().ok().and_then(|slot| *slot);
-        let error = self.inner.error.lock().ok().and_then(|slot| slot.clone());
         let capture_live = self.capture_live();
-        let wanted = self.wanted();
         let source = if self.composed_live() {
             "composed"
         } else if capture_live {
@@ -394,10 +438,18 @@ impl PreviewHub {
         } else {
             "none"
         };
+        let empty = |state: &str, label: String, source: &str| PreviewFrameHeader {
+            width: 0,
+            height: 0,
+            state: state.into(),
+            label,
+            source: source.into(),
+            frame_id: 0,
+            mime_type: "image/jpeg".into(),
+        };
         if let Some(frame) = latest {
             let desktop = mode == PreviewMode::Desktop && !capture_live && !self.composed_live();
-            return CapturePreviewFrame {
-                png_base64: Some(frame.png_base64),
+            return PreviewFrameHeader {
                 width: frame.width,
                 height: frame.height,
                 state: if desktop { "desktop".into() } else { "live".into() },
@@ -407,40 +459,18 @@ impl PreviewHub {
                 mime_type: frame.mime_type.into(),
             };
         }
-        if !wanted {
-            return CapturePreviewFrame {
-                png_base64: None,
-                width: 0,
-                height: 0,
-                state: "unavailable".into(),
-                label: "Preview unavailable".into(),
-                source: "none".into(),
-                frame_id: 0,
-                mime_type: "image/jpeg".into(),
-            };
+        if !self.wanted() {
+            return empty("unavailable", "Preview unavailable".into(), "none");
         }
         if mode == PreviewMode::Game && pid.unwrap_or(0) == 0 && !capture_live {
-            return CapturePreviewFrame {
-                png_base64: None,
-                width: 0,
-                height: 0,
-                state: "waiting".into(),
-                label: "Waiting for game".into(),
-                source: source.into(),
-                frame_id: 0,
-                mime_type: "image/jpeg".into(),
-            };
+            return empty("waiting", "Waiting for game".into(), source);
         }
-        CapturePreviewFrame {
-            png_base64: None,
-            width: 0,
-            height: 0,
-            state: "unavailable".into(),
-            label: error.unwrap_or_else(|| "Preview unavailable".into()),
-            source: source.into(),
-            frame_id: 0,
-            mime_type: "image/jpeg".into(),
-        }
+        let error = self.inner.error.lock().ok().and_then(|slot| slot.clone());
+        empty(
+            "unavailable",
+            error.unwrap_or_else(|| "Preview unavailable".into()),
+            source,
+        )
     }
 
     pub(crate) fn wanted(&self) -> bool {
@@ -539,18 +569,6 @@ impl Default for PreviewHub {
     }
 }
 
-impl Clone for EncodedPreview {
-    fn clone(&self) -> Self {
-        Self {
-            png_base64: self.png_base64.clone(),
-            width: self.width,
-            height: self.height,
-            frame_id: self.frame_id,
-            mime_type: self.mime_type,
-        }
-    }
-}
-
 fn encode_loop(inner: Arc<Inner>) {
     while !inner.stop_worker.load(Ordering::SeqCst) {
         let frame = {
@@ -576,13 +594,21 @@ fn encode_loop(inner: Arc<Inner>) {
         let started = Instant::now();
         let frame_id = inner.next_frame_id.fetch_add(1, Ordering::Relaxed);
         let jpeg_quality = inner.jpeg_quality.load(Ordering::Relaxed).clamp(1, 100) as u8;
-        let max_width = inner.max_width.load(Ordering::Relaxed);
+        let max_width = inner.max_width.load(Ordering::Relaxed).max(2);
         let interval_ms = inner.min_interval_ms.load(Ordering::Relaxed);
+        let scale_started = Instant::now();
+        let frame = if frame.width > max_width {
+            scale_bgra_area(&frame, max_width)
+        } else {
+            frame
+        };
+        let scale_us = scale_started.elapsed().as_micros() as u64;
         match encode_preview_image(&frame, frame_id, jpeg_quality) {
-            Ok((encoded, pack_us, compress_us, b64_us)) => {
+            Ok((encoded, pack_us, compress_us)) => {
                 if let Ok(mut latest) = inner.latest.lock() {
                     *latest = Some(encoded);
                 }
+                inner.frame_cv.notify_all();
                 if let Ok(mut error) = inner.error.lock() {
                     *error = None;
                 }
@@ -591,20 +617,20 @@ fn encode_loop(inner: Arc<Inner>) {
                 inner.last_encode_ms.store(encode_ms, Ordering::Relaxed);
                 inner.last_pack_us.store(pack_us, Ordering::Relaxed);
                 inner.last_compress_us.store(compress_us, Ordering::Relaxed);
-                inner.last_b64_us.store(b64_us, Ordering::Relaxed);
+                inner.last_scale_us.store(scale_us, Ordering::Relaxed);
                 atomic_max(&inner.max_compress_us, compress_us);
-                atomic_max(&inner.max_b64_us, b64_us);
+                atomic_max(&inner.max_scale_us, scale_us);
                 if encoded_n == 1 || encoded_n % 120 == 0 {
                     tracing::info!(
                         offered = inner.offered.load(Ordering::Relaxed),
                         dropped = inner.dropped.load(Ordering::Relaxed),
                         encoded = encoded_n,
                         encode_ms,
+                        scale_us,
                         pack_us,
                         compress_us,
-                        b64_us,
                         max_compress_us = inner.max_compress_us.load(Ordering::Relaxed),
-                        max_b64_us = inner.max_b64_us.load(Ordering::Relaxed),
+                        max_scale_us = inner.max_scale_us.load(Ordering::Relaxed),
                         preview_max_width = max_width,
                         interval_ms,
                         codec = "jpeg",
@@ -627,7 +653,7 @@ fn encode_preview_image(
     frame: &StillFrame,
     frame_id: u64,
     jpeg_quality: u8,
-) -> Result<(EncodedPreview, u64, u64, u64), String> {
+) -> Result<(EncodedPreview, u64, u64), String> {
     let pack_started = Instant::now();
     let packed = pack_preview_bgra(frame);
     let pack_us = pack_started.elapsed().as_micros() as u64;
@@ -639,12 +665,9 @@ fn encode_preview_image(
         jpeg_quality,
     )?;
     let compress_us = compress_started.elapsed().as_micros() as u64;
-    let b64_started = Instant::now();
-    let png_base64 = crate::camera::color::base64_encode(&jpeg);
-    let b64_us = b64_started.elapsed().as_micros() as u64;
     Ok((
         EncodedPreview {
-            png_base64,
+            bytes: Arc::from(jpeg),
             width: frame.width,
             height: frame.height,
             frame_id,
@@ -652,7 +675,6 @@ fn encode_preview_image(
         },
         pack_us,
         compress_us,
-        b64_us,
     ))
 }
 
@@ -717,6 +739,78 @@ mod tests {
         hub.offer(other);
         assert!(hub.inner.pending.lock().expect("pending").is_some());
         assert_eq!(hub.inner.dropped.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn interval_follows_a_sixty_fps_recording() {
+        assert_eq!(PreviewQuality::Full.interval_ms_for(60), 16);
+        assert_eq!(PreviewQuality::Balanced.interval_ms_for(60), 16);
+        assert_eq!(PreviewQuality::Balanced.interval_ms_for(30), 33);
+        assert_eq!(PreviewQuality::Performance.interval_ms_for(60), 40);
+    }
+
+    #[test]
+    fn offer_queues_the_full_frame_for_the_worker_to_scale() {
+        let hub = PreviewHub::new();
+        hub.inner.stop_worker.store(true, Ordering::SeqCst);
+        hub.inner.wanted.store(1, Ordering::SeqCst);
+        hub.inner.max_width.store(2, Ordering::Relaxed);
+        hub.inner.last_accept_ms.store(0, Ordering::Relaxed);
+        let wide = StillFrame {
+            bgra: vec![0; 8 * 2 * 4],
+            width: 8,
+            height: 2,
+            pitch: 32,
+        };
+        hub.offer(wide);
+        let pending = hub.inner.pending.lock().expect("pending");
+        assert_eq!(pending.as_ref().map(|frame| frame.width), Some(8));
+    }
+
+    #[test]
+    fn wait_frame_returns_bytes_only_for_a_newer_frame() {
+        let hub = PreviewHub::new();
+        hub.inner.wanted.store(1, Ordering::SeqCst);
+        *hub.inner.latest.lock().expect("latest") = Some(EncodedPreview {
+            bytes: Arc::from(vec![1_u8, 2, 3]),
+            width: 4,
+            height: 2,
+            frame_id: 7,
+            mime_type: "image/jpeg",
+        });
+        let fresh = hub.wait_frame(6, Duration::from_millis(5));
+        assert_eq!(fresh.header.frame_id, 7);
+        assert_eq!(fresh.bytes.as_deref(), Some(&[1_u8, 2, 3][..]));
+
+        let started = Instant::now();
+        let same = hub.wait_frame(7, Duration::from_millis(30));
+        assert!(started.elapsed() >= Duration::from_millis(25));
+        assert_eq!(same.header.frame_id, 7);
+        assert!(same.bytes.is_none());
+    }
+
+    #[test]
+    fn wait_frame_wakes_when_a_frame_lands() {
+        let hub = PreviewHub::new();
+        hub.inner.wanted.store(1, Ordering::SeqCst);
+        let writer = hub.clone();
+        let handle = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            *writer.inner.latest.lock().expect("latest") = Some(EncodedPreview {
+                bytes: Arc::from(vec![9_u8]),
+                width: 1,
+                height: 1,
+                frame_id: 3,
+                mime_type: "image/jpeg",
+            });
+            writer.inner.frame_cv.notify_all();
+        });
+        let started = Instant::now();
+        let got = hub.wait_frame(0, Duration::from_secs(2));
+        handle.join().expect("writer");
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(got.header.frame_id, 3);
+        assert!(got.bytes.is_some());
     }
 
     #[test]

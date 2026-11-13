@@ -456,6 +456,67 @@ pub fn scale_bgra(frame: &StillFrame, max_width: u32) -> StillFrame {
     }
 }
 
+/// Area-average downscale to `max_width`, keeping the aspect ratio. Every
+/// source pixel contributes to exactly one output pixel, so text and edges stay
+/// smooth instead of the jagged look of `scale_bgra`.
+pub fn scale_bgra_area(frame: &StillFrame, max_width: u32) -> StillFrame {
+    if frame.width == 0 || frame.height == 0 || frame.width <= max_width {
+        return frame.clone();
+    }
+    let src_w = frame.width as usize;
+    let src_h = frame.height as usize;
+    let dst_w = max_width.max(1) as usize;
+    let dst_h = ((src_h as u64 * dst_w as u64) / src_w as u64).max(1) as usize;
+    let pitch = frame.pitch as usize;
+    let column: Vec<usize> = (0..src_w).map(|x| x * dst_w / src_w).collect();
+    let mut column_count = vec![0_u32; dst_w];
+    for &dst_x in &column {
+        column_count[dst_x] += 1;
+    }
+    let dst_pitch = dst_w * 4;
+    let mut bgra = vec![0_u8; dst_pitch * dst_h];
+    let mut sums = vec![0_u32; dst_w * 4];
+    let mut src_y = 0_usize;
+    for dst_y in 0..dst_h {
+        let end_y = (((dst_y + 1) * src_h) / dst_h).max(src_y + 1).min(src_h);
+        sums.iter_mut().for_each(|value| *value = 0);
+        let rows = end_y - src_y;
+        for y in src_y..end_y {
+            let row = y * pitch;
+            if row + src_w * 4 > frame.bgra.len() {
+                break;
+            }
+            let pixels = &frame.bgra[row..row + src_w * 4];
+            for (x, px) in pixels.chunks_exact(4).enumerate() {
+                let slot = column[x] * 4;
+                sums[slot] += u32::from(px[0]);
+                sums[slot + 1] += u32::from(px[1]);
+                sums[slot + 2] += u32::from(px[2]);
+                sums[slot + 3] += u32::from(px[3]);
+            }
+        }
+        let out = dst_y * dst_pitch;
+        for dst_x in 0..dst_w {
+            let count = column_count[dst_x] * rows as u32;
+            if count == 0 {
+                continue;
+            }
+            let half = count / 2;
+            for channel in 0..4 {
+                bgra[out + dst_x * 4 + channel] =
+                    ((sums[dst_x * 4 + channel] + half) / count).min(255) as u8;
+            }
+        }
+        src_y = end_y;
+    }
+    StillFrame {
+        bgra,
+        width: dst_w as u32,
+        height: dst_h as u32,
+        pitch: dst_pitch as u32,
+    }
+}
+
 /// Nearest-neighbor scale to an exact size. Returns `frame` unchanged when it already matches.
 pub fn scale_bgra_to(frame: StillFrame, width: u32, height: u32) -> StillFrame {
     let width = width.max(1);
@@ -700,6 +761,52 @@ mod tests {
         assert_eq!(left, &[0, 0, 0, 0]);
         let mid = ((18 * 64 + 32) * 4) as usize;
         assert_eq!(&fitted.bgra[mid..mid + 4], &[255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn area_scale_averages_each_box() {
+        // 4x2 source: left half black, right half white, halved to 2x1.
+        let mut bgra = Vec::new();
+        for _ in 0..2 {
+            bgra.extend_from_slice(&[0, 0, 0, 255, 0, 0, 0, 255]);
+            bgra.extend_from_slice(&[255, 255, 255, 255, 255, 255, 255, 255]);
+        }
+        let frame = StillFrame {
+            bgra,
+            width: 4,
+            height: 2,
+            pitch: 16,
+        };
+        let scaled = scale_bgra_area(&frame, 2);
+        assert_eq!((scaled.width, scaled.height, scaled.pitch), (2, 1, 8));
+        assert_eq!(scaled.bgra, vec![0, 0, 0, 255, 255, 255, 255, 255]);
+
+        // A thin bright line is blended into its box instead of skipped.
+        let mut line = vec![0_u8; 4 * 4 * 4];
+        line[4..8].copy_from_slice(&[200, 200, 200, 255]);
+        let thin = StillFrame {
+            bgra: line,
+            width: 4,
+            height: 4,
+            pitch: 16,
+        };
+        let blended = scale_bgra_area(&thin, 2);
+        assert_eq!(blended.width, 2);
+        assert_eq!(blended.height, 2);
+        assert_eq!(blended.bgra[0], 50);
+    }
+
+    #[test]
+    fn area_scale_leaves_a_frame_that_fits() {
+        let frame = StillFrame {
+            bgra: vec![1, 2, 3, 4],
+            width: 1,
+            height: 1,
+            pitch: 4,
+        };
+        let same = scale_bgra_area(&frame, 1280);
+        assert_eq!(same.bgra, frame.bgra);
+        assert_eq!(same.width, 1);
     }
 
     #[test]

@@ -812,6 +812,34 @@
   flex: 0 0 auto;
 }
 
+.studio-mix-db-edit,
+.studio-mix-db-input {
+  align-self: center;
+  margin-top: -6px;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.studio-mix-db-edit:not(:disabled) {
+  cursor: text;
+}
+
+.studio-mix-db-edit:not(:disabled):hover {
+  border-color: var(--border);
+}
+
+.studio-mix-db-input {
+  width: 6.5em;
+  max-width: 100%;
+  border-color: var(--accent-ring);
+  background: var(--bg-input);
+  outline: none;
+}
+
 .studio-mix-body {
   display: flex;
   align-items: stretch;
@@ -827,19 +855,25 @@
   align-items: stretch;
   gap: 4px;
   min-width: 0;
+  /* Inset by half the fader thumb so marks line up with the thumb's centre. */
+  padding: 7px 0;
 }
 
 .studio-mix-vu-scale {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 2px 0;
+  position: relative;
+  min-width: 2.2em;
   color: rgba(180, 190, 204, 0.45);
   font-size: 8px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   text-align: right;
   user-select: none;
+}
+
+.studio-mix-vu-scale span {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
 }
 
 .studio-mix-vu-bars {
@@ -1073,6 +1107,60 @@
   border-radius: 10px;
   color: var(--text);
   padding: 7px 8px;
+}
+
+.studio-modal.video-settings-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.video-settings-dialog .studio-section-copy,
+.record-studio.is-capture .video-settings-dialog .studio-section-copy {
+  display: block;
+  margin: 0;
+}
+
+.video-settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.video-settings-dialog .field label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.video-settings-dialog input[type="range"] {
+  width: 100%;
+}
+
+.video-settings-dialog .btn.sm {
+  align-self: flex-start;
+}
+
+.camera-control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.camera-control-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.camera-control-row .studio-check {
+  flex: 0 0 auto;
 }
 
 .studio-modal select {
@@ -1372,9 +1460,20 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-input);
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .add-source-menu-head {
+  position: sticky;
+  top: -10px;
+  z-index: 1;
+  margin: -10px -10px 0;
+  padding: 10px;
+  background: var(--bg-input);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2066,6 +2165,19 @@
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  min-width: 0;
+  width: 100%;
+}
+
+.record-studio.is-capture .studio-mix-select,
+.record-studio.is-capture .studio-mix-channel {
+  min-width: 0;
+}
+
+.record-studio.is-capture .studio-mix-head .studio-mix-title {
+  flex: 0 1 auto;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .record-studio.is-capture .studio-mix-db {
@@ -2081,6 +2193,16 @@
 .record-studio.is-capture .studio-mix-body {
   min-height: 0;
   flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.record-studio.is-capture .studio-mix-fader {
+  min-height: 0;
+  height: 100%;
+}
+
+.record-studio.is-capture .studio-mix-fader-input {
+  height: 100%;
 }
 
 .record-studio.is-capture .studio-mix-tools {

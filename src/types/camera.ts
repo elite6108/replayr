@@ -1,3 +1,5 @@
+import type { CameraControlName } from "./settings";
+
 export type CameraAvailability =
   | "idle"
   | "ready"
@@ -49,13 +51,27 @@ export interface CameraStatus {
   sessionSkewMs: number;
 }
 
-export interface CameraPreviewFrame {
-  pngBase64: string;
+/** One hardware control the camera reports, with its range and current value. */
+export interface CameraControlInfo {
+  name: CameraControlName;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  defaultValue: number;
+  value: number;
+  auto: boolean;
+  autoSupported: boolean;
+}
+
+/** Metadata ahead of the JPEG bytes on the binary camera preview channel. */
+export interface CameraPreviewHeader {
   width: number;
   height: number;
   mirrored: boolean;
-  /** Monotonic encode id; unchanged means frontend must skip decode/setState. */
+  /** Monotonic encode id. 0 means no preview frame exists. */
   frameId: number;
+  mimeType: string;
 }
 
 export const IDLE_CAMERA_STATUS: CameraStatus = {

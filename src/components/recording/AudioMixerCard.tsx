@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { IconHeadphones, IconMore, IconSpeaker, IconSpeakerOff } from "../icons";
 import { ContextMenu } from "../common/ContextMenu";
-import { formatDb } from "../../recording/useStudioAudio";
+import { MixerDbInput } from "./MixerDbInput";
 import type { RecordingSourceType } from "../../recording/scene";
 import { audioSourceMenuItems } from "./audioSourceMenu";
 import { SourceGlyph } from "./sourceGlyph";
@@ -67,9 +67,15 @@ export function AudioMixerCard({
             <SourceGlyph type={sourceType} />
             <strong>{title}</strong>
           </span>
-          <span className="studio-mix-db">{enabled ? formatDb(gain) : "−∞ dB"}</span>
         </div>
       </button>
+      <MixerDbInput
+        label={`${title} volume`}
+        gain={gain}
+        enabled={enabled}
+        disabled={readOnly}
+        onGain={onGain}
+      />
       <div className="studio-mix-body">
         <VerticalAudioMeter level={enabled ? level : 0} />
         <VerticalAudioFader

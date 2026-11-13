@@ -9,11 +9,14 @@ import {
   findSourceByType,
   FULL_CROP,
   imageSettingsOf,
+  isNeutralPicture,
   isPrimaryCapture,
   overlaySettingsOf,
+  pictureSettingsOf,
   primaryCapture,
   textSettingsOf,
   webcamSettingsOf,
+  type PictureSettings,
   type RecordingScene,
   type RecordingSource,
   type SourceCrop,
@@ -45,6 +48,7 @@ export type CaptureCompositionSource = {
   transform: CompositionTransform;
   crop: CompositionCrop;
   monitorId?: string | null;
+  picture?: PictureSettings;
 };
 
 export type WebcamCompositionSource = {
@@ -61,6 +65,7 @@ export type WebcamCompositionSource = {
   fps: number;
   mirror: boolean;
   shape?: "rectangle" | "rounded" | "circle";
+  picture?: PictureSettings;
 };
 
 export type ImageCompositionSource = {
@@ -213,7 +218,13 @@ function asCapture(source: RecordingSource): CaptureCompositionSource | null {
     transform: asTransform(source.transform),
     crop: asCrop(source.crop),
     monitorId: source.type === "display" ? desktopCaptureSettingsOf(source).monitorId : null,
+    picture: asPicture(source),
   };
+}
+
+function asPicture(source: RecordingSource): PictureSettings | undefined {
+  const picture = pictureSettingsOf(source);
+  return isNeutralPicture(picture) ? undefined : picture;
 }
 
 function asWebcam(source: RecordingSource, settings: AppSettings, mirror: boolean): WebcamCompositionSource | null {
@@ -232,6 +243,7 @@ function asWebcam(source: RecordingSource, settings: AppSettings, mirror: boolea
     fps: settings.webcam.fps,
     mirror,
     shape: webcamSettingsOf(source).shape,
+    picture: asPicture(source),
   };
 }
 

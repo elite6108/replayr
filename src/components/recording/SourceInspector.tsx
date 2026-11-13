@@ -217,6 +217,7 @@ function InspectorBody({
         }
         onDevice={onWebcamDevice}
         onMirror={(mirrorRecording) => onSaveSetting("webcam", { ...settings.webcam, mirrorRecording })}
+        onMode={studio === "recording" ? (mode) => onSaveSetting("webcam", { ...settings.webcam, ...mode }) : undefined}
         studio={studio}
       />
     );

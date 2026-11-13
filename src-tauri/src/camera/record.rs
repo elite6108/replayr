@@ -27,6 +27,7 @@ use crate::encode::MfWriter;
 
 use super::clock::{CameraClockMap, SessionClock};
 use super::color::{bgra_to_nv12, compact_nv12, flip_nv12_horizontal, yuy2_to_nv12};
+use super::controls::ControlFollower;
 use super::device::{
     activate_source, ensure_mf, guid_from_subtype, list_modes, mf_error, permission_message,
 };
@@ -350,10 +351,12 @@ fn run_record(
 
     let deadline = Instant::now() + request.max_duration;
     let mut scratch = Vec::new();
+    let mut controls = ControlFollower::new(&request.device_id);
     while !stop.load(Ordering::SeqCst) && Instant::now() < deadline {
         if encode.is_finished() {
             break;
         }
+        controls.sync(&source);
         match read_nv12_frame(
             &reader,
             reader_subtype,

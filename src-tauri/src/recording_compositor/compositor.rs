@@ -30,7 +30,8 @@ use super::gpu::{create_bgra_input, create_nv12_output, upload_bgra, GpuEvent, S
 use super::still_blend::{self, StillBlender};
 use super::nv12::align_output;
 use super::scene::{
-    ComposedFilterId, TextAlign, ValidatedComposition, ValidatedHud, ValidatedLayer, WebcamShape,
+    ComposedFilterId, CompositionPicture, TextAlign, ValidatedComposition, ValidatedHud,
+    ValidatedLayer, WebcamShape,
 };
 use super::sources::image::{load_image, DecodedImage};
 use super::sources::overlay::raster_filter_chrome;
@@ -99,6 +100,7 @@ struct BlitOp {
     still: bool,
     /// 0 rectangle, 1 rounded, 2 circle. Only the composed webcam still path uses a non-zero mask.
     mask: u8,
+    picture: CompositionPicture,
 }
 
 impl RecordingCompositor {
@@ -533,6 +535,7 @@ impl RecordingCompositor {
                 op.mask,
                 op.dest.w,
                 op.dest.h,
+                op.picture.shader_params(),
             )?;
         }
         Ok(())
@@ -572,6 +575,7 @@ impl RecordingCompositor {
                         capture: true,
                         still: false,
                         mask: 0,
+                        picture: spec.capture.picture,
                     });
                 }
                 ValidatedLayer::Webcam => {
@@ -605,6 +609,7 @@ impl RecordingCompositor {
                         capture: false,
                         still: masked,
                         mask,
+                        picture: spec_cam.picture,
                     });
                 }
                 ValidatedLayer::Image(image) => {
@@ -645,6 +650,7 @@ impl RecordingCompositor {
                         capture: false,
                         still: true,
                         mask: 0,
+                        picture: CompositionPicture::default(),
                     });
                 }
                 ValidatedLayer::Text(text) => {
@@ -662,6 +668,7 @@ impl RecordingCompositor {
                         capture: false,
                         still: true,
                         mask: 0,
+                        picture: CompositionPicture::default(),
                     });
                 }
                 ValidatedLayer::OverlayChrome { .. } => {}
@@ -685,6 +692,7 @@ impl RecordingCompositor {
                 capture: false,
                 still: true,
                 mask: 0,
+                picture: CompositionPicture::default(),
             });
         }
         for cached in &self.hud {
@@ -699,6 +707,7 @@ impl RecordingCompositor {
                 capture: false,
                 still: true,
                 mask: 0,
+                picture: CompositionPicture::default(),
             });
         }
         Ok(ops)
@@ -739,15 +748,14 @@ impl RecordingCompositor {
                     true,
                     op.alpha.clamp(0.0, 1.0),
                 );
-                if op.capture {
-                    filters::apply_stream_filters(
-                        &self.enumerator,
-                        &self.gpu.video_ctx,
-                        &self.processor,
-                        index as u32,
-                        spec.filter,
-                    );
-                }
+                filters::apply_stream_filters(
+                    &self.enumerator,
+                    &self.gpu.video_ctx,
+                    &self.processor,
+                    index as u32,
+                    op.capture.then_some(spec.filter),
+                    &op.picture,
+                );
                 streams[index] = D3D11_VIDEO_PROCESSOR_STREAM {
                     Enable: BOOL(1),
                     pInputSurface: ManuallyDrop::new(Some(op.view.clone())),
@@ -801,6 +809,7 @@ impl RecordingCompositor {
             self.gpu
                 .video_ctx
                 .VideoProcessorSetStreamAlpha(&self.processor, 0, false, 1.0);
+            filters::clear_stream_filters(&self.enumerator, &self.gpu.video_ctx, &self.processor, 0);
             let streams = [D3D11_VIDEO_PROCESSOR_STREAM {
                 Enable: BOOL(1),
                 pInputSurface: ManuallyDrop::new(Some(self.bgra_vp_in.clone())),

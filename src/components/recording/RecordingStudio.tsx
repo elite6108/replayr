@@ -28,6 +28,7 @@ import { RecordingPreview } from "./RecordingPreview";
 import { SourceInspector } from "./SourceInspector";
 import { SourceList } from "./SourceList";
 import { SourcePropertiesDialog } from "./SourcePropertiesDialog";
+import { VideoSettingsDialog } from "./VideoSettingsDialog";
 import { formatBytes } from "../../utils/format";
 import { displayFps, qualityLabel } from "../../utils/qualityLabels";
 import { IconFolder, IconGames } from "../icons";
@@ -98,6 +99,7 @@ export function RecordingStudio() {
   } = useRecordingScene();
   const [camera, setCamera] = useState<CameraStatus>(IDLE_CAMERA_STATUS);
   const [propertiesId, setPropertiesId] = useState<string | null>(null);
+  const [videoSettingsId, setVideoSettingsId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [columns, setColumns] = useState<CaptureColumnId[]>(readCaptureColumns);
   const [draggingColumn, setDraggingColumn] = useState<CaptureColumnId | null>(null);
@@ -110,6 +112,7 @@ export function RecordingStudio() {
   const { displays, error: displayError, refresh: refreshDisplays } = useDisplays();
   const levels = useStudioAudio();
   const propertiesSource = scene.sources.find((source) => source.id === propertiesId) ?? null;
+  const videoSettingsSource = scene.sources.find((source) => source.id === videoSettingsId) ?? null;
   const quiet = status.active || replay.active || camera.rolling || camera.recording;
   const negotiated = (status.outputWidth ?? 0) >= 2 && (status.outputHeight ?? 0) >= 2;
   const frameAspect = frameSize.w > 1 && frameSize.h > 1 ? frameSize.w / frameSize.h : 16 / 9;
@@ -289,6 +292,10 @@ export function RecordingStudio() {
           setPropertiesId(id);
         }}
         onInspect={part === "sources" ? openInspector : undefined}
+        onVideoSettings={(id) => {
+          setSelectedId(id);
+          setVideoSettingsId(id);
+        }}
         onRenameSource={(id, name) => {
           if (compositionLocked) return;
           patchSource(id, { name });
@@ -513,6 +520,27 @@ export function RecordingStudio() {
             void writeSettings(key, value);
           }}
           onClose={() => setPropertiesId(null)}
+        />
+      ) : null}
+      {videoSettingsSource ? (
+        <VideoSettingsDialog
+          source={videoSettingsSource}
+          settings={settings}
+          composed={scene.outputMode === "composed"}
+          locked={compositionLocked}
+          onPicture={(picture) => {
+            if (compositionLocked) return;
+            patchSource(videoSettingsSource.id, { settings: { picture } });
+          }}
+          onSaveSetting={(key, value) => {
+            if (compositionLocked && key === "webcam") {
+              const current = settings.webcam;
+              const next = value as AppSettings["webcam"];
+              if (next.width !== current.width || next.height !== current.height || next.fps !== current.fps) return;
+            }
+            void writeSettings(key, value);
+          }}
+          onClose={() => setVideoSettingsId(null)}
         />
       ) : null}
     </>

@@ -126,6 +126,7 @@ pub(crate) fn default_game_scene(settings: &AppSettings) -> RecordingComposition
             transform: CompositionTransform { x: 0.0, y: 0.0, w: 1.0, h: 1.0, opacity: 1.0 },
             crop: CompositionCrop::default(),
             monitor_id: None,
+            picture: Default::default(),
         })],
     }
 }

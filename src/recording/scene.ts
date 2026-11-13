@@ -308,6 +308,67 @@ export function webcamSettingsOf(source: RecordingSource): WebcamSourceSettings 
   };
 }
 
+/**
+ * Per-source picture adjustments. Brightness, contrast and saturation run -100..100, hue is in
+ * degrees (-180..180), sharpness 0..100. All zero is the untouched picture.
+ */
+export type PictureSettings = {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  hue: number;
+  sharpness: number;
+};
+
+export const NEUTRAL_PICTURE: PictureSettings = { brightness: 0, contrast: 0, saturation: 0, hue: 0, sharpness: 0 };
+
+export const PICTURE_SOURCE_TYPES: readonly RecordingSourceType[] = ["game", "display", "webcam"];
+
+export function supportsPicture(type: RecordingSourceType): boolean {
+  return PICTURE_SOURCE_TYPES.includes(type);
+}
+
+function pictureNumber(value: unknown, min: number, max: number): number {
+  const number = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return Math.round(Math.max(min, Math.min(max, number)));
+}
+
+export function sanitizePicture(raw: unknown): PictureSettings {
+  const value = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    brightness: pictureNumber(value.brightness, -100, 100),
+    contrast: pictureNumber(value.contrast, -100, 100),
+    saturation: pictureNumber(value.saturation, -100, 100),
+    hue: pictureNumber(value.hue, -180, 180),
+    sharpness: pictureNumber(value.sharpness, 0, 100),
+  };
+}
+
+export function pictureSettingsOf(source: RecordingSource | null | undefined): PictureSettings {
+  if (!source || !supportsPicture(source.type)) return { ...NEUTRAL_PICTURE };
+  return sanitizePicture(source.settings.picture);
+}
+
+export function isNeutralPicture(picture: PictureSettings): boolean {
+  return (
+    picture.brightness === 0 &&
+    picture.contrast === 0 &&
+    picture.saturation === 0 &&
+    picture.hue === 0 &&
+    picture.sharpness === 0
+  );
+}
+
+/** CSS approximation of the recorder's colour filters. Sharpness has no CSS equivalent. */
+export function pictureCssFilter(picture: PictureSettings): string | undefined {
+  const parts: string[] = [];
+  if (picture.brightness !== 0) parts.push(`brightness(${(1 + picture.brightness / 200).toFixed(3)})`);
+  if (picture.contrast !== 0) parts.push(`contrast(${(1 + picture.contrast / 100).toFixed(3)})`);
+  if (picture.saturation !== 0) parts.push(`saturate(${(1 + picture.saturation / 100).toFixed(3)})`);
+  if (picture.hue !== 0) parts.push(`hue-rotate(${picture.hue}deg)`);
+  return parts.length ? parts.join(" ") : undefined;
+}
+
 export function overlayToVisuals(source: RecordingSource | undefined, fallback: RecordingVisualSettings): RecordingVisualSettings {
   if (!source) return fallback;
   if (!source.enabled) {

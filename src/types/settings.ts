@@ -129,6 +129,17 @@ export const DEFAULT_CLIP_STUDIO: ClipStudioSettings = {
   scenes: [],
 };
 
+/** Webcam live preview pace and size. Does not change the recording. */
+export type WebcamPreviewSmoothness = "smooth" | "balanced" | "sharp";
+
+/** Hardware camera control names stored per device. */
+export type CameraControlName = "exposure" | "focus" | "whiteBalance" | "backlight" | "gain" | "powerLine";
+
+export interface CameraControlSetting {
+  value: number;
+  auto: boolean;
+}
+
 export interface WebcamSettings {
   enabled: boolean;
   deviceId: string;
@@ -141,6 +152,9 @@ export interface WebcamSettings {
   defaultPlacement: WebcamPlacement;
   defaultShape: WebcamShape;
   defaultWidth: number;
+  previewSmoothness: WebcamPreviewSmoothness;
+  /** Device id, then control name. */
+  controls: Record<string, Partial<Record<CameraControlName, CameraControlSetting>>>;
 }
 
 export const DEFAULT_WEBCAM_SETTINGS: WebcamSettings = {
@@ -155,6 +169,8 @@ export const DEFAULT_WEBCAM_SETTINGS: WebcamSettings = {
   defaultPlacement: "bottom-right",
   defaultShape: "rounded",
   defaultWidth: 0.22,
+  previewSmoothness: "balanced",
+  controls: {},
 };
 
 export interface ExtraAudioApp {

@@ -4,7 +4,12 @@ import type { CameraStatus } from "../../types/camera";
 import type { WebcamSettings } from "../../types/settings";
 import { cameraPreviewAllowed } from "../../recording/visualFilters";
 import type { SourceTransform } from "../../recording/scene";
-import { webcamSettingsOf, type RecordingSource } from "../../recording/scene";
+import {
+  pictureCssFilter,
+  pictureSettingsOf,
+  webcamSettingsOf,
+  type RecordingSource,
+} from "../../recording/scene";
 import { CroppedMediaFrame } from "./CroppedMediaFrame";
 import { webcamOverlayStyle } from "../../utils/clips";
 
@@ -58,6 +63,7 @@ export function PreviewWebcamLayer({
       height={webcam.height}
       fps={webcam.fps}
       mirror={mirror ?? webcam.mirrorPreview}
+      filter={source ? pictureCssFilter(pictureSettingsOf(source)) : undefined}
       disconnected={false}
       message=""
     />

@@ -4,6 +4,7 @@ import type { CameraDevice, CameraStatus } from "../../../types/camera";
 import type { WebcamPlacement, WebcamSettings, WebcamShape } from "../../../types/settings";
 import { webcamSettingsOf, type RecordingSource } from "../../../recording/scene";
 import type { StudioMode } from "../../../recording/studioMode";
+import { CameraModePicker, type CameraModeChoice } from "../../sources/CameraModePicker";
 
 const PLACEMENTS: { id: WebcamPlacement; label: string }[] = [
   { id: "top-left", label: "TL" },
@@ -27,6 +28,7 @@ export function WebcamSourceSettings({
   onSnap,
   onDevice,
   onMirror,
+  onMode,
   studio = "recording",
 }: {
   source: RecordingSource;
@@ -37,6 +39,7 @@ export function WebcamSourceSettings({
   onSnap: (placement: WebcamPlacement) => void;
   onDevice: (device: CameraDevice) => void;
   onMirror: (mirror: boolean) => void;
+  onMode?: (mode: CameraModeChoice) => void;
   studio?: StudioMode;
 }) {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
@@ -78,6 +81,17 @@ export function WebcamSourceSettings({
           ))}
         </select>
       </div>
+      {onMode ? (
+        <CameraModePicker
+          idPrefix="record-webcam"
+          deviceId={webcam.deviceId}
+          width={webcam.width}
+          height={webcam.height}
+          fps={webcam.fps}
+          disabled={!webcam.deviceId}
+          onChange={onMode}
+        />
+      ) : null}
       <label className="studio-check">
         <input type="checkbox" checked={webcam.mirrorRecording} onChange={(event) => onMirror(event.target.checked)} />
         Mirror my video

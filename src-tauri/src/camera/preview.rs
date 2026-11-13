@@ -1,12 +1,12 @@
-//! Live camera preview. Opens the device only while the settings card is
-//! visible. Bounded: one converted RGB frame, one PNG, drop-oldest.
+//! Live camera preview. Opens the device only while a preview is mounted.
+//! Bounded: one converted frame, one JPEG, drop-oldest.
 
 #![cfg(windows)]
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use windows::Win32::Media::MediaFoundation::{
     IMFMediaType, IMFSample, IMFSourceReader, MFCreateAttributes, MFCreateMediaType,
@@ -18,24 +18,21 @@ use windows::Win32::Media::MediaFoundation::{
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
 use crate::audio_timeline::qpc_hns;
-use crate::still::StillFrame;
+use crate::still::{scale_bgra_area, StillFrame};
 
 use super::clock::{CameraClockMap, SessionClock};
-use super::color::{encode_png_bgra, flip_bgra_horizontal, nv12_to_bgra, rgb32_to_bgra, yuy2_to_bgra, base64_encode};
-use super::device::{activate_source, ensure_mf, guid_from_subtype, list_modes, mf_error, permission_message, subtype_from_guid};
+use super::controls::ControlFollower;
+use super::color::{encode_jpeg_bgra_quality, flip_bgra_horizontal, nv12_to_bgra, rgb32_to_bgra, yuy2_to_bgra};
+use super::device::{activate_source, ensure_mf, guid_from_subtype, list_modes, mf_error, permission_message};
 use super::format::{
     log_negotiated_mode, pick_camera_mode, CameraSubtype, NegotiatedMode, RequestedMode,
 };
-use super::types::{PreviewFrame, PreviewRequest};
-
-const PREVIEW_MAX_WIDTH: u32 = 480;
-const PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(50);
-const QUEUE_KEEP: usize = 1;
+use super::types::{PreviewJpeg, PreviewRequest, PreviewSlot};
 
 pub struct PreviewSession {
     stop: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
-    latest: Arc<Mutex<Option<PreviewFrame>>>,
+    latest: Arc<PreviewSlot>,
     negotiated: Arc<Mutex<Option<NegotiatedMode>>>,
     timestamp_fallback: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
@@ -45,7 +42,7 @@ impl PreviewSession {
     pub fn start(request: PreviewRequest, session_origin_hns: Option<i64>) -> Result<Self, String> {
         let request = request.sanitize()?;
         let stop = Arc::new(AtomicBool::new(false));
-        let latest = Arc::new(Mutex::new(None));
+        let latest = Arc::new(PreviewSlot::default());
         let negotiated = Arc::new(Mutex::new(None));
         let timestamp_fallback = Arc::new(AtomicBool::new(false));
         let error = Arc::new(Mutex::new(None));
@@ -85,6 +82,7 @@ impl PreviewSession {
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        self.latest.close();
         if let Ok(mut thread) = self.thread.lock() {
             if let Some(handle) = thread.take() {
                 let _ = handle.join();
@@ -92,8 +90,8 @@ impl PreviewSession {
         }
     }
 
-    pub fn latest(&self) -> Option<PreviewFrame> {
-        self.latest.lock().ok().and_then(|guard| guard.clone())
+    pub fn slot(&self) -> Arc<PreviewSlot> {
+        Arc::clone(&self.latest)
     }
 
     pub fn negotiated(&self) -> Option<NegotiatedMode> {
@@ -119,7 +117,7 @@ fn run_preview(
     request: PreviewRequest,
     session_origin_hns: Option<i64>,
     stop: Arc<AtomicBool>,
-    latest: Arc<Mutex<Option<PreviewFrame>>>,
+    latest: Arc<PreviewSlot>,
     negotiated_slot: Arc<Mutex<Option<NegotiatedMode>>>,
     timestamp_fallback: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
@@ -139,6 +137,8 @@ fn run_preview(
     )
     .ok_or_else(|| "That camera did not report a usable video mode.".to_string())?;
     let source = unsafe { activate_source(&request.device_id)? };
+    let mut controls = ControlFollower::new(&request.device_id);
+    controls.sync(&source);
     let (reader, reader_subtype) = open_preview_reader(&source, selected.width, selected.height)?;
     let negotiated = NegotiatedMode::from_native(selected.clone(), reader_subtype);
     log_negotiated_mode(&request.device_id, &negotiated);
@@ -153,9 +153,18 @@ fn run_preview(
         "camera preview using SessionClock origin"
     );
     let mut clock = CameraClockMap::new(origin, selected.fps.max(1));
-    let mut last_emit = Instant::now()
-        .checked_sub(PREVIEW_MIN_INTERVAL)
-        .unwrap_or_else(Instant::now);
+    let smoothness = request.smoothness;
+    let max_width = smoothness.max_width();
+    let jpeg_quality = smoothness.jpeg_quality();
+    let min_gap = smoothness.min_gap(selected.fps);
+    tracing::info!(
+        smoothness = ?smoothness,
+        camera_fps = selected.fps,
+        max_width,
+        min_gap_ms = min_gap.as_millis() as u64,
+        "camera preview pace"
+    );
+    let mut last_emit = Instant::now().checked_sub(min_gap).unwrap_or_else(Instant::now);
     let mut nv12_scratch = Vec::new();
     let mut next_frame_id: u64 = 1;
     let mut encoded: u64 = 0;
@@ -172,50 +181,46 @@ fn run_preview(
                 return Err(err);
             }
         };
+        controls.sync(&source);
         let mapped = clock.map_sample(sample.time_hns, sample.duration_hns, qpc_hns());
         timestamp_fallback.store(mapped.fallback, Ordering::SeqCst);
-        if last_emit.elapsed() < PREVIEW_MIN_INTERVAL {
+        if last_emit.elapsed() < min_gap {
             continue;
         }
         last_emit = Instant::now();
         let encode_started = Instant::now();
-        let mut bgra = sample.bgra;
-        if request.mirror {
-            flip_bgra_horizontal(&mut bgra, sample.width, sample.height);
+        let mut frame = StillFrame {
+            bgra: sample.bgra,
+            width: sample.width,
+            height: sample.height,
+            pitch: sample.width * 4,
+        };
+        if frame.width > max_width {
+            frame = scale_bgra_area(&frame, max_width);
         }
-        let frame = crate::still::scale_bgra(
-            &StillFrame {
-                bgra,
-                width: sample.width,
-                height: sample.height,
-                pitch: sample.width * 4,
-            },
-            PREVIEW_MAX_WIDTH,
-        );
-        let png = encode_png_bgra(&frame.bgra, frame.width, frame.height)?;
+        if request.mirror {
+            flip_bgra_horizontal(&mut frame.bgra, frame.width, frame.height);
+        }
+        let jpeg = encode_jpeg_bgra_quality(&frame.bgra, frame.width, frame.height, jpeg_quality)?;
         let frame_id = next_frame_id;
         next_frame_id = next_frame_id.saturating_add(1);
-        let preview = PreviewFrame {
-            png_base64: base64_encode(&png),
+        latest.publish(PreviewJpeg {
+            bytes: Arc::from(jpeg),
             width: frame.width,
             height: frame.height,
             mirrored: request.mirror,
             frame_id,
-        };
-        if let Ok(mut slot) = latest.lock() {
-            *slot = Some(preview);
-        }
+        });
         encoded += 1;
         if encoded == 1 || encoded % 120 == 0 {
             tracing::info!(
                 encoded,
                 encode_ms = encode_started.elapsed().as_millis() as u64,
-                preview_max_width = PREVIEW_MAX_WIDTH,
-                interval_ms = PREVIEW_MIN_INTERVAL.as_millis() as u64,
+                preview_max_width = max_width,
+                min_gap_ms = min_gap.as_millis() as u64,
                 "camera preview stats"
             );
         }
-        let _ = QUEUE_KEEP;
         let _ = error;
     }
     Ok(())

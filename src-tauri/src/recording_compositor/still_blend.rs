@@ -26,7 +26,7 @@ use super::transforms::PixelRect;
 const HLSL: &[u8] = br#"
 struct VSIn { float2 pos : POSITION; float2 uv : TEXCOORD0; float2 local : TEXCOORD1; };
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float2 local : TEXCOORD1; };
-cbuffer Params : register(b0) { float opacity; float mask; float destW; float destH; };
+cbuffer Params : register(b0) { float opacity; float mask; float destW; float destH; float4 picture; };
 Texture2D tex : register(t0);
 SamplerState samp : register(s0);
 VSOut vs_main(VSIn i) {
@@ -36,8 +36,25 @@ VSOut vs_main(VSIn i) {
     o.local = i.local;
     return o;
 }
+float3 apply_picture(float3 rgb) {
+    rgb *= picture.x;
+    rgb = (rgb - 0.5) * picture.y + 0.5;
+    float l = dot(rgb, float3(0.2126, 0.7152, 0.0722));
+    rgb = lerp(float3(l, l, l), rgb, picture.z);
+    if (picture.w != 0.0) {
+        float cs = cos(picture.w);
+        float sn = sin(picture.w);
+        float3x3 m = float3x3(
+            0.213 + cs * 0.787 - sn * 0.213, 0.715 - cs * 0.715 - sn * 0.715, 0.072 - cs * 0.072 + sn * 0.928,
+            0.213 - cs * 0.213 + sn * 0.143, 0.715 + cs * 0.285 + sn * 0.140, 0.072 - cs * 0.072 - sn * 0.283,
+            0.213 - cs * 0.213 - sn * 0.787, 0.715 - cs * 0.715 + sn * 0.715, 0.072 + cs * 0.928 + sn * 0.072);
+        rgb = mul(m, rgb);
+    }
+    return saturate(rgb);
+}
 float4 ps_main(VSOut i) : SV_Target {
     float4 c = tex.Sample(samp, i.uv);
+    if (any(picture != float4(1.0, 1.0, 1.0, 0.0))) c.rgb = apply_picture(c.rgb);
     if (mask > 1.5) {
         float2 d = (i.local - 0.5) * 2.0;
         if (dot(d, d) > 1.0) discard;
@@ -53,6 +70,9 @@ float4 ps_main(VSOut i) : SV_Target {
     return c;
 }
 "#;
+
+/// Matches the HLSL `Params` cbuffer; constant buffers must be a multiple of 16 bytes.
+const PARAMS_FLOATS: usize = 8;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -218,7 +238,7 @@ impl StillBlender {
                 .map_err(|err| format!("Could not create still vertex buffer: {err}"))?;
 
             let cb_desc = D3D11_BUFFER_DESC {
-                ByteWidth: 16,
+                ByteWidth: (std::mem::size_of::<f32>() * PARAMS_FLOATS) as u32,
                 Usage: D3D11_USAGE_DEFAULT,
                 BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32,
                 ..Default::default()
@@ -256,16 +276,21 @@ impl StillBlender {
         mask: u8,
         dest_w: u32,
         dest_h: u32,
+        picture: [f32; 4],
     ) -> Result<(), String> {
         if dest.is_empty() || canvas_w < 2 || canvas_h < 2 || tex_w == 0 || tex_h == 0 {
             return Ok(());
         }
         let verts = quad(canvas_w, canvas_h, dest, src, tex_w, tex_h);
-        let opacity = [
+        let opacity: [f32; PARAMS_FLOATS] = [
             opacity.clamp(0.0, 1.0),
             mask as f32,
             dest_w.max(1) as f32,
             dest_h.max(1) as f32,
+            picture[0],
+            picture[1],
+            picture[2],
+            picture[3],
         ];
         unsafe {
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();

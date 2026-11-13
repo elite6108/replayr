@@ -13,7 +13,7 @@ use super::clock::{webcam_sidecar_path, SegmentHealth, SessionClock};
 use super::format::{estimated_mb_per_minute, pick_camera_mode, webcam_bitrate_bps, RequestedMode};
 use super::ring::{RotateAck, WebcamBuffer};
 use super::types::{
-    CameraAvailability, CameraDeviceInfo, CameraStatus, PreviewFrame, PreviewRequest,
+    CameraAvailability, CameraDeviceInfo, CameraStatus, PreviewHeader, PreviewRequest,
 };
 
 const WATCH_INTERVAL: Duration = Duration::from_secs(2);
@@ -304,6 +304,7 @@ impl CameraEngine {
                 estimated_mb_per_minute(webcam_bitrate_bps(webcam.width, webcam.height, webcam.fps));
         }
         self.inner.mirror_recording.store(webcam.mirror_recording, Ordering::SeqCst);
+        super::controls::store_settings(&webcam.controls);
         if let Ok(mut cache) = self.inner.cached_modes.lock() {
             if cache.as_ref().is_some_and(|(id, _)| id != &webcam.device_id) {
                 *cache = None;
@@ -389,18 +390,24 @@ impl CameraEngine {
         }
     }
 
-    pub fn latest_preview(&self) -> Option<PreviewFrame> {
+    /// Long-poll for a camera preview frame newer than `after`. Bytes are `None` when no newer
+    /// frame arrived in time or no preview is running.
+    pub fn wait_preview(&self, after: u64, timeout: Duration) -> (PreviewHeader, Option<Arc<[u8]>>) {
         #[cfg(windows)]
-        {
-            self.inner
-                .preview
-                .lock()
-                .ok()
-                .and_then(|guard| guard.as_ref().and_then(super::preview::PreviewSession::latest))
-        }
+        let slot = self
+            .inner
+            .preview
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(super::preview::PreviewSession::slot));
         #[cfg(not(windows))]
-        {
-            None
+        let slot: Option<Arc<super::types::PreviewSlot>> = None;
+        match slot {
+            Some(slot) => slot.wait(after, timeout),
+            None => {
+                std::thread::sleep(timeout.min(Duration::from_millis(100)));
+                (PreviewHeader::empty(), None)
+            }
         }
     }
 

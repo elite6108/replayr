@@ -16,6 +16,7 @@ use windows::Win32::Media::MediaFoundation::{
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
 use crate::camera::color::{flip_bgra_horizontal, nv12_to_bgra, rgb32_to_bgra, yuy2_to_bgra};
+use crate::camera::controls::ControlFollower;
 use crate::camera::device::{
     activate_source, ensure_mf, guid_from_subtype, list_modes, mf_error, permission_message,
 };
@@ -110,7 +111,9 @@ fn run_webcam(
     let source = unsafe { activate_source(&device_id)? };
     let (reader, subtype) = open_reader(&source, selected.width, selected.height)?;
     let mut scratch = Vec::new();
+    let mut controls = ControlFollower::new(&device_id);
     while !stop.load(Ordering::SeqCst) {
+        controls.sync(&source);
         let sample = match read_sample(&reader, subtype, selected.width, selected.height, &mut scratch)
         {
             Ok(Some(sample)) => sample,

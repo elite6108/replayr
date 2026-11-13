@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { listCameraDevices, listCameraModes, startWebcamTestRecord, stopWebcamTestRecord } from "../../services/tauri";
-import type { CameraDevice, CameraMode, CameraStatus } from "../../types/camera";
+import { useEffect, useState } from "react";
+import { listCameraDevices, startWebcamTestRecord, stopWebcamTestRecord } from "../../services/tauri";
+import type { CameraDevice, CameraStatus } from "../../types/camera";
 import type { WebcamPlacement, WebcamSettings, WebcamShape } from "../../types/settings";
+import { CameraModePicker } from "./CameraModePicker";
 import { WebcamPreview } from "./WebcamPreview";
 
 const PLACEMENTS: { id: WebcamPlacement; label: string }[] = [
@@ -26,7 +27,6 @@ interface WebcamSourceCardProps {
 
 export function WebcamSourceCard({ webcam, status, previewing, onChange }: WebcamSourceCardProps) {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
-  const [modes, setModes] = useState<CameraMode[]>([]);
   const [modesReady, setModesReady] = useState(false);
   const [testBusy, setTestBusy] = useState(false);
   const [testError, setTestError] = useState("");
@@ -46,31 +46,6 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
     };
   }, [status.availability, webcam.deviceId]);
 
-  useEffect(() => {
-    if (!deviceId) {
-      setModes([]);
-      setModesReady(false);
-      return;
-    }
-    let cancelled = false;
-    setModesReady(false);
-    void listCameraModes(deviceId)
-      .then((listed) => {
-        if (!cancelled) setModes(listed);
-      })
-      .catch(() => {
-        if (!cancelled) setModes([]);
-      })
-      .finally(() => {
-        if (!cancelled) setModesReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [deviceId]);
-
-  const resolutions = useMemo(() => uniqueResolutions(modes), [modes]);
-  const frameRates = useMemo(() => uniqueFps(modes, webcam.width, webcam.height), [modes, webcam.width, webcam.height]);
   const testRecording = status.recording && !status.rolling;
   const instantReplayLive = status.rolling;
   const disconnected =
@@ -163,37 +138,15 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
 
         <div className="stack">
           <div className="settings-fields webcam-fields">
-            <div className="field">
-              <label htmlFor="webcam-res">Resolution</label>
-              <select
-                id="webcam-res"
-                value={`${webcam.width}x${webcam.height}`}
-                onChange={(event) => {
-                  const [width, height] = event.target.value.split("x").map(Number);
-                  void patch({ width, height });
-                }}
-              >
-                {(resolutions.length ? resolutions : [{ width: 1280, height: 720 }]).map((mode) => (
-                  <option key={`${mode.width}x${mode.height}`} value={`${mode.width}x${mode.height}`}>
-                    {mode.height}p
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="webcam-fps">Frame rate</label>
-              <select
-                id="webcam-fps"
-                value={webcam.fps}
-                onChange={(event) => void patch({ fps: Number(event.target.value) })}
-              >
-                {(frameRates.length ? frameRates : [30]).map((fps) => (
-                  <option key={fps} value={fps}>
-                    {fps} FPS
-                  </option>
-                ))}
-              </select>
-            </div>
+            <CameraModePicker
+              idPrefix="webcam"
+              deviceId={deviceId}
+              width={webcam.width}
+              height={webcam.height}
+              fps={webcam.fps}
+              onChange={(mode) => void patch(mode)}
+              onModesReady={setModesReady}
+            />
           </div>
           <div className="field">
             <span className="settings-group-label">Default position</span>
@@ -332,30 +285,6 @@ export function WebcamSourceCard({ webcam, status, previewing, onChange }: Webca
       </div>
     </div>
   );
-}
-
-function uniqueResolutions(modes: CameraMode[]): { width: number; height: number }[] {
-  const seen = new Set<string>();
-  const out: { width: number; height: number }[] = [];
-  for (const mode of modes) {
-    if (mode.height !== 720 && mode.height !== 1080 && mode.height !== 480) continue;
-    const key = `${mode.width}x${mode.height}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ width: mode.width, height: mode.height });
-  }
-  return out.sort((a, b) => a.height - b.height);
-}
-
-function uniqueFps(modes: CameraMode[], width: number, height: number): number[] {
-  const fps = new Set<number>();
-  for (const mode of modes) {
-    if (mode.width === width && mode.height === height && (mode.fps === 30 || mode.fps === 60 || mode.fps === 24)) {
-      fps.add(mode.fps);
-    }
-  }
-  if (!fps.size) fps.add(30);
-  return [...fps].sort((a, b) => a - b);
 }
 
 function estimateMb(width: number, height: number, fps: number): number {

@@ -37,6 +37,7 @@ export function SourceList({
   onMoveScene,
   onProperties,
   onInspect,
+  onVideoSettings,
   onRenameSource,
   compositionLocked,
   studio = "recording",
@@ -63,6 +64,8 @@ export function SourceList({
   onMoveScene?: (id: string, direction: "up" | "down") => void;
   onProperties: (id: string) => void;
   onInspect?: (id: string) => void;
+  /** Opens picture, smoothness and camera settings for game, display and webcam sources. */
+  onVideoSettings?: (id: string) => void;
   onRenameSource: (id: string, name: string) => void;
   compositionLocked?: boolean;
   studio?: StudioMode;
@@ -177,6 +180,7 @@ export function SourceList({
                 onRemove={() => onRemove(source.id)}
                 onProperties={() => onProperties(source.id)}
                 onInspect={onInspect ? () => onInspect(source.id) : undefined}
+                onVideoSettings={onVideoSettings ? () => onVideoSettings(source.id) : undefined}
                 onRename={(name) => onRenameSource(source.id, name)}
                 onGripDown={(event) => beginReorder(source.id, event)}
               />

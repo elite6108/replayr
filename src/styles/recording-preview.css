@@ -136,6 +136,7 @@
 }
 
 .preview-crop-clip-full > img,
+.preview-crop-clip-full > canvas,
 .preview-crop-full .preview-crop-clip-full > * {
   /* Full-frame path: media fills the aspect-matched canvas (no nested letterbox). */
   object-fit: contain;
@@ -294,7 +295,9 @@
   background: #050608;
 }
 
-.preview-capture img {
+.preview-capture img,
+.preview-capture canvas {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -304,6 +307,7 @@
 }
 
 .preview-crop-clip > img,
+.preview-crop-clip > canvas,
 .preview-webcam-crop-media {
   object-fit: fill;
 }

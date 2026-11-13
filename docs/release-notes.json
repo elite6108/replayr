@@ -1,4 +1,9 @@
 {
+  "0.1.92": [
+    "Webcam preview is smoother, and each source has Video settings for brightness, contrast, colour and camera controls.",
+    "Click a dB readout in the audio mixer to type a level. The fader and meter now share one dB scale.",
+    "The Add Source menu scrolls, and mixer labels no longer overlap when the inspector is open."
+  ],
   "0.1.91": [
     "Saving a multi-section edit no longer fails on a software-encoded recording.",
     "An odd-sized frame is cropped so a Short or treated export can encode."

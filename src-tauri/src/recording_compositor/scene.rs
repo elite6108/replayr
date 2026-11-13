@@ -83,6 +83,48 @@ impl Default for CompositionCrop {
     }
 }
 
+/// Per-source picture adjustments. Brightness, contrast and saturation run
+/// -100..100, hue -180..180 degrees, sharpness 0..100. Zero is untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CompositionPicture {
+    pub brightness: f32,
+    pub contrast: f32,
+    pub saturation: f32,
+    pub hue: f32,
+    pub sharpness: f32,
+}
+
+impl CompositionPicture {
+    pub fn clamped(self) -> Self {
+        let clamp = |value: f32, min: f32, max: f32| {
+            if value.is_finite() {
+                value.round().clamp(min, max)
+            } else {
+                0.0
+            }
+        };
+        Self {
+            brightness: clamp(self.brightness, -100.0, 100.0),
+            contrast: clamp(self.contrast, -100.0, 100.0),
+            saturation: clamp(self.saturation, -100.0, 100.0),
+            hue: clamp(self.hue, -180.0, 180.0),
+            sharpness: clamp(self.sharpness, 0.0, 100.0),
+        }
+    }
+
+    /// Colour constants for the still shader, matching the preview's CSS
+    /// filter: brightness, contrast and saturation factors, hue in radians.
+    pub fn shader_params(&self) -> [f32; 4] {
+        [
+            1.0 + self.brightness / 200.0,
+            1.0 + self.contrast / 100.0,
+            1.0 + self.saturation / 100.0,
+            self.hue.to_radians(),
+        ]
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureCompositionSource {
@@ -97,6 +139,8 @@ pub struct CaptureCompositionSource {
     pub crop: CompositionCrop,
     #[serde(default)]
     pub monitor_id: Option<String>,
+    #[serde(default)]
+    pub picture: CompositionPicture,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -117,6 +161,8 @@ pub struct WebcamCompositionSource {
     pub mirror: bool,
     #[serde(default)]
     pub shape: WebcamShape,
+    #[serde(default)]
+    pub picture: CompositionPicture,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -249,6 +295,7 @@ pub struct ValidatedCapture {
     pub crop: NormRect,
     pub opacity: f32,
     pub monitor_id: Option<String>,
+    pub picture: CompositionPicture,
 }
 
 #[derive(Debug, Clone)]
@@ -265,6 +312,7 @@ pub struct ValidatedWebcam {
     pub fps: u32,
     pub mirror: bool,
     pub shape: WebcamShape,
+    pub picture: CompositionPicture,
 }
 
 #[derive(Debug, Clone)]
@@ -365,6 +413,7 @@ impl RecordingComposition {
                         crop: validate_crop(&src.crop)?,
                         opacity: src.transform.opacity.clamp(0.0, 1.0),
                         monitor_id: crate::displays::sanitize_monitor_id(src.monitor_id.as_deref()),
+                        picture: src.picture.clamped(),
                     };
                     layers.push(ValidatedLayer::Capture);
                     capture = Some(validated);
@@ -395,6 +444,7 @@ impl RecordingComposition {
                         fps: src.fps.clamp(15, 60),
                         mirror: src.mirror,
                         shape: src.shape,
+                        picture: src.picture.clamped(),
                     };
                     layers.push(ValidatedLayer::Webcam);
                     webcam = Some(validated);
@@ -833,5 +883,22 @@ mod tests {
         );
         let spec = parse(&circle).unwrap();
         assert_eq!(spec.webcam.as_ref().unwrap().shape, WebcamShape::Circle);
+    }
+
+    #[test]
+    fn picture_defaults_to_neutral_and_is_clamped() {
+        let json = format!(
+            r#"{{"canvas":{{"width":1920,"height":1080,"fps":60}},"sources":[{}]}}"#,
+            capture_source("game-1", 0)
+        );
+        assert_eq!(parse(&json).unwrap().capture.picture, CompositionPicture::default());
+
+        let json = r#"{"canvas":{"width":1920,"height":1080,"fps":60},"sources":[{"kind":"capture","id":"game-1","capture":"game","enabled":true,"order":0,"transform":{"x":0,"y":0,"w":1,"h":1,"opacity":1},"picture":{"brightness":250,"contrast":-20.4,"hue":-400,"sharpness":-5}}]}"#;
+        let picture = parse(json).unwrap().capture.picture;
+        assert_eq!(picture.brightness, 100.0);
+        assert_eq!(picture.contrast, -20.0);
+        assert_eq!(picture.saturation, 0.0);
+        assert_eq!(picture.hue, -180.0);
+        assert_eq!(picture.sharpness, 0.0);
     }
 }

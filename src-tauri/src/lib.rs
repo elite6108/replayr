@@ -171,7 +171,7 @@ pub fn run() {
                     app.state::<capture::RecordingState>()
                         .shared
                         .preview
-                        .apply_quality(&settings.preview_quality);
+                        .apply_quality(&settings.preview_quality, settings.fps);
                 }
             }
             crate::paths::allow_clip_asset_roots(app.handle());
@@ -263,10 +263,13 @@ pub fn run() {
             commands::get_camera_status,
             commands::start_camera_preview,
             commands::stop_camera_preview,
-            commands::get_camera_preview_frame,
+            commands::wait_camera_preview_frame,
+            commands::get_camera_controls,
+            commands::set_camera_control,
             commands::start_capture_preview,
             commands::stop_capture_preview,
             commands::get_capture_preview_frame,
+            commands::wait_capture_preview_frame,
             commands::list_displays,
             commands::start_webcam_test_record,
             commands::stop_webcam_test_record,

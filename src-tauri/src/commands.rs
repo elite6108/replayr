@@ -130,8 +130,10 @@ fn after_settings(
         app.state::<CameraEngine>().configure(&settings.webcam);
     }
 
-    if keys.iter().any(|key| key == "previewQuality") {
-        rec.shared.preview.apply_quality(&settings.preview_quality);
+    if keys.iter().any(|key| key == "previewQuality" || key == "fps") {
+        rec.shared
+            .preview
+            .apply_quality(&settings.preview_quality, settings.fps);
     }
 
     if keys.iter().any(|key| key == "saveLocation") {
@@ -206,6 +208,7 @@ pub fn start_camera_preview(
     height: u32,
     fps: u32,
     mirror: bool,
+    smoothness: Option<String>,
 ) -> AppResult<Value> {
     let status = engine
         .start_preview(PreviewRequest {
@@ -214,6 +217,7 @@ pub fn start_camera_preview(
             height,
             fps,
             mirror,
+            smoothness: crate::camera::PreviewSmoothness::parse(smoothness.as_deref().unwrap_or("balanced")),
         })
         .map_err(AppError::Message)?;
     Ok(serde_json::to_value(status)?)
@@ -225,9 +229,46 @@ pub fn stop_camera_preview(engine: State<CameraEngine>) -> AppResult<()> {
     Ok(())
 }
 
+/// Long-poll for the next camera preview frame. Same body layout as
+/// `wait_capture_preview_frame`.
 #[tauri::command]
-pub fn get_camera_preview_frame(engine: State<CameraEngine>) -> AppResult<Value> {
-    Ok(serde_json::to_value(engine.latest_preview())?)
+pub async fn wait_camera_preview_frame(
+    engine: State<'_, CameraEngine>,
+    after: u64,
+    timeout_ms: Option<u32>,
+) -> AppResult<tauri::ipc::Response> {
+    let engine = engine.inner().clone();
+    let timeout = std::time::Duration::from_millis(u64::from(timeout_ms.unwrap_or(250).clamp(1, 250)));
+    let (header, bytes) = tauri::async_runtime::spawn_blocking(move || engine.wait_preview(after, timeout))
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?;
+    Ok(preview_body(&header, bytes.as_deref())?)
+}
+
+#[tauri::command]
+pub async fn get_camera_controls(device_id: String) -> AppResult<Vec<crate::camera::CameraControlInfo>> {
+    tauri::async_runtime::spawn_blocking(move || crate::camera::controls::get_controls(&device_id))
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?
+        .map_err(AppError::Message)
+}
+
+#[tauri::command]
+pub async fn set_camera_control(device_id: String, name: String, value: i32, auto: bool) -> AppResult<()> {
+    tauri::async_runtime::spawn_blocking(move || crate::camera::controls::set_control(&device_id, &name, value, auto))
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?
+        .map_err(AppError::Message)
+}
+
+fn preview_body<H: serde::Serialize>(header: &H, jpeg: Option<&[u8]>) -> AppResult<tauri::ipc::Response> {
+    let header = serde_json::to_vec(header)?;
+    let jpeg = jpeg.unwrap_or(&[]);
+    let mut body = Vec::with_capacity(4 + header.len() + jpeg.len());
+    body.extend_from_slice(&(header.len() as u32).to_le_bytes());
+    body.extend_from_slice(&header);
+    body.extend_from_slice(jpeg);
+    Ok(tauri::ipc::Response::new(body))
 }
 
 #[tauri::command]
@@ -260,6 +301,22 @@ pub fn stop_capture_preview(rec: State<RecordingState>) -> AppResult<()> {
 #[tauri::command]
 pub fn get_capture_preview_frame(rec: State<RecordingState>) -> AppResult<Value> {
     Ok(serde_json::to_value(capture::preview_frame(&rec))?)
+}
+
+/// Long-poll for the next preview frame. Body: little-endian `u32` header
+/// length, JSON header, then the JPEG bytes when a newer frame exists.
+#[tauri::command]
+pub async fn wait_capture_preview_frame(
+    rec: State<'_, RecordingState>,
+    after: u64,
+    timeout_ms: Option<u32>,
+) -> AppResult<tauri::ipc::Response> {
+    let hub = rec.shared.preview.clone();
+    let timeout = std::time::Duration::from_millis(u64::from(timeout_ms.unwrap_or(250).clamp(1, 250)));
+    let frame = tauri::async_runtime::spawn_blocking(move || hub.wait_frame(after, timeout))
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?;
+    preview_body(&frame.header, frame.bytes.as_deref())
 }
 
 #[tauri::command]

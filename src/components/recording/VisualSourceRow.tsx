@@ -2,7 +2,7 @@ import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ContextMenu } from "../common/ContextMenu";
 import { IconEye, IconEyeOff, IconGrip, IconLock, IconMore, IconUnlock } from "../icons";
 import { capabilityCaption, clipSourceCaption, composedSourceCaption, registryEntry, sourceComposedSupported } from "../../recording/registry";
-import type { RecordingOutputMode, RecordingSource } from "../../recording/scene";
+import { supportsPicture, type RecordingOutputMode, type RecordingSource } from "../../recording/scene";
 import type { StudioMode } from "../../recording/studioMode";
 import { SourceGlyph } from "./sourceGlyph";
 import { SourceNameEdit } from "./SourceNameEdit";
@@ -18,6 +18,7 @@ export function VisualSourceRow({
   onRemove,
   onProperties,
   onInspect,
+  onVideoSettings,
   onRename,
   onGripDown,
   dropBefore,
@@ -34,6 +35,7 @@ export function VisualSourceRow({
   onRemove: () => void;
   onProperties: () => void;
   onInspect?: () => void;
+  onVideoSettings?: () => void;
   onRename: (name: string) => void;
   onGripDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   dropBefore?: boolean;
@@ -43,6 +45,8 @@ export function VisualSourceRow({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const entry = registryEntry(source.type);
+  const videoItem =
+    onVideoSettings && supportsPicture(source.type) ? [{ label: "Video settings", onClick: onVideoSettings }] : [];
   const composedUnsupported = outputMode === "composed" && !sourceComposedSupported(source.type);
   const composedCap = outputMode === "composed" ? composedSourceCaption(source.type) : null;
   const caption =
@@ -145,11 +149,13 @@ export function VisualSourceRow({
             compositionLocked
               ? [
                   ...(onInspect ? [{ label: "Source inspector", onClick: onInspect }] : []),
+                  ...videoItem,
                   { label: "Stop recording to edit layout.", onClick: () => undefined },
                 ]
               : [
                   ...(onInspect ? [{ label: "Source inspector", onClick: onInspect }] : []),
                   { label: "Properties", onClick: onProperties },
+                  ...videoItem,
                   { label: "Rename", onClick: () => setRenaming(true) },
                   { label: source.enabled ? "Hide" : "Show", onClick: () => onToggle(!source.enabled) },
                   { label: source.locked ? "Unlock" : "Lock", onClick: () => onLock(!source.locked) },

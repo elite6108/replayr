@@ -16,6 +16,7 @@ use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 use crate::encode::MfWriter;
 
 use super::clock::{webcam_file_bounds, webcam_file_index, CameraClockMap, SegmentHealth, SourceSegment};
+use super::controls::ControlFollower;
 use super::device::{activate_source, ensure_mf, list_modes, permission_message};
 use super::encoder::open_webcam_segment_writer;
 use super::format::{log_negotiated_mode, pick_camera_mode, RequestedMode};
@@ -212,10 +213,12 @@ fn run_rolling(
     };
 
     let mut scratch = Vec::new();
+    let mut controls = ControlFollower::new(&request.device_id);
     while !stop.load(Ordering::SeqCst) {
         if encode.is_finished() {
             break;
         }
+        controls.sync(&source);
         match read_nv12_frame(
             &reader,
             reader_subtype,

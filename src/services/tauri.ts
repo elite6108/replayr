@@ -1,8 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings } from "../types/settings";
+import type { AppSettings, CameraControlName, WebcamPreviewSmoothness } from "../types/settings";
 import type { AudioDevice, AudioEngineStatus, AudioSession } from "../types/audio";
-import type { CapturePreviewFrame } from "../types/capturePreview";
-import type { CameraDevice, CameraMode, CameraPreviewFrame, CameraStatus } from "../types/camera";
+import type { CapturePreviewFrame, CapturePreviewHeader } from "../types/capturePreview";
+import type {
+  CameraControlInfo,
+  CameraDevice,
+  CameraMode,
+  CameraPreviewHeader,
+  CameraStatus,
+} from "../types/camera";
 import type { LocalClip } from "../types/clip";
 import type { DetectedGameSnapshot, GameCatalogEntry } from "../types/game";
 import type { DiscordPresenceStatus } from "../types/discord";
@@ -498,6 +504,7 @@ export async function startCameraPreview(options: {
   height: number;
   fps: number;
   mirror: boolean;
+  smoothness?: WebcamPreviewSmoothness;
 }): Promise<CameraStatus> {
   cancelCameraPreviewStop();
   cameraPreviewClients += 1;
@@ -525,22 +532,31 @@ export async function stopCameraPreview(): Promise<void> {
   }, 300);
 }
 
-export async function getCameraPreviewFrame(): Promise<CameraPreviewFrame | null> {
-  try {
-    const next = await invoke<
-      (CameraPreviewFrame & { png_base64?: string; frame_id?: number }) | null
-    >("get_camera_preview_frame");
-    if (!next) return null;
-    const pngBase64 = next.pngBase64 || next.png_base64 || "";
-    if (!pngBase64) return null;
-    return {
-      ...next,
-      pngBase64,
-      frameId: Number(next.frameId ?? next.frame_id ?? 0),
-    };
-  } catch {
-    return null;
-  }
+export async function getCameraControls(deviceId: string): Promise<CameraControlInfo[]> {
+  const controls = await withTimeout(
+    invoke<CameraControlInfo[]>("get_camera_controls", { deviceId }),
+    5000,
+    "get_camera_controls",
+  );
+  return Array.isArray(controls) ? controls : [];
+}
+
+export async function setCameraControl(
+  deviceId: string,
+  name: CameraControlName,
+  value: number,
+  auto: boolean,
+): Promise<void> {
+  await withTimeout(invoke("set_camera_control", { deviceId, name, value, auto }), 5000, "set_camera_control");
+}
+
+/** Long-poll for a camera preview frame newer than `after`. `bytes` is null when none arrived in time. */
+export async function waitCameraPreviewFrame(
+  after: number,
+  timeoutMs = 250,
+): Promise<{ header: CameraPreviewHeader; bytes: Uint8Array<ArrayBuffer> | null }> {
+  const body = await invoke<ArrayBuffer | number[]>("wait_camera_preview_frame", { after, timeoutMs });
+  return parsePreviewBody<CameraPreviewHeader>(body);
 }
 
 let capturePreviewClients = 0;
@@ -613,6 +629,27 @@ export async function getCapturePreviewFrame(): Promise<CapturePreviewFrame | nu
   } catch {
     return null;
   }
+}
+
+const previewHeaderDecoder = new TextDecoder();
+
+/** Long-poll for a preview frame newer than `after`. `bytes` is null when none arrived in time. */
+export async function waitCapturePreviewFrame(
+  after: number,
+  timeoutMs = 250,
+): Promise<{ header: CapturePreviewHeader; bytes: Uint8Array<ArrayBuffer> | null }> {
+  const body = await invoke<ArrayBuffer | number[]>("wait_capture_preview_frame", { after, timeoutMs });
+  return parsePreviewBody<CapturePreviewHeader>(body);
+}
+
+/** Binary preview body: little-endian u32 header length, JSON header, then image bytes. */
+function parsePreviewBody<H>(body: ArrayBuffer | number[]): { header: H; bytes: Uint8Array<ArrayBuffer> | null } {
+  const buffer: ArrayBuffer = body instanceof ArrayBuffer ? body : new Uint8Array(body).buffer;
+  const headerLength = new DataView(buffer).getUint32(0, true);
+  const header = JSON.parse(previewHeaderDecoder.decode(new Uint8Array(buffer, 4, headerLength))) as H;
+  const offset = 4 + headerLength;
+  const bytes = buffer.byteLength > offset ? new Uint8Array(buffer, offset) : null;
+  return { header, bytes };
 }
 
 export async function startWebcamTestRecord(options: {

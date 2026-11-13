@@ -259,6 +259,11 @@ pub fn burn_plan(settings: &AppSettings, started_unix_secs: u64) -> Option<ClipB
             transform: to_transform(capture.transform, 1.0),
             crop: to_crop(capture.crop),
             monitor_id: setting_str(capture, "monitorId").map(|value| value.to_string()),
+            picture: capture
+                .settings
+                .get("picture")
+                .and_then(|value| serde_json::from_value(value.clone()).ok())
+                .unwrap_or_default(),
         },
     ));
 

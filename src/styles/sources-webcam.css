@@ -100,7 +100,8 @@
   text-transform: uppercase;
 }
 
-.webcam-preview img {
+.webcam-preview img,
+.webcam-preview canvas {
   width: 100%;
   height: 100%;
   object-fit: cover;

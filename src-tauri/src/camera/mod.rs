@@ -8,6 +8,7 @@
 
 mod clock;
 pub(crate) mod color;
+pub(crate) mod controls;
 mod engine;
 mod format;
 mod ring;
@@ -31,6 +32,8 @@ pub use clock::{
     CameraClockMap, SessionClock, SEGMENT_HNS, WEBCAM_FOLLOW_LEAD_HNS, WEBCAM_SYNC_DELAY_HNS,
 };
 #[allow(unused_imports)]
+pub use controls::CameraControlInfo;
+#[allow(unused_imports)]
 pub use engine::{estimate_storage_mb_per_minute, CameraEngine};
 #[allow(unused_imports)]
 pub use format::{
@@ -42,4 +45,7 @@ pub use ring::WEBCAM_ROTATE_TIMEOUT;
 #[allow(unused_imports)]
 pub use safety::{webcam_encode_should_abort, TEST_RECORD_SECONDS};
 #[allow(unused_imports)]
-pub use types::{CameraAvailability, CameraDeviceInfo, CameraStatus, PreviewFrame, PreviewRequest};
+pub use types::{
+    is_camera_control_name, CameraAvailability, CameraDeviceInfo, CameraStatus, PreviewHeader, PreviewRequest,
+    PreviewSmoothness, CAMERA_CONTROL_NAMES,
+};

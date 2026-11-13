@@ -14,3 +14,14 @@ export interface CapturePreviewFrame {
   /** Preview transport MIME. Defaults to image/jpeg. */
   mimeType?: string;
 }
+
+/** Metadata ahead of the JPEG bytes on the binary preview channel. */
+export interface CapturePreviewHeader {
+  width: number;
+  height: number;
+  state: CapturePreviewState;
+  label: string;
+  source: CapturePreviewFrame["source"];
+  frameId: number;
+  mimeType: string;
+}

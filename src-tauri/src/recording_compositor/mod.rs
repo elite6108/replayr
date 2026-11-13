@@ -785,6 +785,7 @@ fn run_composed_session(
         &compositor,
         preview.clone(),
         &preview_quality,
+        resolved.fps,
     ) {
         Ok(tap) => Some(tap),
         Err(err) => {

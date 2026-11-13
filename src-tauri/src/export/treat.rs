@@ -235,9 +235,10 @@ pub fn write_treated_section_with(
     let speed = sanitize_speed(section.speed);
     let fps = fps.clamp(24, 60);
     let frame_hns = 10_000_000 / fps as i64;
-    let expected = (((section.end_ms.saturating_sub(section.start_ms)) as f32) / 1000.0 * fps as f32 / speed)
-        .round()
-        .max(1.0) as u32;
+    let expected =
+        (((section.end_ms.saturating_sub(section.start_ms)) as f32) / 1000.0 * fps as f32 / speed)
+            .round()
+            .max(1.0) as u32;
     let vertical = section.vertical_pan.map(|pan| pan.clamp(0.0, 1.0));
 
     let mut game = decode_audio_range(input, start_hns, end_hns).unwrap_or_default();
@@ -275,7 +276,11 @@ pub fn write_treated_section_with(
     let mut clock = 0_i64;
     let mut frames = 0_u32;
     let mut writer: Option<crate::encode::MfWriter> = None;
-    let mut text_raster: Option<(crate::recording_compositor::sources::text::RasterText, f32, f32)> = None;
+    let mut text_raster: Option<(
+        crate::recording_compositor::sources::text::RasterText,
+        f32,
+        f32,
+    )> = None;
     let mut last: Option<(crate::still::StillFrame, i64)> = None;
     let mut pcm_at = 0_usize;
 
@@ -296,10 +301,13 @@ pub fn write_treated_section_with(
             let (width, height, bitrate) = if vertical.is_some() {
                 (1080, 1920, 15_000_000)
             } else {
-                let width = frame.width.max(2);
-                let height = frame.height.max(2);
+                let (width, height) = crate::still::even_coded_size(frame.width, frame.height);
                 let pixels = u64::from(width) * u64::from(height) * u64::from(fps);
-                (width, height, (pixels / 6).clamp(4_000_000, 25_000_000) as u32)
+                (
+                    width,
+                    height,
+                    (pixels / 6).clamp(4_000_000, 25_000_000) as u32,
+                )
             };
             writer = Some(crate::encode::MfWriter::create(
                 output,
@@ -417,7 +425,11 @@ pub fn write_treated_section_with(
 
 /// Keeps the audio clock with the video clock so the MP4 sink can flush frames
 /// instead of holding the whole clip in memory.
-fn pace_audio(writer: &mut crate::encode::MfWriter, pcm: &[u8], cursor: &mut usize) -> Result<(), String> {
+fn pace_audio(
+    writer: &mut crate::encode::MfWriter,
+    pcm: &[u8],
+    cursor: &mut usize,
+) -> Result<(), String> {
     if pcm.is_empty() {
         return Ok(());
     }
@@ -444,7 +456,11 @@ fn write_painted(
     vertical: Option<f32>,
     webcam: Option<&WebcamCompose>,
     webcam_follow: &mut Option<super::webcam::WebcamFollow>,
-    text_raster: Option<&(crate::recording_compositor::sources::text::RasterText, f32, f32)>,
+    text_raster: Option<&(
+        crate::recording_compositor::sources::text::RasterText,
+        f32,
+        f32,
+    )>,
     writer: &mut crate::encode::MfWriter,
     clock: i64,
     first: bool,
@@ -457,7 +473,10 @@ fn write_painted(
     if let Some(follow) = webcam_follow.as_mut() {
         follow.ensure_at(timestamp);
     }
-    if let Some(cam_frame) = webcam_follow.as_ref().and_then(|follow| follow.current_frame()) {
+    if let Some(cam_frame) = webcam_follow
+        .as_ref()
+        .and_then(|follow| follow.current_frame())
+    {
         if let Some(overlay) = webcam {
             super::webcam::overlay_webcam_bgra(&mut picture, cam_frame, &overlay.layout);
         }
@@ -465,14 +484,26 @@ fn write_painted(
     if let Some((raster, x, y)) = text_raster {
         blend_text(&mut picture, raster, *x, *y);
     }
-    writer.write_bgra(&picture.bgra, picture.pitch, picture.width, picture.height, clock, first)
+    crate::still::crop_to_even(&mut picture);
+    writer.write_bgra(
+        &picture.bgra,
+        picture.pitch,
+        picture.width,
+        picture.height,
+        clock,
+        first,
+    )
 }
 
 fn prepared_text(
     section: &TreatedSection,
     canvas_w: u32,
     canvas_h: u32,
-) -> Option<(crate::recording_compositor::sources::text::RasterText, f32, f32)> {
+) -> Option<(
+    crate::recording_compositor::sources::text::RasterText,
+    f32,
+    f32,
+)> {
     let label = section.text.as_ref()?;
     let text = label.text.trim();
     if text.is_empty() {
@@ -480,9 +511,19 @@ fn prepared_text(
     }
     let text: String = text.chars().take(80).collect();
     let size = label.size.clamp(18, 120);
-    let x = if label.x.is_finite() { label.x.clamp(0.0, 1.0) } else { 0.5 };
-    let y = if label.y.is_finite() { label.y.clamp(0.0, 1.0) } else { 0.82 };
-    let width = (text.chars().count() as u32 * size).clamp(size * 2, canvas_w).max(8);
+    let x = if label.x.is_finite() {
+        label.x.clamp(0.0, 1.0)
+    } else {
+        0.5
+    };
+    let y = if label.y.is_finite() {
+        label.y.clamp(0.0, 1.0)
+    } else {
+        0.82
+    };
+    let width = (text.chars().count() as u32 * size)
+        .clamp(size * 2, canvas_w)
+        .max(8);
     let height = (size + size / 2).clamp(size, canvas_h).max(8);
     let spec = ValidatedText {
         id: "editor-text".into(),
@@ -699,7 +740,14 @@ mod tests {
         let frame_hns = 10_000_000 / fps as i64;
         for index in 0..frames {
             writer
-                .write_bgra(&bgra, pitch, width, height, index as i64 * frame_hns, index == 0)
+                .write_bgra(
+                    &bgra,
+                    pitch,
+                    width,
+                    height,
+                    index as i64 * frame_hns,
+                    index == 0,
+                )
                 .unwrap();
         }
         let samples = 48_000 * frames as usize / fps as usize;

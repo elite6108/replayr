@@ -7,9 +7,9 @@ pub(crate) mod mux;
 mod progress;
 mod remux;
 mod session_place;
-mod types;
 mod transcript_audio;
 mod treat;
+mod types;
 mod vertical;
 mod watermark;
 mod webcam;
@@ -19,23 +19,26 @@ mod writer;
 pub(crate) use audio::{audio_peaks, fit_pcm_to_video, spawn_compose_audio};
 pub use compose::sizing::fit_compose_size;
 #[allow(unused_imports)]
-pub(crate) use compose_scene::{compose_clip_scene_timed, ClipSceneComposeReport};
-#[allow(unused_imports)]
 pub(crate) use compose::{blank_direct_mft_long_test, compose_webcam_nv12, compose_webcam_rgb32};
 #[allow(unused_imports)]
-pub(crate) use progress::expected_compose_frames;
+pub(crate) use compose_scene::{compose_clip_scene_timed, ClipSceneComposeReport};
 pub use copy_remux::{remux_composed_mp4, remux_composed_mp4_in_place, CopyRemuxStats};
 pub use faststart::faststart_mp4_in_place;
-pub use remux::{concat_mp4s, concat_mp4s_preserve_timeline, trim_mp4, ConcatSegment};
+#[allow(unused_imports)]
+pub(crate) use progress::expected_compose_frames;
+pub use remux::{
+    concat_mp4s, concat_mp4s_abut, concat_mp4s_preserve_timeline, trim_mp4, ConcatSegment,
+};
 pub use session_place::TimelineBasis;
+pub use transcript_audio::{extract_speech_audio, MAX_TRANSCRIPT_MS};
+pub use treat::{
+    sanitize_speed, section_is_identity, write_treated_section, write_treated_section_with,
+    TreatedSection, TreatedText,
+};
 #[allow(unused_imports)]
 pub use types::{
     ComposeProgress, ComposeQuality, WebcamCompose, WebcamComposeOpts, CLOUD_COMPOSE_MAX_HEIGHT,
     CLOUD_COMPOSE_MAX_WIDTH,
-};
-pub use transcript_audio::{extract_speech_audio, MAX_TRANSCRIPT_MS};
-pub use treat::{
-    sanitize_speed, section_is_identity, write_treated_section, write_treated_section_with, TreatedSection, TreatedText,
 };
 pub use vertical::write_vertical_mp4;
 pub use watermark::{should_watermark_exports, watermarked_temp, write_watermarked_mp4};

@@ -39,11 +39,12 @@ pub fn write_vertical_mp4(
 
     let pcm = decode_audio_range(input, start_hns, end_hns).unwrap_or_default();
     let has_audio = !pcm.is_empty();
+    let (short_width, short_height) = crate::still::even_coded_size(SHORT_WIDTH, SHORT_HEIGHT);
     // Same single-thread BGRA pitfall as compose_webcam_mp4 — disable sink throttling.
     let mut writer = crate::encode::MfWriter::create(
         output,
-        SHORT_WIDTH,
-        SHORT_HEIGHT,
+        short_width,
+        short_height,
         fps,
         SHORT_BITRATE,
         has_audio,
@@ -88,7 +89,7 @@ pub fn write_vertical_mp4(
             clock
         };
         let mut vertical =
-            crate::still::crop_and_scale_9x16(&frame, pan, SHORT_WIDTH, SHORT_HEIGHT);
+            crate::still::crop_and_scale_9x16(&frame, pan, short_width, short_height);
         if let Some(follow) = webcam.as_mut() {
             follow.ensure_at(timestamp);
         }
@@ -97,6 +98,7 @@ pub fn write_vertical_mp4(
                 overlay_webcam_bgra(&mut vertical, cam_frame, &overlay.layout);
             }
         }
+        crate::still::crop_to_even(&mut vertical);
         writer.write_bgra(
             &vertical.bgra,
             vertical.pitch,

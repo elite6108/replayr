@@ -562,6 +562,44 @@ pub fn fit_bgra_contain(frame: StillFrame, out_width: u32, out_height: u32) -> S
     }
 }
 
+/// Software H.264 rejects an odd coded size. 1920×1080 is unchanged.
+pub fn even_coded_size(width: u32, height: u32) -> (u32, u32) {
+    ((width.max(2)) & !1, (height.max(2)) & !1)
+}
+
+/// Drops the right column and bottom row when either side is odd so the
+/// frame matches an even H.264 encoder size. An already-even frame is left
+/// as it is.
+pub fn crop_to_even(frame: &mut StillFrame) {
+    if frame.width < 2 || frame.height < 2 {
+        return;
+    }
+    let width = frame.width & !1;
+    let height = frame.height & !1;
+    if width == frame.width && height == frame.height {
+        return;
+    }
+    let dst_pitch = width * 4;
+    let src_pitch = frame.pitch.max(frame.width.saturating_mul(4)) as usize;
+    let row = dst_pitch as usize;
+    let mut packed = Vec::with_capacity(row * height as usize);
+    for y in 0..height as usize {
+        let src = y * src_pitch;
+        let have = frame.bgra.len().saturating_sub(src);
+        let take = have.min(row);
+        if take > 0 {
+            packed.extend_from_slice(&frame.bgra[src..src + take]);
+        }
+        if take < row {
+            packed.resize(packed.len() + (row - take), 0);
+        }
+    }
+    frame.bgra = packed;
+    frame.width = width;
+    frame.height = height;
+    frame.pitch = dst_pitch;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -662,5 +700,42 @@ mod tests {
         assert_eq!(left, &[0, 0, 0, 0]);
         let mid = ((18 * 64 + 32) * 4) as usize;
         assert_eq!(&fitted.bgra[mid..mid + 4], &[255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn crop_to_even_drops_the_odd_column_and_row() {
+        let mut frame = StillFrame {
+            bgra: vec![
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+            ],
+            width: 3,
+            height: 3,
+            pitch: 12,
+        };
+        crop_to_even(&mut frame);
+        assert_eq!((frame.width, frame.height, frame.pitch), (2, 2, 8));
+        assert_eq!(
+            frame.bgra,
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 15, 16, 17, 18, 19, 20]
+        );
+    }
+
+    #[test]
+    fn crop_to_even_leaves_an_even_frame() {
+        let bgra = vec![9_u8; 2 * 2 * 4];
+        let mut frame = StillFrame {
+            bgra: bgra.clone(),
+            width: 2,
+            height: 2,
+            pitch: 8,
+        };
+        crop_to_even(&mut frame);
+        assert_eq!(frame.width, 2);
+        assert_eq!(frame.height, 2);
+        assert_eq!(frame.bgra, bgra);
+        assert_eq!(even_coded_size(1920, 1080), (1920, 1080));
+        assert_eq!(even_coded_size(1919, 1080), (1918, 1080));
+        assert_eq!(even_coded_size(1080, 1920), (1080, 1920));
     }
 }

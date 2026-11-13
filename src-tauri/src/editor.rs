@@ -20,7 +20,11 @@ pub struct FilmstripFrame {
 
 pub fn validate_range(start_ms: u64, end_ms: u64, duration_ms: u64) -> Result<(u64, u64), String> {
     // A missing duration still accepts the requested end. A known duration clamps to the clip.
-    let duration_ms = if duration_ms == 0 { end_ms } else { duration_ms };
+    let duration_ms = if duration_ms == 0 {
+        end_ms
+    } else {
+        duration_ms
+    };
     let start = start_ms.min(duration_ms);
     let end = end_ms.min(duration_ms).max(start);
     if end.saturating_sub(start) < MIN_TRIM_MS {
@@ -38,7 +42,10 @@ pub fn save_trimmed_clip(
 ) -> AppResult<LocalClipDto> {
     let source = {
         let db = app.state::<AppState>();
-        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        let conn = db
+            .db
+            .lock()
+            .map_err(|err| AppError::Message(err.to_string()))?;
         library::get(&conn, source_local_id)?
     };
     let path = PathBuf::from(&source.file_path);
@@ -54,7 +61,8 @@ pub fn save_trimmed_clip(
         return Err(AppError::Message("Only MP4 clips can be trimmed.".into()));
     }
     let duration_ms = source.duration_ms.unwrap_or(0).max(0) as u64;
-    let (start_ms, end_ms) = validate_range(start_ms, end_ms, duration_ms).map_err(AppError::Message)?;
+    let (start_ms, end_ms) =
+        validate_range(start_ms, end_ms, duration_ms).map_err(AppError::Message)?;
     let dest_dir = path
         .parent()
         .ok_or_else(|| AppError::Message("That clip has no folder.".into()))?;
@@ -66,7 +74,9 @@ pub fn save_trimmed_clip(
     #[cfg(not(windows))]
     let written_ms: i64 = {
         let _ = dest;
-        return Err(AppError::Message("Trim is only available on Windows.".into()));
+        return Err(AppError::Message(
+            "Trim is only available on Windows.".into(),
+        ));
     };
 
     #[cfg(windows)]
@@ -83,7 +93,11 @@ pub fn save_trimmed_clip(
         }
     }
 
-    let duration_ms = if written_ms > 0 { written_ms as u64 } else { end_ms - start_ms };
+    let duration_ms = if written_ms > 0 {
+        written_ms as u64
+    } else {
+        end_ms - start_ms
+    };
     let mid_ms = duration_ms / 2;
     #[cfg(windows)]
     let preview = crate::thumb::frame_at(&dest, mid_ms).ok();
@@ -98,7 +112,11 @@ pub fn save_trimmed_clip(
         .unwrap_or_else(|| {
             format!(
                 "{} — Trim",
-                source.title.as_deref().filter(|value| !value.is_empty()).unwrap_or("Clip")
+                source
+                    .title
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("Clip")
             )
         });
 
@@ -127,7 +145,10 @@ pub fn save_trimmed_clip(
         },
     );
     let db = app.state::<AppState>();
-    let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    let conn = db
+        .db
+        .lock()
+        .map_err(|err| AppError::Message(err.to_string()))?;
     library::get(&conn, &local_id)
 }
 
@@ -136,7 +157,10 @@ pub const MAX_SEGMENTS: usize = 64;
 
 /// Validates the kept ranges for a multi-section save: 2..=MAX_SEGMENTS ranges,
 /// each at least MIN_TRIM_MS long, strictly ordered and non-overlapping.
-pub fn validate_segments(ranges: &[(u64, u64)], duration_ms: u64) -> Result<Vec<(u64, u64)>, String> {
+pub fn validate_segments(
+    ranges: &[(u64, u64)],
+    duration_ms: u64,
+) -> Result<Vec<(u64, u64)>, String> {
     if ranges.len() < 2 {
         return Err("Split the clip into at least two sections first.".into());
     }
@@ -172,7 +196,7 @@ impl Drop for RemoveDir {
 
 /// Saves several kept ranges of one clip as a single new clip. Each range is
 /// stream-copied with `trim_mp4` (cuts land on the previous keyframe) and the
-/// pieces are joined with `concat_mp4s`; nothing is re-encoded.
+/// pieces are joined from the samples actually copied; nothing is re-encoded.
 pub fn save_segmented_clip(
     app: &AppHandle,
     source_local_id: &str,
@@ -181,7 +205,10 @@ pub fn save_segmented_clip(
 ) -> AppResult<LocalClipDto> {
     let source = {
         let db = app.state::<AppState>();
-        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        let conn = db
+            .db
+            .lock()
+            .map_err(|err| AppError::Message(err.to_string()))?;
         library::get(&conn, source_local_id)?
     };
     let path = PathBuf::from(&source.file_path);
@@ -206,7 +233,9 @@ pub fn save_segmented_clip(
     #[cfg(not(windows))]
     {
         let _ = (dest, title);
-        return Err(AppError::Message("Section edits are only available on Windows.".into()));
+        return Err(AppError::Message(
+            "Section edits are only available on Windows.".into(),
+        ));
     }
 
     #[cfg(windows)]
@@ -219,46 +248,50 @@ pub fn save_segmented_clip(
         std::fs::create_dir_all(&scratch).map_err(|err| AppError::Message(err.to_string()))?;
         let _scratch_guard = RemoveDir(scratch.clone());
 
-        // Trim each kept range to its own stream-copied piece, then lay the
-        // pieces back to back using the lengths actually written (keyframe
-        // snapping can make a piece slightly longer than requested).
+        // Trim each kept range to its own stream-copied piece. The join lays
+        // each piece from the samples actually copied, so a software mux
+        // timestamp shift cannot trip the Instant Replay overlap guard.
         let mut pieces = Vec::with_capacity(ranges.len());
-        let mut cursor_hns = 0_i64;
         for (index, &(start_ms, end_ms)) in ranges.iter().enumerate() {
             let piece = scratch.join(format!("part-{index:02}.mp4"));
-            let written_ms = crate::export::trim_mp4(&path, &piece, ms_to_hns(start_ms), ms_to_hns(end_ms))
+            crate::export::trim_mp4(&path, &piece, ms_to_hns(start_ms), ms_to_hns(end_ms))
                 .map_err(AppError::Message)?;
-            let length_hns = if written_ms > 0 {
-                ms_to_hns(written_ms as u64)
-            } else {
-                ms_to_hns(end_ms - start_ms)
-            };
             pieces.push(crate::export::ConcatSegment {
                 path: piece,
-                start_hns: cursor_hns,
-                end_hns: cursor_hns + length_hns,
+                start_hns: 0,
+                end_hns: 0,
             });
-            cursor_hns += length_hns;
         }
-        let total_hns = cursor_hns;
 
-        crate::export::concat_mp4s(&pieces, &dest, 0).map_err(|err| {
+        let report = crate::export::concat_mp4s_abut(&pieces, &dest).map_err(|err| {
             let _ = std::fs::remove_file(&dest);
             AppError::Message(err)
         })?;
+        if let Err(err) = crate::export::faststart_mp4_in_place(&dest) {
+            tracing::warn!(%err, "fast-start skipped on the edited clip");
+        }
 
         if let Some(webcam) = library::valid_webcam_source(&source) {
             let sidecar = crate::camera::webcam_sidecar_path(&dest);
             let webcam_path = Path::new(&webcam.file_path);
             let mut cam_pieces = Vec::with_capacity(pieces.len());
             let mut cam_ok = true;
-            for (index, (&(start_ms, end_ms), piece)) in ranges.iter().zip(pieces.iter()).enumerate() {
+            for (index, &(start_ms, end_ms)) in ranges.iter().enumerate() {
+                let Some(&(span_start, span_end)) = report.spans.get(index) else {
+                    cam_ok = false;
+                    break;
+                };
                 let cam_piece = scratch.join(format!("cam-{index:02}.mp4"));
-                match crate::export::trim_mp4(webcam_path, &cam_piece, ms_to_hns(start_ms), ms_to_hns(end_ms)) {
+                match crate::export::trim_mp4(
+                    webcam_path,
+                    &cam_piece,
+                    ms_to_hns(start_ms),
+                    ms_to_hns(end_ms),
+                ) {
                     Ok(_) => cam_pieces.push(crate::export::ConcatSegment {
                         path: cam_piece,
-                        start_hns: piece.start_hns,
-                        end_hns: piece.end_hns,
+                        start_hns: span_start,
+                        end_hns: span_end,
                     }),
                     Err(err) => {
                         tracing::warn!(%err, "webcam section trim failed; saving gameplay-only derived clip");
@@ -268,8 +301,12 @@ pub fn save_segmented_clip(
                 }
             }
             if cam_ok {
-                if let Err(err) = crate::export::concat_mp4s_preserve_timeline(&cam_pieces, &sidecar, 0, total_hns)
-                {
+                if let Err(err) = crate::export::concat_mp4s_preserve_timeline(
+                    &cam_pieces,
+                    &sidecar,
+                    0,
+                    report.duration_hns,
+                ) {
                     tracing::warn!(%err, "webcam section join failed; saving gameplay-only derived clip");
                     let _ = std::fs::remove_file(&sidecar);
                 }
@@ -277,7 +314,8 @@ pub fn save_segmented_clip(
         }
 
         let kept_ms: u64 = ranges.iter().map(|(start, end)| end - start).sum();
-        let duration_ms = if total_hns > 0 { (total_hns / 10_000) as u64 } else { kept_ms };
+        let joined_ms = u64::try_from(report.duration_hns / 10_000).unwrap_or(0);
+        let duration_ms = if joined_ms > 0 { joined_ms } else { kept_ms };
         let preview = crate::thumb::frame_at(&dest, duration_ms / 2).ok();
 
         let title = title
@@ -288,7 +326,11 @@ pub fn save_segmented_clip(
             .unwrap_or_else(|| {
                 format!(
                     "{} — Edit",
-                    source.title.as_deref().filter(|value| !value.is_empty()).unwrap_or("Clip")
+                    source
+                        .title
+                        .as_deref()
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("Clip")
                 )
             });
 
@@ -319,7 +361,10 @@ pub fn save_segmented_clip(
             },
         );
         let db = app.state::<AppState>();
-        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        let conn = db
+            .db
+            .lock()
+            .map_err(|err| AppError::Message(err.to_string()))?;
         library::get(&conn, &local_id)
     }
 }
@@ -336,10 +381,14 @@ pub fn save_treated_clip(
         return Err(AppError::Message("Select at least one second.".into()));
     }
     if sections.len() > MAX_SEGMENTS {
-        return Err(AppError::Message(format!("Keep at most {MAX_SEGMENTS} sections.")));
+        return Err(AppError::Message(format!(
+            "Keep at most {MAX_SEGMENTS} sections."
+        )));
     }
     let plain = sections.iter().all(crate::export::section_is_identity);
-    let vertical = sections.iter().any(|section| section.vertical_pan.is_some());
+    let vertical = sections
+        .iter()
+        .any(|section| section.vertical_pan.is_some());
     if plain && !vertical {
         let ranges: Vec<(u64, u64)> = sections
             .iter()
@@ -365,7 +414,10 @@ pub fn save_treated_clip(
 
     let source = {
         let db = app.state::<AppState>();
-        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        let conn = db
+            .db
+            .lock()
+            .map_err(|err| AppError::Message(err.to_string()))?;
         library::get(&conn, source_local_id)?
     };
     let path = PathBuf::from(&source.file_path);
@@ -379,21 +431,28 @@ pub fn save_treated_clip(
     let dest_dir = path
         .parent()
         .ok_or_else(|| AppError::Message("That clip has no folder.".into()))?;
-    let dest = output_path(dest_dir, if vertical { "clip-short" } else { "clip-edit" }, "mp4");
+    let dest = output_path(
+        dest_dir,
+        if vertical { "clip-short" } else { "clip-edit" },
+        "mp4",
+    );
     let fps = source.fps.unwrap_or(60).clamp(24, 60) as u32;
 
     #[cfg(not(windows))]
     {
         let _ = (dest, title, fps);
-        return Err(AppError::Message("That edit is only available on Windows.".into()));
+        return Err(AppError::Message(
+            "That edit is only available on Windows.".into(),
+        ));
     }
 
     #[cfg(windows)]
     {
-        let webcam = library::valid_webcam_source(&source).map(|webcam| crate::export::WebcamCompose {
-            path: PathBuf::from(&webcam.file_path),
-            layout: crate::overlay::OverlayLayout::from_json(webcam.layout_json.as_deref()),
-        });
+        let webcam =
+            library::valid_webcam_source(&source).map(|webcam| crate::export::WebcamCompose {
+                path: PathBuf::from(&webcam.file_path),
+                layout: crate::overlay::OverlayLayout::from_json(webcam.layout_json.as_deref()),
+            });
         let scratch = dest_dir.join(".editor-tmp").join(
             dest.file_stem()
                 .and_then(|value| value.to_str())
@@ -403,7 +462,6 @@ pub fn save_treated_clip(
         let _scratch_guard = RemoveDir(scratch.clone());
 
         let mut pieces = Vec::with_capacity(sections.len());
-        let mut cursor_hns = 0_i64;
         let mut written_total = 0_u64;
         for (index, section) in sections.iter().enumerate() {
             let piece = if sections.len() == 1 {
@@ -422,7 +480,10 @@ pub fn save_treated_clip(
                 section,
                 fps,
                 &mut |frame, frames| {
-                    if frame != 1 && last_emit.elapsed() < std::time::Duration::from_millis(250) && frame < frames {
+                    if frame != 1
+                        && last_emit.elapsed() < std::time::Duration::from_millis(250)
+                        && frame < frames
+                    {
                         return;
                     }
                     last_emit = std::time::Instant::now();
@@ -445,24 +506,28 @@ pub fn save_treated_clip(
                 written_ms as u64
             } else {
                 let speed = crate::export::sanitize_speed(section.speed);
-                (((section.end_ms - section.start_ms) as f32) / speed).round().max(1.0) as u64
+                (((section.end_ms - section.start_ms) as f32) / speed)
+                    .round()
+                    .max(1.0) as u64
             };
             written_total += length_ms;
             if sections.len() > 1 {
-                let length_hns = ms_to_hns(length_ms);
                 pieces.push(crate::export::ConcatSegment {
                     path: piece,
-                    start_hns: cursor_hns,
-                    end_hns: cursor_hns + length_hns,
+                    start_hns: 0,
+                    end_hns: 0,
                 });
-                cursor_hns += length_hns;
             }
         }
         if sections.len() > 1 {
-            crate::export::concat_mp4s(&pieces, &dest, 0).map_err(|err| {
+            let report = crate::export::concat_mp4s_abut(&pieces, &dest).map_err(|err| {
                 let _ = std::fs::remove_file(&dest);
                 AppError::Message(err)
             })?;
+            let joined_ms = u64::try_from(report.duration_hns / 10_000).unwrap_or(0);
+            if joined_ms > 0 {
+                written_total = joined_ms;
+            }
         }
         if let Err(err) = crate::export::faststart_mp4_in_place(&dest) {
             tracing::warn!(%err, "fast-start skipped on the edited clip");
@@ -486,11 +551,21 @@ pub fn save_treated_clip(
                 let suffix = if vertical { "Short" } else { "Edit" };
                 format!(
                     "{} — {suffix}",
-                    source.title.as_deref().filter(|value| !value.is_empty()).unwrap_or("Clip")
+                    source
+                        .title
+                        .as_deref()
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("Clip")
                 )
             });
-        let first_start = sections.first().map(|section| section.start_ms).unwrap_or(0);
-        let last_end = sections.last().map(|section| section.end_ms).unwrap_or(written_total);
+        let first_start = sections
+            .first()
+            .map(|section| section.start_ms)
+            .unwrap_or(0);
+        let last_end = sections
+            .last()
+            .map(|section| section.end_ms)
+            .unwrap_or(written_total);
         let local_id = library::insert_derived(
             app,
             &dest,
@@ -516,7 +591,10 @@ pub fn save_treated_clip(
             },
         );
         let db = app.state::<AppState>();
-        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        let conn = db
+            .db
+            .lock()
+            .map_err(|err| AppError::Message(err.to_string()))?;
         library::get(&conn, &local_id)
     }
 }
@@ -531,7 +609,10 @@ pub fn save_short_clip(
 ) -> AppResult<LocalClipDto> {
     let source = {
         let db = app.state::<AppState>();
-        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        let conn = db
+            .db
+            .lock()
+            .map_err(|err| AppError::Message(err.to_string()))?;
         library::get(&conn, source_local_id)?
     };
     let path = PathBuf::from(&source.file_path);
@@ -544,10 +625,13 @@ pub fn save_short_clip(
         .unwrap_or("")
         .to_ascii_lowercase();
     if ext != "mp4" {
-        return Err(AppError::Message("Only MP4 clips can be exported as a Short.".into()));
+        return Err(AppError::Message(
+            "Only MP4 clips can be exported as a Short.".into(),
+        ));
     }
     let duration_ms = source.duration_ms.unwrap_or(0).max(0) as u64;
-    let (start_ms, end_ms) = validate_range(start_ms, end_ms, duration_ms).map_err(AppError::Message)?;
+    let (start_ms, end_ms) =
+        validate_range(start_ms, end_ms, duration_ms).map_err(AppError::Message)?;
     let pan = pan.clamp(0.0, 1.0);
     let _ = library::set_editor_crop(app, source_local_id, pan);
     let dest_dir = path
@@ -557,10 +641,11 @@ pub fn save_short_clip(
     let fps = source.fps.unwrap_or(60).max(24).min(60) as u32;
 
     #[cfg(windows)]
-    let overlay = library::valid_webcam_source(&source).map(|webcam| crate::export::WebcamCompose {
-        path: PathBuf::from(&webcam.file_path),
-        layout: crate::overlay::OverlayLayout::from_json(webcam.layout_json.as_deref()),
-    });
+    let overlay =
+        library::valid_webcam_source(&source).map(|webcam| crate::export::WebcamCompose {
+            path: PathBuf::from(&webcam.file_path),
+            layout: crate::overlay::OverlayLayout::from_json(webcam.layout_json.as_deref()),
+        });
     #[cfg(windows)]
     let written_ms = crate::export::write_vertical_mp4(
         &path,
@@ -580,10 +665,16 @@ pub fn save_short_clip(
     #[cfg(not(windows))]
     let written_ms: i64 = {
         let _ = (dest, pan, fps);
-        return Err(AppError::Message("Shorts export is only available on Windows.".into()));
+        return Err(AppError::Message(
+            "Shorts export is only available on Windows.".into(),
+        ));
     };
 
-    let duration_ms = if written_ms > 0 { written_ms as u64 } else { end_ms - start_ms };
+    let duration_ms = if written_ms > 0 {
+        written_ms as u64
+    } else {
+        end_ms - start_ms
+    };
     let mid_ms = duration_ms / 2;
     #[cfg(windows)]
     let preview = crate::thumb::frame_at(&dest, mid_ms).ok();
@@ -598,7 +689,11 @@ pub fn save_short_clip(
         .unwrap_or_else(|| {
             format!(
                 "{} — Short",
-                source.title.as_deref().filter(|value| !value.is_empty()).unwrap_or("Clip")
+                source
+                    .title
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("Clip")
             )
         });
 
@@ -627,14 +722,24 @@ pub fn save_short_clip(
         },
     );
     let db = app.state::<AppState>();
-    let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    let conn = db
+        .db
+        .lock()
+        .map_err(|err| AppError::Message(err.to_string()))?;
     library::get(&conn, &local_id)
 }
 
-pub fn list_filmstrip(app: &AppHandle, local_id: &str, count: u32) -> AppResult<Vec<FilmstripFrame>> {
+pub fn list_filmstrip(
+    app: &AppHandle,
+    local_id: &str,
+    count: u32,
+) -> AppResult<Vec<FilmstripFrame>> {
     let clip = {
         let db = app.state::<AppState>();
-        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        let conn = db
+            .db
+            .lock()
+            .map_err(|err| AppError::Message(err.to_string()))?;
         library::get(&conn, local_id)?
     };
     let path = PathBuf::from(&clip.file_path);
@@ -675,7 +780,10 @@ pub fn list_filmstrip(app: &AppHandle, local_id: &str, count: u32) -> AppResult<
 pub fn clip_waveform(app: &AppHandle, local_id: &str, buckets: u32) -> AppResult<Vec<f32>> {
     let clip = {
         let db = app.state::<AppState>();
-        let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        let conn = db
+            .db
+            .lock()
+            .map_err(|err| AppError::Message(err.to_string()))?;
         library::get(&conn, local_id).inspect_err(|err| {
             tracing::warn!("waveform: clip {local_id} lookup failed: {err}");
         })?
@@ -741,7 +849,9 @@ pub fn extract_transcript_audio(app: &AppHandle, local_id: &str) -> AppResult<Tr
     }
     let known = clip.duration_ms.unwrap_or(0).max(0) as u64;
     if known > crate::export::MAX_TRANSCRIPT_MS {
-        return Err(AppError::Message("Trim this clip under 45 minutes first.".into()));
+        return Err(AppError::Message(
+            "Trim this clip under 45 minutes first.".into(),
+        ));
     }
     let dir = transcript_dir(&path, local_id)?;
     if dir.exists() {
@@ -778,7 +888,10 @@ pub fn discard_transcript_audio(app: &AppHandle, local_id: &str) -> AppResult<()
 
 fn load_clip(app: &AppHandle, local_id: &str) -> AppResult<LocalClipDto> {
     let db = app.state::<AppState>();
-    let conn = db.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+    let conn = db
+        .db
+        .lock()
+        .map_err(|err| AppError::Message(err.to_string()))?;
     library::get(&conn, local_id)
 }
 
@@ -792,7 +905,9 @@ fn transcript_dir(clip: &Path, local_id: &str) -> AppResult<PathBuf> {
     let parent = clip
         .parent()
         .ok_or_else(|| AppError::Message("That clip has no folder.".into()))?;
-    Ok(parent.join(".editor-tmp").join(format!("transcript-{local_id}")))
+    Ok(parent
+        .join(".editor-tmp")
+        .join(format!("transcript-{local_id}")))
 }
 
 #[cfg(test)]

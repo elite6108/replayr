@@ -1,4 +1,8 @@
 {
+  "0.1.91": [
+    "Saving a multi-section edit no longer fails on a software-encoded recording.",
+    "An odd-sized frame is cropped so a Short or treated export can encode."
+  ],
   "0.1.90": [
     "A locked source no longer catches clicks in the live preview.",
     "Capture follows Light and Grey."

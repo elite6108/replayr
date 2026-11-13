@@ -83,6 +83,142 @@ pub fn concat_mp4s_preserve_timeline(
     )
 }
 
+/// One editor piece after it has been laid on the output clock.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AbutReport {
+    pub duration_hns: i64,
+    /// Output start and end of each input piece, in 100ns units.
+    pub spans: Vec<(i64, i64)>,
+}
+
+/// Joins editor pieces end to end from the samples actually read.
+///
+/// Each piece is rebased so its first sample starts at the running output
+/// time, and the next piece starts when those samples end. Declared
+/// `start_hns` / `end_hns` are ignored. This does not use the Instant Replay
+/// overlap guard: a software mux can report a sample on the predeclared
+/// boundary, and dropping it would discard a compressed frame.
+pub fn concat_mp4s_abut(segments: &[ConcatSegment], output: &Path) -> Result<AbutReport, String> {
+    if segments.is_empty() {
+        return Err("Nothing to join.".into());
+    }
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let started = Instant::now();
+    unsafe {
+        MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|err| err.to_string())?;
+    }
+
+    let first = open_reader(&segments[0].path)?;
+    let video_type = native_type(&first, MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32)
+        .ok_or_else(|| "Replay segment has no video.".to_string())?;
+    let has_mp4_audio = native_type(&first, MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32).is_some();
+    drop(first);
+    let has_audio = has_mp4_audio
+        || segments
+            .iter()
+            .any(|segment| crate::encode::pcm_sidecar_path(&segment.path).is_file());
+
+    let writer = open_writer(
+        output,
+        &video_type,
+        if has_audio {
+            WriterAudio::StitchedAac
+        } else {
+            WriterAudio::None
+        },
+    )?;
+    let fallback = frame_duration_hns(&video_type);
+    let mut video_time = 0_i64;
+    let pcm_tmp = output.with_extension("concat.pcm");
+    let mut pcm_file = if has_audio {
+        Some(
+            OpenOptions::new()
+                .create(true)
+                .read(true)
+                .write(true)
+                .truncate(true)
+                .open(&pcm_tmp)
+                .map_err(|err| format!("Could not stage audio: {err}"))?,
+        )
+    } else {
+        None
+    };
+    let _pcm_guard = has_audio.then(|| RemovePath(pcm_tmp.clone()));
+    let mut pcm_len = 0_u64;
+    let mut spans = Vec::with_capacity(segments.len());
+
+    for (index, segment) in segments.iter().enumerate() {
+        let span_start = video_time;
+        let reader = open_reader(&segment.path)?;
+        let copied = copy_stream_abut(
+            &reader,
+            &writer,
+            0,
+            MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+            span_start,
+            &mut video_time,
+            fallback,
+        )?;
+        drop(reader);
+        spans.push((span_start, video_time));
+        tracing::info!(
+            segment_index = index,
+            source_first_pts = copied.source_first_pts,
+            source_last_pts = copied.source_last_pts,
+            output_start_hns = span_start,
+            output_end_hns = video_time,
+            "editor abut join"
+        );
+        if let Some(pcm_file) = pcm_file.as_mut() {
+            // A decode miss is already logged. Pad that piece with silence so
+            // the video join still finishes.
+            let (mut chunk, _) = load_segment_pcm(&segment.path);
+            let drift = place_session_pcm(
+                pcm_file,
+                &mut pcm_len,
+                &mut chunk,
+                span_start,
+                copied.file_duration_hns,
+                video_time,
+            )?;
+            if drift.abs() > hns_to_pcm_bytes(200_000) as i64 {
+                tracing::warn!(
+                    "segment {} audio was {} ms off its video",
+                    segment.path.display(),
+                    pcm_bytes_to_ms(drift)
+                );
+            }
+        }
+    }
+
+    if let Some(pcm_file) = pcm_file.as_mut() {
+        fit_pcm_file(pcm_file, &mut pcm_len, video_time)?;
+        pcm_file
+            .seek(SeekFrom::Start(0))
+            .map_err(|err| format!("Could not rewind audio: {err}"))?;
+        write_stitched_aac(&writer, 1, pcm_file)?;
+    }
+
+    unsafe {
+        writer
+            .Finalize()
+            .map_err(|err| format!("Could not finish the clip: {err}"))?;
+    }
+    tracing::info!(
+        segments = segments.len(),
+        video_time,
+        "editor abut remux finished in {} ms -> {}",
+        started.elapsed().as_millis(),
+        output.display()
+    );
+    Ok(AbutReport {
+        duration_hns: video_time.max(0),
+        spans,
+    })
+}
+
 fn concat_session(
     segments: &[ConcatSegment],
     output: &Path,
@@ -373,6 +509,34 @@ mod ir_boundary_tests {
         assert!(gameplay_tail_duration(20_000_000, 166_667, 20_000_000).is_err());
         assert!(gameplay_tail_duration(20_000_000, 166_667, 19_999_000).is_err());
         assert!(gameplay_tail_duration(20_000_000, 166_667, 20_000_001).is_err());
+    }
+
+    #[test]
+    fn abut_keeps_sample_that_starts_on_the_declared_boundary() {
+        let frame = 166_667_i64;
+        let declared_join = 1_000_000_i64;
+        // Instant Replay still refuses a sample that starts on the next piece.
+        assert!(gameplay_tail_duration(declared_join, frame, declared_join).is_err());
+        let (first, cursor) = place_abut_samples(0, &[(0, frame), (declared_join, frame)]).unwrap();
+        assert_eq!(first.len(), 2, "boundary sample must be kept");
+        assert_eq!(first[0], (0, frame));
+        assert_eq!(first[1], (declared_join, frame));
+        assert_eq!(cursor, declared_join + frame);
+        // The next piece starts after that sample, not on top of its timestamp.
+        let (second, end) = place_abut_samples(cursor, &[(440_000, frame)]).unwrap();
+        assert_eq!(second, vec![(cursor, frame)]);
+        assert!(second[0].0 > first[1].0);
+        assert_eq!(end, cursor + frame);
+    }
+
+    #[test]
+    fn abut_removes_a_constant_readback_shift() {
+        let frame = 166_667_i64;
+        let shift = 440_000_i64;
+        let (placed, cursor) =
+            place_abut_samples(0, &[(shift, frame), (shift + frame, frame)]).unwrap();
+        assert_eq!(placed, vec![(0, frame), (frame, frame)]);
+        assert_eq!(cursor, frame * 2);
     }
 
     #[test]
@@ -680,6 +844,44 @@ struct PendingSample {
     duration: i64,
 }
 
+/// Editor pieces are laid on the samples actually read. `origin` is the first
+/// sample's timestamp, so a constant read-back shift does not move the join.
+fn abut_output_pts(cursor: i64, origin: i64, pts: i64) -> Option<i64> {
+    let pts = pts.max(0);
+    let origin = origin.max(0);
+    if pts < origin {
+        return None;
+    }
+    Some(cursor.saturating_add(pts - origin))
+}
+
+/// Places every sample of one editor piece. The returned cursor is where the
+/// next piece starts: the end of the last kept sample, not a predeclared boundary.
+#[cfg(test)]
+fn place_abut_samples(
+    cursor: i64,
+    samples: &[(i64, i64)],
+) -> Result<(Vec<(i64, i64)>, i64), String> {
+    let Some((first_pts, _)) = samples.first().copied() else {
+        return Err("Replay segment contains no retained video.".into());
+    };
+    let origin = first_pts.max(0);
+    let mut placed = Vec::with_capacity(samples.len());
+    let mut end = cursor;
+    for &(pts, duration) in samples {
+        let Some(out) = abut_output_pts(cursor, origin, pts) else {
+            continue;
+        };
+        let duration = duration.max(0);
+        placed.push((out, duration));
+        end = out.saturating_add(duration);
+    }
+    if placed.is_empty() {
+        return Err("Replay segment contains no retained video.".into());
+    }
+    Ok((placed, end))
+}
+
 /// Keep the incoming encoder's IDR and all its dependent samples. MF's MP4
 /// timescale can round the previous segment's end past the capture boundary.
 /// Shorten only that final sample's presentation duration, never an H.264 head.
@@ -826,6 +1028,92 @@ fn copy_stream_session(
         output_first_pts,
         file_duration_hns: file_end_pts.saturating_sub(segment_offset).max(0),
         hold_hns: hold,
+    })
+}
+
+/// Copies one editor piece onto `cursor`, rebasing its first sample to that
+/// time. Every compressed sample is kept. The next piece starts at `timeline`.
+fn copy_stream_abut(
+    reader: &IMFSourceReader,
+    writer: &IMFSinkWriter,
+    writer_stream: u32,
+    reader_stream: u32,
+    cursor: i64,
+    timeline: &mut i64,
+    fallback_duration: i64,
+) -> Result<SessionCopy, String> {
+    let mut previous_ts: Option<i64> = None;
+    let mut origin: Option<i64> = None;
+    let mut source_first_pts = 0_i64;
+    let mut source_last_pts = 0_i64;
+    let mut output_first_pts = -1_i64;
+    let mut kept = 0_u32;
+    loop {
+        let mut flags = 0_u32;
+        let mut timestamp = 0_i64;
+        let mut sample: Option<IMFSample> = None;
+        unsafe {
+            reader
+                .ReadSample(
+                    reader_stream,
+                    0,
+                    None,
+                    Some(&mut flags),
+                    Some(&mut timestamp),
+                    Some(&mut sample),
+                )
+                .map_err(|err| format!("Could not read a replay sample: {err}"))?;
+        }
+        if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 {
+            break;
+        }
+        let Some(sample) = sample else {
+            continue;
+        };
+        let from_sample = unsafe { sample.GetSampleDuration().unwrap_or(0) };
+        let from_delta = previous_ts
+            .map(|previous| timestamp.saturating_sub(previous))
+            .unwrap_or(0);
+        previous_ts = Some(timestamp);
+        let duration = if from_sample >= 10_000 {
+            from_sample
+        } else if from_delta >= 10_000 {
+            from_delta
+        } else {
+            fallback_duration
+        };
+        let timestamp = timestamp.max(0);
+        let base = *origin.get_or_insert(timestamp);
+        let Some(out_time) = abut_output_pts(cursor, base, timestamp) else {
+            continue;
+        };
+        if kept == 0 {
+            source_first_pts = timestamp;
+            output_first_pts = out_time;
+        }
+        source_last_pts = timestamp;
+        kept += 1;
+        write_pending(
+            writer,
+            writer_stream,
+            PendingSample {
+                sample,
+                out_pts: out_time,
+                duration,
+            },
+            0,
+            timeline,
+        )?;
+    }
+    if kept == 0 {
+        return Err("Replay segment contains no retained video.".into());
+    }
+    Ok(SessionCopy {
+        source_first_pts,
+        source_last_pts,
+        output_first_pts,
+        file_duration_hns: timeline.saturating_sub(cursor).max(0),
+        hold_hns: 0,
     })
 }
 

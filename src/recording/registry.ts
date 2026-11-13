@@ -88,7 +88,7 @@ export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     label: "Microphone",
     group: "audio",
     capability: "recorded",
-    unique: true,
+    unique: false,
     hint: "Mixed into the session.",
   },
   {

@@ -21,6 +21,7 @@ import {
   type SourceTransform,
   updateSource,
 } from "./scene";
+import { MAX_MICROPHONES } from "./sourceAudio";
 import {
   activeSceneOf,
   appendScenes,
@@ -186,15 +187,23 @@ export function useSceneStudio(adapter: SceneStudioAdapter) {
         if (added) setSelectedId(added.id);
         return added?.id ?? null;
       }
+      const microphoneCount = current.sources.filter((source) => source.type === "microphone").length;
+      if (type === "microphone" && microphoneCount >= MAX_MICROPHONES) {
+        showToast(`You can add up to ${MAX_MICROPHONES} microphones in one scene.`);
+        return null;
+      }
       const created = createSource(type, {
         order: nextOrder(current.sources),
         enabled: true,
         locked: type === "replayrOverlay",
-        name: extra?.name,
+        name: extra?.name ?? (type === "microphone" && microphoneCount > 0 ? `Microphone ${microphoneCount + 1}` : undefined),
         settings: extra?.settings,
         webcam: useSettingsStore.getState().settings.webcam,
       });
-      const uniqueExisting = current.sources.find((source) => source.type === type && type !== "image" && type !== "text");
+      const uniqueExisting =
+        type === "microphone" || type === "image" || type === "text"
+          ? undefined
+          : current.sources.find((source) => source.type === type);
       if (uniqueExisting) {
         setSelectedId(uniqueExisting.id);
         return uniqueExisting.id;

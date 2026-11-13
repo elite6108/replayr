@@ -262,12 +262,40 @@ impl ComposedAudioRouting {
     }
 }
 
+fn default_extra_gain() -> f32 {
+    1.0
+}
+
+fn default_extra_device() -> String {
+    "default".into()
+}
+
+/// A microphone after the first. The first stays on the engine's existing capture.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtraMicrophoneRoute {
+    pub id: String,
+    #[serde(default = "default_extra_device")]
+    pub device_id: String,
+    #[serde(default = "default_extra_gain")]
+    pub gain: f32,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordingComposition {
     pub canvas: CompositionCanvas,
     #[serde(default)]
     pub audio: ComposedAudioRouting,
+    /// Microphones after the first. Missing on older clients, which record one microphone.
+    #[serde(default)]
+    pub extra_microphones: Vec<ExtraMicrophoneRoute>,
     pub sources: Vec<CompositionSource>,
 }
 
@@ -740,6 +768,7 @@ mod tests {
         assert!(RecordingComposition {
             canvas: payload.canvas.clone(),
             audio: payload.audio,
+            extra_microphones: Vec::new(),
             sources: payload.sources.clone(),
         }
         .validate()

@@ -22,6 +22,7 @@ import {
   type SourceTransform,
 } from "../../recording/scene";
 import type { StudioMode } from "../../recording/studioMode";
+import { audioForSource, type AudioGlobals, type SourceAudio } from "../../recording/sourceAudio";
 import { audioPeakFor } from "../../recording/useStudioAudio";
 import { AudioSourceSettings } from "./sources/AudioSourceSettings";
 import type { DisplayInfo } from "../../recording/display/displayTypes";
@@ -37,6 +38,8 @@ export function SourceInspector({
   camera,
   levels,
   onSaveSetting,
+  onSourceAudio,
+  sources,
   onPatch,
   onToggle,
   onTransform,
@@ -57,8 +60,11 @@ export function SourceInspector({
   source: RecordingSource | null;
   settings: AppSettings;
   camera: CameraStatus;
-  levels: { micPeak: number; gamePeak: number; desktopPeak: number };
+  levels: { micPeak: number; gamePeak: number; desktopPeak: number; extraPeaks?: Readonly<Record<string, number>> };
   onSaveSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  /** Stores gain and device on this source. The first of its kind also updates the shared level. */
+  onSourceAudio?: (sourceId: string, audio: SourceAudio) => void;
+  sources?: RecordingSource[];
   onPatch: (id: string, patch: { name?: string; settings?: Record<string, unknown>; transform?: SourceTransform | null; crop?: SourceCrop | null; locked?: boolean }) => void;
   onToggle: (id: string, enabled: boolean) => void;
   onTransform: (id: string, transform: SourceTransform) => void;
@@ -113,6 +119,8 @@ export function SourceInspector({
             camera={camera}
             levels={levels}
             onSaveSetting={onSaveSetting}
+            onSourceAudio={onSourceAudio}
+            sources={sources}
             onPatch={onPatch}
             onToggle={onToggle}
             onWebcamDevice={onWebcamDevice}
@@ -152,6 +160,8 @@ function InspectorBody({
   camera,
   levels,
   onSaveSetting,
+  onSourceAudio,
+  sources,
   onPatch,
   onToggle,
   onWebcamDevice,
@@ -165,8 +175,10 @@ function InspectorBody({
   source: RecordingSource;
   settings: AppSettings;
   camera: CameraStatus;
-  levels: { micPeak: number; gamePeak: number; desktopPeak: number };
+  levels: { micPeak: number; gamePeak: number; desktopPeak: number; extraPeaks?: Readonly<Record<string, number>> };
   onSaveSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  onSourceAudio?: (sourceId: string, audio: SourceAudio) => void;
+  sources?: RecordingSource[];
   onRefreshDisplays?: () => void;
   onPatch: (id: string, patch: { settings?: Record<string, unknown>; transform?: SourceTransform | null }) => void;
   onToggle: (id: string, enabled: boolean) => void;
@@ -241,14 +253,28 @@ function InspectorBody({
     );
   }
       if (source.type === "microphone" || source.type === "desktopAudio" || source.type === "gameAudio") {
+    const globals: AudioGlobals = {
+      micGain: settings.micGain,
+      microphoneId: settings.microphoneId,
+      systemAudioGain: settings.systemAudioGain,
+      gameAudioGain: settings.gameAudioGain,
+      audioOutputId: settings.audioOutputId,
+    };
+    const owned = onSourceAudio ? audioForSource(source, sources ?? [source], globals) : null;
+    const primary = (sources ?? [source]).find((item) => item.type === source.type);
+    const sameDevice =
+      source.type === "microphone" && primary && primary.id !== source.id && owned?.deviceId === audioForSource(primary, sources ?? [source], globals).deviceId;
     return (
       <AudioSourceSettings
         source={source}
-        peak={audioPeakFor(source.type, levels)}
-        deviceId={source.type === "microphone" ? settings.microphoneId : undefined}
+        peak={audioPeakFor(source.type, levels, source.id)}
+        deviceId={owned ? (source.type === "gameAudio" ? undefined : owned.deviceId) : source.type === "microphone" ? settings.microphoneId : undefined}
         recording={recording}
+        deviceNote={sameDevice ? "This microphone uses the same device as the first one, so it stays quiet until you pick another device." : undefined}
         gain={
-          source.type === "microphone"
+          owned
+            ? owned.gain
+            : source.type === "microphone"
             ? settings.micGain
             : source.type === "gameAudio"
               ? settings.gameAudioGain
@@ -272,10 +298,16 @@ function InspectorBody({
         }
         onToggle={(enabled) => onToggle(source.id, enabled)}
         onDeviceId={
-          source.type === "microphone" ? (deviceId) => onSaveSetting("microphoneId", deviceId) : undefined
+          owned && source.type !== "gameAudio"
+            ? (deviceId) => onSourceAudio?.(source.id, { gain: owned.gain, deviceId })
+            : source.type === "microphone"
+              ? (deviceId) => onSaveSetting("microphoneId", deviceId)
+              : undefined
         }
         onGain={
-          source.type === "microphone"
+          owned
+            ? (gain) => onSourceAudio?.(source.id, { ...owned, gain })
+            : source.type === "microphone"
             ? (gain) => onSaveSetting("micGain", gain)
             : source.type === "gameAudio"
               ? (gain) => onSaveSetting("gameAudioGain", gain)

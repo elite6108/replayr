@@ -323,6 +323,7 @@ pub fn burn_plan(settings: &AppSettings, started_unix_secs: u64) -> Option<ClipB
             fps: 60,
         },
         audio: ComposedAudioRouting::default(),
+        extra_microphones: Vec::new(),
         sources,
     };
     match composition.validate() {

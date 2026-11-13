@@ -102,6 +102,7 @@ export function RecordingStudio() {
     moveScene,
     copyScene,
     writeSettings,
+    saveSourceAudio,
   } = useRecordingScene();
   const showToast = useToastStore((state) => state.show);
   const [camera, setCamera] = useState<CameraStatus>(IDLE_CAMERA_STATUS);
@@ -448,11 +449,18 @@ export function RecordingStudio() {
           settings={settings}
           selectedId={selectedId}
           levels={levels}
+          extraPeaks={levels.extraPeaks}
           onSelect={setSelectedId}
           onToggleMic={(enabled) => toggleAudio("microphone", enabled)}
+          onSetEnabled={(id, enabled) => {
+            const source = scene.sources.find((item) => item.id === id);
+            if (compositionLocked && !isAudioSource(source?.type ?? "game")) return;
+            toggleSource(id, enabled);
+          }}
           onToggleGame={(enabled) => toggleAudio("gameAudio", enabled)}
           onToggleDesktop={(enabled) => toggleAudio("desktopAudio", enabled)}
           onSave={(key, value) => void writeSettings(key, value)}
+          onSourceAudio={saveSourceAudio}
           onProperties={(id) => {
             const source = scene.sources.find((item) => item.id === id);
             if (compositionLocked && source && !isAudioSource(source.type)) return;
@@ -481,6 +489,8 @@ export function RecordingStudio() {
           onRefreshDisplays={refreshDisplays}
           listError={displayError}
           recording={status.active || startingComposed}
+          sources={scene.sources}
+          onSourceAudio={saveSourceAudio}
           onSaveSetting={(key, value) => {
             if (key === "microphoneId") {
               if (status.active || startingComposed) return;
@@ -566,8 +576,10 @@ export function RecordingStudio() {
             pushSceneNow.current = true;
             patchSource(propertiesSource.id, { settings: { monitorId } });
           }}
+          sources={scene.sources}
+          onSourceAudio={(audio) => saveSourceAudio(propertiesSource.id, audio)}
           onSaveSetting={(key, value) => {
-            if (key === "microphoneId" && (status.active || startingComposed)) return;
+            if ((key === "microphoneId" || key === "audioOutputId") && (status.active || startingComposed)) return;
             void writeSettings(key, value);
           }}
           onClose={() => setPropertiesId(null)}

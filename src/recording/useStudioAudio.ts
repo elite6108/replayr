@@ -24,6 +24,7 @@ function approachPeak(previous: number, next: number) {
 export function useStudioAudio() {
   const [audio, setAudio] = useState<AudioEngineStatus | null>(null);
   const [levels, setLevels] = useState({ micPeak: 0, gamePeak: 0, desktopPeak: 0 });
+  const [extraPeaks, setExtraPeaks] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +44,14 @@ export function useStudioAudio() {
             // Same field Settings → Audio uses. Keep the last good reading if a poll fails.
             desktopPeak: approachPeak(previous.desktopPeak, desktop ?? previous.desktopPeak),
           }));
+          setExtraPeaks((previous) => {
+            const next: Record<string, number> = {};
+            for (const micStatus of status?.extraMics ?? []) {
+              const reading = readPeak(micStatus);
+              next[micStatus.id] = approachPeak(previous[micStatus.id] ?? 0, reading ?? previous[micStatus.id] ?? 0);
+            }
+            return next;
+          });
         })
         .finally(() => {
           inFlight = false;
@@ -61,10 +70,18 @@ export function useStudioAudio() {
     micPeak: levels.micPeak,
     gamePeak: levels.gamePeak,
     desktopPeak: levels.desktopPeak,
+    extraPeaks,
   };
 }
 
-export function audioPeakFor(type: RecordingSourceType, levels: { micPeak: number; gamePeak: number; desktopPeak: number }) {
+export function audioPeakFor(
+  type: RecordingSourceType,
+  levels: { micPeak: number; gamePeak: number; desktopPeak: number; extraPeaks?: Readonly<Record<string, number>> },
+  sourceId?: string,
+) {
+  if (type === "microphone" && sourceId && levels.extraPeaks && Object.prototype.hasOwnProperty.call(levels.extraPeaks, sourceId)) {
+    return levels.extraPeaks[sourceId] ?? 0;
+  }
   if (type === "microphone") return levels.micPeak;
   if (type === "gameAudio") return levels.gamePeak;
   if (type === "desktopAudio") return levels.desktopPeak;

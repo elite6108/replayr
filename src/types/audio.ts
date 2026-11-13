@@ -47,5 +47,7 @@ export interface AudioEngineStatus {
   desktop: AudioSourceStatus;
   discord: AudioSourceStatus;
   extras: AudioSourceStatus[];
+  /** Microphones after the first. Empty when the scene has one microphone. */
+  extraMics: AudioSourceStatus[];
   detectedExtras: DetectedExtraApp[];
 }

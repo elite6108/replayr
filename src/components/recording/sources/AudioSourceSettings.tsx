@@ -19,6 +19,7 @@ export function AudioSourceSettings({
   onDeviceId,
   onChannelMode,
   onPan,
+  deviceNote,
 }: {
   source: RecordingSource;
   peak: number;
@@ -32,6 +33,7 @@ export function AudioSourceSettings({
   onDeviceId?: (deviceId: string) => void;
   onChannelMode: (mode: AudioChannelMode) => void;
   onPan: (pan: number) => void;
+  deviceNote?: string;
 }) {
   const label =
     source.type === "microphone" ? "MICROPHONE" : source.type === "gameAudio" ? "GAME AUDIO" : "DESKTOP AUDIO";
@@ -47,18 +49,20 @@ export function AudioSourceSettings({
         <span>{source.enabled ? "Enabled" : "Muted"}</span>
         <input className="switch" type="checkbox" checked={source.enabled} onChange={(event) => onToggle(event.target.checked)} />
       </label>
-      {isMic && onDeviceId && deviceId != null ? (
+      {onDeviceId && deviceId != null ? (
         <>
           <p className="muted" style={{ marginBottom: "0.25rem", fontSize: "0.75rem", letterSpacing: "0.04em" }}>
             DEVICE
           </p>
           <MicrophoneDeviceSelect
-            id="record-mic-device"
+            id={isMic ? "record-mic-device" : "record-desktop-device"}
             deviceId={deviceId}
+            direction={isMic ? "capture" : "render"}
             onDeviceId={onDeviceId}
             disabled={recording}
-            disabledReason="Stop recording to change microphone."
+            disabledReason={isMic ? "Stop recording to change microphone." : "Stop recording to change the playback device."}
           />
+          {deviceNote ? <p className="muted studio-mic-device-note">{deviceNote}</p> : null}
         </>
       ) : null}
       <div className="studio-audio-inspect">

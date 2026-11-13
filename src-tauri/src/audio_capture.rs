@@ -86,6 +86,26 @@ pub fn default_render_device() -> Result<IMMDevice, String> {
     }
 }
 
+/// A playback endpoint. Empty, "default", or anything we cannot open uses the Windows default,
+/// which is the same call the mixer used before a scene could name a device.
+pub fn render_device(id: &str) -> Result<IMMDevice, String> {
+    let id = id.trim();
+    if id.is_empty() || id.eq_ignore_ascii_case("default") || id.len() > 400 || id.chars().any(|ch| ch.is_control()) {
+        return default_render_device();
+    }
+    unsafe {
+        let enumerator = enumerator()?;
+        let wide: Vec<u16> = id.encode_utf16().chain(std::iter::once(0)).collect();
+        match enumerator.GetDevice(windows::core::PCWSTR(wide.as_ptr())) {
+            Ok(device) => Ok(device),
+            Err(err) => {
+                tracing::warn!(%err, "playback device unavailable, using the Windows default");
+                default_render_device()
+            }
+        }
+    }
+}
+
 /// `id` is a device id, or "default"/empty for the default capture endpoint.
 pub fn capture_device(id: &str) -> Result<IMMDevice, String> {
     let id = id.trim();

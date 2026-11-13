@@ -9,8 +9,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use wasapi::{DeviceCollection, Direction, get_default_device, initialize_mta};
 
 use crate::audio_capture::{
-    capture_device_present, default_render_device, open_device_client, run_capture_loop,
-    run_peak_only_loop,
+    capture_device_present, open_device_client, render_device, run_capture_loop, run_peak_only_loop,
 };
 use crate::audio_resolve::{
     extra_isolated_count, process_loopback_supported, resolve_catalog_pid, resolve_extra_app_pid,
@@ -85,7 +84,73 @@ pub struct AudioEngineStatus {
     pub desktop: AudioSourceStatus,
     pub discord: AudioSourceStatus,
     pub extras: Vec<AudioSourceStatus>,
+    /// Microphones after the first. The first stays on `mic_control`.
+    pub extra_mics: Vec<AudioSourceStatus>,
     pub detected_extras: Vec<DetectedExtraApp>,
+}
+
+/// One extra microphone as the Recordings page described it. Untrusted.
+#[derive(Debug, Clone)]
+pub struct ExtraMicSpec {
+    pub id: String,
+    pub device_id: String,
+    pub gain: f32,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtraMicRoute {
+    pub id: String,
+    pub device_id: String,
+    pub gain: f32,
+    pub enabled: bool,
+}
+
+pub const MAX_EXTRA_MICS: usize = 3;
+
+/// Keep extra captures that name a real source and a device that is not already open.
+/// The same WASAPI endpoint cannot be opened twice, so a duplicate of the primary mic is skipped.
+pub fn plan_extra_mics(raw: &[ExtraMicSpec], primary_device: &str) -> Vec<ExtraMicRoute> {
+    let primary = normalize_endpoint_id(primary_device);
+    let mut seen = vec![primary];
+    let mut planned = Vec::new();
+    for spec in raw.iter().take(8) {
+        if planned.len() >= MAX_EXTRA_MICS {
+            break;
+        }
+        if !valid_source_id(&spec.id) || !spec.gain.is_finite() {
+            continue;
+        }
+        let device_id = normalize_endpoint_id(&spec.device_id);
+        if seen.iter().any(|id| id == &device_id) {
+            continue;
+        }
+        seen.push(device_id.clone());
+        planned.push(ExtraMicRoute {
+            id: spec.id.clone(),
+            device_id,
+            gain: spec.gain.clamp(0.0, 2.0),
+            enabled: spec.enabled,
+        });
+    }
+    planned
+}
+
+fn valid_source_id(id: &str) -> bool {
+    (1..=64).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+fn normalize_endpoint_id(id: &str) -> String {
+    let trimmed = id.trim();
+    if trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("default")
+        || trimmed.len() > 400
+        || trimmed.chars().any(|ch| ch.is_control())
+    {
+        "default".into()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -122,7 +187,10 @@ pub struct AudioRuntime {
 struct AudioRuntimeInner {
     mic: Mutex<Option<MicCapture>>,
     mic_control: Arc<SourceControl>,
+    extra_mics: Mutex<Vec<ExtraMicClient>>,
     desktop_control: Arc<SourceControl>,
+    /// Playback endpoint for the desktop loopback. `"default"` keeps the Windows multimedia device.
+    desktop_device: Mutex<String>,
     desktop_monitor: Mutex<Option<DesktopPeakMonitor>>,
     desktop_recording: Mutex<Option<LoopbackCapture>>,
     composed_desktop: AtomicBool,
@@ -144,7 +212,9 @@ impl AudioRuntime {
             inner: Arc::new(AudioRuntimeInner {
                 mic: Mutex::new(None),
                 mic_control: Arc::new(SourceControl::new(false, 1.0)),
+                extra_mics: Mutex::new(Vec::new()),
                 desktop_control: Arc::new(SourceControl::new(false, 1.0)),
+                desktop_device: Mutex::new("default".into()),
                 desktop_monitor: Mutex::new(None),
                 desktop_recording: Mutex::new(None),
                 composed_desktop: AtomicBool::new(false),
@@ -166,6 +236,94 @@ impl AudioRuntime {
         Arc::clone(&self.inner.desktop_control)
     }
 
+    pub fn playback_device_id(&self) -> String {
+        self.desktop_device_id()
+    }
+
+    fn desktop_device_id(&self) -> String {
+        self.inner
+            .desktop_device
+            .lock()
+            .map(|slot| slot.clone())
+            .unwrap_or_else(|_| "default".into())
+    }
+
+    /// Remember the playback device. A take that is already recording keeps the device it opened.
+    fn sync_desktop_device(&self, settings: &AppSettings) {
+        let next = normalize_endpoint_id(&settings.audio_output_id);
+        let changed = self
+            .inner
+            .desktop_device
+            .lock()
+            .map(|mut slot| {
+                let changed = *slot != next;
+                *slot = next;
+                changed
+            })
+            .unwrap_or(false);
+        if self.inner.composed_desktop.load(Ordering::SeqCst) {
+            return;
+        }
+        if changed {
+            self.release_peak_monitor();
+        }
+        self.ensure_desktop_peak_monitor();
+    }
+
+    pub fn extra_mics_routed(&self) -> bool {
+        self.inner
+            .extra_mics
+            .lock()
+            .map(|extras| extras.iter().any(|extra| extra.control.enabled()))
+            .unwrap_or(false)
+    }
+
+    /// Replace microphones after the first. The primary capture, its meter, and its disconnect
+    /// event stay on the single existing slot.
+    pub fn set_extra_mics(&self, raw: &[ExtraMicSpec], settings: &AppSettings) {
+        let planned = plan_extra_mics(raw, &settings.microphone_id);
+        let mut starting = Vec::new();
+        let Ok(mut slot) = self.inner.extra_mics.lock() else {
+            return;
+        };
+        let mut kept = Vec::new();
+        for route in planned {
+            if let Some(index) = slot
+                .iter()
+                .position(|client| client.id == route.id && client.device_id == route.device_id)
+            {
+                let client = slot.swap_remove(index);
+                client.control.set_gain(route.gain);
+                client.control.set_enabled(route.enabled);
+                copy_mic_channel(&client.control, settings);
+                kept.push(client);
+            } else {
+                starting.push(route);
+            }
+        }
+        let retired = std::mem::replace(&mut *slot, kept);
+        drop(slot);
+        for mut client in retired {
+            client.capture.detach();
+        }
+        for route in starting {
+            let control = Arc::new(SourceControl::new(route.enabled, route.gain));
+            copy_mic_channel(&control, settings);
+            let Some(capture) = MicCapture::start_with(route.device_id.clone(), self.sink(), Arc::clone(&control), None) else {
+                tracing::warn!(id = %route.id, "extra microphone did not start");
+                continue;
+            };
+            if let Ok(mut slot) = self.inner.extra_mics.lock() {
+                slot.push(ExtraMicClient {
+                    id: route.id,
+                    device_id: route.device_id,
+                    control,
+                    capture,
+                });
+            }
+        }
+    }
+
     /// Same idea as `ensure_peak_monitor` for the mic: start a WASAPI loopback
     /// that only updates `desktop_control` peak. It does not mix into the session.
     pub fn ensure_desktop_peak_monitor(&self) {
@@ -182,7 +340,7 @@ impl AudioRuntime {
         {
             return;
         }
-        if let Some(monitor) = DesktopPeakMonitor::start(Arc::clone(&self.inner.desktop_control)) {
+        if let Some(monitor) = DesktopPeakMonitor::start(Arc::clone(&self.inner.desktop_control), self.desktop_device_id()) {
             if let Ok(mut slot) = self.inner.desktop_monitor.lock() {
                 *slot = Some(monitor);
             }
@@ -220,7 +378,7 @@ impl AudioRuntime {
         {
             return true;
         }
-        match LoopbackCapture::start(self.sink(), self.desktop_control()) {
+        match LoopbackCapture::start(self.sink(), self.desktop_control(), self.desktop_device_id()) {
             Some(capture) => {
                 if let Ok(mut slot) = self.inner.desktop_recording.lock() {
                     *slot = Some(capture);
@@ -399,7 +557,7 @@ impl AudioRuntime {
         self.inner
             .desktop_control
             .set_enabled(settings.system_audio_enabled);
-        self.ensure_desktop_peak_monitor();
+        self.sync_desktop_device(settings);
         self.sync_isolated(settings, Some(snapshot), Some(catalog));
     }
 
@@ -410,7 +568,7 @@ impl AudioRuntime {
         self.inner
             .desktop_control
             .set_gain(settings.system_audio_gain.clamp(0.0, 2.0));
-        self.ensure_desktop_peak_monitor();
+        self.sync_desktop_device(settings);
     }
 
     fn apply_channel_prefs(&self, settings: &AppSettings) {
@@ -423,6 +581,14 @@ impl AudioRuntime {
         self.inner
             .desktop_control
             .set_pan(settings.system_audio_pan.clamp(-1.0, 1.0));
+        let mode = ChannelMode::parse(&settings.mic_channel_mode);
+        let pan = settings.mic_pan.clamp(-1.0, 1.0);
+        if let Ok(extras) = self.inner.extra_mics.lock() {
+            for extra in extras.iter() {
+                extra.control.set_channel_mode(mode);
+                extra.control.set_pan(pan);
+            }
+        }
     }
 
     fn apply_mic(&self, settings: &AppSettings) {
@@ -436,7 +602,7 @@ impl AudioRuntime {
         self.inner
             .desktop_control
             .set_enabled(settings.system_audio_enabled);
-        self.ensure_desktop_peak_monitor();
+        self.sync_desktop_device(settings);
 
         let held = self
             .inner
@@ -486,6 +652,22 @@ impl AudioRuntime {
             for extra in &mut status.extras {
                 extra.peak = peak_for_prefix(Some(&clients), &format!("extra:{}:", extra.id));
             }
+        }
+        if let Ok(extras) = self.inner.extra_mics.lock() {
+            status.extra_mics = extras
+                .iter()
+                .map(|extra| AudioSourceStatus {
+                    id: extra.id.clone(),
+                    display_name: "Microphone".into(),
+                    enabled: extra.control.enabled(),
+                    running: true,
+                    capturing: extra.control.enabled(),
+                    isolation_failed: false,
+                    status: String::new(),
+                    peak: extra.control.peak(),
+                    gain: extra.control.gain(),
+                })
+                .collect();
         }
         status
     }
@@ -727,14 +909,14 @@ pub struct LoopbackCapture {
 }
 
 impl LoopbackCapture {
-    pub fn start(sink: Arc<MixSink>, control: Arc<SourceControl>) -> Option<Self> {
+    pub fn start(sink: Arc<MixSink>, control: Arc<SourceControl>, device_id: String) -> Option<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = stop.clone();
         let join = thread::Builder::new()
             .name("wasapi-loopback".into())
             .spawn(move || {
                 let _ = initialize_mta().ok();
-                if let Err(err) = loopback_loop(&sink, &control, &stop_thread) {
+                if let Err(err) = loopback_loop(&device_id, &sink, &control, &stop_thread) {
                     if !stop_thread.load(Ordering::Relaxed) {
                         tracing::warn!("WASAPI loopback stopped: {err}");
                     }
@@ -763,14 +945,14 @@ struct DesktopPeakMonitor {
 }
 
 impl DesktopPeakMonitor {
-    fn start(control: Arc<SourceControl>) -> Option<Self> {
+    fn start(control: Arc<SourceControl>, device_id: String) -> Option<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = stop.clone();
         let join = thread::Builder::new()
             .name("wasapi-desktop-meter".into())
             .spawn(move || {
                 let _ = initialize_mta().ok();
-                if let Err(err) = desktop_peak_loop(&control, &stop_thread) {
+                if let Err(err) = desktop_peak_loop(&device_id, &control, &stop_thread) {
                     if !stop_thread.load(Ordering::Relaxed) {
                         tracing::warn!("desktop meter loopback stopped: {err}");
                     }
@@ -793,12 +975,25 @@ impl Drop for DesktopPeakMonitor {
     }
 }
 
-fn desktop_peak_loop(control: &Arc<SourceControl>, stop: &AtomicBool) -> Result<(), String> {
-    let device = default_render_device()?;
+fn desktop_peak_loop(device_id: &str, control: &Arc<SourceControl>, stop: &AtomicBool) -> Result<(), String> {
+    let device = render_device(device_id)?;
     let ready = open_device_client(&device, true)?;
     let result = run_peak_only_loop(&ready, control, stop);
     ready.close();
     result
+}
+
+struct ExtraMicClient {
+    id: String,
+    device_id: String,
+    control: Arc<SourceControl>,
+    capture: MicCapture,
+}
+
+fn copy_mic_channel(control: &SourceControl, settings: &AppSettings) {
+    use crate::audio_channel::ChannelMode;
+    control.set_channel_mode(ChannelMode::parse(&settings.mic_channel_mode));
+    control.set_pan(settings.mic_pan.clamp(-1.0, 1.0));
 }
 
 struct MicCapture {
@@ -809,20 +1004,33 @@ struct MicCapture {
 
 impl MicCapture {
     fn start(requested_id: String, runtime: AudioRuntime) -> Option<Self> {
+        let control = Arc::clone(&runtime.inner.mic_control);
+        let sink = runtime.sink();
+        Self::start_with(requested_id, sink, control, Some(runtime))
+    }
+
+    /// `notify` is the primary microphone. Extra microphones pass `None` so a failure only logs.
+    fn start_with(
+        requested_id: String,
+        sink: Arc<MixSink>,
+        control: Arc<SourceControl>,
+        notify: Option<AudioRuntime>,
+    ) -> Option<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = stop.clone();
         let id_thread = requested_id.clone();
-        let sink = runtime.sink();
-        let control = Arc::clone(&runtime.inner.mic_control);
+        let primary = notify.is_some();
         let join = thread::Builder::new()
-            .name("wasapi-mic".into())
+            .name(if primary { "wasapi-mic" } else { "wasapi-mic-extra" }.into())
             .spawn(move || {
                 let _ = initialize_mta().ok();
                 let friendly = device_name(&id_thread).unwrap_or_else(|| "Microphone".into());
                 if let Err(err) = mic_loop(&id_thread, &sink, &control, &stop_thread) {
                     if !stop_thread.load(Ordering::Relaxed) {
                         tracing::warn!("WASAPI microphone stopped: {err}");
-                        runtime.notify_disconnect(&id_thread, &friendly, true);
+                        if let Some(runtime) = notify {
+                            runtime.notify_disconnect(&id_thread, &friendly, true);
+                        }
                     }
                 }
             })
@@ -919,6 +1127,7 @@ impl AudioEngineStatus {
             desktop: AudioSourceStatus::idle("desktop", "Desktop / System"),
             discord: AudioSourceStatus::idle("discord", "Discord"),
             extras: Vec::new(),
+            extra_mics: Vec::new(),
             detected_extras: Vec::new(),
         }
     }
@@ -1038,6 +1247,7 @@ fn build_status(
             gain: settings.discord_audio_gain,
         },
         extras,
+        extra_mics: Vec::new(),
         detected_extras: detected_extra_rows(settings, processes),
     }
 }
@@ -1127,11 +1337,12 @@ fn failed_for_prefix(clients: Option<&[IsolatedClient]>, prefix: &str) -> bool {
 }
 
 fn loopback_loop(
+    device_id: &str,
     sink: &Arc<MixSink>,
     control: &Arc<SourceControl>,
     stop: &AtomicBool,
 ) -> Result<(), String> {
-    let device = default_render_device()?;
+    let device = render_device(device_id)?;
     let ready = open_device_client(&device, true)?;
     let result = run_capture_loop(&ready, sink, control, stop, || Ok(()));
     ready.close();
@@ -1199,6 +1410,36 @@ pub(crate) fn composed_isolated_allowed(key: &str, game: bool, desktop: bool) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extra_mics_skip_the_primary_device_and_duplicates() {
+        let primary = "default";
+        let raw = vec![
+            ExtraMicSpec { id: "microphone-second".into(), device_id: "default".into(), gain: 0.5, enabled: true },
+            ExtraMicSpec { id: "bad id".into(), device_id: "{other}".into(), gain: 1.0, enabled: true },
+            ExtraMicSpec { id: "microphone-second".into(), device_id: "{other}".into(), gain: 9.0, enabled: false },
+            ExtraMicSpec { id: "microphone-third".into(), device_id: "{other}".into(), gain: 0.25, enabled: true },
+            ExtraMicSpec { id: "microphone-fourth".into(), device_id: "{fourth}".into(), gain: f32::NAN, enabled: true },
+            ExtraMicSpec { id: "microphone-fifth".into(), device_id: "{fifth}".into(), gain: 1.0, enabled: true },
+        ];
+        let planned = plan_extra_mics(&raw, primary);
+        assert_eq!(planned.len(), 2);
+        assert_eq!(planned[0].id, "microphone-second");
+        assert_eq!(planned[0].device_id, "{other}");
+        assert_eq!(planned[0].gain, 2.0);
+        assert!(!planned[0].enabled);
+        assert_eq!(planned[1].id, "microphone-fifth");
+        assert_eq!(planned[1].device_id, "{fifth}");
+    }
+
+    #[test]
+    fn playback_endpoint_falls_back_for_a_hostile_id() {
+        assert_eq!(normalize_endpoint_id("default"), "default");
+        assert_eq!(normalize_endpoint_id("  "), "default");
+        assert_eq!(normalize_endpoint_id("bad\u{0000}id"), "default");
+        assert_eq!(normalize_endpoint_id(&"x".repeat(401)), "default");
+        assert_eq!(normalize_endpoint_id("{0.0.0.00000000}.{out}"), "{0.0.0.00000000}.{out}");
+    }
 
     #[test]
     fn composed_routing_keeps_discord_and_extras_without_double_mixing() {

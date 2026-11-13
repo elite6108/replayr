@@ -17,6 +17,7 @@ import {
   type RecordingSource,
   type RecordingSourceType,
 } from "../scene";
+import { MAX_MICROPHONES } from "../sourceAudio";
 import { matchAudioDevice, matchCamera, type ObsMonitorInfo } from "./obsDevices";
 import {
   childFrame,
@@ -93,12 +94,6 @@ const PLACEMENT_NOTES: Record<PlacementNote, string> = {
   rotated: "Rotation is not supported, so it stays upright.",
   flipped: "Mirroring is not supported.",
   stretched: "Stretching is not supported, so it keeps its shape.",
-};
-
-const ROLE_KINDS: Record<AudioRole, RecordingSourceType> = {
-  microphone: "microphone",
-  desktopAudio: "desktopAudio",
-  gameAudio: "gameAudio",
 };
 
 type Leaf = {
@@ -240,7 +235,7 @@ function buildScene(sceneSource: ObsSource, collection: ObsCollection, index: So
   );
 
   const visuals = pickVisuals(leaves, env, entries);
-  const audio = pickAudio(leaves, collection, entries);
+  const audio = pickAudio(leaves, collection, env, entries);
 
   let order = 1;
   const sources: RecordingSource[] = visuals.map((draft) =>
@@ -254,10 +249,14 @@ function buildScene(sceneSource: ObsSource, collection: ObsCollection, index: So
       settings: draft.settings,
     }),
   );
-  for (const role of ["gameAudio", "desktopAudio", "microphone"] as const) {
-    const wanted = audio.get(role);
-    if (!wanted) continue;
-    sources.push(createSource(ROLE_KINDS[role], { order: order++, enabled: wanted.enabled, name: wanted.name }));
+  if (audio.game) {
+    sources.push(createSource("gameAudio", { order: order++, enabled: audio.game.enabled, name: audio.game.name, settings: audioSettings(audio.game) }));
+  }
+  if (audio.desktop) {
+    sources.push(createSource("desktopAudio", { order: order++, enabled: audio.desktop.enabled, name: audio.desktop.name, settings: audioSettings(audio.desktop) }));
+  }
+  for (const mic of audio.mics) {
+    sources.push(createSource("microphone", { order: order++, enabled: mic.enabled, name: mic.name, settings: audioSettings(mic) }));
   }
 
   const name = sanitizeSceneName(sceneSource.name, "OBS Scene");
@@ -359,45 +358,78 @@ function isFullFrame(transform: { x: number; y: number; w: number; h: number }):
   return transform.x <= 1e-3 && transform.y <= 1e-3 && transform.w >= 1 - 1e-3 && transform.h >= 1 - 1e-3;
 }
 
-type AudioWanted = { name: string; enabled: boolean };
+type AudioWanted = { name: string; enabled: boolean; gain: number; deviceId: string };
+
+type PlannedAudio = { mics: AudioWanted[]; desktop: AudioWanted | null; game: AudioWanted | null };
 
 /**
- * One microphone, desktop audio and game audio per scene. Global OBS devices play in every scene,
- * so they count toward each one; extra sources of the same kind are reported as skipped.
+ * Up to four microphones, each with its own level and device. Desktop and game audio stay one
+ * each, because the engine has one loopback and one game process capture.
  */
-function pickAudio(leaves: Leaf[], collection: ObsCollection, entries: ObsReportEntry[]): Map<AudioRole, AudioWanted> {
-  const wanted = new Map<AudioRole, AudioWanted>();
-  const offer = (role: AudioRole, name: string, enabled: boolean) => {
-    const current = wanted.get(role);
-    if (!current) wanted.set(role, { name, enabled });
-    else if (enabled && !current.enabled) wanted.set(role, { ...current, enabled: true });
+function pickAudio(leaves: Leaf[], collection: ObsCollection, env: ObsEnvironment, entries: ObsReportEntry[]): PlannedAudio {
+  const planned: PlannedAudio = { mics: [], desktop: null, game: null };
+  const take = (role: AudioRole, source: ObsSource, enabled: boolean, label: { name: string; kind: string } | null) => {
+    const wanted = wantedFrom(source, env, role, enabled);
+    if (role === "microphone") {
+      if (planned.mics.length >= MAX_MICROPHONES) {
+        if (label) entries.push({ ...label, status: "skipped", notes: [`Replayr records up to ${MAX_MICROPHONES} microphones per scene.`] });
+        return;
+      }
+      if (planned.mics.some((mic) => mic.deviceId === wanted.deviceId)) {
+        if (label) entries.push({ ...label, status: "skipped", notes: ["This microphone is already in the scene."] });
+        return;
+      }
+      planned.mics.push(wanted);
+      if (label) entries.push({ ...label, status: "imported", notes: wanted.note ? [wanted.note] : [] });
+      return;
+    }
+    const slot = role === "desktopAudio" ? planned.desktop : planned.game;
+    if (slot) {
+      if (label) entries.push({ ...label, status: "skipped", notes: [`Replayr records one ${roleName(role).toLowerCase()} source per scene.`] });
+      return;
+    }
+    if (role === "desktopAudio") planned.desktop = wanted;
+    else planned.game = wanted;
+    if (label) {
+      const notes = role === "gameAudio" ? ["Game audio follows the game Replayr detects."] : [];
+      if (wanted.note) notes.push(wanted.note);
+      entries.push({ ...label, status: role === "gameAudio" || notes.length ? "approximated" : "imported", notes });
+    }
   };
   for (const source of collection.globalAudio) {
     const role = audioRole(source.kind);
-    if (role) offer(role, roleName(role), !source.muted);
+    if (role) take(role, source, !source.muted, null);
   }
   for (const leaf of leaves) {
     const role = audioRole(leaf.source.kind);
     if (role) {
-      const label = { name: displayName(leaf.source), kind: kindLabel(leaf.source.kind) };
-      const enabled = leaf.visible && !leaf.source.muted;
-      if (wanted.has(role)) {
-        entries.push({ ...label, status: "skipped", notes: [`Replayr records one ${roleName(role).toLowerCase()} source per scene.`] });
-        continue;
-      }
-      offer(role, roleName(role), enabled);
-      entries.push({
-        ...label,
-        status: role === "gameAudio" ? "approximated" : "imported",
-        notes: role === "gameAudio" ? ["Game audio follows the game Replayr detects."] : [],
-      });
+      take(role, leaf.source, leaf.visible && !leaf.source.muted, { name: displayName(leaf.source), kind: kindLabel(leaf.source.kind) });
       continue;
     }
-    if (leaf.source.kind === "game_capture" && settingBool(leaf.source.settings, "capture_audio", false)) {
-      offer("gameAudio", roleName("gameAudio"), leaf.visible && !leaf.source.muted);
+    if (leaf.source.kind === "game_capture" && settingBool(leaf.source.settings, "capture_audio", false) && !planned.game) {
+      planned.game = { name: roleName("gameAudio"), enabled: leaf.visible && !leaf.source.muted, gain: clampGain(leaf.source.volume), deviceId: "default" };
     }
   }
-  return wanted;
+  if (planned.mics[0]) planned.mics[0].name = roleName("microphone");
+  if (planned.desktop) planned.desktop.name = roleName("desktopAudio");
+  if (planned.game) planned.game.name = roleName("gameAudio");
+  return planned;
+}
+
+function wantedFrom(source: ObsSource, env: ObsEnvironment, role: AudioRole, enabled: boolean): AudioWanted & { note?: string } {
+  const direction = role === "microphone" ? "capture" : "render";
+  const match = role === "gameAudio" ? { id: "default", name: "Default" } : matchAudioDevice(source.settings, env.audioDevices, direction);
+  return {
+    name: displayName(source),
+    enabled,
+    gain: clampGain(source.volume),
+    deviceId: match?.id ?? "default",
+    note: match ? undefined : `The device for "${displayName(source)}" is not connected, so the Windows default is used.`,
+  };
+}
+
+function audioSettings(audio: AudioWanted): Record<string, unknown> {
+  return { audio: { gain: audio.gain, deviceId: audio.deviceId } };
 }
 
 function roleName(role: AudioRole): string {
@@ -408,11 +440,17 @@ function roleName(role: AudioRole): string {
 
 function globalAudioEntries(sources: ObsSource[]): ObsReportEntry[] {
   const seen = new Set<AudioRole>();
+  let microphones = 0;
   return sources.map((source) => {
     const role = audioRole(source.kind);
     const label = { name: displayName(source), kind: kindLabel(source.kind) };
     if (!role) return { ...label, status: "skipped", notes: ["This OBS source type is not supported."] };
-    if (seen.has(role)) {
+    if (role === "microphone") {
+      microphones += 1;
+      if (microphones > MAX_MICROPHONES) {
+        return { ...label, status: "skipped", notes: [`Replayr records up to ${MAX_MICROPHONES} microphones per scene.`] };
+      }
+    } else if (seen.has(role)) {
       return { ...label, status: "skipped", notes: [`Replayr records one ${roleName(role).toLowerCase()} source per scene.`] };
     }
     seen.add(role);

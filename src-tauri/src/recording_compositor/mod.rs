@@ -211,6 +211,7 @@ fn start_windows(
     payload: RecordingComposition,
     webcam_layout: Option<crate::overlay::OverlayLayout>,
 ) -> AppResult<RecordingStatus> {
+    let extra_microphones = payload.extra_microphones.clone();
     let spec = payload.validate().map_err(AppError::Message)?;
     if rec.wgc_session_active() {
         return Err(AppError::Message(
@@ -268,13 +269,14 @@ fn start_windows(
     let path = output_path(&save, slug, "mp4");
     let per_app_audio = !spec.audio.desktop_audio.routed()
         && (settings.discord_audio_enabled || settings.extra_apps.iter().any(|app| app.enabled));
+    let audio = (*app.state::<crate::audio::AudioRuntime>()).clone();
+    audio.set_extra_mics(&extra_mic_specs(&extra_microphones), &settings);
     let audio_plan = ComposedAudioPlan {
-        include: spec.audio.include() || per_app_audio,
+        include: spec.audio.include() || per_app_audio || audio.extra_mics_routed(),
         mic: spec.audio.microphone.routed(),
         game: spec.audio.game_audio.routed(),
         desktop: spec.audio.desktop_audio.routed(),
     };
-    let audio = (*app.state::<crate::audio::AudioRuntime>()).clone();
     let stop = Arc::new(AtomicBool::new(false));
     let finished = Arc::new(AtomicBool::new(false));
     let failure: Arc<Mutex<Option<ReportedFailure>>> = Arc::new(Mutex::new(None));
@@ -1091,6 +1093,19 @@ impl Drop for ComposedSourceGuard {
             webcam.stop();
         }
     }
+}
+
+#[cfg(windows)]
+fn extra_mic_specs(routes: &[scene::ExtraMicrophoneRoute]) -> Vec<crate::audio::ExtraMicSpec> {
+    routes
+        .iter()
+        .map(|route| crate::audio::ExtraMicSpec {
+            id: route.id.clone(),
+            device_id: route.device_id.clone(),
+            gain: route.gain,
+            enabled: route.enabled,
+        })
+        .collect()
 }
 
 #[cfg(windows)]

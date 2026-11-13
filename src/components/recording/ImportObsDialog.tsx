@@ -220,8 +220,11 @@ export function ImportObsDialog({
                 {deviceLines.length ? (
                   <label className="obs-import-check">
                     <input type="checkbox" checked={useDevices} onChange={(event) => setUseDevices(event.target.checked)} />
-                    <span>Use my OBS devices and volume levels</span>
+                    <span>Use my OBS microphone and webcam</span>
                   </label>
+                ) : null}
+                {deviceLines.length ? (
+                  <p className="obs-import-note">Each imported scene keeps the volume it had in OBS. Checking this also switches the microphone and webcam used everywhere else.</p>
                 ) : null}
                 {deviceLines.length ? (
                   <ul className="obs-import-device-lines">

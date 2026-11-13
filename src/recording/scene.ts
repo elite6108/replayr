@@ -7,6 +7,7 @@ import type {
   WebcamShape,
 } from "../types/settings";
 import { DEFAULT_RECORDING_VISUALS, DEFAULT_WEBCAM_SETTINGS } from "../types/settings";
+import { sanitizeAudioSettings } from "./sourceAudio";
 
 export const RECORDING_SCENE_STORAGE_KEY = "replay.recordingScene";
 
@@ -781,7 +782,7 @@ function sanitizeSource(raw: Partial<RecordingSource>, index: number): Recording
     capability,
     transform: isAudioSource(type) ? null : transform,
     crop: sanitizeCrop(raw.crop, type),
-    settings: raw.settings && typeof raw.settings === "object" ? { ...raw.settings } : {},
+    settings: sanitizeAudioSettings(type, raw.settings),
   };
 }
 

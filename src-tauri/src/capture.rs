@@ -309,6 +309,7 @@ mod windows_impl {
                 crate::audio::LoopbackCapture::start(
                     flags.audio_runtime.sink(),
                     flags.audio_runtime.desktop_control(),
+                    flags.audio_runtime.playback_device_id(),
                 )
             } else {
                 None

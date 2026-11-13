@@ -28,6 +28,7 @@ const LIVE_AUDIO_KEYS: &[&str] = &[
     "systemAudioGain",
     "systemAudioChannelMode",
     "systemAudioPan",
+    "audioOutputId",
     "extraApps",
 ];
 /// Settings that restart Instant Replay when they change.
@@ -1054,12 +1055,43 @@ pub fn set_record_scene(
     webcam_layout: Option<crate::overlay::OverlayLayout>,
 ) -> AppResult<()> {
     let previous = scene.desktop_monitor_id();
+    #[cfg(windows)]
+    let extra_microphones = payload.extra_microphones.clone();
     scene.set(payload, webcam_layout)?;
+    #[cfg(windows)]
+    apply_extra_microphones(&app, &extra_microphones);
     let next = scene.desktop_monitor_id();
     if previous != next {
         capture::retarget_desktop_monitor(&app, &rec)?;
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn apply_extra_microphones(app: &AppHandle, routes: &[crate::recording_compositor::scene::ExtraMicrophoneRoute]) {
+    let state = app.state::<AppState>();
+    let settings = {
+        let Ok(db) = state.db.lock() else {
+            return;
+        };
+        match settings::load(&db) {
+            Ok(settings) => settings,
+            Err(err) => {
+                tracing::warn!("could not load settings for extra microphones: {err}");
+                return;
+            }
+        }
+    };
+    let specs = routes
+        .iter()
+        .map(|route| crate::audio::ExtraMicSpec {
+            id: route.id.clone(),
+            device_id: route.device_id.clone(),
+            gain: route.gain,
+            enabled: route.enabled,
+        })
+        .collect::<Vec<_>>();
+    app.state::<crate::audio::AudioRuntime>().set_extra_mics(&specs, &settings);
 }
 
 #[tauri::command]

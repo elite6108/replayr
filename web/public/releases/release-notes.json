@@ -1,4 +1,10 @@
 {
+  "0.1.94": [
+    "A scene can keep its own microphone, desktop, and game volume.",
+    "Add up to four microphones in one scene, each with its own level and device.",
+    "Desktop audio can use a playback device you choose. Windows default is unchanged.",
+    "Import from OBS keeps each scene's volume and can bring more than one microphone."
+  ],
   "0.1.93": [
     "Import from OBS: bring your OBS scenes into Capture, with a report of anything that could not come over.",
     "Imported scenes keep their layout, crop, text and images, and can use your OBS microphone, webcam and volume.",

@@ -9,6 +9,7 @@ export function MicrophoneDeviceSelect({
   disabledReason,
   id,
   label = "Device",
+  direction = "capture",
 }: {
   deviceId: string;
   onDeviceId: (deviceId: string) => void;
@@ -17,6 +18,8 @@ export function MicrophoneDeviceSelect({
   disabledReason?: string;
   id?: string;
   label?: string;
+  /** Capture for microphones, render for desktop playback. */
+  direction?: AudioDevice["direction"];
 }) {
   const autoId = useId();
   const selectId = id ?? autoId;
@@ -30,7 +33,7 @@ export function MicrophoneDeviceSelect({
     void listAudioDevices()
       .then((listed) => {
         if (!cancelled) {
-          setDevices(listed.filter((device) => device.direction === "capture"));
+          setDevices(listed.filter((device) => device.direction === direction));
         }
       })
       .catch(() => {
@@ -39,7 +42,7 @@ export function MicrophoneDeviceSelect({
     return () => {
       cancelled = true;
     };
-  }, [selected]);
+  }, [selected, direction]);
 
   return (
     <div className="field">

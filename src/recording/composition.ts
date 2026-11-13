@@ -2,6 +2,7 @@ import type { ClipSourceLayout } from "../types/clip";
 import type { AppSettings, GameplayVisualFilter } from "../types/settings";
 import { nearestWebcamPlacement } from "../utils/clips";
 import { filterComposedSupported, sourceComposedSupported } from "./registry";
+import { extraMicrophonePlans } from "./sourceAudio";
 import {
   AUDIO_SOURCE_TYPES,
   clampCrop,
@@ -114,9 +115,18 @@ export type ComposedAudioRouting = {
   desktopAudio: ComposedAudioSourceRoute;
 };
 
+/** Microphones after the first. The first stays on the engine's existing capture. */
+export type ExtraMicrophoneRoute = {
+  id: string;
+  deviceId: string;
+  gain: number;
+  enabled: boolean;
+};
+
 export type RecordingComposition = {
   canvas: { width: number; height: number; fps: number };
   audio: ComposedAudioRouting;
+  extraMicrophones: ExtraMicrophoneRoute[];
   sources: Array<
     | CaptureCompositionSource
     | WebcamCompositionSource
@@ -392,6 +402,7 @@ export function buildRecordingComposition(
   return {
     canvas: canvasFromSettings(settings),
     audio: composedAudioRoutingFromScene(scene),
+    extraMicrophones: extraMicrophonePlans(scene.sources),
     sources,
   };
 }

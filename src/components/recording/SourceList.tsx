@@ -11,6 +11,7 @@ import {
   type ScenePresetId,
 } from "../../recording/scene";
 import type { StudioMode } from "../../recording/studioMode";
+import { audioForSource, type AudioGlobals } from "../../recording/sourceAudio";
 import { audioPeakFor } from "../../recording/useStudioAudio";
 import { AddSourceMenu } from "./AddSourceMenu";
 import { AudioSourceRow } from "./AudioSourceRow";
@@ -49,7 +50,7 @@ export function SourceList({
   scene: RecordingScene;
   scenes: RecordingScene[];
   selectedId: string | null;
-  levels: { micPeak: number; gamePeak: number; desktopPeak: number };
+  levels: { micPeak: number; gamePeak: number; desktopPeak: number; extraPeaks?: Readonly<Record<string, number>> };
   settingsGain: { mic?: number; desktop?: number; game?: number };
   onSelect: (id: string | null) => void;
   onToggle: (id: string, enabled: boolean) => void;
@@ -194,16 +195,8 @@ export function SourceList({
                     key={source.id}
                     source={source}
                     selected={selectedId === source.id}
-                    peak={audioPeakFor(source.type, levels)}
-                    gain={
-                      source.type === "microphone"
-                        ? settingsGain.mic
-                        : source.type === "desktopAudio"
-                          ? settingsGain.desktop
-                          : source.type === "gameAudio"
-                            ? settingsGain.game
-                            : undefined
-                    }
+                    peak={audioPeakFor(source.type, levels, source.id)}
+                    gain={listedGain(source, scene, settingsGain)}
                     onSelect={() => onSelect(source.id)}
                     onToggle={(enabled) => onToggle(source.id, enabled)}
                     onRemove={() => onRemove(source.id)}
@@ -257,16 +250,8 @@ export function SourceList({
                 key={source.id}
                 source={source}
                 selected={selectedId === source.id}
-                peak={audioPeakFor(source.type, levels)}
-                gain={
-                  source.type === "microphone"
-                    ? settingsGain.mic
-                    : source.type === "desktopAudio"
-                      ? settingsGain.desktop
-                      : source.type === "gameAudio"
-                        ? settingsGain.game
-                        : undefined
-                }
+                peak={audioPeakFor(source.type, levels, source.id)}
+                gain={listedGain(source, scene, settingsGain)}
                 onSelect={() => onSelect(source.id)}
                 onToggle={(enabled) => onToggle(source.id, enabled)}
                 onRemove={() => onRemove(source.id)}
@@ -281,6 +266,22 @@ export function SourceList({
       </div>}
     </section>
   );
+}
+
+function listedGain(
+  source: RecordingScene["sources"][number],
+  scene: RecordingScene,
+  settingsGain: { mic?: number; desktop?: number; game?: number },
+): number | undefined {
+  if (source.type !== "microphone" && source.type !== "desktopAudio" && source.type !== "gameAudio") return undefined;
+  const globals: AudioGlobals = {
+    micGain: settingsGain.mic ?? 1,
+    microphoneId: "default",
+    systemAudioGain: settingsGain.desktop ?? 1,
+    gameAudioGain: settingsGain.game ?? 1,
+    audioOutputId: "default",
+  };
+  return audioForSource(source, scene.sources, globals).gain;
 }
 
 function hitVisualSource(clientY: number): string | null {

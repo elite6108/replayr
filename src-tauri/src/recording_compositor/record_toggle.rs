@@ -117,6 +117,7 @@ pub(crate) fn default_game_scene(settings: &AppSettings) -> RecordingComposition
             game_audio: route(settings.game_audio_enabled),
             desktop_audio: route(settings.system_audio_enabled),
         },
+        extra_microphones: Vec::new(),
         sources: vec![CompositionSource::Capture(CaptureCompositionSource {
             id: "src-game-default".into(),
             name: "Game".into(),

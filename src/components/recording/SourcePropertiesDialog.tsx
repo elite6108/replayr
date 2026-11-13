@@ -1,5 +1,6 @@
 import type { AppSettings } from "../../types/settings";
 import type { RecordingSource } from "../../recording/scene";
+import { audioForSource, type AudioGlobals, type SourceAudio } from "../../recording/sourceAudio";
 import type { DisplayInfo } from "../../recording/display/displayTypes";
 import { formatDb } from "../../recording/useStudioAudio";
 import { AudioChannelControls } from "../common/AudioChannelControls";
@@ -14,6 +15,8 @@ export function SourcePropertiesDialog({
   recording,
   onMonitorId,
   onSaveSetting,
+  onSourceAudio,
+  sources,
   onClose,
   strictDisplay = false,
   onRefreshDisplays,
@@ -27,8 +30,29 @@ export function SourcePropertiesDialog({
   onRefreshDisplays?: () => void;
   onMonitorId: (monitorId: string | null) => void;
   onSaveSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  onSourceAudio?: (audio: SourceAudio) => void;
+  sources?: RecordingSource[];
   onClose: () => void;
 }) {
+  const globals: AudioGlobals = {
+    micGain: settings.micGain,
+    microphoneId: settings.microphoneId,
+    systemAudioGain: settings.systemAudioGain,
+    gameAudioGain: settings.gameAudioGain,
+    audioOutputId: settings.audioOutputId,
+  };
+  const owned = onSourceAudio ? audioForSource(source, sources ?? [source], globals) : null;
+  const primary = (sources ?? [source]).find((item) => item.type === source.type);
+  const sameDevice =
+    source.type === "microphone" && primary && primary.id !== source.id && owned?.deviceId === audioForSource(primary, sources ?? [source], globals).deviceId;
+  function saveGain(gain: number, key: "micGain" | "systemAudioGain" | "gameAudioGain") {
+    if (owned && onSourceAudio) onSourceAudio({ ...owned, gain });
+    else onSaveSetting(key, gain);
+  }
+  function saveDevice(deviceId: string, key: "microphoneId" | "audioOutputId") {
+    if (owned && onSourceAudio) onSourceAudio({ ...owned, deviceId });
+    else onSaveSetting(key, deviceId);
+  }
   const title =
     source.type === "microphone"
       ? "Microphone Properties"
@@ -68,16 +92,19 @@ export function SourcePropertiesDialog({
           <div className="stack">
             <MicrophoneDeviceSelect
               id="mic-properties-device"
-              deviceId={settings.microphoneId}
-              onDeviceId={(deviceId) => onSaveSetting("microphoneId", deviceId)}
+              deviceId={owned?.deviceId ?? settings.microphoneId}
+              onDeviceId={(deviceId) => saveDevice(deviceId, "microphoneId")}
               disabled={recording}
               disabledReason="Stop recording to change microphone."
             />
+            {sameDevice ? (
+              <p className="muted">This microphone uses the same device as the first one, so it stays quiet until you pick another device.</p>
+            ) : null}
             <GainField
               id="mic-properties-gain"
-              gain={settings.micGain}
+              gain={owned?.gain ?? settings.micGain}
               disabled={!source.enabled}
-              onGain={(gain) => onSaveSetting("micGain", gain)}
+              onGain={(gain) => saveGain(gain, "micGain")}
             />
             <AudioChannelControls
               idPrefix="mic-properties"
@@ -91,11 +118,21 @@ export function SourcePropertiesDialog({
         ) : source.type === "desktopAudio" ? (
           <div className="stack">
             <p className="muted">Full speaker mix. Gain applies to Desktop Audio in the session mix.</p>
+            {onSourceAudio ? (
+              <MicrophoneDeviceSelect
+                id="desktop-properties-device"
+                deviceId={owned?.deviceId ?? settings.audioOutputId}
+                direction="render"
+                onDeviceId={(deviceId) => saveDevice(deviceId, "audioOutputId")}
+                disabled={recording}
+                disabledReason="Stop recording to change the playback device."
+              />
+            ) : null}
             <GainField
               id="desktop-properties-gain"
-              gain={settings.systemAudioGain}
+              gain={owned?.gain ?? settings.systemAudioGain}
               disabled={!source.enabled}
-              onGain={(gain) => onSaveSetting("systemAudioGain", gain)}
+              onGain={(gain) => saveGain(gain, "systemAudioGain")}
             />
             <AudioChannelControls
               idPrefix="desktop-properties"
@@ -111,9 +148,9 @@ export function SourcePropertiesDialog({
             <p className="muted">Isolated game process audio. Gain applies when Game Audio is enabled.</p>
             <GainField
               id="game-properties-gain"
-              gain={settings.gameAudioGain}
+              gain={owned?.gain ?? settings.gameAudioGain}
               disabled={!source.enabled}
-              onGain={(gain) => onSaveSetting("gameAudioGain", gain)}
+              onGain={(gain) => saveGain(gain, "gameAudioGain")}
             />
             <AudioChannelControls
               idPrefix="game-properties"

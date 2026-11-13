@@ -16,17 +16,17 @@ commands.allow = ["get_camera_status"]
 [[permission]]
 identifier = "allow-start-camera-preview"
 description = "Start a live webcam preview while configuring the source"
-commands.allow = ["start_camera_preview"]
+commands.allow = ["start_camera_preview", "start_extra_camera_preview"]
 
 [[permission]]
 identifier = "allow-stop-camera-preview"
 description = "Stop the live webcam preview"
-commands.allow = ["stop_camera_preview"]
+commands.allow = ["stop_camera_preview", "stop_extra_camera_preview"]
 
 [[permission]]
 identifier = "allow-get-camera-preview-frame"
 description = "Long-poll the latest webcam preview frame"
-commands.allow = ["wait_camera_preview_frame"]
+commands.allow = ["wait_camera_preview_frame", "wait_extra_camera_preview_frame"]
 
 [[permission]]
 identifier = "allow-camera-controls"

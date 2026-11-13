@@ -85,6 +85,7 @@ impl ComposedCapture {
         kind: CaptureKind,
         pid: Option<u32>,
         monitor_id: Option<&str>,
+        window: Option<&crate::capture_windows::WindowTarget>,
     ) -> Result<Self, String> {
         let hub = CaptureHub::new();
         let control = match kind {
@@ -92,13 +93,18 @@ impl ComposedCapture {
                 let monitor = crate::displays::resolve_monitor_for_recording(monitor_id)?;
                 begin(monitor, Arc::clone(&hub))?
             }
-            CaptureKind::Game | CaptureKind::Window => {
+            CaptureKind::Game => {
                 let pid = pid.filter(|value| *value != 0).ok_or_else(|| {
                     "No game detected. Open a game or switch the source to Desktop.".to_string()
                 })?;
                 let window = crate::game_window::window_for_pid(pid)
                     .ok_or_else(|| "No game window.".to_string())?;
                 begin(window, Arc::clone(&hub))?
+            }
+            CaptureKind::Window => {
+                let target = window.cloned().unwrap_or_default();
+                let found = crate::capture_windows::resolve_capture_window(&target)?;
+                begin(found, Arc::clone(&hub))?
             }
         };
         Ok(Self {

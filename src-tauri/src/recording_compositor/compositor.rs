@@ -33,7 +33,7 @@ use super::scene::{
     ComposedFilterId, CompositionPicture, TextAlign, ValidatedComposition, ValidatedHud,
     ValidatedLayer, WebcamShape,
 };
-use super::sources::image::{load_image, DecodedImage};
+use super::sources::image::{load_gif_frames, load_image, DecodedImage};
 use super::sources::overlay::raster_filter_chrome;
 use super::sources::text::{clamp_text_raster, raster_hud_line, raster_text};
 use super::transforms::{
@@ -57,6 +57,15 @@ struct CachedStill {
     src_h: u32,
 }
 
+struct GifPlay {
+    id: String,
+    frames: Vec<Vec<u8>>,
+    delays: Vec<u32>,
+    width: u32,
+    height: u32,
+    index: usize,
+}
+
 pub struct RecordingCompositor {
     gpu: SharedGpu,
     enumerator: ID3D11VideoProcessorEnumerator,
@@ -65,7 +74,12 @@ pub struct RecordingCompositor {
     output_view: Option<ID3D11VideoProcessorOutputView>,
     capture: Option<LayerSlot>,
     webcam: Option<LayerSlot>,
+    extra_captures: Vec<Option<LayerSlot>>,
+    extra_webcams: Vec<Option<LayerSlot>>,
+    videos: Vec<Option<LayerSlot>>,
+    browsers: Vec<Option<LayerSlot>>,
     statics: Vec<CachedStill>,
+    gifs: Vec<GifPlay>,
     overlays: Vec<CachedStill>,
     hud: Vec<CachedStill>,
     max_streams: u32,
@@ -85,6 +99,10 @@ pub struct RecordingCompositor {
 pub struct ComposeInput<'a> {
     pub capture: &'a StillFrame,
     pub webcam: Option<&'a StillFrame>,
+    pub extra_captures: &'a [Option<StillFrame>],
+    pub extra_webcams: &'a [Option<StillFrame>],
+    pub videos: &'a [Option<StillFrame>],
+    pub browsers: &'a [Option<StillFrame>],
 }
 
 struct BlitOp {
@@ -288,7 +306,12 @@ impl RecordingCompositor {
                 output_view,
                 capture: None,
                 webcam: None,
+                extra_captures: Vec::new(),
+                extra_webcams: Vec::new(),
+                videos: Vec::new(),
+                browsers: Vec::new(),
                 statics: Vec::new(),
+                gifs: Vec::new(),
                 overlays: Vec::new(),
                 hud: Vec::new(),
                 max_streams,
@@ -344,6 +367,16 @@ impl RecordingCompositor {
                 ValidatedLayer::Image(image) => {
                     let decoded = load_image(image)?;
                     self.cache_decoded(&decoded.id, &decoded)?;
+                    if let Some(gif) = load_gif_frames(image) {
+                        self.gifs.push(GifPlay {
+                            id: image.id.clone(),
+                            frames: gif.bgra,
+                            delays: gif.delays_ms,
+                            width: gif.width,
+                            height: gif.height,
+                            index: 0,
+                        });
+                    }
                 }
                 ValidatedLayer::Text(text) => {
                     let dest = dest_rect(text.transform, self.out_w, self.out_h);
@@ -373,7 +406,12 @@ impl RecordingCompositor {
                         });
                     }
                 }
-                ValidatedLayer::Capture | ValidatedLayer::Webcam => {}
+                ValidatedLayer::Capture
+                | ValidatedLayer::Webcam
+                | ValidatedLayer::ExtraCapture(_)
+                | ValidatedLayer::ExtraWebcam(_)
+                | ValidatedLayer::Video(_)
+                | ValidatedLayer::Browser(_) => {}
             }
         }
         Ok(())
@@ -433,7 +471,7 @@ impl RecordingCompositor {
         dest: &ID3D11Texture2D,
     ) -> Result<(), String> {
         self.upload_live(&input)?;
-        let ops = self.collect_blits(spec, input.capture, input.webcam)?;
+        let ops = self.collect_blits(spec, &input)?;
         let video: Vec<&BlitOp> = ops.iter().filter(|op| !op.still).collect();
         let stills: Vec<&BlitOp> = ops.iter().filter(|op| op.still).collect();
         if video.len() as u32 > self.max_streams {
@@ -462,7 +500,7 @@ impl RecordingCompositor {
     ) -> Result<(), String> {
         self.nv12_ready = false;
         self.upload_live(&input)?;
-        let ops = self.collect_blits(spec, input.capture, input.webcam)?;
+        let ops = self.collect_blits(spec, &input)?;
         let video: Vec<&BlitOp> = ops.iter().filter(|op| !op.still).collect();
         let stills: Vec<&BlitOp> = ops.iter().filter(|op| op.still).collect();
         if video.len() as u32 > self.max_streams {
@@ -494,6 +532,34 @@ impl RecordingCompositor {
                     cam.height,
                     cam.pitch,
                 )?;
+            }
+        }
+        for (index, frame) in input.extra_captures.iter().enumerate() {
+            let Some(frame) = frame else { continue };
+            self.ensure_indexed_slot(false, index, frame)?;
+            if let Some(Some(slot)) = self.extra_captures.get(index) {
+                upload_bgra(&self.gpu, &slot.texture, &frame.bgra, frame.width, frame.height, frame.pitch)?;
+            }
+        }
+        for (index, frame) in input.extra_webcams.iter().enumerate() {
+            let Some(frame) = frame else { continue };
+            self.ensure_indexed_slot(true, index, frame)?;
+            if let Some(Some(slot)) = self.extra_webcams.get(index) {
+                upload_bgra(&self.gpu, &slot.texture, &frame.bgra, frame.width, frame.height, frame.pitch)?;
+            }
+        }
+        for (index, frame) in input.videos.iter().enumerate() {
+            let Some(frame) = frame else { continue };
+            self.ensure_group(2, index, frame)?;
+            if let Some(Some(slot)) = self.videos.get(index) {
+                upload_bgra(&self.gpu, &slot.texture, &frame.bgra, frame.width, frame.height, frame.pitch)?;
+            }
+        }
+        for (index, frame) in input.browsers.iter().enumerate() {
+            let Some(frame) = frame else { continue };
+            self.ensure_group(3, index, frame)?;
+            if let Some(Some(slot)) = self.browsers.get(index) {
+                upload_bgra(&self.gpu, &slot.texture, &frame.bgra, frame.width, frame.height, frame.pitch)?;
             }
         }
         Ok(())
@@ -548,12 +614,9 @@ impl RecordingCompositor {
     /// 3. SCENE SOURCES sorted by `order` (higher = in front): webcam, image, text
     /// 4. FILTER CHROME above all ordinary scene sources (matches Live Output Preview)
     /// 5. DYNAMIC HUD last
-    fn collect_blits(
-        &self,
-        spec: &ValidatedComposition,
-        capture: &StillFrame,
-        webcam: Option<&StillFrame>,
-    ) -> Result<Vec<BlitOp>, String> {
+    fn collect_blits(&self, spec: &ValidatedComposition, input: &ComposeInput<'_>) -> Result<Vec<BlitOp>, String> {
+        let capture = input.capture;
+        let webcam = input.webcam;
         let mut ops = Vec::new();
         for layer in &spec.layers {
             match layer {
@@ -610,6 +673,104 @@ impl RecordingCompositor {
                         still: masked,
                         mask,
                         picture: spec_cam.picture,
+                    });
+                }
+                ValidatedLayer::ExtraCapture(index) => {
+                    let Some(spec_cap) = spec.extra_captures.get(*index) else {
+                        continue;
+                    };
+                    let Some(Some(frame)) = input.extra_captures.get(*index) else {
+                        continue;
+                    };
+                    let Some(Some(slot)) = self.extra_captures.get(*index) else {
+                        continue;
+                    };
+                    let box_rect = dest_rect(spec_cap.transform, self.out_w, self.out_h);
+                    let (dest, src) = crop_then_contain(spec_cap.crop, frame.width, frame.height, box_rect);
+                    ops.push(BlitOp {
+                        view: slot.view.clone(),
+                        srv: None,
+                        dest,
+                        src,
+                        tex_w: slot.width,
+                        tex_h: slot.height,
+                        alpha: spec_cap.opacity,
+                        capture: false,
+                        still: false,
+                        mask: 0,
+                        picture: spec_cap.picture,
+                    });
+                }
+                ValidatedLayer::ExtraWebcam(index) => {
+                    let Some(spec_cam) = spec.extra_webcams.get(*index) else {
+                        continue;
+                    };
+                    let Some(Some(frame)) = input.extra_webcams.get(*index) else {
+                        continue;
+                    };
+                    let Some(Some(slot)) = self.extra_webcams.get(*index) else {
+                        continue;
+                    };
+                    let dest = dest_rect(spec_cam.transform, self.out_w, self.out_h);
+                    let src = crop_then_cover(spec_cam.crop, frame.width, frame.height, dest.w, dest.h);
+                    let masked = !matches!(spec_cam.shape, WebcamShape::Rectangle);
+                    let mask = match spec_cam.shape {
+                        WebcamShape::Rectangle => 0,
+                        WebcamShape::Rounded => 1,
+                        WebcamShape::Circle => 2,
+                    };
+                    ops.push(BlitOp {
+                        view: slot.view.clone(),
+                        srv: if masked { Some(slot.srv.clone()) } else { None },
+                        dest,
+                        src: Some(src),
+                        tex_w: slot.width,
+                        tex_h: slot.height,
+                        alpha: spec_cam.opacity,
+                        capture: false,
+                        still: masked,
+                        mask,
+                        picture: spec_cam.picture,
+                    });
+                }
+                ValidatedLayer::Video(index) => {
+                    let Some(item) = spec.videos.get(*index) else { continue };
+                    let Some(Some(frame)) = input.videos.get(*index) else { continue };
+                    let Some(Some(slot)) = self.videos.get(*index) else { continue };
+                    let box_rect = dest_rect(item.transform, self.out_w, self.out_h);
+                    let (dest, src) = crop_then_contain(item.crop, frame.width, frame.height, box_rect);
+                    ops.push(BlitOp {
+                        view: slot.view.clone(),
+                        srv: None,
+                        dest,
+                        src,
+                        tex_w: slot.width,
+                        tex_h: slot.height,
+                        alpha: item.opacity,
+                        capture: false,
+                        still: false,
+                        mask: 0,
+                        picture: CompositionPicture::default(),
+                    });
+                }
+                ValidatedLayer::Browser(index) => {
+                    let Some(item) = spec.browsers.get(*index) else { continue };
+                    let Some(Some(frame)) = input.browsers.get(*index) else { continue };
+                    let Some(Some(slot)) = self.browsers.get(*index) else { continue };
+                    let box_rect = dest_rect(item.transform, self.out_w, self.out_h);
+                    let (dest, src) = crop_then_contain(item.crop, frame.width, frame.height, box_rect);
+                    ops.push(BlitOp {
+                        view: slot.view.clone(),
+                        srv: None,
+                        dest,
+                        src,
+                        tex_w: slot.width,
+                        tex_h: slot.height,
+                        alpha: item.opacity,
+                        capture: false,
+                        still: false,
+                        mask: 0,
+                        picture: CompositionPicture::default(),
                     });
                 }
                 ValidatedLayer::Image(image) => {
@@ -882,6 +1043,87 @@ impl RecordingCompositor {
             src_h: height,
             slot,
         });
+        Ok(())
+    }
+
+    pub fn advance_gifs(&mut self, elapsed_ms: u64) {
+        let mut updates = Vec::new();
+        for gif in &mut self.gifs {
+            let total: u64 = gif.delays.iter().map(|delay| u64::from(*delay)).sum();
+            if total == 0 {
+                continue;
+            }
+            let mut at = elapsed_ms % total;
+            let mut index = 0usize;
+            for (frame_index, delay) in gif.delays.iter().enumerate() {
+                let delay = u64::from(*delay);
+                if at < delay {
+                    index = frame_index;
+                    break;
+                }
+                at -= delay;
+                index = frame_index;
+            }
+            if index == gif.index {
+                continue;
+            }
+            gif.index = index;
+            if let Some(frame) = gif.frames.get(index) {
+                updates.push((gif.id.clone(), frame.clone(), gif.width, gif.height));
+            }
+        }
+        for (id, frame, width, height) in updates {
+            if let Some(cached) = self.statics.iter().find(|item| item.id == id) {
+                let _ = upload_bgra(&self.gpu, &cached.slot.texture, &frame, width, height, width * 4);
+            }
+        }
+    }
+
+    fn ensure_group(&mut self, group: u8, index: usize, frame: &StillFrame) -> Result<(), String> {
+        let needs = {
+            let slots = match group {
+                2 => &mut self.videos,
+                _ => &mut self.browsers,
+            };
+            if slots.len() <= index {
+                slots.resize_with(index + 1, || None);
+            }
+            match slots.get(index).and_then(|slot| slot.as_ref()) {
+                Some(slot) if slot.width == frame.width && slot.height == frame.height => false,
+                _ => true,
+            }
+        };
+        if needs {
+            let slot = self.create_slot(frame.width, frame.height)?;
+            let slots = match group {
+                2 => &mut self.videos,
+                _ => &mut self.browsers,
+            };
+            if let Some(entry) = slots.get_mut(index) {
+                *entry = Some(slot);
+            }
+        }
+        Ok(())
+    }
+
+    fn ensure_indexed_slot(&mut self, webcam: bool, index: usize, frame: &StillFrame) -> Result<(), String> {
+        let needs = {
+            let slots = if webcam { &mut self.extra_webcams } else { &mut self.extra_captures };
+            if slots.len() <= index {
+                slots.resize_with(index + 1, || None);
+            }
+            match slots.get(index).and_then(|slot| slot.as_ref()) {
+                Some(slot) if slot.width == frame.width && slot.height == frame.height => false,
+                _ => true,
+            }
+        };
+        if needs {
+            let slot = self.create_slot(frame.width, frame.height)?;
+            let slots = if webcam { &mut self.extra_webcams } else { &mut self.extra_captures };
+            if let Some(entry) = slots.get_mut(index) {
+                *entry = Some(slot);
+            }
+        }
         Ok(())
     }
 

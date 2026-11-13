@@ -9,7 +9,7 @@ export function ImageSourceSettings({
 }: {
   source: RecordingSource;
   onChange: (settings: { path?: string; opacity?: number }) => void;
-  /** Recordings bake images into the file, which supports PNG and JPEG only. */
+  /** Recordings bake images into the file. */
   recorded?: boolean;
 }) {
   const image = imageSettingsOf(source);
@@ -18,7 +18,7 @@ export function ImageSourceSettings({
     const selected = await open({
       multiple: false,
       filters: recorded
-        ? [{ name: "PNG or JPEG", extensions: [...RECORDABLE_IMAGE_EXTENSIONS] }]
+        ? [{ name: "Images", extensions: [...RECORDABLE_IMAGE_EXTENSIONS] }]
         : [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
     });
     if (typeof selected === "string" && selected) onChange({ path: selected });
@@ -28,7 +28,7 @@ export function ImageSourceSettings({
     <div className="stack">
       {recorded ? (
         <p className="muted">
-          Recorded into the session file. PNG or JPEG only.
+          Recorded into the session file. PNG, JPEG, GIF, or WebP.
           {image.path && !isRecordableImagePath(image.path) ? " This file cannot be recorded. Replace it." : ""}
         </p>
       ) : (

@@ -2,14 +2,18 @@ import type { ClipSourceLayout } from "../types/clip";
 import type { AppSettings, GameplayVisualFilter } from "../types/settings";
 import { nearestWebcamPlacement } from "../utils/clips";
 import { filterComposedSupported, sourceComposedSupported } from "./registry";
+import { sanitizePageUrl } from "./browserSource";
 import { extraMicrophonePlans } from "./sourceAudio";
+import { cameraForWebcam, windowTargetOf, type WindowTarget } from "./sourceVisual";
 import {
   AUDIO_SOURCE_TYPES,
   clampCrop,
   desktopCaptureSettingsOf,
   findSourceByType,
   FULL_CROP,
+  browserSettingsOf,
   imageSettingsOf,
+  mediaSettingsOf,
   isNeutralPicture,
   isPrimaryCapture,
   overlaySettingsOf,
@@ -50,6 +54,7 @@ export type CaptureCompositionSource = {
   crop: CompositionCrop;
   monitorId?: string | null;
   picture?: PictureSettings;
+  window?: WindowTarget;
 };
 
 export type WebcamCompositionSource = {
@@ -93,6 +98,48 @@ export type TextCompositionSource = {
   align: "left" | "center" | "right";
 };
 
+export type MediaCompositionSource = {
+  kind: "videoFile" | "audioFile";
+  id: string;
+  name: string;
+  enabled: boolean;
+  order: number;
+  transform: CompositionTransform;
+  crop: CompositionCrop;
+  path: string;
+  loop: boolean;
+  restart: boolean;
+  gain: number;
+};
+
+export type BrowserCompositionSource = {
+  kind: "browser";
+  id: string;
+  name: string;
+  enabled: boolean;
+  order: number;
+  transform: CompositionTransform;
+  crop: CompositionCrop;
+  url: string;
+};
+
+export type CaptureCardCompositionSource = {
+  kind: "captureCard";
+  id: string;
+  name: string;
+  enabled: boolean;
+  order: number;
+  transform: CompositionTransform;
+  crop: CompositionCrop;
+  deviceId: string;
+  width: number;
+  height: number;
+  fps: number;
+  mirror: boolean;
+  shape?: "rectangle" | "rounded" | "circle";
+  picture?: PictureSettings;
+};
+
 export type OverlayCompositionSource = {
   kind: "replayrOverlay";
   id: string;
@@ -133,6 +180,9 @@ export type RecordingComposition = {
     | ImageCompositionSource
     | TextCompositionSource
     | OverlayCompositionSource
+    | MediaCompositionSource
+    | BrowserCompositionSource
+    | CaptureCardCompositionSource
   >;
 };
 
@@ -229,6 +279,7 @@ function asCapture(source: RecordingSource): CaptureCompositionSource | null {
     crop: asCrop(source.crop),
     monitorId: source.type === "display" ? desktopCaptureSettingsOf(source).monitorId : null,
     picture: asPicture(source),
+    window: source.type === "window" ? windowTargetOf(source) : undefined,
   };
 }
 
@@ -237,8 +288,16 @@ function asPicture(source: RecordingSource): PictureSettings | undefined {
   return isNeutralPicture(picture) ? undefined : picture;
 }
 
-function asWebcam(source: RecordingSource, settings: AppSettings, mirror: boolean): WebcamCompositionSource | null {
+function asWebcam(
+  source: RecordingSource,
+  sources: readonly RecordingSource[],
+  settings: AppSettings,
+  mirror: boolean,
+): WebcamCompositionSource | null {
   if (source.type !== "webcam") return null;
+  const camera = cameraForWebcam(source, sources, settings.webcam);
+  const first = sources.find((item) => item.type === "webcam");
+  if (!camera.deviceId && first?.id !== source.id) return null;
   return {
     kind: "webcam",
     id: source.id,
@@ -247,11 +306,72 @@ function asWebcam(source: RecordingSource, settings: AppSettings, mirror: boolea
     order: source.order,
     transform: asTransform(source.transform),
     crop: asCrop(source.crop),
-    deviceId: settings.webcam.deviceId,
-    width: settings.webcam.width,
-    height: settings.webcam.height,
-    fps: settings.webcam.fps,
+    deviceId: camera.deviceId,
+    width: camera.width,
+    height: camera.height,
+    fps: camera.fps,
     mirror,
+    shape: webcamSettingsOf(source).shape,
+    picture: asPicture(source),
+  };
+}
+
+function asMedia(source: RecordingSource): MediaCompositionSource | null {
+  if (source.type !== "videoFile" && source.type !== "audioFile") return null;
+  const settings = mediaSettingsOf(source);
+  if (!settings.path) return null;
+  return {
+    kind: source.type,
+    id: source.id,
+    name: source.name,
+    enabled: source.enabled,
+    order: source.order,
+    transform: asTransform(source.transform),
+    crop: asCrop(source.crop),
+    path: settings.path,
+    loop: settings.loop,
+    restart: settings.restart,
+    gain: settings.gain,
+  };
+}
+
+function asBrowser(source: RecordingSource): BrowserCompositionSource | null {
+  if (source.type !== "browser") return null;
+  const url = sanitizePageUrl(browserSettingsOf(source).url);
+  if (!url) return null;
+  return {
+    kind: "browser",
+    id: source.id,
+    name: source.name,
+    enabled: source.enabled,
+    order: source.order,
+    transform: asTransform(source.transform),
+    crop: asCrop(source.crop),
+    url,
+  };
+}
+
+function asCaptureCard(
+  source: RecordingSource,
+  sources: readonly RecordingSource[],
+  settings: AppSettings,
+): CaptureCardCompositionSource | null {
+  if (source.type !== "captureCard") return null;
+  const camera = cameraForWebcam(source, sources, settings.webcam);
+  if (!camera.deviceId) return null;
+  return {
+    kind: "captureCard",
+    id: source.id,
+    name: source.name,
+    enabled: source.enabled,
+    order: source.order,
+    transform: asTransform(source.transform),
+    crop: asCrop(source.crop),
+    deviceId: camera.deviceId,
+    width: camera.width,
+    height: camera.height,
+    fps: camera.fps,
+    mirror: false,
     shape: webcamSettingsOf(source).shape,
     picture: asPicture(source),
   };
@@ -336,7 +456,7 @@ export function snapshotRecordingComposition(
 
 export const RECORD_NEEDS_IR_OFF = "Turn off Instant Replay to record.";
 
-export const RECORDABLE_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg"] as const;
+export const RECORDABLE_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp"] as const;
 
 export function isRecordableImagePath(path: string): boolean {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
@@ -349,10 +469,13 @@ export function composedStartBlocker(scene: RecordingScene, settings: AppSetting
   }
   const capture = primaryCapture(scene);
   if (!capture || !capture.enabled) {
-    return "Add a Game or Desktop capture to record.";
+    return "Add a Game, Desktop, or Window capture to record.";
   }
-  if (capture.type === "window" || !sourceComposedSupported(capture.type)) {
-    return "Window capture cannot be recorded yet. Use Game or Desktop.";
+  if (capture.type === "window" && !windowTargetOf(capture).title && !windowTargetOf(capture).className && !windowTargetOf(capture).exe) {
+    return "Choose a window to record.";
+  }
+  if (!sourceComposedSupported(capture.type)) {
+    return "That capture cannot be recorded yet.";
   }
   const overlay = scene.sources.find((source) => source.type === "replayrOverlay" && source.enabled);
   if (overlay) {
@@ -367,7 +490,7 @@ export function composedStartBlocker(scene: RecordingScene, settings: AppSetting
     return Boolean(path) && !isRecordableImagePath(path);
   });
   if (badImage) {
-    return `${badImage.name} is not a PNG or JPEG. Replace it or hide it to record.`;
+    return `${badImage.name} is not a PNG, JPEG, GIF, or WebP. Replace it or hide it to record.`;
   }
   return null;
 }
@@ -383,14 +506,38 @@ export function buildRecordingComposition(
     const payload = asCapture(capture);
     if (payload) sources.push(payload);
   }
+  const seenCameras = new Set<string>();
   for (const source of scene.sources) {
     if (!sourceComposedSupported(source.type)) continue;
-    if (source.type === "webcam") {
-      const payload = asWebcam(source, settings, mirror);
+    if (isPrimaryCapture(source.type)) {
+      if (!source.enabled || source.id === capture?.id || source.type === "game") continue;
+      const payload = asCapture(source);
       if (payload) sources.push(payload);
+    } else if (source.type === "webcam") {
+      const payload = asWebcam(source, scene.sources, settings, mirror);
+      if (!payload) continue;
+      const key = payload.deviceId.toLowerCase();
+      if (key && seenCameras.has(key)) continue;
+      if (key) seenCameras.add(key);
+      sources.push(payload);
     } else if (source.type === "image") {
       const payload = asImage(source);
       if (payload) sources.push(payload);
+    } else if (source.type === "videoFile" || source.type === "audioFile") {
+      const payload = asMedia(source);
+      if (payload) sources.push(payload);
+    } else if (source.type === "browser") {
+      if (!settings.browserSourcesEnabled) continue;
+      const payload = asBrowser(source);
+      if (payload) sources.push(payload);
+    } else if (source.type === "captureCard") {
+      const payload = asCaptureCard(source, scene.sources, settings);
+      if (payload) {
+        const key = payload.deviceId.toLowerCase();
+        if (key && seenCameras.has(key)) continue;
+        if (key) seenCameras.add(key);
+        sources.push(payload);
+      }
     } else if (source.type === "text") {
       const payload = asText(source);
       if (payload) sources.push(payload);

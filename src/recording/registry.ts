@@ -24,23 +24,23 @@ export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     label: "Desktop Capture",
     group: "capture",
     capability: "recorded",
-    unique: true,
+    unique: false,
     hint: "Same capture path, labeled as the current display.",
   },
   {
     type: "window",
     label: "Window Capture",
     group: "capture",
-    capability: "unsupported",
-    unique: true,
-    hint: "Coming later.",
+    capability: "recorded",
+    unique: false,
+    hint: "Records a window you choose.",
   },
   {
     type: "webcam",
     label: "Webcam",
     group: "media",
     capability: "sidecar",
-    unique: true,
+    unique: false,
     hint: "Recorded into the layout.",
   },
   {
@@ -63,25 +63,25 @@ export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     type: "browser",
     label: "Browser",
     group: "media",
-    capability: "unsupported",
-    unique: true,
-    hint: "Coming later.",
+    capability: "recorded",
+    unique: false,
+    hint: "An isolated page, recorded into the session.",
   },
   {
     type: "captureCard",
     label: "Capture Card",
     group: "media",
-    capability: "unsupported",
-    unique: true,
-    hint: "Coming later.",
+    capability: "recorded",
+    unique: false,
+    hint: "Recorded as its own picture. It does not replace your webcam.",
   },
   {
     type: "videoFile",
     label: "Video File",
     group: "media",
-    capability: "unsupported",
-    unique: true,
-    hint: "Coming later.",
+    capability: "recorded",
+    unique: false,
+    hint: "A local MP4 or MOV, recorded into the session.",
   },
   {
     type: "microphone",
@@ -111,9 +111,9 @@ export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     type: "audioFile",
     label: "Audio File",
     group: "audio",
-    capability: "unsupported",
-    unique: true,
-    hint: "Coming later.",
+    capability: "recorded",
+    unique: false,
+    hint: "A local MP3, M4A, or WAV, mixed into the session.",
   },
   {
     type: "replayrOverlay",
@@ -170,7 +170,11 @@ export type SourceCapabilities = {
 export const COMPOSED_VISUAL_TYPES: readonly RecordingSourceType[] = [
   "game",
   "display",
+  "window",
   "webcam",
+  "captureCard",
+  "videoFile",
+  "browser",
   "image",
   "text",
   "replayrOverlay",
@@ -180,23 +184,37 @@ export const COMPOSED_FILTER_IDS = ["none", "bodycam", "dashcam", "vhs", "cinema
 export type ComposedFilterId = (typeof COMPOSED_FILTER_IDS)[number];
 
 export function sourceCapabilities(type: RecordingSourceType): SourceCapabilities {
-  if (type === "game" || type === "display") {
+  if (type === "game" || type === "display" || type === "window") {
     return { preview: true, legacyOutput: "recorded", composedOutput: true };
   }
   if (type === "webcam") {
     return { preview: true, legacyOutput: "sidecar", composedOutput: true };
   }
-  if (type === "image" || type === "text" || type === "replayrOverlay") {
+  if (type === "image" || type === "text" || type === "replayrOverlay" || type === "videoFile" || type === "browser" || type === "captureCard") {
     return { preview: true, legacyOutput: "none", composedOutput: true };
   }
-  if (type === "microphone" || type === "desktopAudio" || type === "gameAudio") {
+  if (type === "microphone" || type === "desktopAudio" || type === "gameAudio" || type === "audioFile") {
     return { preview: false, legacyOutput: "recorded", composedOutput: true };
   }
   return { preview: false, legacyOutput: "none", composedOutput: false };
 }
 
+const RECORDING_ONLY_TYPES = new Set<RecordingSourceType>(["browser", "captureCard", "videoFile", "audioFile"]);
+
 export function sourceComposedSupported(type: RecordingSourceType): boolean {
   return sourceCapabilities(type).composedOutput;
+}
+
+/** Capture's Add Source list. Clip studio keeps recording-only sources out. */
+export function sourceListedInAddMenu(
+  entry: SourceRegistryEntry,
+  studio: StudioMode,
+  groups?: readonly SourceRegistryEntry["group"][],
+): boolean {
+  if (groups && !groups.includes(entry.group)) return false;
+  if (studio === "clip" && RECORDING_ONLY_TYPES.has(entry.type)) return false;
+  if (studio !== "clip" && (entry.capability === "unsupported" || !sourceComposedSupported(entry.type))) return false;
+  return true;
 }
 
 export function sourcePreviewSupported(type: RecordingSourceType): boolean {
@@ -211,7 +229,7 @@ export function composedSourceCaption(type: RecordingSourceType): string | null 
   if (!sourceComposedSupported(type)) {
     return "Cannot be recorded yet";
   }
-  if (type === "webcam" || type === "image" || type === "text" || type === "replayrOverlay") {
+  if (type === "webcam" || type === "image" || type === "text" || type === "replayrOverlay" || type === "videoFile" || type === "browser" || type === "captureCard" || type === "audioFile") {
     return "Recorded";
   }
   return null;

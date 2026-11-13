@@ -8,6 +8,7 @@ import type {
 } from "../types/settings";
 import { DEFAULT_RECORDING_VISUALS, DEFAULT_WEBCAM_SETTINGS } from "../types/settings";
 import { sanitizeAudioSettings } from "./sourceAudio";
+import { MAX_DISPLAYS, MAX_WEBCAMS, MAX_WINDOWS, sanitizeVisualSettings } from "./sourceVisual";
 
 export const RECORDING_SCENE_STORAGE_KEY = "replay.recordingScene";
 
@@ -96,12 +97,9 @@ export type RecordingScene = {
 export type ScenePresetId = "gameplay" | "gameplayWebcam" | "desktop" | "blank";
 
 export const PRIMARY_CAPTURE_TYPES: readonly RecordingSourceType[] = ["game", "display", "window"];
-export const AUDIO_SOURCE_TYPES: readonly RecordingSourceType[] = ["microphone", "desktopAudio", "gameAudio"];
+export const AUDIO_SOURCE_TYPES: readonly RecordingSourceType[] = ["microphone", "desktopAudio", "gameAudio", "audioFile"];
 export const UNIQUE_SOURCE_TYPES: readonly RecordingSourceType[] = [
   "game",
-  "display",
-  "window",
-  "webcam",
   "microphone",
   "desktopAudio",
   "gameAudio",
@@ -151,7 +149,7 @@ export function isVisualSource(type: RecordingSourceType): boolean {
 
 /** Game/display/window capture, webcam, and image support UV crop (composed + preview). */
 export function isCroppableSource(type: RecordingSourceType): boolean {
-  return isPrimaryCapture(type) || type === "webcam" || type === "image";
+  return isPrimaryCapture(type) || type === "webcam" || type === "captureCard" || type === "image" || type === "videoFile" || type === "browser";
 }
 
 export function clampUnit(value: number, min = 0, max = 1): number {
@@ -205,13 +203,13 @@ export function sanitizeCrop(raw: unknown, type: RecordingSourceType): SourceCro
 
 export function defaultTransform(type: RecordingSourceType, webcam?: Pick<WebcamSettings, "defaultPlacement" | "defaultWidth">): SourceTransform | null {
   if (isAudioSource(type)) return null;
-  if (type === "webcam") {
+  if (type === "webcam" || type === "captureCard") {
     return placementToTransform(
       webcam?.defaultPlacement ?? DEFAULT_WEBCAM_SETTINGS.defaultPlacement,
       webcam?.defaultWidth ?? DEFAULT_WEBCAM_SETTINGS.defaultWidth,
     );
   }
-  if (type === "image") return { x: 0.7, y: 0.68, w: 0.24, h: 0.24 };
+  if (type === "image" || type === "videoFile" || type === "browser") return { x: 0.7, y: 0.68, w: 0.24, h: 0.24 };
   if (type === "text") return { x: 0.04, y: 0.04, w: 0.44, h: 0.1 };
   return { ...FULL_FRAME };
 }
@@ -269,6 +267,23 @@ export function transformCenter(transform: SourceTransform): SourceTransform {
   });
 }
 
+export type MediaFileSettings = { path: string; loop: boolean; restart: boolean; gain: number };
+
+export function mediaSettingsOf(source: RecordingSource): MediaFileSettings {
+  const path = typeof source.settings.path === "string" ? source.settings.path : "";
+  const gain = typeof source.settings.gain === "number" && Number.isFinite(source.settings.gain) ? source.settings.gain : 1;
+  return {
+    path,
+    loop: source.settings.loop === true,
+    restart: source.settings.restart !== false,
+    gain: Math.min(2, Math.max(0, gain)),
+  };
+}
+
+export function browserSettingsOf(source: RecordingSource): { url: string } {
+  return { url: typeof source.settings.url === "string" ? source.settings.url : "" };
+}
+
 export function imageSettingsOf(source: RecordingSource): ImageSourceSettings {
   const path = typeof source.settings.path === "string" ? source.settings.path : "";
   const opacity = typeof source.settings.opacity === "number" ? clampUnit(source.settings.opacity) : 1;
@@ -323,7 +338,7 @@ export type PictureSettings = {
 
 export const NEUTRAL_PICTURE: PictureSettings = { brightness: 0, contrast: 0, saturation: 0, hue: 0, sharpness: 0 };
 
-export const PICTURE_SOURCE_TYPES: readonly RecordingSourceType[] = ["game", "display", "webcam"];
+export const PICTURE_SOURCE_TYPES: readonly RecordingSourceType[] = ["game", "display", "window", "webcam"];
 
 export function supportsPicture(type: RecordingSourceType): boolean {
   return PICTURE_SOURCE_TYPES.includes(type);
@@ -423,9 +438,6 @@ export function primaryCapture(scene: RecordingScene): RecordingSource | undefin
 export function capabilityFor(type: RecordingSourceType): RecordingSourceCapability {
   if (type === "webcam") return "sidecar";
   if (type === "image" || type === "text" || type === "replayrOverlay") return "preview_only";
-  if (type === "window" || type === "browser" || type === "captureCard" || type === "videoFile" || type === "audioFile") {
-    return "unsupported";
-  }
   return "recorded";
 }
 
@@ -497,18 +509,19 @@ export function createSource(
 }
 
 export function replacePrimary(scene: RecordingScene, type: "game" | "display" | "window"): RecordingScene {
-  const existing = scene.sources.find((source) => isPrimaryCapture(source.type));
+  const index = scene.sources.findIndex((source) => isPrimaryCapture(source.type));
+  const existing = index >= 0 ? scene.sources[index] : undefined;
   const next = createSource(type, {
     order: existing?.order ?? nextOrder(scene.sources),
-    enabled: type !== "window",
+    enabled: true,
     locked: true,
     transform: existing?.transform ?? { ...FULL_FRAME },
     crop: existing?.crop ?? { ...FULL_CROP },
   });
-  return {
-    ...scene,
-    sources: [...scene.sources.filter((source) => !isPrimaryCapture(source.type)), next],
-  };
+  if (index < 0) return { ...scene, sources: [...scene.sources, next] };
+  const sources = scene.sources.slice();
+  sources.splice(index, 1, next);
+  return { ...scene, sources };
 }
 
 export function upsertUniqueSource(
@@ -782,7 +795,7 @@ function sanitizeSource(raw: Partial<RecordingSource>, index: number): Recording
     capability,
     transform: isAudioSource(type) ? null : transform,
     crop: sanitizeCrop(raw.crop, type),
-    settings: sanitizeAudioSettings(type, raw.settings),
+    settings: sanitizeVisualSettings(type, sanitizeAudioSettings(type, raw.settings)),
   };
 }
 
@@ -794,18 +807,48 @@ export function sanitizeScene(raw: unknown): RecordingScene | null {
         .map((source, index) => sanitizeSource(source as Partial<RecordingSource>, index))
         .filter((source): source is RecordingSource => Boolean(source))
     : [];
-  if (sources.filter((source) => isPrimaryCapture(source.type)).length > 1) {
-    const keep = sources.find((source) => isPrimaryCapture(source.type) && source.enabled)
-      ?? sources.find((source) => isPrimaryCapture(source.type));
-    const cleaned = sources.filter((source) => !isPrimaryCapture(source.type) || source.id === keep?.id);
-    return sanitizeScene({ ...value, sources: cleaned });
-  }
   return {
     id: sanitizeSceneId(value.id) ?? newSceneId(),
     name: sanitizeSceneName(value.name),
     outputMode: value.outputMode === "composed" ? "composed" : "legacy",
-    sources,
+    sources: capSceneSources(sources),
   };
+}
+
+function capSceneSources(sources: RecordingSource[]): RecordingSource[] {
+  const game = sources.find((source) => source.type === "game" && source.enabled) ?? sources.find((source) => source.type === "game");
+  let displays = 0;
+  let windows = 0;
+  let webcams = 0;
+  let videos = 0;
+  let audioFiles = 0;
+  let browsers = 0;
+  const kept: RecordingSource[] = [];
+  for (const source of sources) {
+    if (source.type === "game") {
+      if (source.id !== game?.id) continue;
+    } else if (source.type === "display") {
+      if (displays >= MAX_DISPLAYS) continue;
+      displays += 1;
+    } else if (source.type === "window") {
+      if (windows >= MAX_WINDOWS) continue;
+      windows += 1;
+    } else if (source.type === "webcam" || source.type === "captureCard") {
+      if (webcams >= MAX_WEBCAMS) continue;
+      webcams += 1;
+    } else if (source.type === "videoFile") {
+      if (videos >= 4) continue;
+      videos += 1;
+    } else if (source.type === "audioFile") {
+      if (audioFiles >= 4) continue;
+      audioFiles += 1;
+    } else if (source.type === "browser") {
+      if (browsers >= 2) continue;
+      browsers += 1;
+    }
+    kept.push(source);
+  }
+  return kept;
 }
 
 export function loadStoredScene(): RecordingScene | null {

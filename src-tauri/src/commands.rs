@@ -230,6 +230,129 @@ pub fn stop_camera_preview(engine: State<CameraEngine>) -> AppResult<()> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn start_extra_camera_preview(
+    engine: State<CameraEngine>,
+    source_id: String,
+    device_id: String,
+    width: u32,
+    height: u32,
+    fps: u32,
+    mirror: bool,
+) -> AppResult<()> {
+    #[cfg(windows)]
+    {
+        engine
+            .start_extra_preview(&source_id, PreviewRequest { device_id, width, height, fps, mirror, smoothness: crate::camera::PreviewSmoothness::Balanced })
+            .map_err(AppError::Message)?;
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (engine, source_id, device_id, width, height, fps, mirror);
+        Err(AppError::Message("Webcam preview needs Windows.".into()))
+    }
+}
+
+#[tauri::command]
+pub fn stop_extra_camera_preview(engine: State<CameraEngine>, source_id: String) -> AppResult<()> {
+    #[cfg(windows)]
+    engine.stop_extra_preview(&source_id);
+    #[cfg(not(windows))]
+    let _ = (engine, source_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn wait_extra_camera_preview_frame(
+    engine: State<'_, CameraEngine>,
+    source_id: String,
+    after: u64,
+    timeout_ms: Option<u32>,
+) -> AppResult<tauri::ipc::Response> {
+    let engine = engine.inner().clone();
+    let timeout = std::time::Duration::from_millis(u64::from(timeout_ms.unwrap_or(250).clamp(1, 250)));
+    let (header, bytes) = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(windows)]
+        { engine.wait_extra_preview(&source_id, after, timeout) }
+        #[cfg(not(windows))]
+        {
+            let _ = (engine, source_id, after, timeout);
+            (crate::camera::PreviewHeader::empty(), None)
+        }
+    })
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?;
+    Ok(preview_body(&header, bytes.as_deref())?)
+}
+
+#[tauri::command]
+pub fn start_layer_preview(
+    source_id: String,
+    kind: String,
+    monitor_id: Option<String>,
+    window_title: Option<String>,
+    window_class: Option<String>,
+    window_exe: Option<String>,
+    #[cfg(windows)] hub: State<crate::preview::layers::LayerPreviewHub>,
+) -> AppResult<()> {
+    #[cfg(windows)]
+    {
+        let monitor = crate::displays::sanitize_monitor_id(monitor_id.as_deref());
+        hub.start(
+            &source_id,
+            &kind,
+            monitor.as_deref(),
+            window_title.as_deref().unwrap_or(""),
+            window_class.as_deref().unwrap_or(""),
+            window_exe.as_deref().unwrap_or(""),
+        )
+        .map_err(AppError::Message)?;
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (source_id, kind, monitor_id, window_title, window_class, window_exe);
+        Err(AppError::Message("Capture preview needs Windows.".into()))
+    }
+}
+
+#[tauri::command]
+pub fn stop_layer_preview(
+    source_id: String,
+    #[cfg(windows)] hub: State<crate::preview::layers::LayerPreviewHub>,
+) -> AppResult<()> {
+    #[cfg(windows)]
+    hub.stop(&source_id);
+    #[cfg(not(windows))]
+    let _ = source_id;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn wait_layer_preview_frame(
+    source_id: String,
+    after: u64,
+    timeout_ms: Option<u32>,
+    #[cfg(windows)] hub: State<'_, crate::preview::layers::LayerPreviewHub>,
+) -> AppResult<tauri::ipc::Response> {
+    let timeout = std::time::Duration::from_millis(u64::from(timeout_ms.unwrap_or(250).clamp(1, 250)));
+    #[cfg(windows)]
+    let hub = hub.inner().clone();
+    let (header, bytes) = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(windows)]
+        { hub.wait(&source_id, after, timeout) }
+        #[cfg(not(windows))]
+        {
+            let _ = (source_id, after, timeout);
+            (crate::preview::LayerPreviewHeader::empty(0), None)
+        }
+    })
+        .await
+        .map_err(|err| AppError::Message(err.to_string()))?;
+    Ok(preview_body(&header, bytes.as_deref())?)
+}
+
 /// Long-poll for the next camera preview frame. Same body layout as
 /// `wait_capture_preview_frame`.
 #[tauri::command]
@@ -279,12 +402,25 @@ pub fn start_capture_preview(
     mode: Option<String>,
     pid: Option<u32>,
     monitor_id: Option<String>,
+    window_title: Option<String>,
+    window_class: Option<String>,
+    window_exe: Option<String>,
 ) -> AppResult<()> {
     let snapshot = detection::current_snapshot(&detection);
     let resolved = pid.filter(|value| *value != 0).or(snapshot.pid);
     let monitor = crate::displays::sanitize_monitor_id(monitor_id.as_deref());
-    capture::retain_preview(&rec, mode.as_deref().unwrap_or("game"), resolved, monitor);
+    let window = crate::capture_windows::sanitize_target(
+        window_title.as_deref().unwrap_or(""),
+        window_class.as_deref().unwrap_or(""),
+        window_exe.as_deref().unwrap_or(""),
+    );
+    capture::retain_preview(&rec, mode.as_deref().unwrap_or("game"), resolved, monitor, window);
     Ok(())
+}
+
+#[tauri::command]
+pub fn list_capture_windows() -> AppResult<Value> {
+    Ok(serde_json::to_value(crate::capture_windows::list_capture_windows())?)
 }
 
 #[tauri::command]

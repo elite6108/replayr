@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useContext, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -22,6 +22,7 @@ import {
   type RecordingSourceType,
 } from "../../recording/scene";
 import { MAX_SCENE_LIBRARY } from "../../recording/sceneLibrary";
+import { cameraForWebcam, modeIdOf } from "../../recording/sourceVisual";
 import { useDisplays } from "../../recording/display/useDisplays";
 import { useRecordingScene } from "../../recording/useRecordingScene";
 import { useStudioAudio } from "../../recording/useStudioAudio";
@@ -39,6 +40,15 @@ import { displayFps, qualityLabel } from "../../utils/qualityLabels";
 import { IconFolder, IconGames } from "../icons";
 import { StudioTabActions } from "./StudioShell";
 import { RECORDABLE_IMAGE_EXTENSIONS } from "../../recording/composition";
+import {
+  CAPTURE_COLUMN_WIDTHS_KEY,
+  captureColumnMin,
+  captureColumnResizeLabel,
+  clampCaptureColumnWidth,
+  isCaptureResizeColumn,
+  readCaptureColumnWidths,
+  type CaptureResizeColumn,
+} from "./captureColumns";
 
 const CAPTURE_COLUMNS = ["scenes", "sources", "mixer", "inspector", "controls"] as const;
 type CaptureColumnId = (typeof CAPTURE_COLUMNS)[number];
@@ -103,6 +113,7 @@ export function RecordingStudio() {
     copyScene,
     writeSettings,
     saveSourceAudio,
+    saveSourceCamera,
   } = useRecordingScene();
   const showToast = useToastStore((state) => state.show);
   const [camera, setCamera] = useState<CameraStatus>(IDLE_CAMERA_STATUS);
@@ -111,11 +122,14 @@ export function RecordingStudio() {
   const [obsImportOpen, setObsImportOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [columns, setColumns] = useState<CaptureColumnId[]>(readCaptureColumns);
+  const [columnWidths, setColumnWidths] = useState(readCaptureColumnWidths);
   const [draggingColumn, setDraggingColumn] = useState<CaptureColumnId | null>(null);
+  const [resizingColumn, setResizingColumn] = useState<CaptureResizeColumn | null>(null);
   const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
   const dragging = useRef(false);
   const columnsRef = useRef(columns);
   columnsRef.current = columns;
+  const widthsRef = useRef(columnWidths);
   const dragColumn = useRef<CaptureColumnId | null>(null);
   const pushSceneNow = useRef(false);
   const { displays, error: displayError, refresh: refreshDisplays } = useDisplays();
@@ -175,10 +189,23 @@ export function RecordingStudio() {
     if (type === "image") {
       const selectedPath = await open({
         multiple: false,
-        filters: [{ name: "PNG or JPEG", extensions: [...RECORDABLE_IMAGE_EXTENSIONS] }],
+        filters: [{ name: "Images", extensions: [...RECORDABLE_IMAGE_EXTENSIONS] }],
       });
       if (typeof selectedPath !== "string" || !selectedPath) return;
       addSource("image", { settings: { path: selectedPath, opacity: 1 } });
+      return;
+    }
+    if (type === "videoFile" || type === "audioFile") {
+      const selectedPath = await open({
+        multiple: false,
+        filters: [
+          type === "videoFile"
+            ? { name: "Video", extensions: ["mp4", "m4v", "mov"] }
+            : { name: "Audio", extensions: ["m4a", "mp3", "wav", "aac"] },
+        ],
+      });
+      if (typeof selectedPath !== "string" || !selectedPath) return;
+      addSource(type, { settings: { path: selectedPath, loop: false, restart: true, gain: 1 } });
       return;
     }
     if (type === "replayrOverlay") {
@@ -277,6 +304,57 @@ export function RecordingStudio() {
     dragColumn.current = null;
     setDraggingColumn(null);
     window.localStorage.setItem(CAPTURE_COLUMNS_KEY, JSON.stringify(columnsRef.current));
+  }
+
+  function persistColumnWidths() {
+    try {
+      window.localStorage.setItem(CAPTURE_COLUMN_WIDTHS_KEY, JSON.stringify(widthsRef.current));
+    } catch {
+      /* private mode */
+    }
+  }
+
+  function setColumnWidth(id: CaptureResizeColumn, value: number) {
+    const next = clampCaptureColumnWidth(id, value);
+    const updated = { ...widthsRef.current, [id]: next };
+    widthsRef.current = updated;
+    setColumnWidths(updated);
+    return updated;
+  }
+
+  function beginColumnResize(id: CaptureResizeColumn, event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = widthsRef.current[id];
+    setResizingColumn(id);
+    const onMove = (move: PointerEvent) => {
+      setColumnWidth(id, startWidth + move.clientX - startX);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      setResizingColumn(null);
+      persistColumnWidths();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }
+
+  function nudgeColumnWidth(id: CaptureResizeColumn, delta: number) {
+    setColumnWidth(id, widthsRef.current[id] + delta);
+    persistColumnWidths();
+  }
+
+  function columnStyle(id: CaptureColumnId, isLast: boolean): CSSProperties | undefined {
+    if (!isCaptureResizeColumn(id)) return undefined;
+    if (isLast) {
+      return { flex: "1 1 auto", width: "auto", minWidth: captureColumnMin(id), maxWidth: "none" };
+    }
+    const width = columnWidths[id];
+    return { flex: `0 0 ${width}px`, width, minWidth: width, maxWidth: width };
   }
 
   function sourceColumn(part: "scenes" | "sources") {
@@ -427,19 +505,18 @@ export function RecordingStudio() {
         displays={displays}
       />
       <div
-        className="record-dock"
+        className={`record-dock${resizingColumn ? " is-column-resize" : ""}`}
         onPointerDown={onDockPointerDown}
         onPointerMove={onDockPointerMove}
         onPointerUp={onDockPointerUp}
         onPointerCancel={onDockPointerUp}
       >
-        {columns.map((id) => {
-          if (id === "inspector" && !inspectorOpen) return null;
-          return (
+        {columns.filter((id) => id !== "inspector" || inspectorOpen).map((id, index, visible) => (
+          <Fragment key={id}>
             <div
-              key={id}
               className={`capture-column is-${id}${draggingColumn === id ? " is-dragging" : ""}`}
               data-capture-column={id}
+              style={columnStyle(id, index === visible.length - 1)}
             >
               {id === "scenes" ? sourceColumn("scenes") : null}
               {id === "sources" ? sourceColumn("sources") : null}
@@ -491,6 +568,7 @@ export function RecordingStudio() {
           recording={status.active || startingComposed}
           sources={scene.sources}
           onSourceAudio={saveSourceAudio}
+          onSourceCamera={saveSourceCamera}
           onSaveSetting={(key, value) => {
             if (key === "microphoneId") {
               if (status.active || startingComposed) return;
@@ -533,8 +611,25 @@ export function RecordingStudio() {
         />
               ) : null}
             </div>
-          );
-        })}
+            {isCaptureResizeColumn(id) && index < visible.length - 1 ? (
+              <div
+                className={`capture-column-resize${resizingColumn === id ? " is-active" : ""}`}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={captureColumnResizeLabel(id)}
+                title={captureColumnResizeLabel(id)}
+                aria-valuenow={columnWidths[id]}
+                tabIndex={0}
+                onPointerDown={(event) => beginColumnResize(id, event)}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                  event.preventDefault();
+                  nudgeColumnWidth(id, event.key === "ArrowRight" ? 16 : -16);
+                }}
+              />
+            ) : null}
+          </Fragment>
+        ))}
       </div>
       <footer className="studio-status">
         <span className={`capture-ready${status.error ? " is-error" : ""}`}>
@@ -594,6 +689,14 @@ export function RecordingStudio() {
           onPicture={(picture) => {
             if (compositionLocked) return;
             patchSource(videoSettingsSource.id, { settings: { picture } });
+          }}
+          onCameraMode={(mode) => {
+            if (compositionLocked || videoSettingsSource.type !== "webcam") return;
+            saveSourceCamera(videoSettingsSource.id, {
+              deviceId: cameraForWebcam(videoSettingsSource, scene.sources, settings.webcam).deviceId,
+              name: settings.webcam.name,
+              modeId: modeIdOf(mode.width, mode.height, mode.fps),
+            });
           }}
           onSaveSetting={(key, value) => {
             if (compositionLocked && key === "webcam") {

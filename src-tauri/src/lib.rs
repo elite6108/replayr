@@ -10,10 +10,13 @@ mod analytics_outbox;
 mod audio_timeline;
 mod auth;
 mod branding;
+mod browser_policy;
+mod media_policy;
 mod buffer;
 mod camera;
 mod capture;
 mod capture_timing;
+mod capture_windows;
 mod ir_runtime;
 mod ir_target;
 mod clip_scene;
@@ -122,6 +125,7 @@ pub fn run() {
             app.manage(crate::camera::CameraEngine::new());
             #[cfg(windows)]
             {
+                app.manage(crate::preview::layers::LayerPreviewHub::new());
                 app.manage(crate::audio::AudioRuntime::new());
                 let runtime = app.state::<crate::audio::AudioRuntime>();
                 runtime.bind(app.handle().clone());
@@ -264,6 +268,12 @@ pub fn run() {
             commands::get_camera_status,
             commands::start_camera_preview,
             commands::stop_camera_preview,
+            commands::start_extra_camera_preview,
+            commands::stop_extra_camera_preview,
+            commands::wait_extra_camera_preview_frame,
+            commands::start_layer_preview,
+            commands::stop_layer_preview,
+            commands::wait_layer_preview_frame,
             commands::wait_camera_preview_frame,
             commands::get_camera_controls,
             commands::set_camera_control,
@@ -272,6 +282,7 @@ pub fn run() {
             commands::get_capture_preview_frame,
             commands::wait_capture_preview_frame,
             commands::list_displays,
+            commands::list_capture_windows,
             commands::allow_preview_images,
             obs_import::get_obs_import_context,
             obs_import::read_obs_scene_collection,

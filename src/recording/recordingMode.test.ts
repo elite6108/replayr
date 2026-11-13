@@ -46,6 +46,24 @@ export function assertMonitorReachesComposition(): void {
   const primary = buildRecordingComposition(desktopScene(null), settings());
   const primaryCapture = primary.sources.find((source) => source.kind === "capture");
   assert(primaryCapture && primaryCapture.kind === "capture" && !primaryCapture.monitorId, "Primary sends no id");
+  const layered = desktopScene(null);
+  layered.sources.push(
+    createSource("display", { order: 2, enabled: true, transform: { x: 0.62, y: 0.08, w: 0.34, h: 0.34 }, settings: { monitorId: String.raw`\\.\DISPLAY2` } }),
+    createSource("window", { order: 3, enabled: true, transform: { x: 0.62, y: 0.16, w: 0.34, h: 0.34 }, settings: { window: { title: "Notes", className: "Notepad", exe: "notepad.exe" } } }),
+    createSource("webcam", { order: 4, enabled: true }),
+    createSource("webcam", { order: 5, enabled: true, settings: { camera: { deviceId: "cam-b", modeId: "640x480@30" } } }),
+  );
+  const built = buildRecordingComposition(layered, settings({ webcam: { ...settings().webcam, deviceId: "cam-a" } }));
+  const captures = built.sources.filter((source) => source.kind === "capture");
+  assert(captures.length === 3, "the base display stays first and the extra display and window follow");
+  assert(captures[0]?.kind === "capture" && captures[0].capture === "display" && !captures[0].monitorId, "base stays the first display");
+  assert(captures[2]?.kind === "capture" && captures[2].capture === "window" && captures[2].window?.exe === "notepad.exe", "window identity is sent");
+  const cameras = built.sources.filter((source) => source.kind === "webcam");
+  assert(cameras.length === 2 && cameras[0]?.kind === "webcam" && cameras[0].deviceId === "cam-a", "first webcam keeps the shared camera");
+  assert(cameras[1]?.kind === "webcam" && cameras[1].deviceId === "cam-b", "second webcam keeps its own camera");
+  const emptyWindow = desktopScene(null);
+  emptyWindow.sources[0] = createSource("window", { order: 1, enabled: true, transform: { ...FULL_FRAME } });
+  assert(composedStartBlocker(emptyWindow, settings()) === "Choose a window to record.", "a window needs a target");
 }
 
 export function assertInstantReplayBlocksRecording(): void {
@@ -58,7 +76,10 @@ export function assertInstantReplayBlocksRecording(): void {
   withWebp.sources.push(
     createSource("image", { order: 2, enabled: true, settings: { path: "C:\\art\\logo.webp", opacity: 1 } }),
   );
-  assert(composedStartBlocker(withWebp, settings())?.includes("PNG or JPEG"), "webp images must be rejected clearly");
+  assert(composedStartBlocker(withWebp, settings()) === null, "webp images can be recorded");
+  const withBmp = desktopScene(null);
+  withBmp.sources.push(createSource("image", { order: 2, enabled: true, settings: { path: "C:\\art\\logo.bmp", opacity: 1 } }));
+  assert(composedStartBlocker(withBmp, settings())?.includes("WebP"), "other image types stay blocked");
 }
 
 export function assertDisplayLabels(): void {

@@ -1,7 +1,10 @@
 /** How each OBS source kind becomes a Replayr source, or why it cannot yet. */
 import type { RecordingSourceType } from "../scene";
+import { sanitizePageUrl } from "../browserSource";
 import { RECORDABLE_IMAGE_EXTENSIONS } from "../composition";
-import { cameraResolution, matchMonitor, type ObsMonitorInfo } from "./obsDevices";
+import { cameraResolution, matchCamera, matchMonitor, type ObsMonitorInfo } from "./obsDevices";
+import { modeIdOf, parseObsWindow } from "../sourceVisual";
+import type { CameraDevice } from "../../types/camera";
 import type { Size } from "./obsGeometry";
 import {
   cleanText,
@@ -35,14 +38,12 @@ export type MappingContext = {
   canvas: Size;
   monitors: ObsMonitorInfo[];
   imageSizes: ReadonlyMap<string, Size | null>;
+  cameras: CameraDevice[];
 };
 
 export const DEFAULT_CAMERA_SIZE: Size = { w: 1920, h: 1080 };
 
 const SKIP_REASONS: Record<string, string> = {
-  window_capture: "Window capture is not supported yet.",
-  browser_source: "Browser sources are not supported yet.",
-  ffmpeg_source: "Media files are not supported yet.",
   vlc_source: "VLC playlists are not supported.",
   slideshow: "Image slideshows are not supported.",
   color_source: "Color sources are not supported.",
@@ -89,10 +90,16 @@ export function mapVisualSource(source: ObsSource, context: MappingContext): Vis
       return mapDisplay(source, context);
     case "game_capture":
       return mapGame(source, context);
+    case "window_capture":
+      return mapWindow(source, context);
     case "dshow_input":
-      return mapCamera(source);
+      return mapCamera(source, context.cameras);
     case "image_source":
       return mapImage(source, context);
+    case "browser_source":
+      return mapBrowser(source);
+    case "ffmpeg_source":
+      return mapMedia(source);
     case "text_gdiplus":
     case "text_ft2_source":
       return mapText(source);
@@ -139,16 +146,37 @@ function mapGame(source: ObsSource, context: MappingContext): VisualMapping {
   };
 }
 
-function mapCamera(source: ObsSource): VisualMapping {
+function mapWindow(source: ObsSource, context: MappingContext): VisualMapping {
+  const target = parseObsWindow(settingString(source.settings, "window", 1024));
+  const notes = target.title || target.exe || target.className ? [] : ["Choose the window again after import."];
+  return {
+    ok: true,
+    type: "window",
+    settings: { window: target },
+    size: context.canvas,
+    sizeKnown: false,
+    croppable: true,
+    notes,
+  };
+}
+
+function mapCamera(source: ObsSource, cameras: CameraDevice[]): VisualMapping {
   const resolution = cameraResolution(source.settings);
+  const width = resolution?.w ?? 1280;
+  const height = resolution?.h ?? 720;
+  const match = matchCamera(source.settings, cameras);
+  const settings: Record<string, unknown> = { shape: "rectangle" };
+  const notes: string[] = [];
+  if (match) settings.camera = { deviceId: match.id, modeId: modeIdOf(width, height, 30) };
+  else notes.push("That camera was not found, so the first webcam keeps your current camera.");
   return {
     ok: true,
     type: "webcam",
-    settings: { shape: "rectangle" },
+    settings,
     size: resolution ?? DEFAULT_CAMERA_SIZE,
     sizeKnown: Boolean(resolution),
     croppable: true,
-    notes: [],
+    notes,
   };
 }
 
@@ -168,7 +196,7 @@ function mapImage(source: ObsSource, context: MappingContext): VisualMapping {
   }
   const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
   if (!(RECORDABLE_IMAGE_EXTENSIONS as readonly string[]).includes(extension)) {
-    return { ok: false, reason: "Only PNG and JPEG images can be recorded today." };
+    return { ok: false, reason: "Use a PNG, JPEG, GIF, or WebP image." };
   }
   const size = context.imageSizes.get(path);
   if (!size) {
@@ -181,6 +209,48 @@ function mapImage(source: ObsSource, context: MappingContext): VisualMapping {
     size,
     sizeKnown: true,
     croppable: true,
+    notes: [],
+  };
+}
+
+const VIDEO_EXTENSIONS = ["mp4", "m4v", "mov"];
+const AUDIO_EXTENSIONS = ["m4a", "mp3", "wav", "aac"];
+
+function mapBrowser(source: ObsSource): VisualMapping {
+  const url = sanitizePageUrl(settingString(source.settings, "url", 2048));
+  if (!url) return { ok: false, reason: "That page address is not allowed." };
+  return {
+    ok: true,
+    type: "browser",
+    settings: { url },
+    size: { w: 960, h: 540 },
+    sizeKnown: false,
+    croppable: true,
+    notes: [],
+  };
+}
+
+function mapMedia(source: ObsSource): VisualMapping {
+  const path = settingString(source.settings, "local_file", OBS_LIMITS.pathLength);
+  if (!path || !isLocalImagePath(path)) {
+    return { ok: false, reason: "Media files have to be on this computer." };
+  }
+  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  const video = VIDEO_EXTENSIONS.includes(extension);
+  const audio = AUDIO_EXTENSIONS.includes(extension);
+  if (!video && !audio) return { ok: false, reason: "Use an MP4, MOV, MP3, M4A, or WAV file." };
+  return {
+    ok: true,
+    type: video ? "videoFile" : "audioFile",
+    settings: {
+      path,
+      loop: settingBool(source.settings, "looping", false),
+      restart: settingBool(source.settings, "restart_on_activate", true),
+      gain: 1,
+    },
+    size: { w: 1920, h: 1080 },
+    sizeKnown: false,
+    croppable: video,
     notes: [],
   };
 }

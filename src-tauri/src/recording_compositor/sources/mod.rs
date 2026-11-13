@@ -31,8 +31,10 @@
 
 #![cfg(windows)]
 
+pub mod browser;
 pub mod capture;
 pub mod image;
+pub mod media;
 pub mod overlay;
 pub mod text;
 pub mod webcam;

@@ -15,6 +15,7 @@ import {
   type RecordingSource,
 } from "../../recording/scene";
 import { CameraModePicker } from "../sources/CameraModePicker";
+import { parseModeId, sanitizeCamera } from "../../recording/sourceVisual";
 
 const PICTURE_FIELDS: { key: keyof PictureSettings; label: string; min: number; max: number; unit?: string }[] = [
   { key: "brightness", label: "Brightness", min: -100, max: 100 },
@@ -43,6 +44,7 @@ export function VideoSettingsDialog({
   locked,
   onPicture,
   onSaveSetting,
+  onCameraMode,
   onClose,
 }: {
   source: RecordingSource;
@@ -53,10 +55,18 @@ export function VideoSettingsDialog({
   locked: boolean;
   onPicture: (picture: PictureSettings) => void;
   onSaveSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  /** When set, a mode change stays on this webcam instead of the shared camera. */
+  onCameraMode?: (mode: { width: number; height: number; fps: number }) => void;
   onClose: () => void;
 }) {
   const picture = pictureSettingsOf(source);
   const webcam = source.type === "webcam";
+  const stored = webcam ? sanitizeCamera(source.settings.camera) : null;
+  const storedMode = stored ? parseModeId(stored.modeId) : null;
+  const cameraDevice = stored?.deviceId || settings.webcam.deviceId;
+  const cameraWidth = storedMode?.width ?? settings.webcam.width;
+  const cameraHeight = storedMode?.height ?? settings.webcam.height;
+  const cameraFps = storedMode?.fps ?? settings.webcam.fps;
 
   return (
     <div className="studio-modal-backdrop" onClick={onClose} role="presentation">
@@ -157,19 +167,19 @@ export function VideoSettingsDialog({
             <div className="settings-fields webcam-fields">
               <CameraModePicker
                 idPrefix="video-camera"
-                deviceId={settings.webcam.deviceId}
-                width={settings.webcam.width}
-                height={settings.webcam.height}
-                fps={settings.webcam.fps}
-                disabled={locked || !settings.webcam.deviceId}
-                onChange={(mode) => onSaveSetting("webcam", { ...settings.webcam, ...mode })}
+                deviceId={cameraDevice}
+                width={cameraWidth}
+                height={cameraHeight}
+                fps={cameraFps}
+                disabled={locked || !cameraDevice}
+                onChange={(mode) => (onCameraMode ? onCameraMode(mode) : onSaveSetting("webcam", { ...settings.webcam, ...mode }))}
               />
             </div>
           </section>
         ) : null}
 
         {webcam ? (
-          <CameraControlsSection settings={settings} onSaveSetting={onSaveSetting} />
+          <CameraControlsSection settings={settings} deviceId={cameraDevice} onSaveSetting={onSaveSetting} />
         ) : null}
       </div>
     </div>
@@ -178,12 +188,13 @@ export function VideoSettingsDialog({
 
 function CameraControlsSection({
   settings,
+  deviceId,
   onSaveSetting,
 }: {
   settings: AppSettings;
+  deviceId: string;
   onSaveSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 }) {
-  const deviceId = settings.webcam.deviceId;
   const [controls, setControls] = useState<CameraControlInfo[] | null>(null);
   const [error, setError] = useState("");
   const pending = useRef(new Map<CameraControlName, number>());

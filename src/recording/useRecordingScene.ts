@@ -20,6 +20,7 @@ import {
   type AudioGlobals,
   type SourceAudio,
 } from "./sourceAudio";
+import { modeIdOf, parseModeId, sanitizeCamera } from "./sourceVisual";
 import { loadOrMigrateLibrary, persistLibrary } from "./sceneLibrary";
 import { useSceneStudio, type SceneStudioAdapter } from "./useSceneStudio";
 
@@ -91,7 +92,9 @@ export function useRecordingScene() {
   const studio = useSceneStudio(adapter);
   writeSettingsRef.current = studio.writeSettings;
   const applyingSceneAudio = useRef(false);
+  const applyingSceneCamera = useRef(false);
   const sceneAudioGeneration = useRef(0);
+  const sceneCameraGeneration = useRef(0);
   const sceneAudioChain = useRef<Promise<void>>(Promise.resolve());
   const studioRef = useRef(studio);
   studioRef.current = studio;
@@ -135,6 +138,47 @@ export function useRecordingScene() {
     if (!sceneEquals(current.scene, next)) current.commit(next);
   }, [settings.micGain, settings.microphoneId, settings.systemAudioGain, settings.gameAudioGain, settings.audioOutputId]);
 
+  useEffect(() => {
+    const generation = ++sceneCameraGeneration.current;
+    const source = studioRef.current.scene.sources.find((item) => item.type === "webcam");
+    const camera = source ? sanitizeCamera(source.settings.camera) : null;
+    if (!camera) {
+      applyingSceneCamera.current = false;
+      return;
+    }
+    const recording = useRecordingStore.getState();
+    if (recording.status.active || recording.startingComposed) {
+      applyingSceneCamera.current = false;
+      return;
+    }
+    const mode = parseModeId(camera.modeId);
+    const live = useSettingsStore.getState().settings.webcam;
+    applyingSceneCamera.current = true;
+    void studioRef.current
+      .writeSettings("webcam", {
+        ...live,
+        deviceId: camera.deviceId,
+        width: mode?.width ?? live.width,
+        height: mode?.height ?? live.height,
+        fps: mode?.fps ?? live.fps,
+      })
+      .finally(() => {
+        if (sceneCameraGeneration.current === generation) applyingSceneCamera.current = false;
+      });
+  }, [studio.scene.id]);
+
+  useEffect(() => {
+    if (applyingSceneCamera.current) return;
+    const current = studioRef.current;
+    const first = current.scene.sources.find((item) => item.type === "webcam");
+    if (!first || !sanitizeCamera(first.settings.camera)) return;
+    const live = useSettingsStore.getState().settings.webcam;
+    const next = { deviceId: live.deviceId, modeId: modeIdOf(live.width, live.height, live.fps) };
+    const existing = sanitizeCamera(first.settings.camera);
+    if (existing?.deviceId === next.deviceId && existing.modeId === next.modeId) return;
+    current.patchSource(first.id, { settings: { ...first.settings, camera: next } });
+  }, [settings.webcam.deviceId, settings.webcam.width, settings.webcam.height, settings.webcam.fps]);
+
   function saveSourceAudio(id: string, audio: SourceAudio) {
     const current = studio.scene;
     const source = current.sources.find((item) => item.id === id);
@@ -161,6 +205,31 @@ export function useRecordingScene() {
     }
   }
 
+  function saveSourceCamera(id: string, choice: { deviceId: string; name: string; modeId: string }) {
+    const current = studio.scene;
+    const source = current.sources.find((item) => item.id === id);
+    if (!source || source.type !== "webcam") return;
+    const recording = useRecordingStore.getState();
+    if (recording.status.active || recording.startingComposed) return;
+    const live = useSettingsStore.getState().settings.webcam;
+    const mode = parseModeId(choice.modeId);
+    const camera = {
+      deviceId: choice.deviceId,
+      modeId: mode ? choice.modeId : modeIdOf(live.width, live.height, live.fps),
+    };
+    studio.patchSource(id, { settings: { ...source.settings, camera } });
+    const first = current.sources.find((item) => item.type === "webcam");
+    if (first?.id !== id) return;
+    void studio.writeSettings("webcam", {
+      ...live,
+      deviceId: choice.deviceId,
+      name: choice.name || live.name,
+      width: mode?.width ?? live.width,
+      height: mode?.height ?? live.height,
+      fps: mode?.fps ?? live.fps,
+    });
+  }
+
   return {
     scene: studio.scene,
     scenes: studio.scenes,
@@ -180,6 +249,7 @@ export function useRecordingScene() {
     cancelGesture: studio.cancelGesture,
     writeSettings: studio.writeSettings,
     saveSourceAudio,
+    saveSourceCamera,
     selectScene: studio.selectScene,
     addScene: studio.addScene,
     importScenes: studio.importScenes,

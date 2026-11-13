@@ -29,6 +29,11 @@ export function WebcamSourceSettings({
   onDevice,
   onMirror,
   onMode,
+  deviceId,
+  width,
+  height,
+  fps,
+  showMirror = true,
   studio = "recording",
 }: {
   source: RecordingSource;
@@ -40,8 +45,17 @@ export function WebcamSourceSettings({
   onDevice: (device: CameraDevice) => void;
   onMirror: (mirror: boolean) => void;
   onMode?: (mode: CameraModeChoice) => void;
+  deviceId?: string;
+  width?: number;
+  height?: number;
+  fps?: number;
+  showMirror?: boolean;
   studio?: StudioMode;
 }) {
+  const selectedDevice = deviceId ?? webcam.deviceId;
+  const selectedWidth = width ?? webcam.width;
+  const selectedHeight = height ?? webcam.height;
+  const selectedFps = fps ?? webcam.fps;
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const shape = webcamSettingsOf(source).shape;
   void camera;
@@ -59,7 +73,7 @@ export function WebcamSourceSettings({
     return () => {
       cancelled = true;
     };
-  }, [camera.availability, webcam.deviceId]);
+  }, [camera.availability, selectedDevice]);
 
   return (
     <div className="studio-section">
@@ -67,7 +81,7 @@ export function WebcamSourceSettings({
         <label htmlFor="record-webcam-device">Device</label>
         <select
           id="record-webcam-device"
-          value={webcam.deviceId}
+          value={selectedDevice}
           onChange={(event) => {
             const device = devices.find((item) => item.id === event.target.value);
             if (device) onDevice(device);
@@ -84,18 +98,22 @@ export function WebcamSourceSettings({
       {onMode ? (
         <CameraModePicker
           idPrefix="record-webcam"
-          deviceId={webcam.deviceId}
-          width={webcam.width}
-          height={webcam.height}
-          fps={webcam.fps}
-          disabled={!webcam.deviceId}
+          deviceId={selectedDevice}
+          width={selectedWidth}
+          height={selectedHeight}
+          fps={selectedFps}
+          disabled={!selectedDevice}
           onChange={onMode}
         />
       ) : null}
-      <label className="studio-check">
-        <input type="checkbox" checked={webcam.mirrorRecording} onChange={(event) => onMirror(event.target.checked)} />
-        Mirror my video
-      </label>
+      {showMirror ? (
+        <label className="studio-check">
+          <input type="checkbox" checked={webcam.mirrorRecording} onChange={(event) => onMirror(event.target.checked)} />
+          Mirror my video
+        </label>
+      ) : (
+        <p className="studio-section-copy">Mirroring follows the first webcam.</p>
+      )}
       <div className="field">
         <span className="settings-group-label">Shape</span>
         <div className="studio-chip-row">

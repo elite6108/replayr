@@ -197,6 +197,10 @@ pub struct AppSettings {
     /// Absent from `CAPTURE_KEYS`: this never restarts Instant Replay.
     #[serde(default)]
     pub auto_install_updates: bool,
+    /// Isolated browser sources. Off until the user turns them on.
+    /// Absent from `CAPTURE_KEYS`: this never restarts Instant Replay.
+    #[serde(default)]
+    pub browser_sources_enabled: bool,
     /// Optional webcam as a separate recording source. Off until the user opts in.
     #[serde(default)]
     pub webcam: WebcamSettings,
@@ -681,6 +685,7 @@ impl Default for AppSettings {
             clip_saved_notification: true,
             discord_rich_presence: true,
             auto_install_updates: false,
+            browser_sources_enabled: false,
             webcam: WebcamSettings::default(),
             recording_visuals: RecordingVisualSettings::default(),
             clip_studio: ClipStudioSettings::default(),

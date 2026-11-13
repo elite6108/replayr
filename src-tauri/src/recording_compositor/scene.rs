@@ -141,6 +141,17 @@ pub struct CaptureCompositionSource {
     pub monitor_id: Option<String>,
     #[serde(default)]
     pub picture: CompositionPicture,
+    /// Set when `capture` is `window`. Ignored for game and display.
+    #[serde(default)]
+    pub window: WindowTargetPayload,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WindowTargetPayload {
+    pub title: String,
+    pub class_name: String,
+    pub exe: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -221,6 +232,40 @@ pub struct OverlayCompositionSource {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaCompositionSource {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    pub enabled: bool,
+    pub order: i32,
+    pub transform: CompositionTransform,
+    #[serde(default)]
+    pub crop: CompositionCrop,
+    pub path: String,
+    #[serde(default, rename = "loop")]
+    pub looping: bool,
+    #[serde(default = "default_true")]
+    pub restart: bool,
+    #[serde(default = "default_extra_gain")]
+    pub gain: f32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserCompositionSource {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    pub enabled: bool,
+    pub order: i32,
+    pub transform: CompositionTransform,
+    #[serde(default)]
+    pub crop: CompositionCrop,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum CompositionSource {
     Capture(CaptureCompositionSource),
@@ -228,6 +273,11 @@ pub enum CompositionSource {
     Image(ImageCompositionSource),
     Text(TextCompositionSource),
     ReplayrOverlay(OverlayCompositionSource),
+    VideoFile(MediaCompositionSource),
+    AudioFile(MediaCompositionSource),
+    Browser(BrowserCompositionSource),
+    /// A capture card. It records on the camera path and never replaces the primary webcam.
+    CaptureCard(WebcamCompositionSource),
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Default)]
@@ -307,6 +357,13 @@ pub struct ValidatedComposition {
     pub fps: u32,
     pub capture: ValidatedCapture,
     pub webcam: Option<ValidatedWebcam>,
+    /// Displays and windows drawn over the base capture. Empty for a one-capture scene.
+    pub extra_captures: Vec<ValidatedCapture>,
+    /// Webcams after the first, plus capture cards. The first webcam stays on the existing camera path.
+    pub extra_webcams: Vec<ValidatedWebcam>,
+    pub videos: Vec<ValidatedMedia>,
+    pub audio_files: Vec<ValidatedMedia>,
+    pub browsers: Vec<ValidatedBrowser>,
     pub layers: Vec<ValidatedLayer>,
     pub filter: ComposedFilterId,
     pub hud: Option<ValidatedHud>,
@@ -324,6 +381,13 @@ pub struct ValidatedCapture {
     pub opacity: f32,
     pub monitor_id: Option<String>,
     pub picture: CompositionPicture,
+    pub window: crate::capture_windows::WindowTarget,
+}
+
+impl ValidatedCapture {
+    pub fn window_target(&self) -> Option<&crate::capture_windows::WindowTarget> {
+        matches!(self.kind, CaptureKind::Window).then_some(&self.window)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -341,6 +405,30 @@ pub struct ValidatedWebcam {
     pub mirror: bool,
     pub shape: WebcamShape,
     pub picture: CompositionPicture,
+}
+
+#[derive(Debug, Clone)]
+pub struct ValidatedMedia {
+    pub id: String,
+    pub name: String,
+    pub order: i32,
+    pub transform: NormRect,
+    pub crop: NormRect,
+    pub opacity: f32,
+    pub path: String,
+    pub looping: bool,
+    pub gain: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ValidatedBrowser {
+    pub id: String,
+    pub name: String,
+    pub order: i32,
+    pub transform: NormRect,
+    pub crop: NormRect,
+    pub opacity: f32,
+    pub url: String,
 }
 
 #[derive(Debug, Clone)]
@@ -380,6 +468,10 @@ pub struct ValidatedHud {
 pub enum ValidatedLayer {
     Capture,
     Webcam,
+    ExtraCapture(usize),
+    ExtraWebcam(usize),
+    Video(usize),
+    Browser(usize),
     Image(ValidatedImage),
     Text(ValidatedText),
     OverlayChrome { filter: ComposedFilterId, order: i32 },
@@ -390,6 +482,10 @@ impl ValidatedLayer {
         match self {
             Self::Capture => spec.capture.order,
             Self::Webcam => spec.webcam.as_ref().map(|cam| cam.order).unwrap_or(0),
+            Self::ExtraCapture(index) => spec.extra_captures.get(*index).map(|item| item.order).unwrap_or(0),
+            Self::ExtraWebcam(index) => spec.extra_webcams.get(*index).map(|item| item.order).unwrap_or(0),
+            Self::Video(index) => spec.videos.get(*index).map(|item| item.order).unwrap_or(0),
+            Self::Browser(index) => spec.browsers.get(*index).map(|item| item.order).unwrap_or(0),
             Self::Image(image) => image.order,
             Self::Text(text) => text.order,
             Self::OverlayChrome { order, .. } => *order,
@@ -413,8 +509,12 @@ impl RecordingComposition {
         };
         let fps = self.canvas.fps.clamp(24, 60);
         let audio = self.audio;
-        let mut capture = None;
-        let mut webcam = None;
+        let mut captures = Vec::new();
+        let mut webcams = Vec::new();
+        let mut cards = Vec::new();
+        let mut videos = Vec::new();
+        let mut audio_files = Vec::new();
+        let mut browsers = Vec::new();
         let mut images = Vec::new();
         let mut texts = Vec::new();
         let mut overlay = None;
@@ -427,12 +527,19 @@ impl RecordingComposition {
                     if !src.enabled {
                         continue;
                     }
-                    if capture.is_some() {
-                        return Err("Composed recording supports one capture source.".into());
+                    if captures.len() >= 9 {
+                        return Err("A scene can record one game, four displays, and four windows.".into());
                     }
                     let id = sanitize_id(&src.id)?;
                     reject_duplicate(&mut ids, &id)?;
-                    let validated = ValidatedCapture {
+                    let window = crate::capture_windows::sanitize_target(&src.window.title, &src.window.class_name, &src.window.exe);
+                    if matches!(src.capture, CaptureKind::Window) && window.is_empty() {
+                        return Err("Choose a window to record.".into());
+                    }
+                    if matches!(src.capture, CaptureKind::Game) && !captures.is_empty() {
+                        return Err("A scene records one game capture.".into());
+                    }
+                    captures.push(ValidatedCapture {
                         id,
                         name: sanitize_name(&src.name, "Game Capture"),
                         kind: src.capture,
@@ -442,40 +549,58 @@ impl RecordingComposition {
                         opacity: src.transform.opacity.clamp(0.0, 1.0),
                         monitor_id: crate::displays::sanitize_monitor_id(src.monitor_id.as_deref()),
                         picture: src.picture.clamped(),
-                    };
-                    layers.push(ValidatedLayer::Capture);
-                    capture = Some(validated);
+                        window,
+                    });
                 }
                 CompositionSource::Webcam(src) => {
+                    if let Some(camera) = validated_camera(src, true, &mut ids)? {
+                        if webcams.iter().any(|item: &ValidatedWebcam| item.device_id.eq_ignore_ascii_case(&camera.device_id)) {
+                            continue;
+                        }
+                        if webcams.len() >= 4 {
+                            return Err("A scene can record up to four webcams.".into());
+                        }
+                        webcams.push(camera);
+                    }
+                }
+                CompositionSource::CaptureCard(src) => {
+                    if let Some(camera) = validated_camera(src, false, &mut ids)? {
+                        let used = webcams
+                            .iter()
+                            .chain(cards.iter())
+                            .any(|item| item.device_id.eq_ignore_ascii_case(&camera.device_id));
+                        if used || cards.len() >= 4 {
+                            continue;
+                        }
+                        cards.push(camera);
+                    }
+                }
+                CompositionSource::VideoFile(src) => {
+                    push_media(src, true, &mut videos, &mut ids)?;
+                }
+                CompositionSource::AudioFile(src) => {
+                    push_media(src, false, &mut audio_files, &mut ids)?;
+                }
+                CompositionSource::Browser(src) => {
                     if !src.enabled {
                         continue;
                     }
-                    if webcam.is_some() {
-                        return Err("Composed recording supports one webcam.".into());
+                    if browsers.len() >= 2 {
+                        return Err("A scene can record up to two browser sources.".into());
                     }
-                    let device_id = sanitize_device(&src.device_id)?;
-                    if device_id.is_empty() {
-                        return Err("Choose a camera before recording with a webcam overlay.".into());
-                    }
+                    let name = sanitize_name(&src.name, "Browser");
+                    let url = crate::browser_policy::sanitize_page_url(&src.url)?;
                     let id = sanitize_id(&src.id)?;
                     reject_duplicate(&mut ids, &id)?;
-                    let validated = ValidatedWebcam {
+                    browsers.push(ValidatedBrowser {
                         id,
-                        name: sanitize_name(&src.name, "Webcam"),
+                        name,
                         order: src.order,
                         transform: validate_transform(&src.transform)?,
                         crop: validate_crop(&src.crop)?,
                         opacity: src.transform.opacity.clamp(0.0, 1.0),
-                        device_id,
-                        width: src.width.clamp(160, 1920),
-                        height: src.height.clamp(120, 1080),
-                        fps: src.fps.clamp(15, 60),
-                        mirror: src.mirror,
-                        shape: src.shape,
-                        picture: src.picture.clamped(),
-                    };
-                    layers.push(ValidatedLayer::Webcam);
-                    webcam = Some(validated);
+                        url,
+                    });
                 }
                 CompositionSource::Image(src) => {
                     if !src.enabled {
@@ -533,11 +658,42 @@ impl RecordingComposition {
             }
         }
         let _ = images;
-        let capture = capture.ok_or_else(|| {
-            "Add a Game or Desktop capture to record.".to_string()
-        })?;
-        if matches!(capture.kind, CaptureKind::Window) {
-            return Err("Window capture cannot be recorded yet. Use Game or Desktop.".into());
+        if captures.is_empty() {
+            return Err("Add a Game, Desktop, or Window capture to record.".into());
+        }
+        let mut capture_iter = captures.into_iter();
+        let capture = capture_iter.next().expect("capture");
+        let extra_captures: Vec<ValidatedCapture> = capture_iter.collect();
+        let mut webcam_iter = webcams.into_iter();
+        let webcam = webcam_iter.next();
+        let mut extra_webcams: Vec<ValidatedWebcam> = webcam_iter.collect();
+        for card in cards {
+            let used = webcam
+                .as_ref()
+                .is_some_and(|camera| camera.device_id.eq_ignore_ascii_case(&card.device_id))
+                || extra_webcams
+                    .iter()
+                    .any(|camera| camera.device_id.eq_ignore_ascii_case(&card.device_id));
+            if used || extra_webcams.len() >= 4 {
+                continue;
+            }
+            extra_webcams.push(card);
+        }
+        layers.push(ValidatedLayer::Capture);
+        if webcam.is_some() {
+            layers.push(ValidatedLayer::Webcam);
+        }
+        for index in 0..extra_captures.len() {
+            layers.push(ValidatedLayer::ExtraCapture(index));
+        }
+        for index in 0..extra_webcams.len() {
+            layers.push(ValidatedLayer::ExtraWebcam(index));
+        }
+        for index in 0..videos.len() {
+            layers.push(ValidatedLayer::Video(index));
+        }
+        for index in 0..browsers.len() {
+            layers.push(ValidatedLayer::Browser(index));
         }
         let filter = overlay
             .as_ref()
@@ -568,13 +724,23 @@ impl RecordingComposition {
                 });
             }
         }
-        layers.sort_by_key(|layer| match layer {
-            ValidatedLayer::Capture => capture.order,
-            ValidatedLayer::Webcam => webcam.as_ref().map(|cam| cam.order).unwrap_or(0),
-            ValidatedLayer::Image(image) => image.order,
-            ValidatedLayer::Text(text) => text.order,
-            ValidatedLayer::OverlayChrome { order, .. } => *order,
-        });
+        layers.sort_by_key(|layer| layer.order(&ValidatedComposition {
+            canvas_w,
+            canvas_h,
+            native_canvas,
+            fps,
+            capture: capture.clone(),
+            webcam: webcam.clone(),
+            extra_captures: extra_captures.clone(),
+            extra_webcams: extra_webcams.clone(),
+            videos: videos.clone(),
+            audio_files: audio_files.clone(),
+            browsers: browsers.clone(),
+            layers: Vec::new(),
+            filter,
+            hud: hud.clone(),
+            audio: audio.clone(),
+        }));
         Ok(ValidatedComposition {
             canvas_w,
             canvas_h,
@@ -582,12 +748,98 @@ impl RecordingComposition {
             fps,
             capture,
             webcam,
+            extra_captures,
+            extra_webcams,
+            videos,
+            audio_files,
+            browsers,
             layers,
             filter,
             hud,
             audio,
         })
     }
+}
+
+fn validated_camera(
+    src: WebcamCompositionSource,
+    required: bool,
+    ids: &mut Vec<String>,
+) -> Result<Option<ValidatedWebcam>, String> {
+    if !src.enabled {
+        return Ok(None);
+    }
+    let device_id = sanitize_device(&src.device_id)?;
+    if device_id.is_empty() {
+        if required {
+            return Err("Choose a camera before recording with a webcam overlay.".into());
+        }
+        return Ok(None);
+    }
+    let id = sanitize_id(&src.id)?;
+    reject_duplicate(ids, &id)?;
+    Ok(Some(ValidatedWebcam {
+        id,
+        name: sanitize_name(&src.name, if required { "Webcam" } else { "Capture card" }),
+        order: src.order,
+        transform: validate_transform(&src.transform)?,
+        crop: validate_crop(&src.crop)?,
+        opacity: src.transform.opacity.clamp(0.0, 1.0),
+        device_id,
+        width: src.width.clamp(160, 1920),
+        height: src.height.clamp(120, 1080),
+        fps: src.fps.clamp(15, 60),
+        mirror: src.mirror,
+        shape: src.shape,
+        picture: src.picture.clamped(),
+    }))
+}
+
+fn push_media(
+    src: MediaCompositionSource,
+    video: bool,
+    into: &mut Vec<ValidatedMedia>,
+    ids: &mut Vec<String>,
+) -> Result<(), String> {
+    if !src.enabled {
+        return Ok(());
+    }
+    if into.len() >= 4 {
+        return Err(if video {
+            "A scene can record up to four video files.".into()
+        } else {
+            "A scene can record up to four audio files.".into()
+        });
+    }
+    let _ = src.restart;
+    let name = sanitize_name(&src.name, if video { "Video" } else { "Audio" });
+    let kind = crate::media_policy::media_path_shape(&src.path)?;
+    let expected = if video {
+        crate::media_policy::MediaKind::Video
+    } else {
+        crate::media_policy::MediaKind::Audio
+    };
+    if kind != expected {
+        return Err(if video {
+            "Use an MP4 or MOV video.".into()
+        } else {
+            "Use an MP3, M4A, or WAV file.".into()
+        });
+    }
+    let id = sanitize_id(&src.id)?;
+    reject_duplicate(ids, &id)?;
+    into.push(ValidatedMedia {
+        id,
+        name,
+        order: src.order,
+        transform: validate_transform(&src.transform)?,
+        crop: validate_crop(&src.crop)?,
+        opacity: src.transform.opacity.clamp(0.0, 1.0),
+        path: src.path.trim().to_string(),
+        looping: src.looping,
+        gain: src.gain.clamp(0.0, 2.0),
+    });
+    Ok(())
 }
 
 fn reject_duplicate(ids: &mut Vec<String>, id: &str) -> Result<(), String> {
@@ -782,9 +1034,38 @@ mod tests {
     }
 
     #[test]
-    fn rejects_window_capture() {
+    fn rejects_a_window_capture_with_no_target() {
         let json = r#"{"canvas":{"width":1920,"height":1080,"fps":60},"sources":[{"kind":"capture","id":"win-1","name":"Window","capture":"window","enabled":true,"order":0,"transform":{"x":0,"y":0,"w":1,"h":1,"opacity":1}}]}"#;
-        assert!(parse(json).unwrap_err().contains("Window capture"));
+        assert!(parse(json).unwrap_err().contains("Choose a window"));
+    }
+
+    #[test]
+    fn records_a_named_window_and_keeps_extra_displays_as_layers() {
+        let json = r#"{"canvas":{"width":1920,"height":1080,"fps":60},"sources":[
+            {"kind":"capture","id":"game-1","name":"Game","capture":"game","enabled":true,"order":0,"transform":{"x":0,"y":0,"w":1,"h":1,"opacity":1}},
+            {"kind":"capture","id":"disp-2","name":"Side","capture":"display","enabled":true,"order":2,"transform":{"x":0.6,"y":0.1,"w":0.3,"h":0.3,"opacity":1},"monitorId":"\\\\.\\DISPLAY2"},
+            {"kind":"capture","id":"win-1","name":"Notes","capture":"window","enabled":true,"order":4,"transform":{"x":0.1,"y":0.1,"w":0.3,"h":0.3,"opacity":1},"window":{"title":"Notes","className":"Notepad","exe":"notepad.exe"}},
+            {"kind":"webcam","id":"cam-1","name":"Cam","enabled":true,"order":3,"transform":{"x":0.7,"y":0.7,"w":0.2,"h":0.2,"opacity":1},"deviceId":"cam-a","width":1280,"height":720,"fps":30,"mirror":false},
+            {"kind":"webcam","id":"cam-2","name":"Cam 2","enabled":true,"order":5,"transform":{"x":0.1,"y":0.7,"w":0.2,"h":0.2,"opacity":1},"deviceId":"cam-b","width":640,"height":480,"fps":30,"mirror":true}
+        ]}"#;
+        let spec = parse(json).unwrap();
+        assert_eq!(spec.capture.kind, CaptureKind::Game);
+        assert_eq!(spec.extra_captures.len(), 2);
+        assert_eq!(spec.extra_captures[1].window.title, "Notes");
+        assert_eq!(spec.extra_webcams.len(), 1);
+        assert_eq!(spec.extra_webcams[0].device_id, "cam-b");
+    }
+
+    #[test]
+    fn skips_a_second_webcam_on_the_same_device() {
+        let json = r#"{"canvas":{"width":1920,"height":1080,"fps":60},"sources":[
+            {"kind":"capture","id":"game-1","name":"Game","capture":"game","enabled":true,"order":0,"transform":{"x":0,"y":0,"w":1,"h":1,"opacity":1}},
+            {"kind":"webcam","id":"cam-1","name":"Cam","enabled":true,"order":1,"transform":{"x":0.7,"y":0.7,"w":0.2,"h":0.2,"opacity":1},"deviceId":"Cam-A","width":1280,"height":720,"fps":30,"mirror":false},
+            {"kind":"webcam","id":"cam-2","name":"Cam 2","enabled":true,"order":2,"transform":{"x":0.1,"y":0.7,"w":0.2,"h":0.2,"opacity":1},"deviceId":"cam-a","width":640,"height":480,"fps":30,"mirror":false}
+        ]}"#;
+        let spec = parse(json).unwrap();
+        assert!(spec.webcam.is_some());
+        assert!(spec.extra_webcams.is_empty());
     }
 
     #[test]
@@ -841,6 +1122,58 @@ mod tests {
         };
         assert_eq!(text.text, "こんにちは");
         assert_eq!(text.color, [255, 255, 0, 255]);
+    }
+
+    #[test]
+    fn a_capture_card_stays_off_the_primary_webcam() {
+        let json = r#"{"canvas":{"width":1920,"height":1080,"fps":60},"sources":[
+            {"kind":"capture","id":"game-1","name":"Game","capture":"game","enabled":true,"order":0,"transform":{"x":0,"y":0,"w":1,"h":1,"opacity":1}},
+            {"kind":"webcam","id":"cam-1","name":"Cam","enabled":true,"order":1,"transform":{"x":0.7,"y":0.7,"w":0.2,"h":0.2,"opacity":1},"deviceId":"cam-a","width":1280,"height":720,"fps":30,"mirror":false},
+            {"kind":"captureCard","id":"card-1","name":"Card","enabled":true,"order":2,"transform":{"x":0.1,"y":0.1,"w":0.3,"h":0.3,"opacity":1},"deviceId":"card-a","width":1920,"height":1080,"fps":60,"mirror":false},
+            {"kind":"captureCard","id":"card-2","name":"Same","enabled":true,"order":3,"transform":{"x":0.1,"y":0.1,"w":0.3,"h":0.3,"opacity":1},"deviceId":"cam-a","width":1280,"height":720,"fps":30,"mirror":false}
+        ]}"#;
+        let spec = parse(json).unwrap();
+        assert_eq!(spec.webcam.as_ref().unwrap().device_id, "cam-a");
+        assert_eq!(spec.extra_webcams.len(), 1);
+        assert_eq!(spec.extra_webcams[0].device_id, "card-a");
+    }
+
+    #[test]
+    fn a_missing_capture_card_does_not_block_the_scene() {
+        let json = r#"{"canvas":{"width":1920,"height":1080,"fps":60},"sources":[
+            {"kind":"capture","id":"game-1","name":"Game","capture":"game","enabled":true,"order":0,"transform":{"x":0,"y":0,"w":1,"h":1,"opacity":1}},
+            {"kind":"captureCard","id":"card-1","name":"Card","enabled":true,"order":2,"transform":{"x":0.1,"y":0.1,"w":0.3,"h":0.3,"opacity":1},"deviceId":"","width":1920,"height":1080,"fps":60,"mirror":false}
+        ]}"#;
+        let spec = parse(json).unwrap();
+        assert!(spec.webcam.is_none());
+        assert!(spec.extra_webcams.is_empty());
+    }
+
+    #[test]
+    fn media_and_browser_sources_are_checked_before_they_open() {
+        let ok = r#"{"canvas":{"width":1920,"height":1080,"fps":60},"sources":[
+            {"kind":"capture","id":"game-1","name":"Game","capture":"game","enabled":true,"order":0,"transform":{"x":0,"y":0,"w":1,"h":1,"opacity":1}},
+            {"kind":"videoFile","id":"vid-1","name":"Intro","enabled":true,"order":2,"transform":{"x":0.1,"y":0.1,"w":0.4,"h":0.4,"opacity":1},"path":"C:\\clips\\intro.mp4","loop":true,"restart":true,"gain":1},
+            {"kind":"audioFile","id":"aud-1","name":"Bed","enabled":true,"order":3,"transform":{"x":0,"y":0,"w":1,"h":1,"opacity":1},"path":"D:\\music\\bed.mp3","loop":false,"gain":0.5},
+            {"kind":"browser","id":"web-1","name":"Page","enabled":true,"order":4,"transform":{"x":0.6,"y":0.1,"w":0.3,"h":0.3,"opacity":1},"url":"HTTPS://Example.com/watch"}
+        ]}"#;
+        let spec = parse(ok).unwrap();
+        assert_eq!(spec.videos.len(), 1);
+        assert!(spec.videos[0].looping);
+        assert_eq!(spec.audio_files.len(), 1);
+        assert_eq!(spec.browsers[0].url, "https://example.com/watch");
+
+        let bad_path = r#"{"canvas":{"width":1920,"height":1080,"fps":60},"sources":[
+            {"kind":"capture","id":"game-1","name":"Game","capture":"game","enabled":true,"order":0,"transform":{"x":0,"y":0,"w":1,"h":1,"opacity":1}},
+            {"kind":"videoFile","id":"vid-1","name":"Run","enabled":true,"order":2,"transform":{"x":0.1,"y":0.1,"w":0.4,"h":0.4,"opacity":1},"path":"C:\\clips\\run.exe"}
+        ]}"#;
+        assert!(parse(bad_path).is_err());
+
+        let script = r#"{"canvas":{"width":1920,"height":1080,"fps":60},"sources":[
+            {"kind":"capture","id":"game-1","name":"Game","capture":"game","enabled":true,"order":0,"transform":{"x":0,"y":0,"w":1,"h":1,"opacity":1}},
+            {"kind":"browser","id":"web-1","name":"Page","enabled":true,"order":2,"transform":{"x":0.1,"y":0.1,"w":0.4,"h":0.4,"opacity":1},"url":"javascript:alert(1)"}
+        ]}"#;
+        assert!(parse(script).is_err());
     }
 
     #[test]

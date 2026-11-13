@@ -52,8 +52,13 @@ impl StandalonePreview {
         mode: PreviewMode,
         pid: Option<u32>,
         monitor_id: Option<&str>,
+        window: &crate::capture_windows::WindowTarget,
     ) -> Result<Self, String> {
         let control = match mode {
+            PreviewMode::Window => {
+                let found = crate::capture_windows::resolve_capture_window(window)?;
+                begin(found, hub)?
+            }
             PreviewMode::Game => {
                 let pid = pid
                     .filter(|value| *value != 0)

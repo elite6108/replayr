@@ -562,10 +562,27 @@ export async function waitCameraPreviewFrame(
 let capturePreviewClients = 0;
 let capturePreviewStopTimer: ReturnType<typeof setTimeout> | null = null;
 
-function previewArgs(options: { mode: "game" | "desktop"; pid?: number | null; monitorId?: string | null }) {
-  const args: { mode: "game" | "desktop"; pid?: number; monitorId?: string } = { mode: options.mode };
+function previewArgs(options: {
+  mode: "game" | "desktop" | "window";
+  pid?: number | null;
+  monitorId?: string | null;
+  window?: { title: string; className: string; exe: string };
+}) {
+  const args: {
+    mode: "game" | "desktop" | "window";
+    pid?: number;
+    monitorId?: string;
+    windowTitle?: string;
+    windowClass?: string;
+    windowExe?: string;
+  } = { mode: options.mode };
   if (options.pid && options.pid > 0) args.pid = options.pid;
   if (options.monitorId) args.monitorId = options.monitorId;
+  if (options.window) {
+    args.windowTitle = options.window.title;
+    args.windowClass = options.window.className;
+    args.windowExe = options.window.exe;
+  }
   return args;
 }
 
@@ -576,9 +593,10 @@ function cancelPreviewStop() {
 }
 
 export async function startCapturePreview(options: {
-  mode: "game" | "desktop";
+  mode: "game" | "desktop" | "window";
   pid?: number | null;
   monitorId?: string | null;
+  window?: { title: string; className: string; exe: string };
 }): Promise<void> {
   cancelPreviewStop();
   capturePreviewClients += 1;
@@ -591,9 +609,10 @@ export async function startCapturePreview(options: {
 }
 
 export async function updateCapturePreview(options: {
-  mode: "game" | "desktop";
+  mode: "game" | "desktop" | "window";
   pid?: number | null;
   monitorId?: string | null;
+  window?: { title: string; className: string; exe: string };
 }): Promise<void> {
   if (capturePreviewClients <= 0) return;
   await invoke("start_capture_preview", previewArgs(options));
@@ -613,6 +632,66 @@ export async function stopCapturePreview(): Promise<void> {
 
 export async function listDisplays(): Promise<import("../recording/display/displayTypes").DisplayInfo[]> {
   return invoke("list_displays");
+}
+
+export type ListedWindow = { title: string; className: string; exe: string };
+
+export async function listCaptureWindows(): Promise<ListedWindow[]> {
+  const listed = await invoke<ListedWindow[]>("list_capture_windows");
+  return Array.isArray(listed) ? listed : [];
+}
+
+export async function startLayerPreview(options: {
+  sourceId: string;
+  kind: "display" | "window";
+  monitorId?: string | null;
+  window?: { title: string; className: string; exe: string };
+}): Promise<void> {
+  await invoke("start_layer_preview", {
+    sourceId: options.sourceId,
+    kind: options.kind,
+    monitorId: options.monitorId ?? null,
+    windowTitle: options.window?.title ?? "",
+    windowClass: options.window?.className ?? "",
+    windowExe: options.window?.exe ?? "",
+  });
+}
+
+export async function stopLayerPreview(sourceId: string): Promise<void> {
+  await invoke("stop_layer_preview", { sourceId });
+}
+
+export async function waitLayerPreviewFrame(
+  sourceId: string,
+  after: number,
+  timeoutMs = 250,
+): Promise<{ header: { width: number; height: number; frameId: number; mimeType: string }; bytes: Uint8Array<ArrayBuffer> | null }> {
+  const body = await invoke<ArrayBuffer | number[]>("wait_layer_preview_frame", { sourceId, after, timeoutMs });
+  return parsePreviewBody(body);
+}
+
+export async function startExtraCameraPreview(options: {
+  sourceId: string;
+  deviceId: string;
+  width: number;
+  height: number;
+  fps: number;
+  mirror: boolean;
+}): Promise<void> {
+  await invoke("start_extra_camera_preview", options);
+}
+
+export async function stopExtraCameraPreview(sourceId: string): Promise<void> {
+  await invoke("stop_extra_camera_preview", { sourceId });
+}
+
+export async function waitExtraCameraPreviewFrame(
+  sourceId: string,
+  after: number,
+  timeoutMs = 250,
+): Promise<{ header: import("../types/camera").CameraPreviewHeader; bytes: Uint8Array<ArrayBuffer> | null }> {
+  const body = await invoke<ArrayBuffer | number[]>("wait_extra_camera_preview_frame", { sourceId, after, timeoutMs });
+  return parsePreviewBody(body);
 }
 
 /** One flag per path: true when the file is a recordable image the preview may now load. */

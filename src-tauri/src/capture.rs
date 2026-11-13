@@ -1917,11 +1917,18 @@ pub fn sync_replay_after_settings(app: &AppHandle, state: &RecordingState) -> Ap
     windows_impl::sync_replay(app, state, snapshot.pid, snapshot.name, snapshot.slug)
 }
 
-pub fn retain_preview(state: &RecordingState, mode: &str, pid: Option<u32>, monitor_id: Option<String>) {
+pub fn retain_preview(
+    state: &RecordingState,
+    mode: &str,
+    pid: Option<u32>,
+    monitor_id: Option<String>,
+    window: crate::capture_windows::WindowTarget,
+) {
     state.shared.preview.retain(
         crate::preview::PreviewMode::parse(mode),
         pid.filter(|value| *value != 0),
         monitor_id,
+        window,
     );
 }
 

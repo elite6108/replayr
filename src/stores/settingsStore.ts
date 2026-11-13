@@ -108,6 +108,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     clipSavedNotification: settings.clipSavedNotification ?? DEFAULT_SETTINGS.clipSavedNotification,
     discordRichPresence: settings.discordRichPresence ?? DEFAULT_SETTINGS.discordRichPresence,
     autoInstallUpdates: settings.autoInstallUpdates === true,
+    browserSourcesEnabled: settings.browserSourcesEnabled === true,
     webcam: {
       ...DEFAULT_SETTINGS.webcam,
       ...(settings.webcam ?? {}),

@@ -212,7 +212,7 @@ fn start_windows(
     webcam_layout: Option<crate::overlay::OverlayLayout>,
 ) -> AppResult<RecordingStatus> {
     let extra_microphones = payload.extra_microphones.clone();
-    let spec = payload.validate().map_err(AppError::Message)?;
+    let mut spec = payload.validate().map_err(AppError::Message)?;
     if rec.wgc_session_active() {
         return Err(AppError::Message(
             "Turn off Instant Replay to record. Recording and Instant Replay cannot run at the same time.".into(),
@@ -248,6 +248,10 @@ fn start_windows(
     }
 
     let settings = load_settings(app)?;
+    if !settings.browser_sources_enabled {
+        spec.browsers.clear();
+        spec.layers.retain(|layer| !matches!(layer, scene::ValidatedLayer::Browser(_)));
+    }
     let save = save_dir(app, &settings)?;
     crate::disk::ensure_free_space(&save, settings.min_free_disk_bytes)?;
     rec.shared.preview.suspend_standalone();
@@ -271,8 +275,9 @@ fn start_windows(
         && (settings.discord_audio_enabled || settings.extra_apps.iter().any(|app| app.enabled));
     let audio = (*app.state::<crate::audio::AudioRuntime>()).clone();
     audio.set_extra_mics(&extra_mic_specs(&extra_microphones), &settings);
+    let file_audio = !spec.audio_files.is_empty() || !spec.videos.is_empty();
     let audio_plan = ComposedAudioPlan {
-        include: spec.audio.include() || per_app_audio || audio.extra_mics_routed(),
+        include: spec.audio.include() || per_app_audio || audio.extra_mics_routed() || file_audio,
         mic: spec.audio.microphone.routed(),
         game: spec.audio.game_audio.routed(),
         desktop: spec.audio.desktop_audio.routed(),
@@ -604,16 +609,64 @@ fn run_composed_session(
     let init_started = Instant::now();
     let mut sources = ComposedSourceGuard {
         capture: Some(
-            ComposedCapture::start(spec.capture.kind, pid, spec.capture.monitor_id.as_deref())
+            ComposedCapture::start(
+                spec.capture.kind,
+                pid,
+                spec.capture.monitor_id.as_deref(),
+                spec.capture.window_target(),
+            )
                 .map_err(|err| fail_ready(err))?,
         ),
         webcam: None,
+        extra_captures: Vec::new(),
+        extra_webcams: Vec::new(),
+        videos: Vec::new(),
+        audio_files: Vec::new(),
+        browsers: Vec::new(),
     };
+    let sink = audio.sink();
+    for video in &spec.videos {
+        let started = sources::media::MediaPlayer::open(video, true, sink.clone()).ok();
+        if started.is_none() {
+            tracing::warn!(id = %video.id, "video file did not start");
+        }
+        sources.videos.push(started);
+    }
+    for file in &spec.audio_files {
+        let started = sources::media::MediaPlayer::open(file, false, sink.clone()).ok();
+        if started.is_none() {
+            tracing::warn!(id = %file.id, "audio file did not start");
+        }
+        sources.audio_files.push(started);
+    }
+    for page in &spec.browsers {
+        let started = sources::browser::BrowserView::open(&page.url, &page.id).ok();
+        if started.is_none() {
+            tracing::warn!(id = %page.id, "browser source did not start");
+        }
+        sources.browsers.push(started);
+    }
     if let Some(cam) = spec.webcam.as_ref() {
         match ComposedWebcam::start(cam) {
             Ok(session) => sources.webcam = Some(session),
             Err(err) => return Err(fail_ready(err)),
         }
+    }
+    let primary_camera = spec.webcam.as_ref().map(|cam| cam.device_id.clone());
+    for extra in &spec.extra_captures {
+        let started = ComposedCapture::start(extra.kind, pid, extra.monitor_id.as_deref(), extra.window_target()).ok();
+        if started.is_none() {
+            tracing::warn!(id = %extra.id, "extra capture did not start");
+        }
+        sources.extra_captures.push(started);
+    }
+    for extra in &spec.extra_webcams {
+        let same = primary_camera.as_deref().is_some_and(|id| id.eq_ignore_ascii_case(&extra.device_id));
+        let started = if same { None } else { ComposedWebcam::start(extra).ok() };
+        if started.is_none() {
+            tracing::warn!(id = %extra.id, "extra webcam did not start");
+        }
+        sources.extra_webcams.push(started);
     }
 
     let first = match wait_first_frame(sources.capture.as_ref().expect("capture"), &stop) {
@@ -884,7 +937,34 @@ fn run_composed_session(
         };
         stats.frames_received = stats.frames_received.saturating_add(1);
         let cam_frame = sources.webcam.as_ref().and_then(|cam| cam.latest());
+        let extra_capture_frames: Vec<Option<crate::still::StillFrame>> = sources
+            .extra_captures
+            .iter()
+            .map(|capture| capture.as_ref().and_then(|item| item.latest()))
+            .collect();
+        let extra_webcam_frames: Vec<Option<crate::still::StillFrame>> = sources
+            .extra_webcams
+            .iter()
+            .map(|camera| camera.as_ref().and_then(|item| item.latest()))
+            .collect();
+        for player in sources.videos.iter_mut().flatten() {
+            player.pump();
+        }
+        for player in sources.audio_files.iter_mut().flatten() {
+            player.pump();
+        }
+        let video_frames: Vec<Option<crate::still::StillFrame>> = sources
+            .videos
+            .iter()
+            .map(|player| player.as_ref().and_then(|item| item.latest()))
+            .collect();
+        let browser_frames: Vec<Option<crate::still::StillFrame>> = sources
+            .browsers
+            .iter()
+            .map(|page| page.as_ref().and_then(|item| item.latest()))
+            .collect();
         let elapsed_ms = started.elapsed().as_millis() as u64;
+        compositor.advance_gifs(elapsed_ms);
         if let Some(hud) = spec.hud.as_ref() {
             if hud.timestamp && elapsed_ms.saturating_sub(last_hud_ms) >= 1000 {
                 if let Err(err) = compositor.refresh_hud(hud, elapsed_ms) {
@@ -910,6 +990,10 @@ fn run_composed_session(
                 ComposeInput {
                     capture: &capture_frame,
                     webcam: cam_frame.as_ref(),
+                    extra_captures: &extra_capture_frames,
+                    extra_webcams: &extra_webcam_frames,
+                    videos: &video_frames,
+                    browsers: &browser_frames,
                 },
             )
         } else {
@@ -926,6 +1010,10 @@ fn run_composed_session(
                 ComposeInput {
                     capture: &capture_frame,
                     webcam: cam_frame.as_ref(),
+                    extra_captures: &extra_capture_frames,
+                    extra_webcams: &extra_webcam_frames,
+                    videos: &video_frames,
+                    browsers: &browser_frames,
                 },
                 &dest,
             ) {
@@ -1081,6 +1169,11 @@ fn ensure_media_foundation() -> Result<(), String> {
 struct ComposedSourceGuard {
     capture: Option<sources::capture::ComposedCapture>,
     webcam: Option<sources::webcam::ComposedWebcam>,
+    extra_captures: Vec<Option<sources::capture::ComposedCapture>>,
+    extra_webcams: Vec<Option<sources::webcam::ComposedWebcam>>,
+    videos: Vec<Option<sources::media::MediaPlayer>>,
+    audio_files: Vec<Option<sources::media::MediaPlayer>>,
+    browsers: Vec<Option<sources::browser::BrowserView>>,
 }
 
 #[cfg(windows)]
@@ -1090,6 +1183,12 @@ impl Drop for ComposedSourceGuard {
             capture.stop();
         }
         if let Some(webcam) = self.webcam.take() {
+            webcam.stop();
+        }
+        for mut capture in self.extra_captures.drain(..).flatten() {
+            capture.stop();
+        }
+        for webcam in self.extra_webcams.drain(..).flatten() {
             webcam.stop();
         }
     }

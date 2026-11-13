@@ -13,6 +13,7 @@ export function PreviewCaptureLayer({
   fallback,
   hideBadge = false,
   monitorId = null,
+  windowTarget = null,
   crop = null,
   filter,
   onStatus,
@@ -23,6 +24,7 @@ export function PreviewCaptureLayer({
   fallback: PreviewBackgroundMode;
   hideBadge?: boolean;
   monitorId?: string | null;
+  windowTarget?: { title: string; className: string; exe: string } | null;
   crop?: SourceCrop | null;
   /** CSS filter for the source's picture adjustments. */
   filter?: string;
@@ -37,8 +39,8 @@ export function PreviewCaptureLayer({
   const [frame, setFrame] = useState<CapturePreviewHeader | null>(null);
   const [live, setLive] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const target = useRef({ mode, pid, monitorId });
-  target.current = { mode, pid, monitorId };
+  const target = useRef({ mode, pid, monitorId, windowTarget });
+  target.current = { mode, pid, monitorId, windowTarget };
 
   useEffect(() => {
     if (!enabled) {
@@ -51,6 +53,7 @@ export function PreviewCaptureLayer({
       mode: target.current.mode,
       pid: target.current.pid ?? undefined,
       monitorId: target.current.monitorId,
+      window: target.current.windowTarget ?? undefined,
     }).catch((caught: unknown) => {
       setFrame({
         width: 0,
@@ -71,11 +74,11 @@ export function PreviewCaptureLayer({
   const lastTargetKey = useRef("");
   useEffect(() => {
     if (!enabled) return;
-    void updateCapturePreview({ mode, pid: pid ?? undefined, monitorId }).catch(() => undefined);
-    const key = `${mode}\0${pid ?? 0}\0${monitorId ?? ""}`;
+    void updateCapturePreview({ mode, pid: pid ?? undefined, monitorId, window: windowTarget ?? undefined }).catch(() => undefined);
+    const key = `${mode}\0${pid ?? 0}\0${monitorId ?? ""}\0${windowTarget?.title ?? ""}\0${windowTarget?.exe ?? ""}`;
     if (lastTargetKey.current && lastTargetKey.current !== key) capturePreviewFeed.reset();
     lastTargetKey.current = key;
-  }, [enabled, mode, pid, monitorId]);
+  }, [enabled, mode, pid, monitorId, windowTarget?.title, windowTarget?.className, windowTarget?.exe]);
 
   useEffect(() => {
     if (!enabled) return;

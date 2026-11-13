@@ -158,6 +158,7 @@ export function ClipStudio() {
         quiet={quiet}
         selectedId={selectedId}
         compositionLocked={false}
+        studio="clip"
         onSelect={setSelectedId}
         onTransform={setTransform}
         onCrop={setCrop}
@@ -169,6 +170,8 @@ export function ClipStudio() {
         levels={levels}
         compositionLocked={false}
         composed={false}
+        studio="clip"
+        sources={scene.sources}
         displays={displays}
         listError={displayError}
         recording={false}

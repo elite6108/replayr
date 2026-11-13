@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -40,6 +41,9 @@ struct Inner {
     watch: AtomicBool,
     #[cfg(windows)]
     preview: Mutex<Option<super::preview::PreviewSession>>,
+    /// Preview sessions for webcams after the first. The primary preview above is unchanged.
+    #[cfg(windows)]
+    extra_previews: Mutex<HashMap<String, ExtraPreview>>,
     #[cfg(windows)]
     record: Mutex<Option<super::record::RecordSession>>,
     #[cfg(windows)]
@@ -65,6 +69,12 @@ impl Default for CameraEngine {
     }
 }
 
+#[cfg(windows)]
+struct ExtraPreview {
+    device_id: String,
+    session: super::preview::PreviewSession,
+}
+
 impl CameraEngine {
     pub fn new() -> Self {
         Self {
@@ -77,6 +87,8 @@ impl CameraEngine {
                 watch: AtomicBool::new(false),
                 #[cfg(windows)]
                 preview: Mutex::new(None),
+                #[cfg(windows)]
+                extra_previews: Mutex::new(HashMap::new()),
                 #[cfg(windows)]
                 record: Mutex::new(None),
                 #[cfg(windows)]
@@ -362,6 +374,7 @@ impl CameraEngine {
             if let Ok(mut id) = self.inner.selected_id.lock() {
                 *id = request.device_id.clone();
             }
+            stop_extra_previews_on_device(&self.inner, &request.device_id);
             stop_preview_session(&self.inner);
             let origin = self.session_clock().map(|clock| clock.qpc_origin_hns());
             let session = super::preview::PreviewSession::start(request, origin).map_err(|err| {
@@ -376,6 +389,69 @@ impl CameraEngine {
             self.ensure_watch_thread();
             self.wake_watch();
             Ok(self.status())
+        }
+    }
+
+    /// Opens a preview for a webcam that is not the scene's first camera.
+    /// The first camera keeps `start_preview`. The same device is refused.
+    #[cfg(windows)]
+    pub fn start_extra_preview(&self, source_id: &str, request: PreviewRequest) -> Result<(), String> {
+        let source_id = sanitize_source_id(source_id)?;
+        let request = request.sanitize()?;
+        let _session = self.inner.session_lock.lock().map_err(|err| err.to_string())?;
+        let primary = self.inner.selected_id.lock().map(|id| id.clone()).unwrap_or_default();
+        if !primary.is_empty() && primary.eq_ignore_ascii_case(&request.device_id) {
+            return Err("That camera is already the main webcam.".into());
+        }
+        let mut extras = self.inner.extra_previews.lock().map_err(|err| err.to_string())?;
+        if let Some(existing) = extras.get(&source_id) {
+            if existing.device_id.eq_ignore_ascii_case(&request.device_id) {
+                return Ok(());
+            }
+        }
+        if extras.len() >= 3 && !extras.contains_key(&source_id) {
+            return Err("A scene can preview up to four webcams.".into());
+        }
+        if extras.values().any(|item| item.device_id.eq_ignore_ascii_case(&request.device_id)) {
+            return Err("That camera is already in this scene.".into());
+        }
+        let origin = self.session_clock().map(|clock| clock.qpc_origin_hns());
+        let session = super::preview::PreviewSession::start(request.clone(), origin)?;
+        if let Some(previous) = extras.insert(source_id, ExtraPreview { device_id: request.device_id, session }) {
+            previous.session.stop();
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub fn stop_extra_preview(&self, source_id: &str) {
+        let Ok(source_id) = sanitize_source_id(source_id) else {
+            return;
+        };
+        if let Ok(mut extras) = self.inner.extra_previews.lock() {
+            if let Some(previous) = extras.remove(&source_id) {
+                previous.session.stop();
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn wait_extra_preview(&self, source_id: &str, after: u64, timeout: Duration) -> (PreviewHeader, Option<Arc<[u8]>>) {
+        let Ok(source_id) = sanitize_source_id(source_id) else {
+            return (PreviewHeader::empty(), None);
+        };
+        let slot = self
+            .inner
+            .extra_previews
+            .lock()
+            .ok()
+            .and_then(|extras| extras.get(&source_id).map(|item| item.session.slot()));
+        match slot {
+            Some(slot) => slot.wait(after, timeout),
+            None => {
+                std::thread::sleep(timeout.min(Duration::from_millis(100)));
+                (PreviewHeader::empty(), None)
+            }
         }
     }
 
@@ -999,6 +1075,35 @@ fn stop_record_session(inner: &Inner) {
     #[cfg(not(windows))]
     {
         let _ = inner;
+    }
+}
+
+fn sanitize_source_id(value: &str) -> Result<String, String> {
+    let cleaned: String = value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+        .take(40)
+        .collect();
+    if cleaned.is_empty() {
+        return Err("Choose a source.".into());
+    }
+    Ok(cleaned)
+}
+
+#[cfg(windows)]
+fn stop_extra_previews_on_device(inner: &Inner, device_id: &str) {
+    let Ok(mut extras) = inner.extra_previews.lock() else {
+        return;
+    };
+    let stale: Vec<String> = extras
+        .iter()
+        .filter(|(_, item)| item.device_id.eq_ignore_ascii_case(device_id))
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in stale {
+        if let Some(previous) = extras.remove(&id) {
+            previous.session.stop();
+        }
     }
 }
 

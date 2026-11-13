@@ -1,4 +1,4 @@
-export type CapturePreviewMode = "game" | "desktop";
+export type CapturePreviewMode = "game" | "desktop" | "window";
 export type CapturePreviewState = "live" | "waiting" | "desktop" | "unavailable";
 
 export interface CapturePreviewFrame {

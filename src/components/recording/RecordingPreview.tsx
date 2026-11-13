@@ -33,6 +33,9 @@ import { PreviewOverlayLayer } from "./PreviewOverlayLayer";
 import { PreviewTextLayer } from "./PreviewTextLayer";
 import { PreviewTransformBox } from "./PreviewTransformBox";
 import { PreviewWebcamLayer } from "./PreviewWebcamLayer";
+import { ExtraLayerPreview } from "./ExtraLayerPreview";
+import { ExtraWebcamPreview } from "./ExtraWebcamPreview";
+import { cameraForWebcam, windowTargetOf } from "../../recording/sourceVisual";
 
 export function RecordingPreview({
   scene,
@@ -121,9 +124,11 @@ export function RecordingPreview({
   const detectedName = useDetectionStore((state) => state.snapshot.name);
   const recording = useRecordingStore((state) => state.status.active);
   const primary = primaryCapture(scene);
-  const captureEnabled = Boolean(primary?.enabled && primary.type !== "window");
-  const previewMode = primary?.type === "display" ? "desktop" : "game";
+  const captureEnabled = Boolean(primary?.enabled && (primary.type !== "window" || studio === "recording"));
+  const previewMode = primary?.type === "display" ? "desktop" : primary?.type === "window" ? "window" : "game";
   const monitorId = primary?.type === "display" ? desktopCaptureSettingsOf(primary).monitorId : null;
+  const primaryWindow = primary?.type === "window" ? windowTargetOf(primary) : null;
+  const firstWebcam = scene.sources.find((source) => source.type === "webcam");
   const selectedDisplay = displays?.find((display) => display.id === monitorId);
   const captureLabel =
     primary?.type === "display"
@@ -147,15 +152,15 @@ export function RecordingPreview({
   const videoLayers = fitOutputCanvas && !composedTap
     ? ordered.filter(
         (source) =>
-          (isPrimaryCapture(source.type) && source.type !== "window") ||
+          isPrimaryCapture(source.type) ||
           (source.type === "webcam" && (!composed || sourceComposedSupported(source.type))),
       )
     : [];
   const stillLayers = (fitOutputCanvas ? ordered : ordered).filter(
     (source) =>
-      (source.type === "webcam" || source.type === "image" || source.type === "text") &&
+      (source.type === "webcam" || source.type === "image" || source.type === "text" || source.type === "videoFile" || source.type === "browser" || source.type === "captureCard") &&
       (!composed || sourceComposedSupported(source.type)) &&
-      !(fitOutputCanvas && !composedTap && source.type === "webcam"),
+      !(fitOutputCanvas && !composedTap && (source.type === "webcam" || source.type === "captureCard")),
   );
   const clipLayers = fitOutputCanvas
     ? []
@@ -184,10 +189,11 @@ export function RecordingPreview({
       key={monitorId ?? "primary"}
       mode={previewMode}
       pid={detectedPid}
-      enabled={showCapturePlate ? (fitOutputCanvas ? true : primary?.type !== "window") : captureEnabled}
+      enabled={showCapturePlate ? (fitOutputCanvas ? primary?.type !== "window" || studio === "recording" : captureEnabled) : captureEnabled}
       fallback="dark"
       hideBadge
       monitorId={monitorId}
+      windowTarget={primaryWindow}
       crop={composedTap || !showCapturePlate ? null : (primary?.crop ?? null)}
       filter={composedTap || !primary ? undefined : pictureCssFilter(pictureSettingsOf(primary))}
       onStatus={reportStatus}
@@ -219,16 +225,21 @@ export function RecordingPreview({
             webcam={webcam}
             camera={camera}
             recorded={fitOutputCanvas}
+            liveCapture={studio === "recording"}
+            primaryId={primary?.id ?? ""}
+            firstWebcamId={firstWebcam?.id ?? ""}
+            sources={scene.sources}
             capture={
-              isPrimaryCapture(source.type) ? (
+              source.id === primary?.id && isPrimaryCapture(source.type) ? (
                 <PreviewCaptureLayer
-                  key={monitorId ?? "capture"}
+                  key={monitorId ?? primaryWindow?.exe ?? "capture"}
                   mode={previewMode}
                   pid={detectedPid}
                   enabled={captureEnabled}
                   fallback="dark"
                   hideBadge
                   monitorId={monitorId}
+                  windowTarget={primaryWindow}
                   crop={source.crop ?? null}
                   filter={pictureCssFilter(pictureSettingsOf(source))}
                   onStatus={reportStatus}
@@ -281,7 +292,16 @@ export function RecordingPreview({
           onTransform={(next) => onTransform(source.id, next)}
           onCrop={isCroppableSource(source.type) && onCrop ? (next) => onCrop(source.id, next) : undefined}
         >
-          {composedTap ? null : <LayerBody source={source} webcam={webcam} camera={camera} />}
+          {composedTap ? null : (
+            <LayerBody
+              source={source}
+              webcam={webcam}
+              camera={camera}
+              sources={scene.sources}
+              liveCapture={studio === "recording"}
+              firstWebcamId={firstWebcam?.id ?? ""}
+            />
+          )}
         </PreviewTransformBox>
       ))}
       {fitOutputCanvas && !composedTap
@@ -363,15 +383,41 @@ function LayerBody({
   camera,
   recorded = false,
   capture = null,
+  liveCapture = false,
+  primaryId = "",
+  firstWebcamId = "",
+  sources = [],
 }: {
   source: RecordingSource;
   webcam: WebcamSettings;
   camera: CameraStatus;
   recorded?: boolean;
   capture?: ReactNode;
+  liveCapture?: boolean;
+  primaryId?: string;
+  firstWebcamId?: string;
+  sources?: RecordingSource[];
 }) {
-  if (isPrimaryCapture(source.type)) return capture;
+  if (isPrimaryCapture(source.type)) {
+    if (source.id === primaryId) return capture;
+    if (!liveCapture) return capture;
+    return <ExtraLayerPreview source={source} active={source.enabled} />;
+  }
   if (source.type === "webcam") {
+    if (source.id !== firstWebcamId && liveCapture) {
+      const owned = cameraForWebcam(source, sources, webcam);
+      return (
+        <ExtraWebcamPreview
+          sourceId={source.id}
+          deviceId={owned.deviceId}
+          width={owned.width}
+          height={owned.height}
+          fps={owned.fps}
+          mirror={recorded ? webcam.mirrorRecording : webcam.mirrorPreview}
+          active={source.enabled}
+        />
+      );
+    }
     return (
       <PreviewWebcamLayer
         webcam={webcam}
@@ -383,5 +429,23 @@ function LayerBody({
     );
   }
   if (source.type === "image") return <PreviewImageLayer source={source} />;
+  if (source.type === "captureCard") {
+    const owned = cameraForWebcam(source, sources, webcam);
+    return (
+      <ExtraWebcamPreview
+        sourceId={source.id}
+        deviceId={owned.deviceId}
+        width={owned.width}
+        height={owned.height}
+        fps={owned.fps}
+        mirror={false}
+        active={source.enabled}
+      />
+    );
+  }
+  if (source.type === "videoFile" || source.type === "browser") {
+    const label = source.type === "browser" ? source.settings.url : source.settings.path;
+    return <div className="preview-image-placeholder">{typeof label === "string" && label ? label : source.name}</div>;
+  }
   return <PreviewTextLayer source={source} recorded={recorded} />;
 }

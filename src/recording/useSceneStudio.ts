@@ -4,8 +4,10 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { useToastStore } from "../stores/toastStore";
 import {
   clampCrop,
+  clampTransform,
   createSource,
   FULL_CROP,
+  FULL_FRAME,
   findSource,
   findSourceByType,
   isPrimaryCapture,
@@ -22,6 +24,7 @@ import {
   updateSource,
 } from "./scene";
 import { MAX_MICROPHONES } from "./sourceAudio";
+import { cornerTransform, MAX_DISPLAYS, MAX_WEBCAMS, MAX_WINDOWS } from "./sourceVisual";
 import {
   activeSceneOf,
   appendScenes,
@@ -177,10 +180,14 @@ export function useSceneStudio(adapter: SceneStudioAdapter) {
   const addSource = useCallback(
     (type: RecordingSourceType, extra?: { settings?: Record<string, unknown>; name?: string }) => {
       const current = sceneRef.current;
-      if (type === "window" || type === "browser" || type === "captureCard" || type === "videoFile" || type === "audioFile") {
-        return null;
+      if (type === "game") {
+        const next = replacePrimary(current, type);
+        const added = findSourceByType(next, type);
+        commit(next);
+        if (added) setSelectedId(added.id);
+        return added?.id ?? null;
       }
-      if (isPrimaryCapture(type) && (type === "game" || type === "display")) {
+      if (type === "display" && current.sources.every((source) => source.type !== "display")) {
         const next = replacePrimary(current, type);
         const added = findSourceByType(next, type);
         commit(next);
@@ -192,16 +199,64 @@ export function useSceneStudio(adapter: SceneStudioAdapter) {
         showToast(`You can add up to ${MAX_MICROPHONES} microphones in one scene.`);
         return null;
       }
+      const displayCount = current.sources.filter((source) => source.type === "display").length;
+      const windowCount = current.sources.filter((source) => source.type === "window").length;
+      const webcamCount = current.sources.filter((source) => source.type === "webcam").length;
+      if (type === "display" && displayCount >= MAX_DISPLAYS) {
+        showToast(`You can add up to ${MAX_DISPLAYS} displays in one scene.`);
+        return null;
+      }
+      if (type === "window" && windowCount >= MAX_WINDOWS) {
+        showToast(`You can add up to ${MAX_WINDOWS} windows in one scene.`);
+        return null;
+      }
+      const cardCount = current.sources.filter((source) => source.type === "captureCard").length;
+      const videoCount = current.sources.filter((source) => source.type === "videoFile").length;
+      const audioCount = current.sources.filter((source) => source.type === "audioFile").length;
+      const browserCount = current.sources.filter((source) => source.type === "browser").length;
+      if (type === "webcam" && webcamCount >= MAX_WEBCAMS) {
+        showToast(`You can add up to ${MAX_WEBCAMS} webcams in one scene.`);
+        return null;
+      }
+      if (type === "captureCard" && webcamCount + cardCount >= MAX_WEBCAMS) {
+        showToast(`You can add up to ${MAX_WEBCAMS} cameras and capture cards in one scene.`);
+        return null;
+      }
+      if (type === "videoFile" && videoCount >= 4) {
+        showToast("You can add up to 4 video files in one scene.");
+        return null;
+      }
+      if (type === "audioFile" && audioCount >= 4) {
+        showToast("You can add up to 4 audio files in one scene.");
+        return null;
+      }
+      if (type === "browser" && browserCount >= 2) {
+        showToast("You can add up to 2 browser sources in one scene.");
+        return null;
+      }
+      const layered = type === "display" || type === "window";
+      const hasCapture = current.sources.some((source) => isPrimaryCapture(source.type));
       const created = createSource(type, {
         order: nextOrder(current.sources),
         enabled: true,
-        locked: type === "replayrOverlay",
-        name: extra?.name ?? (type === "microphone" && microphoneCount > 0 ? `Microphone ${microphoneCount + 1}` : undefined),
+        locked: type === "replayrOverlay" || (layered && !hasCapture),
+        name:
+          extra?.name ??
+          (type === "microphone" && microphoneCount > 0
+            ? `Microphone ${microphoneCount + 1}`
+            : type === "webcam" && webcamCount > 0
+              ? `Webcam ${webcamCount + 1}`
+              : type === "display" && displayCount > 0
+                ? `Desktop ${displayCount + 1}`
+                : type === "window" && windowCount > 0
+                  ? `Window ${windowCount + 1}`
+                  : undefined),
+        transform: layered && hasCapture ? clampTransform(cornerTransform(type === "display" ? displayCount : windowCount)) : layered ? { ...FULL_FRAME } : undefined,
         settings: extra?.settings,
         webcam: useSettingsStore.getState().settings.webcam,
       });
       const uniqueExisting =
-        type === "microphone" || type === "image" || type === "text"
+        type === "microphone" || type === "image" || type === "text" || type === "webcam" || type === "display" || type === "window"
           ? undefined
           : current.sources.find((source) => source.type === type);
       if (uniqueExisting) {

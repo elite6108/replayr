@@ -18,6 +18,7 @@ import {
   type RecordingSourceType,
 } from "../scene";
 import { MAX_MICROPHONES } from "../sourceAudio";
+import { MAX_DISPLAYS, MAX_WEBCAMS, MAX_WINDOWS, sanitizeCamera } from "../sourceVisual";
 import { matchAudioDevice, matchCamera, type ObsMonitorInfo } from "./obsDevices";
 import {
   childFrame,
@@ -219,8 +220,6 @@ type VisualDraft = {
   settings: Record<string, unknown>;
 };
 
-const UNIQUE_VISUALS: readonly RecordingSourceType[] = ["webcam"];
-
 function buildScene(sceneSource: ObsSource, collection: ObsCollection, index: SourceIndex, env: ObsEnvironment): ObsScenePlan {
   const entries: ObsReportEntry[] = [];
   const leaves: Leaf[] = [];
@@ -269,13 +268,16 @@ function buildScene(sceneSource: ObsSource, collection: ObsCollection, index: So
   return { name, scene: { ...scene, outputMode: "composed" }, entries };
 }
 
-/** Bottom-to-top visual sources, keeping one primary capture and one webcam like Replayr allows. */
+/** Bottom-to-top visual sources. One game sizes the recording. Extra displays, windows and webcams stay. */
 function pickVisuals(leaves: Leaf[], env: ObsEnvironment, entries: ObsReportEntry[]): VisualDraft[] {
   const drafts: VisualDraft[] = [];
-  const context = { canvas: env.canvas, monitors: env.monitors, imageSizes: env.imageSizes };
+  const context = { canvas: env.canvas, monitors: env.monitors, imageSizes: env.imageSizes, cameras: env.cameras };
   const visualLeaves = leaves.filter((leaf) => !audioRole(leaf.source.kind));
-  const keepPrimary = choose(visualLeaves, (leaf) => isPrimaryKind(leaf.source.kind));
-  const keepWebcam = choose(visualLeaves, (leaf) => leaf.source.kind === "dshow_input");
+  let games = 0;
+  let displays = 0;
+  let windows = 0;
+  let webcams = 0;
+  const seenCameras = new Set<string>();
 
   for (const leaf of visualLeaves) {
     const label = { name: displayName(leaf.source), kind: kindLabel(leaf.source.kind) };
@@ -284,13 +286,34 @@ function pickVisuals(leaves: Leaf[], env: ObsEnvironment, entries: ObsReportEntr
       entries.push({ ...label, status: "skipped", notes: [mapping.reason] });
       continue;
     }
-    if (isPrimaryCapture(mapping.type) && leaf !== keepPrimary) {
-      entries.push({ ...label, status: "skipped", notes: ["Replayr records one game or display capture per scene."] });
+    if (mapping.type === "game" && !leaf.visible && visualLeaves.some((other) => other.source.kind === "game_capture" && other.visible)) {
+      entries.push({ ...label, status: "skipped", notes: ["A scene records one game capture."] });
       continue;
     }
-    if (UNIQUE_VISUALS.includes(mapping.type) && leaf !== keepWebcam) {
-      entries.push({ ...label, status: "skipped", notes: ["Replayr records one webcam per scene."] });
+    if (mapping.type === "game" && games >= 1) {
+      entries.push({ ...label, status: "skipped", notes: ["A scene records one game capture."] });
       continue;
+    }
+    if (mapping.type === "display" && displays >= MAX_DISPLAYS) {
+      entries.push({ ...label, status: "skipped", notes: [`A scene can record up to ${MAX_DISPLAYS} displays.`] });
+      continue;
+    }
+    if (mapping.type === "window" && windows >= MAX_WINDOWS) {
+      entries.push({ ...label, status: "skipped", notes: [`A scene can record up to ${MAX_WINDOWS} windows.`] });
+      continue;
+    }
+    if (mapping.type === "webcam") {
+      const camera = sanitizeCamera(mapping.settings.camera);
+      const device = camera?.deviceId.toLowerCase() ?? "";
+      if (device && seenCameras.has(device)) {
+        entries.push({ ...label, status: "skipped", notes: ["That camera is already in this scene."] });
+        continue;
+      }
+      if (webcams >= MAX_WEBCAMS) {
+        entries.push({ ...label, status: "skipped", notes: [`A scene can record up to ${MAX_WEBCAMS} webcams.`] });
+        continue;
+      }
+      if (device) seenCameras.add(device);
     }
 
     const notes = [...mapping.notes];
@@ -331,6 +354,10 @@ function pickVisuals(leaves: Leaf[], env: ObsEnvironment, entries: ObsReportEntr
       settings.size = Math.max(MIN_TEXT, Math.min(MAX_TEXT, size));
     }
 
+    if (mapping.type === "game") games += 1;
+    if (mapping.type === "display") displays += 1;
+    if (mapping.type === "window") windows += 1;
+    if (mapping.type === "webcam") webcams += 1;
     drafts.push({
       type: mapping.type,
       name: label.name,
@@ -343,15 +370,6 @@ function pickVisuals(leaves: Leaf[], env: ObsEnvironment, entries: ObsReportEntr
     entries.push({ ...label, status: notes.length ? "approximated" : "imported", notes });
   }
   return drafts;
-}
-
-function isPrimaryKind(kind: string): boolean {
-  return kind === "game_capture" || kind === "monitor_capture";
-}
-
-/** The visible match nearest the bottom, else the first hidden one. */
-function choose(leaves: Leaf[], match: (leaf: Leaf) => boolean): Leaf | undefined {
-  return leaves.find((leaf) => match(leaf) && leaf.visible) ?? leaves.find(match);
 }
 
 function isFullFrame(transform: { x: number; y: number; w: number; h: number }): boolean {

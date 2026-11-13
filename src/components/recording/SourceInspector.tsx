@@ -28,9 +28,13 @@ import { AudioSourceSettings } from "./sources/AudioSourceSettings";
 import type { DisplayInfo } from "../../recording/display/displayTypes";
 import { DisplaySourceSettings } from "./sources/DisplaySourceSettings";
 import { GameSourceSettings } from "./sources/GameSourceSettings";
+import { BrowserSourceSettings } from "./sources/BrowserSourceSettings";
 import { ImageSourceSettings } from "./sources/ImageSourceSettings";
+import { MediaSourceSettings } from "./sources/MediaSourceSettings";
 import { TextSourceSettings } from "./sources/TextSourceSettings";
 import { WebcamSourceSettings } from "./sources/WebcamSourceSettings";
+import { WindowSourceSettings } from "./sources/WindowSourceSettings";
+import { cameraForWebcam, modeIdOf } from "../../recording/sourceVisual";
 
 export function SourceInspector({
   source,
@@ -45,6 +49,7 @@ export function SourceInspector({
   onTransform,
   onCrop,
   onWebcamDevice,
+  onSourceCamera,
   compositionLocked,
   describeFit = false,
   canvasAspect = 16 / 9,
@@ -70,6 +75,8 @@ export function SourceInspector({
   onTransform: (id: string, transform: SourceTransform) => void;
   onCrop?: (id: string, crop: SourceCrop) => void;
   onWebcamDevice: (device: CameraDevice) => void;
+  /** Stores this webcam's camera. The first one also updates the shared camera. */
+  onSourceCamera?: (sourceId: string, choice: { deviceId: string; name: string; modeId: string }) => void;
   compositionLocked?: boolean;
   /** Recordings studio only. Clips keep the contain/cover select. */
   describeFit?: boolean;
@@ -124,6 +131,7 @@ export function SourceInspector({
             onPatch={onPatch}
             onToggle={onToggle}
             onWebcamDevice={onWebcamDevice}
+            onSourceCamera={onSourceCamera}
             composed={composed}
             displays={displays}
             listError={listError}
@@ -165,6 +173,7 @@ function InspectorBody({
   onPatch,
   onToggle,
   onWebcamDevice,
+  onSourceCamera,
   composed,
   displays,
   listError,
@@ -183,6 +192,7 @@ function InspectorBody({
   onPatch: (id: string, patch: { settings?: Record<string, unknown>; transform?: SourceTransform | null }) => void;
   onToggle: (id: string, enabled: boolean) => void;
   onWebcamDevice: (device: CameraDevice) => void;
+  onSourceCamera?: (sourceId: string, choice: { deviceId: string; name: string; modeId: string }) => void;
   composed?: boolean;
   displays?: DisplayInfo[];
   listError?: string | null;
@@ -206,20 +216,41 @@ function InspectorBody({
     );
   }
   if (source.type === "window") {
+    if (studio === "clip") {
+      return <p className="studio-empty">Window capture is kept in the layout. Clips still use Instant Replay footage.</p>;
+    }
     return (
-      <p className="studio-empty">
-        {studio === "clip"
-          ? "Coming later. Window capture is not available yet."
-          : "Window capture cannot be recorded yet. Use Game or Desktop."}
-      </p>
+      <WindowSourceSettings
+        source={source}
+        onChange={(target) => onPatch(source.id, { settings: { window: target } })}
+      />
     );
   }
   if (source.type === "webcam") {
+    const list = sources ?? [source];
+    const owned = cameraForWebcam(source, list, {
+      deviceId: settings.webcam.deviceId,
+      width: settings.webcam.width,
+      height: settings.webcam.height,
+      fps: settings.webcam.fps,
+    });
+    const first = list.find((item) => item.type === "webcam");
+    const extra = Boolean(first && first.id !== source.id);
+    const store = (deviceId: string, name: string, mode: { width: number; height: number; fps: number }) => {
+      const choice = { deviceId, name, modeId: modeIdOf(mode.width, mode.height, mode.fps) };
+      if (onSourceCamera) onSourceCamera(source.id, choice);
+      else onPatch(source.id, { settings: { camera: { deviceId: choice.deviceId, modeId: choice.modeId } } });
+    };
     return (
       <WebcamSourceSettings
         source={source}
         webcam={settings.webcam}
         camera={camera}
+        deviceId={owned.deviceId}
+        width={owned.width}
+        height={owned.height}
+        fps={owned.fps}
+        showMirror={!extra}
         onToggle={(enabled) => onToggle(source.id, enabled)}
         onShape={(shape: WebcamShape) => onPatch(source.id, { settings: { shape } })}
         onSnap={(placement: WebcamPlacement) =>
@@ -227,10 +258,81 @@ function InspectorBody({
             transform: placementToTransform(placement, settings.webcam.defaultWidth || DEFAULT_WEBCAM_SETTINGS.defaultWidth),
           })
         }
-        onDevice={onWebcamDevice}
+        onDevice={(device) => {
+          if (onSourceCamera || extra) store(device.id, device.name, { width: owned.width, height: owned.height, fps: owned.fps });
+          else onWebcamDevice(device);
+        }}
         onMirror={(mirrorRecording) => onSaveSetting("webcam", { ...settings.webcam, mirrorRecording })}
-        onMode={studio === "recording" ? (mode) => onSaveSetting("webcam", { ...settings.webcam, ...mode }) : undefined}
+        onMode={
+          studio === "recording" || extra
+            ? (mode) => {
+                if (onSourceCamera || extra) store(owned.deviceId, settings.webcam.name, mode);
+                else onSaveSetting("webcam", { ...settings.webcam, ...mode });
+              }
+            : undefined
+        }
         studio={studio}
+      />
+    );
+  }
+  if (source.type === "captureCard") {
+    if (studio === "clip") {
+      return <p className="studio-empty">Capture cards are recorded on the Capture tab. Clips keep using Instant Replay footage.</p>;
+    }
+    const owned = cameraForWebcam(source, sources ?? [source], {
+      deviceId: settings.webcam.deviceId,
+      width: settings.webcam.width,
+      height: settings.webcam.height,
+      fps: settings.webcam.fps,
+    });
+    const store = (deviceId: string, name: string, mode: { width: number; height: number; fps: number }) => {
+      const choice = { deviceId, name, modeId: modeIdOf(mode.width, mode.height, mode.fps) };
+      if (onSourceCamera) onSourceCamera(source.id, choice);
+      else onPatch(source.id, { settings: { camera: { deviceId: choice.deviceId, modeId: choice.modeId } } });
+    };
+    return (
+      <>
+        <p className="muted">Recorded as its own picture. It does not replace your webcam.</p>
+        <WebcamSourceSettings
+          source={source}
+          webcam={settings.webcam}
+          camera={camera}
+          deviceId={owned.deviceId}
+          width={owned.width}
+          height={owned.height}
+          fps={owned.fps}
+          showMirror={false}
+          onToggle={(enabled) => onToggle(source.id, enabled)}
+          onShape={(shape: WebcamShape) => onPatch(source.id, { settings: { shape } })}
+          onSnap={(placement: WebcamPlacement) =>
+            onPatch(source.id, {
+              transform: placementToTransform(placement, settings.webcam.defaultWidth || DEFAULT_WEBCAM_SETTINGS.defaultWidth),
+            })
+          }
+          onDevice={(device) => store(device.id, device.name, { width: owned.width, height: owned.height, fps: owned.fps })}
+          onMirror={() => undefined}
+          onMode={(mode) => store(owned.deviceId, settings.webcam.name, mode)}
+          studio={studio}
+        />
+      </>
+    );
+  }
+  if (source.type === "videoFile" || source.type === "audioFile") {
+    if (studio === "clip") {
+      return <p className="studio-empty">Media files are recorded on the Capture tab.</p>;
+    }
+    return <MediaSourceSettings source={source} onChange={(next) => onPatch(source.id, { settings: next })} />;
+  }
+  if (source.type === "browser") {
+    if (studio === "clip") {
+      return <p className="studio-empty">Browser sources are recorded on the Capture tab.</p>;
+    }
+    return (
+      <BrowserSourceSettings
+        source={source}
+        enabled={settings.browserSourcesEnabled}
+        onChange={(next) => onPatch(source.id, { settings: next })}
+        onEnabled={(enabled) => onSaveSetting("browserSourcesEnabled", enabled)}
       />
     );
   }

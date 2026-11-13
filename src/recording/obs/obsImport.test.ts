@@ -239,7 +239,7 @@ test("a scene that contains itself or nests too deep cannot loop", () => {
   assert.ok(deep.entries.some((entry) => entry.notes[0] === "It is nested too deeply."));
 });
 
-test("one primary capture and one webcam per scene, extras are reported", () => {
+test("a scene keeps one game, extra displays, windows and webcams", () => {
   const result = plan(
     collection([
       scene("S", [item("Hidden Game", { visible: false }), item("Display"), item("Cam A"), item("Cam B"), item("Window"), item("Web")]),
@@ -247,21 +247,45 @@ test("one primary capture and one webcam per scene, extras are reported", () => 
       { id: "monitor_capture", name: "Display", settings: {} },
       { id: "dshow_input", name: "Cam A", settings: {} },
       { id: "dshow_input", name: "Cam B", settings: {} },
-      { id: "window_capture", name: "Window", settings: {} },
+      { id: "window_capture", name: "Window", settings: { window: "Notes:Notepad:notepad.exe" } },
       { id: "browser_source", name: "Web", settings: { url: "https://example.com" } },
     ]),
   );
   const planScene = result.scenes[0]!;
-  const primaries = planScene.scene.sources.filter((source) => source.type === "game" || source.type === "display");
-  assert.equal(primaries.length, 1);
-  assert.equal(primaries[0]!.type, "display");
-  assert.equal(planScene.scene.sources.filter((source) => source.type === "webcam").length, 1);
+  const game = planScene.scene.sources.find((source) => source.type === "game");
+  const display = planScene.scene.sources.find((source) => source.type === "display");
+  assert.equal(game?.enabled, false);
+  assert.equal(display?.enabled, true);
+  assert.equal(planScene.scene.sources.filter((source) => source.type === "webcam").length, 2);
+  const window = planScene.scene.sources.find((source) => source.type === "window");
+  assert.equal((window?.settings.window as { exe?: string } | undefined)?.exe, "notepad.exe");
+  const web = planScene.scene.sources.find((source) => source.type === "browser");
+  assert.equal(web?.settings.url, "https://example.com/");
   const skipped = planScene.entries.filter((entry) => entry.status === "skipped").map((entry) => entry.name);
-  assert.deepEqual(skipped.sort(), ["Cam B", "Hidden Game", "Web", "Window"]);
-  assert.ok(planScene.scene.sources.every((source) => source.type !== "window" && source.type !== "browser"));
+  assert.deepEqual(skipped, []);
 });
 
-test("images must be local PNG or JPEG files that exist", () => {
+test("a local video, audio file, and https page can be imported", () => {
+  const result = plan(
+    collection([
+      scene("S", [item("Clip"), item("Bed"), item("Page"), item("Script"), item("Share")]),
+      { id: "ffmpeg_source", name: "Clip", settings: { local_file: "C:\\clips\\intro.mp4", looping: true, restart_on_activate: true } },
+      { id: "ffmpeg_source", name: "Bed", settings: { local_file: "D:\\music\\bed.mp3", looping: false } },
+      { id: "browser_source", name: "Page", settings: { url: "https://Example.com/watch" } },
+      { id: "browser_source", name: "Script", settings: { url: "javascript:alert(1)" } },
+      { id: "ffmpeg_source", name: "Share", settings: { local_file: "\\\\server\\share\\intro.mp4" } },
+    ]),
+  );
+  const sources = result.scenes[0]!.scene.sources;
+  assert.equal(sources.find((source) => source.name === "Clip")?.type, "videoFile");
+  assert.equal(sources.find((source) => source.name === "Clip")?.settings.loop, true);
+  assert.equal(sources.find((source) => source.name === "Bed")?.type, "audioFile");
+  assert.equal(sources.find((source) => source.name === "Page")?.settings.url, "https://example.com/watch");
+  const skipped = result.scenes[0]!.entries.filter((entry) => entry.status === "skipped").map((entry) => entry.name);
+  assert.deepEqual(skipped.sort(), ["Script", "Share"]);
+});
+
+test("images must be local PNG, JPEG, GIF, or WebP files that exist", () => {
   const raw = collection([
     scene("S", [item("Ok"), item("Gif"), item("Missing"), item("Share")]),
     { id: "image_source", name: "Ok", settings: { file: "C:\\Overlays\\frame.png" } },

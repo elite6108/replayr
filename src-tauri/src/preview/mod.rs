@@ -12,6 +12,23 @@ use crate::still::{scale_bgra_area, StillFrame};
 
 #[cfg(windows)]
 mod standalone;
+#[cfg(windows)]
+pub(crate) mod layers;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayerPreviewHeader {
+    pub width: u32,
+    pub height: u32,
+    pub frame_id: u64,
+    pub mime_type: &'static str,
+}
+
+impl LayerPreviewHeader {
+    pub fn empty(frame_id: u64) -> Self {
+        Self { width: 0, height: 0, frame_id, mime_type: "image/jpeg" }
+    }
+}
 
 /// Default Live Output Preview knobs (Balanced). Overridden via `PreviewHub::apply_quality`.
 const DEFAULT_PREVIEW_MAX_WIDTH: u32 = 1280;
@@ -85,12 +102,15 @@ fn fit_within(width: u32, height: u32, max_w: u32, max_h: u32) -> (u32, u32) {
 pub enum PreviewMode {
     Game,
     Desktop,
+    Window,
 }
 
 impl PreviewMode {
     pub fn parse(value: &str) -> Self {
         if value.eq_ignore_ascii_case("desktop") {
             Self::Desktop
+        } else if value.eq_ignore_ascii_case("window") {
+            Self::Window
         } else {
             Self::Game
         }
@@ -138,6 +158,7 @@ struct Inner {
     mode: Mutex<PreviewMode>,
     pid: Mutex<Option<u32>>,
     monitor_id: Mutex<Option<String>>,
+    window: Mutex<crate::capture_windows::WindowTarget>,
     pending: Mutex<Option<StillFrame>>,
     latest: Mutex<Option<EncodedPreview>>,
     error: Mutex<Option<String>>,
@@ -201,6 +222,7 @@ impl PreviewHub {
             mode: Mutex::new(PreviewMode::Game),
             pid: Mutex::new(None),
             monitor_id: Mutex::new(None),
+            window: Mutex::new(crate::capture_windows::WindowTarget::default()),
             pending: Mutex::new(None),
             latest: Mutex::new(None),
             error: Mutex::new(None),
@@ -222,8 +244,14 @@ impl PreviewHub {
         Self { inner }
     }
 
-    pub fn retain(&self, mode: PreviewMode, pid: Option<u32>, monitor_id: Option<String>) {
-        self.set_target(mode, pid, monitor_id);
+    pub fn retain(
+        &self,
+        mode: PreviewMode,
+        pid: Option<u32>,
+        monitor_id: Option<String>,
+        window: crate::capture_windows::WindowTarget,
+    ) {
+        self.set_target(mode, pid, monitor_id, window);
         let previous = self.inner.wanted.swap(1, Ordering::SeqCst);
         tracing::info!(
             mode = ?mode,
@@ -244,7 +272,13 @@ impl PreviewHub {
         }
     }
 
-    pub fn set_target(&self, mode: PreviewMode, pid: Option<u32>, monitor_id: Option<String>) {
+    pub fn set_target(
+        &self,
+        mode: PreviewMode,
+        pid: Option<u32>,
+        monitor_id: Option<String>,
+        window: crate::capture_windows::WindowTarget,
+    ) {
         let mut changed = false;
         if let Ok(mut slot) = self.inner.mode.lock() {
             if *slot != mode {
@@ -261,6 +295,12 @@ impl PreviewHub {
         if let Ok(mut slot) = self.inner.monitor_id.lock() {
             if *slot != monitor_id {
                 *slot = monitor_id;
+                changed = true;
+            }
+        }
+        if let Ok(mut slot) = self.inner.window.lock() {
+            if *slot != window {
+                *slot = window;
                 changed = true;
             }
         }
@@ -518,7 +558,12 @@ impl PreviewHub {
         let mode = self.inner.mode.lock().ok().map(|slot| *slot).unwrap_or(PreviewMode::Game);
         let pid = self.inner.pid.lock().ok().and_then(|slot| *slot);
         let monitor_id = self.inner.monitor_id.lock().ok().and_then(|slot| slot.clone());
+        let window = self.inner.window.lock().ok().map(|slot| slot.clone()).unwrap_or_default();
         if mode == PreviewMode::Game && pid.unwrap_or(0) == 0 {
+            self.suspend_standalone();
+            return;
+        }
+        if mode == PreviewMode::Window && window.is_empty() {
             self.suspend_standalone();
             return;
         }
@@ -530,7 +575,7 @@ impl PreviewHub {
             if replace {
                 self.suspend_standalone();
             }
-            match standalone::StandalonePreview::start(self.clone(), mode, pid, monitor_id.as_deref()) {
+            match standalone::StandalonePreview::start(self.clone(), mode, pid, monitor_id.as_deref(), &window) {
                 Ok(session) => {
                     tracing::info!(
                         mode = ?mode,
@@ -555,7 +600,7 @@ impl PreviewHub {
         }
         #[cfg(not(windows))]
         {
-            let _ = (mode, pid, monitor_id, replace);
+            let _ = (mode, pid, monitor_id, window, replace);
             if let Ok(mut slot) = self.inner.error.lock() {
                 *slot = Some("Preview unavailable".into());
             }

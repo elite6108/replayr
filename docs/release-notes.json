@@ -1,4 +1,9 @@
 {
+  "0.1.95": [
+    "Drag the dividers between Scenes, Sources, the audio mixer, and Recording controls to resize them.",
+    "A Capture scene can record a window, another display, another webcam, a capture card, a video file, or an audio file.",
+    "Browser pages can be recorded when browser sources are turned on, and images can be GIF or WebP."
+  ],
   "0.1.94": [
     "A scene can keep its own microphone, desktop, and game volume.",
     "Add up to four microphones in one scene, each with its own level and device.",

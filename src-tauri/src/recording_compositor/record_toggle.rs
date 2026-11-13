@@ -128,6 +128,7 @@ pub(crate) fn default_game_scene(settings: &AppSettings) -> RecordingComposition
             crop: CompositionCrop::default(),
             monitor_id: None,
             picture: Default::default(),
+            window: Default::default(),
         })],
     }
 }

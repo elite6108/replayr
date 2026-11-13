@@ -32,11 +32,12 @@ pub fn load_image(spec: &ValidatedImage) -> Result<DecodedImage, String> {
     }
     let bytes = fs::read(&path).map_err(|_| format!("Could not load image source '{}'.", spec.name))?;
     let kind = image_kind(&path, &bytes).ok_or_else(|| {
-        format!("Could not load image source '{}'. Use a PNG or JPEG.", spec.name)
+        format!("Could not load image source '{}'. Use a PNG, JPEG, GIF, or WebP.", spec.name)
     })?;
     let decoded = match kind {
         ImageKind::Png => decode_png(&bytes, &spec.name)?,
         ImageKind::Jpeg => decode_jpeg(&bytes, &spec.name)?,
+        ImageKind::Gif | ImageKind::Webp => decode_still(&bytes, kind, &spec.name)?,
     };
     Ok(DecodedImage {
         id: spec.id.clone(),
@@ -46,9 +47,12 @@ pub fn load_image(spec: &ValidatedImage) -> Result<DecodedImage, String> {
     })
 }
 
+#[derive(PartialEq, Eq)]
 enum ImageKind {
     Png,
     Jpeg,
+    Gif,
+    Webp,
 }
 
 fn image_kind(path: &Path, bytes: &[u8]) -> Option<ImageKind> {
@@ -60,6 +64,8 @@ fn image_kind(path: &Path, bytes: &[u8]) -> Option<ImageKind> {
     match ext.as_str() {
         "png" if bytes.starts_with(&[0x89, b'P', b'N', b'G']) => Some(ImageKind::Png),
         "jpg" | "jpeg" if bytes.len() > 2 && bytes[0] == 0xFF && bytes[1] == 0xD8 => Some(ImageKind::Jpeg),
+        "gif" if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") => Some(ImageKind::Gif),
+        "webp" if is_webp(bytes) => Some(ImageKind::Webp),
         _ => None,
     }
 }
@@ -103,6 +109,7 @@ pub fn validated_image(raw: &str) -> Option<(PathBuf, u32, u32)> {
             let info = decoder.info()?;
             (u32::from(info.width), u32::from(info.height))
         }
+        ImageKind::Gif | ImageKind::Webp => still_dimensions(&bytes).ok()?,
     };
     check_dims(width, height, "image").ok()?;
     Some((path, width, height))
@@ -185,6 +192,119 @@ pub(crate) fn check_dims(width: u32, height: u32, name: &str) -> Result<(), Stri
     Ok(())
 }
 
+fn is_webp(bytes: &[u8]) -> bool {
+    bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP"
+}
+
+fn decode_still(bytes: &[u8], kind: ImageKind, name: &str) -> Result<(Vec<u8>, u32, u32), String> {
+    let fail = || format!("Could not load image source '{name}'.");
+    catch_unwind(AssertUnwindSafe(|| decode_still_inner(bytes, kind, name))).unwrap_or_else(|_| Err(fail()))
+}
+
+fn decode_still_inner(bytes: &[u8], kind: ImageKind, name: &str) -> Result<(Vec<u8>, u32, u32), String> {
+    let fail = || format!("Could not load image source '{name}'.");
+    let format = match kind {
+        ImageKind::Gif => image::ImageFormat::Gif,
+        ImageKind::Webp => image::ImageFormat::WebP,
+        ImageKind::Png | ImageKind::Jpeg => return Err(fail()),
+    };
+    let (width, height, rgba) = decode_limited(bytes, format).map_err(|_| fail())?;
+    check_dims(width, height, name)?;
+    Ok((rgba_to_bgra(&rgba), width, height))
+}
+
+fn still_dimensions(bytes: &[u8]) -> Result<(u32, u32), String> {
+    let format = if bytes.starts_with(b"GIF") {
+        image::ImageFormat::Gif
+    } else if is_webp(bytes) {
+        image::ImageFormat::WebP
+    } else {
+        return Err("image".into());
+    };
+    let (width, height, _) = decode_limited(bytes, format)?;
+    check_dims(width, height, "image")?;
+    Ok((width, height))
+}
+
+fn decode_limited(bytes: &[u8], format: image::ImageFormat) -> Result<(u32, u32, Vec<u8>), String> {
+    let mut reader = image::ImageReader::with_format(Cursor::new(bytes), format);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_DIM);
+    limits.max_image_height = Some(MAX_DIM);
+    limits.max_alloc = Some(32 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader.decode().map_err(|_| "image".to_string())?;
+    let width = image.width();
+    let height = image.height();
+    let rgba = image.into_rgba8().into_raw();
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "image".to_string())?;
+    if rgba.len() != expected {
+        return Err("image".into());
+    }
+    Ok((width, height, rgba))
+}
+
+/// Extra GIF frames for playback. A still, a WebP, or a file that will not
+/// decode safely returns nothing and the first frame stays on screen.
+pub struct GifFrames {
+    pub bgra: Vec<Vec<u8>>,
+    pub delays_ms: Vec<u32>,
+    pub width: u32,
+    pub height: u32,
+}
+
+pub fn load_gif_frames(spec: &ValidatedImage) -> Option<GifFrames> {
+    let path = validate_local_image_path(&spec.path, &spec.name).ok()?;
+    let bytes = fs::read(&path).ok()?;
+    if image_kind(&path, &bytes)? != ImageKind::Gif {
+        return None;
+    }
+    catch_unwind(AssertUnwindSafe(|| gif_frames(&bytes))).ok().flatten()
+}
+
+fn gif_frames(bytes: &[u8]) -> Option<GifFrames> {
+    use image::AnimationDecoder;
+    let decoder = image::codecs::gif::GifDecoder::new(Cursor::new(bytes)).ok()?;
+    let mut bgra = Vec::new();
+    let mut delays_ms = Vec::new();
+    let mut size = None;
+    let mut total = 0usize;
+    for frame in decoder.into_frames().take(24) {
+        let frame = frame.ok()?;
+        let (numer, denom) = frame.delay().numer_denom_ms();
+        let delay = numer.checked_div(denom.max(1)).unwrap_or(100).clamp(20, 2000);
+        let buffer = frame.into_buffer();
+        let width = buffer.width();
+        let height = buffer.height();
+        check_dims(width, height, "image").ok()?;
+        match size {
+            None => size = Some((width, height)),
+            Some(existing) if existing != (width, height) => return None,
+            _ => {}
+        }
+        let raw = buffer.into_raw();
+        total = total.saturating_add(raw.len());
+        if total > 32 * 1024 * 1024 {
+            break;
+        }
+        bgra.push(rgba_to_bgra(&raw));
+        delays_ms.push(delay);
+    }
+    let (width, height) = size?;
+    if bgra.len() < 2 {
+        return None;
+    }
+    Some(GifFrames {
+        bgra,
+        delays_ms,
+        width,
+        height,
+    })
+}
+
 fn rgba_to_bgra(src: &[u8]) -> Vec<u8> {
     src.chunks_exact(4)
         .flat_map(|px| [px[2], px[1], px[0], px[3]])
@@ -242,6 +362,25 @@ mod tests {
     fn jpeg_rgb_is_opaque() {
         let bgra = rgb_to_bgra(&[10, 20, 30]);
         assert_eq!(&bgra, &[30, 20, 10, 255]);
+    }
+
+    #[test]
+    fn gif_and_webp_need_a_real_header() {
+        assert!(decode_still(b"GIF89a", ImageKind::Gif, "Anim").is_err());
+        assert!(decode_still(b"RIFF....WEBP", ImageKind::Webp, "Still").is_err());
+        assert!(!decode_still(b"GIF89a", ImageKind::Gif, "Anim").unwrap_err().contains('\\'));
+    }
+
+    #[test]
+    fn a_small_gif_decodes_to_straight_bgra() {
+        let image = image::RgbaImage::from_pixel(8, 8, image::Rgba([10, 20, 30, 255]));
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Gif)
+            .unwrap();
+        let (bgra, width, height) = decode_still(&bytes, ImageKind::Gif, "Anim").unwrap();
+        assert_eq!((width, height), (8, 8));
+        assert_eq!(&bgra[..4], &[30, 20, 10, 255]);
     }
 
     #[test]

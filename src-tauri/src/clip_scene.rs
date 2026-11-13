@@ -259,6 +259,7 @@ pub fn burn_plan(settings: &AppSettings, started_unix_secs: u64) -> Option<ClipB
             transform: to_transform(capture.transform, 1.0),
             crop: to_crop(capture.crop),
             monitor_id: setting_str(capture, "monitorId").map(|value| value.to_string()),
+            window: Default::default(),
             picture: capture
                 .settings
                 .get("picture")

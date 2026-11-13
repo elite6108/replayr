@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { RecordingScene, ScenePresetId } from "../../recording/scene";
 import { nextSceneName } from "../../recording/sceneLibrary";
 import { ContextMenu } from "../common/ContextMenu";
-import { IconCamera, IconCheck, IconChevron, IconGames, IconMonitor, IconMore, IconPlus } from "../icons";
+import { IconCamera, IconCheck, IconChevron, IconGames, IconImport, IconMonitor, IconMore, IconPlus } from "../icons";
 import scenePlus from "../../assets/figma/capture/scene-plus.svg";
 import sceneTrash from "../../assets/figma/capture/scene-trash.svg";
 import sceneUp from "../../assets/figma/capture/scene-up.svg";
@@ -27,6 +27,7 @@ export function ScenePicker({
   onDuplicate,
   onDelete,
   onMove,
+  onImport,
 }: {
   scenes: RecordingScene[];
   activeId: string;
@@ -38,6 +39,8 @@ export function ScenePicker({
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
   onMove?: (id: string, direction: "up" | "down") => void;
+  /** Shown as an "Import from OBS" button in the list header when provided. */
+  onImport?: () => void;
 }) {
   const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -127,9 +130,23 @@ export function ScenePicker({
       <div className="studio-scene-picker is-inline">
         <div className="studio-block-head">
           <h2>Scenes</h2>
-          <button type="button" className="studio-icon-btn" title="New scene" disabled={locked} onClick={() => setCreateOpen(true)}>
-            <img src={scenePlus} alt="" />
-          </button>
+          <span className="studio-block-head-actions">
+            {onImport ? (
+              <button
+                type="button"
+                className="studio-icon-btn"
+                title="Import from OBS"
+                aria-label="Import from OBS"
+                disabled={locked}
+                onClick={onImport}
+              >
+                <IconImport size={14} />
+              </button>
+            ) : null}
+            <button type="button" className="studio-icon-btn" title="New scene" disabled={locked} onClick={() => setCreateOpen(true)}>
+              <img src={scenePlus} alt="" />
+            </button>
+          </span>
         </div>
         <div ref={listRef} id={listId} className="studio-scene-menu is-inline" role="listbox">
           {scenes.map((scene, index) => {
@@ -257,6 +274,14 @@ export function ScenePicker({
               onCreate(name, template);
               setCreateOpen(false);
             }}
+            onImport={
+              onImport
+                ? () => {
+                    setCreateOpen(false);
+                    onImport();
+                  }
+                : undefined
+            }
           />
         ) : null}
       </div>
@@ -429,6 +454,15 @@ export function ScenePicker({
             setCreateOpen(false);
             setOpen(false);
           }}
+          onImport={
+            onImport
+              ? () => {
+                  setCreateOpen(false);
+                  setOpen(false);
+                  onImport();
+                }
+              : undefined
+          }
         />
       ) : null}
     </div>
@@ -442,6 +476,7 @@ function SceneNameDialog({
   locked,
   onClose,
   onSave,
+  onImport,
 }: {
   title: string;
   initialName: string;
@@ -449,6 +484,7 @@ function SceneNameDialog({
   locked: boolean;
   onClose: () => void;
   onSave: (name: string, template: ScenePresetId | null) => void;
+  onImport?: () => void;
 }) {
   const [name, setName] = useState(initialName);
   const [template, setTemplate] = useState<ScenePresetId | "">("");
@@ -488,6 +524,11 @@ function SceneNameDialog({
           </label>
         ) : null}
         <div className="studio-dialog-actions">
+          {onImport ? (
+            <button type="button" className="studio-tool studio-dialog-aside" disabled={locked} onClick={onImport}>
+              Import from OBS…
+            </button>
+          ) : null}
           <button type="button" className="studio-tool" onClick={onClose}>
             Cancel
           </button>

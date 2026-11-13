@@ -1124,6 +1124,200 @@
   margin: 0;
 }
 
+.studio-dialog-actions .studio-dialog-aside {
+  margin-right: auto;
+}
+
+.studio-block-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.studio-modal.obs-import-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.obs-import-dialog .studio-lock-note {
+  margin: 0;
+}
+
+.obs-import-copy,
+.obs-import-status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.obs-import-error {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  font-size: 12px;
+}
+
+.obs-import-source {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.obs-import-source .studio-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.obs-import-scenes,
+.obs-import-report,
+.obs-import-device-lines {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.obs-import-scenes {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.obs-import-scene + .obs-import-scene {
+  border-top: 1px solid var(--border);
+}
+
+.obs-import-scene-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+}
+
+.obs-import-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.obs-import-scene-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.obs-import-summary {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.obs-import-summary:hover,
+.obs-import-summary[aria-expanded="true"] {
+  background: var(--bg-chip);
+  color: var(--text);
+}
+
+.obs-import-report {
+  gap: 6px;
+  padding: 4px 10px 10px 32px;
+}
+
+.obs-import-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.obs-import-badge {
+  flex: 0 0 64px;
+  padding: 1px 0;
+  border-radius: 5px;
+  background: var(--bg-chip);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.obs-import-entry.is-imported .obs-import-badge {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
+.obs-import-entry.is-approximated .obs-import-badge {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.obs-import-entry-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.obs-import-entry-copy strong {
+  overflow-wrap: anywhere;
+}
+
+.obs-import-kind,
+.obs-import-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.obs-import-global summary {
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.obs-import-global .obs-import-report {
+  padding: 6px 0 0 4px;
+}
+
+.obs-import-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.obs-import-device-lines {
+  gap: 2px;
+  padding-left: 24px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.obs-import-dialog .studio-dialog-actions {
+  margin-top: 4px;
+}
+
 .video-settings-fields {
   display: flex;
   flex-direction: column;

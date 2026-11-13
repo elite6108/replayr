@@ -109,6 +109,34 @@ fn missing_display_message(id: &str) -> String {
     format!("{short} is not connected. Reconnect it or pick another display in the Desktop source.")
 }
 
+/// Device-interface path of the monitor attached to `\\.\DISPLAYn`, such as
+/// `\\?\DISPLAY#GSM5B09#5&2d1e4c5&0&UID4353#{e6f07b5f-...}`. OBS saves this as `monitor_id`.
+#[cfg(windows)]
+pub fn monitor_interface_id(device_name: &str) -> Option<String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Graphics::Gdi::{EnumDisplayDevicesW, DISPLAY_DEVICEW};
+    const EDD_GET_DEVICE_INTERFACE_NAME: u32 = 0x0000_0001;
+
+    let device_name = sanitize_monitor_id(Some(device_name))?;
+    let wide: Vec<u16> = device_name.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut device = DISPLAY_DEVICEW {
+        cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
+        ..Default::default()
+    };
+    let found = unsafe { EnumDisplayDevicesW(PCWSTR(wide.as_ptr()), 0, &mut device, EDD_GET_DEVICE_INTERFACE_NAME) };
+    if !found.as_bool() {
+        return None;
+    }
+    let len = device.DeviceID.iter().position(|unit| *unit == 0).unwrap_or(device.DeviceID.len());
+    let id = String::from_utf16_lossy(&device.DeviceID[..len]);
+    (!id.trim().is_empty()).then_some(id)
+}
+
+#[cfg(not(windows))]
+pub fn monitor_interface_id(_device_name: &str) -> Option<String> {
+    None
+}
+
 #[cfg(windows)]
 fn find_monitor(id: &str) -> Option<Monitor> {
     Monitor::enumerate().ok()?.into_iter().find(|monitor| monitor.device_name().ok().as_deref() == Some(id))

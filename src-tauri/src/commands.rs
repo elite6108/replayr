@@ -292,6 +292,31 @@ pub fn list_displays() -> AppResult<Value> {
     Ok(serde_json::to_value(displays)?)
 }
 
+const MAX_PREVIEW_IMAGES: usize = 64;
+
+/// Let the preview show the image files a scene uses. Each path must pass the same checks the
+/// recorder applies (local PNG or JPEG, size and dimension caps). Only that one file is added to
+/// the asset scope, and only for this run of the app.
+#[tauri::command]
+pub async fn allow_preview_images(app: AppHandle, paths: Vec<String>) -> AppResult<Vec<bool>> {
+    if paths.len() > MAX_PREVIEW_IMAGES {
+        return Err(AppError::Message("Too many images to preview at once.".into()));
+    }
+    let checked = tauri::async_runtime::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|raw| crate::recording_compositor::sources::image::validated_image(raw).map(|(path, ..)| path))
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|_| AppError::Message("Could not check those images.".into()))?;
+    let scope = app.asset_protocol_scope();
+    Ok(checked
+        .into_iter()
+        .map(|path| path.is_some_and(|path| scope.allow_file(&path).is_ok()))
+        .collect())
+}
+
 #[tauri::command]
 pub fn stop_capture_preview(rec: State<RecordingState>) -> AppResult<()> {
     capture::release_preview(&rec);

@@ -33,6 +33,7 @@
     "global-shortcut:allow-unregister",
     "global-shortcut:allow-unregister-all",
     "allow-app-commands",
+    "allow-obs-import",
     "allow-create-desktop-shortcut",
     "allow-remove-desktop-shortcut",
     "allow-desktop-shortcut-exists",

@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { imageSettingsOf, type RecordingSource } from "../../recording/scene";
+import { usePreviewImageAccess } from "../../recording/usePreviewImageAccess";
 import { CroppedMediaFrame } from "./CroppedMediaFrame";
 
 export function PreviewImageLayer({ source }: { source: RecordingSource }) {
   const { path, opacity } = imageSettingsOf(source);
-  const src = fileSrc(path);
+  const ready = usePreviewImageAccess(path);
+  const src = ready ? fileSrc(path) : "";
   const [aspect, setAspect] = useState(1);
   if (!src) {
     return (

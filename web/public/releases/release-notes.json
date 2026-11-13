@@ -1,4 +1,9 @@
 {
+  "0.1.93": [
+    "Import from OBS: bring your OBS scenes into Capture, with a report of anything that could not come over.",
+    "Imported scenes keep their layout, crop, text and images, and can use your OBS microphone, webcam and volume.",
+    "Image sources outside your Videos or Documents folder show in the preview again after a restart."
+  ],
   "0.1.92": [
     "Webcam preview is smoother, and each source has Video settings for brightness, contrast, colour and camera controls.",
     "Click a dB readout in the audio mixer to type a level. The fader and meter now share one dB scale.",

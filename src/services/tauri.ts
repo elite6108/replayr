@@ -615,6 +615,11 @@ export async function listDisplays(): Promise<import("../recording/display/displ
   return invoke("list_displays");
 }
 
+/** One flag per path: true when the file is a recordable image the preview may now load. */
+export async function allowPreviewImages(paths: string[]): Promise<boolean[]> {
+  return invoke("allow_preview_images", { paths });
+}
+
 export async function getCapturePreviewFrame(): Promise<CapturePreviewFrame | null> {
   try {
     const next = await invoke<

@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-obs-import"
+description = "Read OBS Studio scene collections, its canvas size and image sizes for Import from OBS. Read-only."
+commands.allow = ["get_obs_import_context", "read_obs_scene_collection", "probe_obs_image_sizes"]

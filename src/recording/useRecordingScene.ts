@@ -100,6 +100,7 @@ export function useRecordingScene() {
     writeSettings: studio.writeSettings,
     selectScene: studio.selectScene,
     addScene: studio.addScene,
+    importScenes: studio.importScenes,
     renameScene: studio.renameScene,
     removeScene: studio.removeScene,
     moveScene: studio.moveScene,

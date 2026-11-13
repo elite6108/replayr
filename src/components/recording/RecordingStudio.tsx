@@ -6,9 +6,11 @@ import { getCameraStatus } from "../../services/tauri";
 import { scheduleRecordScenePush, useRecordingStore } from "../../stores/recordingStore";
 import { useDetectionStore } from "../../stores/detectionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useToastStore } from "../../stores/toastStore";
 import { IDLE_CAMERA_STATUS, type CameraDevice, type CameraStatus } from "../../types/camera";
 import type { AppSettings } from "../../types/settings";
 import { canvasFromAspect } from "../../recording/previewCanvas";
+import type { ObsDevicePlan } from "../../recording/obs/obsImport";
 import {
   createSource,
   findSourceByType,
@@ -16,8 +18,10 @@ import {
   isPrimaryCapture,
   nextOrder,
   visualsToOverlaySettings,
+  type RecordingScene,
   type RecordingSourceType,
 } from "../../recording/scene";
+import { MAX_SCENE_LIBRARY } from "../../recording/sceneLibrary";
 import { useDisplays } from "../../recording/display/useDisplays";
 import { useRecordingScene } from "../../recording/useRecordingScene";
 import { useStudioAudio } from "../../recording/useStudioAudio";
@@ -29,6 +33,7 @@ import { SourceInspector } from "./SourceInspector";
 import { SourceList } from "./SourceList";
 import { SourcePropertiesDialog } from "./SourcePropertiesDialog";
 import { VideoSettingsDialog } from "./VideoSettingsDialog";
+import { ImportObsDialog } from "./ImportObsDialog";
 import { formatBytes } from "../../utils/format";
 import { displayFps, qualityLabel } from "../../utils/qualityLabels";
 import { IconFolder, IconGames } from "../icons";
@@ -91,15 +96,18 @@ export function RecordingStudio() {
     cancelGesture,
     selectScene,
     addScene,
+    importScenes,
     renameScene,
     removeScene,
     moveScene,
     copyScene,
     writeSettings,
   } = useRecordingScene();
+  const showToast = useToastStore((state) => state.show);
   const [camera, setCamera] = useState<CameraStatus>(IDLE_CAMERA_STATUS);
   const [propertiesId, setPropertiesId] = useState<string | null>(null);
   const [videoSettingsId, setVideoSettingsId] = useState<string | null>(null);
+  const [obsImportOpen, setObsImportOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [columns, setColumns] = useState<CaptureColumnId[]>(readCaptureColumns);
   const [draggingColumn, setDraggingColumn] = useState<CaptureColumnId | null>(null);
@@ -194,6 +202,45 @@ export function RecordingStudio() {
     void writeSettings("webcam", { ...settings.webcam, deviceId: device.id, name: device.name });
   }
 
+  async function importFromObs(incoming: RecordingScene[], devices: ObsDevicePlan | null) {
+    if (compositionLocked || !incoming.length) return;
+    if (scenes.length >= MAX_SCENE_LIBRARY) {
+      showToast(`You can keep up to ${MAX_SCENE_LIBRARY} scenes. Delete some to import more.`);
+      return;
+    }
+    setObsImportOpen(false);
+    // Devices go first and are awaited so the webcam write settles before the new scene syncs its own flags.
+    if (devices) await applyObsDevices(devices);
+    const recording = useRecordingStore.getState();
+    if (recording.status.active || recording.startingComposed) {
+      showToast("Stop recording to import scenes.");
+      return;
+    }
+    const { added, dropped } = importScenes(incoming);
+    if (!added) return;
+    const noun = added === 1 ? "scene" : "scenes";
+    showToast(
+      dropped
+        ? `Imported ${added} ${noun} from OBS. ${dropped} did not fit in the ${MAX_SCENE_LIBRARY}-scene limit.`
+        : `Imported ${added} ${noun} from OBS.`,
+    );
+  }
+
+  async function applyObsDevices(devices: ObsDevicePlan) {
+    const current = useSettingsStore.getState().settings;
+    if (devices.microphone) {
+      if (devices.microphone.id !== current.microphoneId) await writeSettings("microphoneId", devices.microphone.id);
+      if (devices.microphone.gain !== current.micGain) await writeSettings("micGain", devices.microphone.gain);
+    }
+    if (devices.desktopGain !== null && devices.desktopGain !== current.systemAudioGain) {
+      await writeSettings("systemAudioGain", devices.desktopGain);
+    }
+    if (devices.webcam && devices.webcam.id !== current.webcam.deviceId) {
+      const webcam = useSettingsStore.getState().settings.webcam;
+      await writeSettings("webcam", { ...webcam, deviceId: devices.webcam.id, name: devices.webcam.name });
+    }
+  }
+
   function openInspector(id: string) {
     setSelectedId(id);
     setInspectorOpen(true);
@@ -284,6 +331,10 @@ export function RecordingStudio() {
         onMoveScene={(id, direction) => {
           if (compositionLocked) return;
           moveScene(id, direction);
+        }}
+        onImportScenes={() => {
+          if (compositionLocked) return;
+          setObsImportOpen(true);
         }}
         onProperties={(id) => {
           const source = scene.sources.find((item) => item.id === id);
@@ -541,6 +592,14 @@ export function RecordingStudio() {
             void writeSettings(key, value);
           }}
           onClose={() => setVideoSettingsId(null)}
+        />
+      ) : null}
+      {obsImportOpen ? (
+        <ImportObsDialog
+          existingCount={scenes.length}
+          locked={compositionLocked}
+          onImport={(incoming, devices) => void importFromObs(incoming, devices)}
+          onClose={() => setObsImportOpen(false)}
         />
       ) : null}
     </>

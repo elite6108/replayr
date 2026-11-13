@@ -16,6 +16,28 @@ pub fn is_under(root: &Path, candidate: &Path) -> bool {
     candidate.starts_with(&root)
 }
 
+/// False for network shares, device namespaces and reserved DOS device names. `path` should
+/// already be canonical so `..` segments and junction tricks are resolved.
+pub fn is_safe_local_file(path: &Path) -> bool {
+    let raw = path.to_string_lossy();
+    let stripped = raw.strip_prefix(r"\\?\").unwrap_or(raw.as_ref());
+    if stripped.starts_with(r"UNC\") || stripped.starts_with(r"\\") {
+        return false;
+    }
+    if stripped.starts_with(r"\\.\") || stripped.contains(r"\\.\") {
+        return false;
+    }
+    let stem = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    !matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "COM1" | "COM2" | "COM3" | "COM4" | "LPT1" | "LPT2"
+    )
+}
+
 fn dunce_canonicalize(path: &Path) -> std::io::Result<PathBuf> {
     match path.canonicalize() {
         Ok(path) => Ok(strip_verbatim(path)),

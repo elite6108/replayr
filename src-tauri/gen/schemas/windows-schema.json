@@ -441,6 +441,12 @@
           "markdownDescription": "List native camera modes for a selected device"
         },
         {
+          "description": "Read OBS Studio scene collections, its canvas size and image sizes for Import from OBS. Read-only.",
+          "type": "string",
+          "const": "allow-obs-import",
+          "markdownDescription": "Read OBS Studio scene collections, its canvas size and image sizes for Import from OBS. Read-only."
+        },
+        {
           "description": "Remove the Replayr desktop shortcut",
           "type": "string",
           "const": "allow-remove-desktop-shortcut",

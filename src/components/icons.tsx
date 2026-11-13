@@ -15,6 +15,7 @@ import {
   Desktop,
   DotsSixVertical,
   DotsThreeVertical,
+  DownloadSimple,
   Eye,
   EyeSlash,
   FilmStrip,
@@ -177,6 +178,10 @@ export function IconMessages(props: IconProps) {
 
 export function IconUploads(props: IconProps) {
   return phosphor(UploadSimple, props);
+}
+
+export function IconImport(props: IconProps) {
+  return phosphor(DownloadSimple, props);
 }
 
 export function IconAdmin(props: IconProps) {

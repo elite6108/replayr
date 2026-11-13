@@ -2,6 +2,7 @@ import type { AppSettings } from "../types/settings";
 import {
   emptyScene,
   loadStoredScene,
+  MAX_SCENE_NAME,
   newSceneId,
   newSourceId,
   persistScene,
@@ -159,6 +160,62 @@ export function createScene(
     activeId: created.id,
     scenes: [...library.scenes, created],
   });
+}
+
+/**
+ * Add imported scenes after the existing ones without touching them. Every scene and source gets
+ * a fresh id, clashing names get a suffix, and anything past the library limit is dropped. The
+ * first added scene becomes active.
+ */
+export function appendScenes(
+  library: RecordingSceneLibrary,
+  incoming: RecordingScene[],
+  suffix = "OBS",
+): { library: RecordingSceneLibrary; added: number; dropped: number } {
+  const room = Math.max(0, MAX_SCENE_LIBRARY - library.scenes.length);
+  const accepted = incoming.slice(0, room);
+  const used = new Set(library.scenes.map((scene) => scene.name.toLowerCase()));
+  const added: RecordingScene[] = [];
+  for (const raw of accepted) {
+    const clean = sanitizeScene(raw);
+    if (!clean) continue;
+    const name = uniqueImportName(used, clean.name, suffix);
+    used.add(name.toLowerCase());
+    added.push({
+      ...clean,
+      id: newSceneId(),
+      name,
+      sources: clean.sources.map((source) => ({
+        ...source,
+        id: newSourceId(source.type),
+        settings: { ...source.settings },
+        transform: source.transform ? { ...source.transform } : null,
+        crop: source.crop ? { ...source.crop } : null,
+      })),
+    });
+  }
+  if (!added.length) {
+    return { library, added: 0, dropped: incoming.length };
+  }
+  const next = sanitizeLibrary({
+    version: LIBRARY_VERSION,
+    activeId: added[0]!.id,
+    scenes: [...library.scenes, ...added],
+  });
+  return { library: next, added: added.length, dropped: incoming.length - added.length };
+}
+
+function uniqueImportName(used: Set<string>, name: string, suffix: string): string {
+  if (!used.has(name.toLowerCase())) return name;
+  const tagged = (tag: string) => {
+    const room = Math.max(1, MAX_SCENE_NAME - tag.length - 3);
+    return sanitizeSceneName(`${name.slice(0, room).trim()} (${tag})`);
+  };
+  for (let index = 1; index < MAX_SCENE_LIBRARY + 8; index += 1) {
+    const next = tagged(index === 1 ? suffix : `${suffix} ${index}`);
+    if (!used.has(next.toLowerCase())) return next;
+  }
+  return tagged(`${suffix} ${Date.now().toString(36)}`);
 }
 
 export function renameScene(library: RecordingSceneLibrary, id: string, name: string): RecordingSceneLibrary {

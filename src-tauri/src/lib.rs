@@ -35,6 +35,7 @@ mod game_window;
 mod games;
 mod hotkeys;
 mod library;
+mod obs_import;
 mod overlay;
 mod overlay_notification;
 mod paths;
@@ -271,6 +272,10 @@ pub fn run() {
             commands::get_capture_preview_frame,
             commands::wait_capture_preview_frame,
             commands::list_displays,
+            commands::allow_preview_images,
+            obs_import::get_obs_import_context,
+            obs_import::read_obs_scene_collection,
+            obs_import::probe_obs_image_sizes,
             commands::start_webcam_test_record,
             commands::stop_webcam_test_record,
             commands::list_local_clips,

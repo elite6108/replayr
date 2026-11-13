@@ -23,7 +23,9 @@ import {
 } from "./scene";
 import {
   activeSceneOf,
+  appendScenes,
   createScene,
+  MAX_SCENE_LIBRARY,
   deleteScene,
   duplicateScene,
   moveScene,
@@ -307,6 +309,21 @@ export function useSceneStudio(adapter: SceneStudioAdapter) {
     [showToast, writeLibrary],
   );
 
+  /** Append already-built scenes (for example from OBS) and switch to the first one added. */
+  const importScenes = useCallback(
+    (incoming: RecordingScene[]): { added: number; dropped: number } => {
+      const result = appendScenes(libraryRef.current, incoming);
+      if (!result.added) {
+        showToast(`You can keep up to ${MAX_SCENE_LIBRARY} scenes. Delete some to import more.`);
+        return { added: 0, dropped: result.dropped };
+      }
+      writeLibrary(result.library, sceneRef.current);
+      setSelectedId(primaryOrFirst(activeSceneOf(result.library)));
+      return { added: result.added, dropped: result.dropped };
+    },
+    [showToast, writeLibrary],
+  );
+
   const renameActiveOrId = useCallback(
     (id: string, name: string) => {
       writeLibrary(renameScene(libraryRef.current, id, name), sceneRef.current);
@@ -369,6 +386,7 @@ export function useSceneStudio(adapter: SceneStudioAdapter) {
     writeSettings,
     selectScene,
     addScene,
+    importScenes,
     renameScene: renameActiveOrId,
     removeScene,
     moveScene: shiftScene,

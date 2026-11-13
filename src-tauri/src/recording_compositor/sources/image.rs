@@ -71,32 +71,41 @@ fn validate_local_image_path(raw: &str, name: &str) -> Result<PathBuf, String> {
         return Err(fail());
     }
     let canon = path.canonicalize().map_err(|_| fail())?;
-    if !is_safe_local_file(&canon) {
+    if !crate::paths::is_safe_local_file(&canon) {
         return Err(fail());
     }
     Ok(canon)
 }
 
-fn is_safe_local_file(path: &Path) -> bool {
-    let raw = path.to_string_lossy();
-    let stripped = raw
-        .strip_prefix(r"\\?\")
-        .unwrap_or(raw.as_ref());
-    if stripped.starts_with(r"UNC\") || stripped.starts_with(r"\\") {
-        return false;
+/// Pixel size of a local PNG or JPEG, read from its header without decoding pixels.
+/// Applies the same path, size and dimension limits as `load_image`.
+pub fn image_dimensions(raw: &str) -> Option<(u32, u32)> {
+    validated_image(raw).map(|(_, width, height)| (width, height))
+}
+
+/// Canonical path and pixel size of a local PNG or JPEG that `load_image` would accept.
+pub fn validated_image(raw: &str) -> Option<(PathBuf, u32, u32)> {
+    let path = validate_local_image_path(raw, "image").ok()?;
+    let meta = fs::metadata(&path).ok()?;
+    if !meta.is_file() || meta.len() == 0 || meta.len() > MAX_FILE_BYTES {
+        return None;
     }
-    if stripped.starts_with(r"\\.\") || stripped.contains(r"\\.\") {
-        return false;
-    }
-    let stem = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("")
-        .to_ascii_uppercase();
-    !matches!(
-        stem.as_str(),
-        "CON" | "PRN" | "AUX" | "NUL" | "COM1" | "COM2" | "COM3" | "COM4" | "LPT1" | "LPT2"
-    )
+    let bytes = fs::read(&path).ok()?;
+    let (width, height) = match image_kind(&path, &bytes)? {
+        ImageKind::Png => {
+            let decoder = png::Decoder::new(Cursor::new(&bytes));
+            let reader = catch_unwind(AssertUnwindSafe(|| decoder.read_info())).ok()?.ok()?;
+            (reader.info().width, reader.info().height)
+        }
+        ImageKind::Jpeg => {
+            let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(&bytes));
+            catch_unwind(AssertUnwindSafe(|| decoder.read_info())).ok()?.ok()?;
+            let info = decoder.info()?;
+            (u32::from(info.width), u32::from(info.height))
+        }
+    };
+    check_dims(width, height, "image").ok()?;
+    Some((path, width, height))
 }
 
 fn decode_png(bytes: &[u8], name: &str) -> Result<(Vec<u8>, u32, u32), String> {

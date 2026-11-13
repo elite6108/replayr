@@ -35,6 +35,7 @@ export function SourceList({
   onDuplicateScene,
   onDeleteScene,
   onMoveScene,
+  onImportScenes,
   onProperties,
   onInspect,
   onVideoSettings,
@@ -62,6 +63,7 @@ export function SourceList({
   onDuplicateScene: (id: string) => void;
   onDeleteScene: (id: string) => void;
   onMoveScene?: (id: string, direction: "up" | "down") => void;
+  onImportScenes?: () => void;
   onProperties: (id: string) => void;
   onInspect?: (id: string) => void;
   /** Opens picture, smoothness and camera settings for game, display and webcam sources. */
@@ -124,6 +126,7 @@ export function SourceList({
           onDuplicate={onDuplicateScene}
           onDelete={onDeleteScene}
           onMove={onMoveScene}
+          onImport={onImportScenes}
         />
       </div>
       )}

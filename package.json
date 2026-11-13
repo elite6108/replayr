@@ -1,13 +1,14 @@
 {
   "name": "project-replay",
   "private": true,
-  "version": "0.1.92",
+  "version": "0.1.93",
   "description": "Project Replay desktop application",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "test:unit": "node --import ./scripts/test/resolve-ts.mjs --test \"src/**/*.test.ts\"",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev --no-watch",

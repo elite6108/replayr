@@ -45,6 +45,7 @@ commands.allow = [
   "get_capture_preview_frame",
   "wait_capture_preview_frame",
   "list_displays",
+  "allow_preview_images",
   "save_clip",
   "save_screenshot",
   "screenshot_start",

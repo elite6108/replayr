@@ -353,6 +353,114 @@ pub async fn wait_layer_preview_frame(
     Ok(preview_body(&header, bytes.as_deref())?)
 }
 
+#[tauri::command]
+pub fn start_browser_preview(
+    state: State<AppState>,
+    source_id: String,
+    url: String,
+    #[cfg(windows)] hub: State<crate::preview::browser::BrowserPreviewHub>,
+) -> AppResult<u64> {
+    let enabled = {
+        let conn = state.db.lock().map_err(|err| AppError::Message(err.to_string()))?;
+        settings::load(&conn)?.browser_sources_enabled
+    };
+    if !enabled {
+        return Err(AppError::Message("Turn on browser sources first.".into()));
+    }
+    #[cfg(windows)]
+    {
+        return hub.start(&source_id, &url).map_err(AppError::Message);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (source_id, url);
+        Err(AppError::Message("Browser sources need Windows.".into()))
+    }
+}
+
+#[tauri::command]
+pub fn place_browser_preview(
+    app: AppHandle,
+    source_id: String,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    interactive: bool,
+    #[cfg(windows)] hub: State<crate::preview::browser::BrowserPreviewHub>,
+) -> AppResult<()> {
+    #[cfg(windows)]
+    {
+        let window = app.get_webview_window("main").ok_or_else(|| AppError::Message("No window for the page.".into()))?;
+        let parent = window.hwnd().map_err(|err| AppError::Message(err.to_string()))?;
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let to_px = |css: i32| (f64::from(css) * scale).round() as i32;
+        let x = to_px(x).clamp(0, 16_000);
+        let y = to_px(y).clamp(0, 16_000);
+        let width = to_px(width).clamp(0, 7_680);
+        let height = to_px(height).clamp(0, 4_320);
+        hub.place(&source_id, parent.0 as isize, x, y, width, height, interactive);
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, source_id, x, y, width, height, interactive);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn set_browser_preview_interactive(
+    source_id: String,
+    interactive: bool,
+    #[cfg(windows)] hub: State<crate::preview::browser::BrowserPreviewHub>,
+) -> AppResult<()> {
+    #[cfg(windows)]
+    hub.set_interactive(&source_id, interactive);
+    #[cfg(not(windows))]
+    let _ = (source_id, interactive);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn stop_browser_preview(
+    source_id: String,
+    generation: u64,
+    #[cfg(windows)] hub: State<crate::preview::browser::BrowserPreviewHub>,
+) -> AppResult<()> {
+    #[cfg(windows)]
+    hub.stop_preview(&source_id, generation);
+    #[cfg(not(windows))]
+    let _ = (source_id, generation);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn wait_browser_preview_frame(
+    source_id: String,
+    after: u64,
+    timeout_ms: Option<u32>,
+    #[cfg(windows)] hub: State<'_, crate::preview::browser::BrowserPreviewHub>,
+) -> AppResult<tauri::ipc::Response> {
+    let timeout = std::time::Duration::from_millis(u64::from(timeout_ms.unwrap_or(250).clamp(1, 250)));
+    #[cfg(windows)]
+    let hub = hub.inner().clone();
+    let (header, bytes) = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(windows)]
+        {
+            hub.wait_frame(&source_id, after, timeout)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (source_id, after, timeout);
+            (crate::preview::LayerPreviewHeader::empty(0), None)
+        }
+    })
+    .await
+    .map_err(|err| AppError::Message(err.to_string()))?;
+    Ok(preview_body(&header, bytes.as_deref())?)
+}
+
 /// Long-poll for the next camera preview frame. Same body layout as
 /// `wait_capture_preview_frame`.
 #[tauri::command]

@@ -300,6 +300,7 @@ fn start_windows(
 
     let thread_settings = settings.clone();
     let thread_preview = rec.shared.preview.clone();
+    let thread_browsers = (*app.state::<crate::preview::browser::BrowserPreviewHub>()).clone();
     let handle = std::thread::Builder::new()
         .name("composed-record".into())
         .spawn(move || {
@@ -313,6 +314,7 @@ fn start_windows(
                 audio,
                 thread_settings,
                 thread_preview,
+                thread_browsers,
                 thread_stop.clone(),
                 ready_tx,
             );
@@ -579,6 +581,7 @@ fn run_composed_session(
     audio: crate::audio::AudioRuntime,
     settings: crate::settings::AppSettings,
     preview: crate::preview::PreviewHub,
+    browser_hub: crate::preview::browser::BrowserPreviewHub,
     stop: Arc<AtomicBool>,
     ready: std::sync::mpsc::Sender<Result<(u32, u32, bool), String>>,
 ) -> Result<FinishedComposed, String> {
@@ -640,7 +643,13 @@ fn run_composed_session(
         sources.audio_files.push(started);
     }
     for page in &spec.browsers {
-        let started = sources::browser::BrowserView::open(&page.url, &page.id).ok();
+        let started = if let Some(shared) = browser_hub.retain(&page.id) {
+            Some(sources::browser::BrowserFeed::Shared(shared))
+        } else {
+            sources::browser::BrowserView::open(&page.url, &page.id)
+                .ok()
+                .map(sources::browser::BrowserFeed::Owned)
+        };
         if started.is_none() {
             tracing::warn!(id = %page.id, "browser source did not start");
         }
@@ -1173,7 +1182,7 @@ struct ComposedSourceGuard {
     extra_webcams: Vec<Option<sources::webcam::ComposedWebcam>>,
     videos: Vec<Option<sources::media::MediaPlayer>>,
     audio_files: Vec<Option<sources::media::MediaPlayer>>,
-    browsers: Vec<Option<sources::browser::BrowserView>>,
+    browsers: Vec<Option<sources::browser::BrowserFeed>>,
 }
 
 #[cfg(windows)]

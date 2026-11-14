@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { BrowserLivePreview, BrowserPreviewHost } from "./BrowserPreviewHost";
 import type { CameraStatus } from "../../types/camera";
 import type { RecordingVisualSettings, WebcamSettings } from "../../types/settings";
 import {
@@ -106,6 +107,7 @@ export function RecordingPreview({
     onFrameSize?.(status.width ?? 0, status.height ?? 0);
   }, [onFrameSize]);
   const stageRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [stageBox, setStageBox] = useState({ w: 0, h: 0 });
   useEffect(() => {
     if (!fitOutputCanvas) return;
@@ -218,6 +220,7 @@ export function RecordingPreview({
         onGestureStart={fitOutputCanvas ? () => onGestureStart?.(source.id) : undefined}
         onGestureEnd={fitOutputCanvas ? onGestureEnd : undefined}
         onGestureCancel={fitOutputCanvas ? onGestureCancel : undefined}
+        className={source.type === "browser" && selectedId === source.id ? "is-browser-live" : undefined}
       >
         {composedTap ? null : (
           <LayerBody
@@ -254,6 +257,7 @@ export function RecordingPreview({
 
   const canvas = (
     <PreviewCanvas
+      ref={canvasRef}
       background="dark"
       safeZone={false}
       quiet={quiet}
@@ -359,6 +363,15 @@ export function RecordingPreview({
             </span>
           </>
         ) : null}
+        {studio === "recording" ? (
+          <BrowserPreviewHost
+            sources={scene.sources}
+            selectedId={selectedId}
+            enabled={settings.browserSourcesEnabled === true}
+            canvasRef={canvasRef}
+            inset={!composedTap}
+          />
+        ) : null}
         {fitOutputCanvas ? (
           <div className="preview-output-fit" style={{ width: logical.width * scale, height: logical.height * scale }}>
             <div
@@ -443,9 +456,16 @@ function LayerBody({
       />
     );
   }
-  if (source.type === "videoFile" || source.type === "browser") {
-    const label = source.type === "browser" ? source.settings.url : source.settings.path;
-    return <div className="preview-image-placeholder">{typeof label === "string" && label ? label : source.name}</div>;
+  if (source.type === "browser") {
+    if (!liveCapture) {
+      const label = typeof source.settings.url === "string" && source.settings.url ? source.settings.url : source.name;
+      return <div className="preview-image-placeholder">{label}</div>;
+    }
+    return <BrowserLivePreview sourceId={source.id} active />;
+  }
+  if (source.type === "videoFile") {
+    const label = typeof source.settings.path === "string" && source.settings.path ? source.settings.path : source.name;
+    return <div className="preview-image-placeholder">{label}</div>;
   }
   return <PreviewTextLayer source={source} recorded={recorded} />;
 }

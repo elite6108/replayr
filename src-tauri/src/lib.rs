@@ -126,6 +126,7 @@ pub fn run() {
             #[cfg(windows)]
             {
                 app.manage(crate::preview::layers::LayerPreviewHub::new());
+                app.manage(crate::preview::browser::BrowserPreviewHub::new());
                 app.manage(crate::audio::AudioRuntime::new());
                 let runtime = app.state::<crate::audio::AudioRuntime>();
                 runtime.bind(app.handle().clone());
@@ -274,6 +275,11 @@ pub fn run() {
             commands::start_layer_preview,
             commands::stop_layer_preview,
             commands::wait_layer_preview_frame,
+            commands::start_browser_preview,
+            commands::place_browser_preview,
+            commands::set_browser_preview_interactive,
+            commands::stop_browser_preview,
+            commands::wait_browser_preview_frame,
             commands::wait_camera_preview_frame,
             commands::get_camera_controls,
             commands::set_camera_control,

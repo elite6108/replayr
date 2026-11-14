@@ -21,6 +21,7 @@ export function PreviewTransformBox({
   onGestureStart,
   onGestureEnd,
   onGestureCancel,
+  className,
   children,
 }: {
   transform: SourceTransform;
@@ -38,6 +39,7 @@ export function PreviewTransformBox({
   onGestureStart?: () => void;
   onGestureEnd?: () => void;
   onGestureCancel?: () => void;
+  className?: string;
   children: ReactNode;
 }) {
   const dragRef = useRef<{
@@ -192,7 +194,7 @@ export function PreviewTransformBox({
 
   return (
     <div
-      className={`preview-layer${selected ? " is-selected" : ""}${passThrough ? " is-locked" : ""}${locked ? " is-immobile" : ""}${cropMode || shiftCropActive ? " is-cropping" : ""}`}
+      className={`preview-layer${selected ? " is-selected" : ""}${passThrough ? " is-locked" : ""}${locked ? " is-immobile" : ""}${cropMode || shiftCropActive ? " is-cropping" : ""}${className ? ` ${className}` : ""}`}
       style={{
         left: `${transform.x * 100}%`,
         top: `${transform.y * 100}%`,

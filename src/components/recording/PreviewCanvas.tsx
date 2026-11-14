@@ -1,14 +1,7 @@
-import type { ReactNode } from "react";
+import { forwardRef, type ReactNode } from "react";
 import type { GameplayVisualFilter, PreviewBackgroundMode } from "../../types/settings";
 
-export function PreviewCanvas({
-  background,
-  safeZone,
-  quiet,
-  plate,
-  tune,
-  children,
-}: {
+export const PreviewCanvas = forwardRef<HTMLDivElement, {
   background: PreviewBackgroundMode;
   safeZone: boolean;
   quiet: boolean;
@@ -20,16 +13,16 @@ export function PreviewCanvas({
    */
   tune?: GameplayVisualFilter;
   children: ReactNode;
-}) {
+}>(function PreviewCanvas({ background, safeZone, quiet, plate, tune, children }, ref) {
   const tuneClass = tune && tune !== "none" ? ` tune-${tune}` : "";
   return (
-    <div className={`preview-canvas bg-${background}${quiet ? " is-quiet" : ""}${tuneClass}`}>
+    <div ref={ref} className={`preview-canvas bg-${background}${quiet ? " is-quiet" : ""}${tuneClass}`}>
       {plate ?? (background === "mock" ? <MockGameplay /> : <div className="preview-dark" />)}
       {children}
       {safeZone ? <div className="preview-safe-zone" aria-hidden="true" /> : null}
     </div>
   );
-}
+});
 
 function MockGameplay() {
   return (

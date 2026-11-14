@@ -661,6 +661,38 @@ export async function stopLayerPreview(sourceId: string): Promise<void> {
   await invoke("stop_layer_preview", { sourceId });
 }
 
+export async function startBrowserPreview(sourceId: string, url: string): Promise<number> {
+  return invoke<number>("start_browser_preview", { sourceId, url });
+}
+
+export async function placeBrowserPreview(bounds: {
+  sourceId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  interactive: boolean;
+}): Promise<void> {
+  await invoke("place_browser_preview", bounds);
+}
+
+export async function setBrowserPreviewInteractive(sourceId: string, interactive: boolean): Promise<void> {
+  await invoke("set_browser_preview_interactive", { sourceId, interactive });
+}
+
+export async function stopBrowserPreview(sourceId: string, generation: number): Promise<void> {
+  await invoke("stop_browser_preview", { sourceId, generation });
+}
+
+export async function waitBrowserPreviewFrame(
+  sourceId: string,
+  after: number,
+  timeoutMs = 250,
+): Promise<{ header: { width: number; height: number; frameId: number; mimeType: string }; bytes: Uint8Array<ArrayBuffer> | null }> {
+  const body = await invoke<ArrayBuffer | number[]>("wait_browser_preview_frame", { sourceId, after, timeoutMs });
+  return parsePreviewBody(body);
+}
+
 export async function waitLayerPreviewFrame(
   sourceId: string,
   after: number,

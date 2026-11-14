@@ -13,6 +13,8 @@ use crate::still::{scale_bgra_area, StillFrame};
 #[cfg(windows)]
 mod standalone;
 #[cfg(windows)]
+pub(crate) mod browser;
+#[cfg(windows)]
 pub(crate) mod layers;
 
 #[derive(Debug, Clone, Serialize)]
